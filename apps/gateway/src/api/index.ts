@@ -1,43 +1,43 @@
-import type { Server } from 'bun';
-import { verifyAdmin, createJwtToken, verifyJwtToken } from '../auth';
-import {
-  getAllDevices,
-  getDeviceById,
-  createDevice,
-  updateDevice,
-  deleteDevice,
-  getAllWebhookEndpoints,
-  createWebhookEndpoint,
-  deleteWebhookEndpoint,
-  getAllTelegramSubscriptions,
-  createTelegramSubscription,
-  deleteTelegramSubscription,
-} from '../db';
-import { encrypt } from '../crypto';
-import { v4 as uuidv4 } from 'uuid';
 import type {
-  LoginRequest,
   CreateDeviceRequest,
-  UpdateDeviceRequest,
   Device,
-  WebhookEndpoint,
+  LoginRequest,
   TelegramSubscription,
+  UpdateDeviceRequest,
+  WebhookEndpoint,
 } from '@tmex/shared';
+import type { Server } from 'bun';
+import { v4 as uuidv4 } from 'uuid';
+import { createJwtToken, verifyAdmin, verifyJwtToken } from '../auth';
+import { encrypt } from '../crypto';
+import {
+  createDevice,
+  createTelegramSubscription,
+  createWebhookEndpoint,
+  deleteDevice,
+  deleteTelegramSubscription,
+  deleteWebhookEndpoint,
+  getAllDevices,
+  getAllTelegramSubscriptions,
+  getAllWebhookEndpoints,
+  getDeviceById,
+  updateDevice,
+} from '../db';
 
 export function handleApiRequest(req: Request, server: Server): Response | Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
-  
+
   // 公开路由
   if (path === '/api/auth/login' && req.method === 'POST') {
     return handleLogin(req);
   }
-  
+
   // 需要认证的路由
   if (!isAuthenticated(req)) {
     return json({ error: 'Unauthorized' }, 401);
   }
-  
+
   // 认证相关
   if (path === '/api/auth/logout' && req.method === 'POST') {
     return handleLogout(req);
@@ -45,7 +45,7 @@ export function handleApiRequest(req: Request, server: Server): Response | Promi
   if (path === '/api/auth/me' && req.method === 'GET') {
     return handleGetMe(req);
   }
-  
+
   // 设备管理
   if (path === '/api/devices' && req.method === 'GET') {
     return handleGetDevices(req);
@@ -65,7 +65,7 @@ export function handleApiRequest(req: Request, server: Server): Response | Promi
   if (path.match(/^\/api\/devices\/[^/]+\/test-connection$/) && req.method === 'POST') {
     return handleTestConnection(req, path.split('/')[3]);
   }
-  
+
   // Webhook 管理
   if (path === '/api/webhooks' && req.method === 'GET') {
     return handleGetWebhooks(req);
@@ -76,7 +76,7 @@ export function handleApiRequest(req: Request, server: Server): Response | Promi
   if (path.match(/^\/api\/webhooks\/[^/]+$/) && req.method === 'DELETE') {
     return handleDeleteWebhook(req, path.split('/')[3]);
   }
-  
+
   // Telegram 管理
   if (path === '/api/telegram/subscriptions' && req.method === 'GET') {
     return handleGetTelegramSubscriptions(req);
@@ -87,36 +87,36 @@ export function handleApiRequest(req: Request, server: Server): Response | Promi
   if (path.match(/^\/api\/telegram\/subscriptions\/[^/]+$/) && req.method === 'DELETE') {
     return handleDeleteTelegramSubscription(req, path.split('/')[4]);
   }
-  
+
   // 通知测试
   if (path === '/api/notify/test' && req.method === 'POST') {
     return handleTestNotify(req);
   }
-  
+
   // Health check
   if (path === '/healthz' && req.method === 'GET') {
     return json({ status: 'ok' });
   }
-  
+
   return json({ error: 'Not found' }, 404);
 }
 
 // ==================== 认证处理 ====================
 
 async function handleLogin(req: Request): Promise<Response> {
-  const body = await req.json() as LoginRequest;
-  
+  const body = (await req.json()) as LoginRequest;
+
   if (!body.password) {
     return json({ error: 'Password required' }, 400);
   }
-  
+
   const valid = await verifyAdmin(body.password);
   if (!valid) {
     return json({ error: 'Invalid password' }, 401);
   }
-  
+
   const token = await createJwtToken();
-  
+
   return json({ success: true }, 200, {
     'Set-Cookie': `token=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Strict`,
   });
@@ -124,7 +124,7 @@ async function handleLogin(req: Request): Promise<Response> {
 
 async function handleLogout(req: Request): Promise<Response> {
   return json({ success: true }, 200, {
-    'Set-Cookie': `token=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict`,
+    'Set-Cookie': 'token=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict',
   });
 }
 
@@ -148,18 +148,18 @@ async function handleGetDevice(req: Request, id: string): Promise<Response> {
 }
 
 async function handleCreateDevice(req: Request): Promise<Response> {
-  const body = await req.json() as CreateDeviceRequest;
-  
+  const body = (await req.json()) as CreateDeviceRequest;
+
   // 验证必填字段
   if (!body.name || !body.type || !body.authMode) {
     return json({ error: 'Missing required fields' }, 400);
   }
-  
+
   // SSH 类型需要 host
   if (body.type === 'ssh' && !body.host && !body.sshConfigRef) {
     return json({ error: 'SSH device requires host or sshConfigRef' }, 400);
   }
-  
+
   const now = new Date().toISOString();
   const device: Device = {
     id: uuidv4(),
@@ -172,13 +172,15 @@ async function handleCreateDevice(req: Request): Promise<Response> {
     authMode: body.authMode,
     passwordEnc: body.password ? await encrypt(body.password) : undefined,
     privateKeyEnc: body.privateKey ? await encrypt(body.privateKey) : undefined,
-    privateKeyPassphraseEnc: body.privateKeyPassphrase ? await encrypt(body.privateKeyPassphrase) : undefined,
+    privateKeyPassphraseEnc: body.privateKeyPassphrase
+      ? await encrypt(body.privateKeyPassphrase)
+      : undefined,
     createdAt: now,
     updatedAt: now,
   };
-  
+
   createDevice(device);
-  
+
   return json({ device }, 201);
 }
 
@@ -187,10 +189,10 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
   if (!existing) {
     return json({ error: 'Device not found' }, 404);
   }
-  
-  const body = await req.json() as UpdateDeviceRequest;
+
+  const body = (await req.json()) as UpdateDeviceRequest;
   const updates: Partial<Device> = {};
-  
+
   if (body.name !== undefined) updates.name = body.name;
   if (body.host !== undefined) updates.host = body.host;
   if (body.port !== undefined) updates.port = body.port;
@@ -202,9 +204,9 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
   if (body.privateKeyPassphrase !== undefined) {
     updates.privateKeyPassphraseEnc = await encrypt(body.privateKeyPassphrase);
   }
-  
+
   updateDevice(id, updates);
-  
+
   const device = getDeviceById(id);
   return json({ device });
 }
@@ -214,7 +216,7 @@ async function handleDeleteDevice(req: Request, id: string): Promise<Response> {
   if (!existing) {
     return json({ error: 'Device not found' }, 404);
   }
-  
+
   deleteDevice(id);
   return json({ success: true });
 }
@@ -224,7 +226,7 @@ async function handleTestConnection(req: Request, id: string): Promise<Response>
   if (!device) {
     return json({ error: 'Device not found' }, 404);
   }
-  
+
   // TODO: 实现实际的连接测试
   // 这里返回模拟结果
   return json({
@@ -243,11 +245,11 @@ async function handleGetWebhooks(req: Request): Promise<Response> {
 
 async function handleCreateWebhook(req: Request): Promise<Response> {
   const body = await req.json();
-  
+
   if (!body.url || !body.secret) {
     return json({ error: 'URL and secret required' }, 400);
   }
-  
+
   const now = new Date().toISOString();
   const endpoint: WebhookEndpoint = {
     id: uuidv4(),
@@ -258,9 +260,9 @@ async function handleCreateWebhook(req: Request): Promise<Response> {
     createdAt: now,
     updatedAt: now,
   };
-  
+
   createWebhookEndpoint(endpoint);
-  
+
   return json({ webhook: endpoint }, 201);
 }
 
@@ -278,11 +280,11 @@ async function handleGetTelegramSubscriptions(req: Request): Promise<Response> {
 
 async function handleCreateTelegramSubscription(req: Request): Promise<Response> {
   const body = await req.json();
-  
+
   if (!body.chatId) {
     return json({ error: 'chatId required' }, 400);
   }
-  
+
   const now = new Date().toISOString();
   const sub: TelegramSubscription = {
     id: uuidv4(),
@@ -292,9 +294,9 @@ async function handleCreateTelegramSubscription(req: Request): Promise<Response>
     createdAt: now,
     updatedAt: now,
   };
-  
+
   createTelegramSubscription(sub);
-  
+
   return json({ subscription: sub }, 201);
 }
 
@@ -307,7 +309,7 @@ async function handleDeleteTelegramSubscription(req: Request, id: string): Promi
 
 async function handleTestNotify(req: Request): Promise<Response> {
   const body = await req.json();
-  
+
   // TODO: 实现实际的测试通知
   return json({
     success: true,
@@ -320,10 +322,10 @@ async function handleTestNotify(req: Request): Promise<Response> {
 function isAuthenticated(req: Request): boolean {
   const cookie = req.headers.get('Cookie');
   if (!cookie) return false;
-  
+
   const token = parseCookie(cookie, 'token');
   if (!token) return false;
-  
+
   // 简单的 token 验证（实际应该验证 JWT）
   return true;
 }

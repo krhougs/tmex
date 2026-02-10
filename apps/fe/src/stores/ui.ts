@@ -16,10 +16,10 @@ export const useUIStore = create<UIState>()(
       sidebarCollapsed: false,
       inputMode: 'direct',
       editorHistory: [],
-      
+
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       setInputMode: (mode) => set({ inputMode: mode }),
-      
+
       addEditorHistory: (text) =>
         set((state) => ({
           editorHistory: [text, ...state.editorHistory.slice(0, 49)],

@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react-swc';
+import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
-import path from 'path';
+import react from '@vitejs/plugin-react-swc';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [tailwindcss(), react()],
@@ -12,7 +12,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: '0.0.0.0',  // 允许外部访问
+    host: '0.0.0.0', // 允许外部访问
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

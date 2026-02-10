@@ -1,8 +1,8 @@
-import { initSchema } from './db';
-import { initAdmin } from './auth';
 import { handleApiRequest } from './api';
-import { WebSocketServer } from './ws';
+import { initAdmin } from './auth';
 import { config } from './config';
+import { initSchema } from './db';
+import { WebSocketServer } from './ws';
 
 // 初始化数据库
 initSchema();
@@ -15,7 +15,7 @@ const server = Bun.serve({
   port: config.port,
   async fetch(req, server) {
     const url = new URL(req.url);
-    
+
     // WebSocket 升级
     if (url.pathname === '/ws') {
       const result = wsServer.handleUpgrade(req, server);
@@ -27,12 +27,12 @@ const server = Bun.serve({
       }
       return undefined as unknown as Response;
     }
-    
+
     // API 请求
     if (url.pathname.startsWith('/api/') || url.pathname === '/healthz') {
       return handleApiRequest(req, server);
     }
-    
+
     // 静态文件（生产环境应该由 nginx 处理）
     return new Response('Not Found', { status: 404 });
   },

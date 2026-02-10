@@ -1,6 +1,6 @@
-import { verifyPassword, hashPassword } from './crypto';
-import { getAdminPasswordHash, setAdminPasswordHash } from './db';
 import { config } from './config';
+import { hashPassword, verifyPassword } from './crypto';
+import { getAdminPasswordHash, setAdminPasswordHash } from './db';
 
 /**
  * 初始化管理员账户
@@ -53,27 +53,23 @@ export async function createJwtToken(): Promise<string> {
     false,
     ['sign']
   );
-  
+
   const now = Math.floor(Date.now() / 1000);
   const exp = now + parseDuration(config.jwtExpiresIn);
-  
+
   const header = { alg: JWT_ALGORITHM, typ: 'JWT' };
   const payload: JwtPayload = {
     sub: 'admin',
     iat: now,
     exp,
   };
-  
+
   const headerB64 = base64UrlEncode(JSON.stringify(header));
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const signingInput = `${headerB64}.${payloadB64}`;
-  
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    key,
-    encoder.encode(signingInput)
-  );
-  
+
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(signingInput));
+
   const signatureB64 = base64UrlEncodeBuffer(new Uint8Array(signature));
   return `${headerB64}.${payloadB64}.${signatureB64}`;
 }
@@ -85,7 +81,7 @@ export async function verifyJwtToken(token: string): Promise<JwtPayload | null> 
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    
+
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
       'raw',
@@ -94,25 +90,20 @@ export async function verifyJwtToken(token: string): Promise<JwtPayload | null> 
       false,
       ['verify']
     );
-    
+
     const signingInput = `${parts[0]}.${parts[1]}`;
     const signature = base64UrlDecode(parts[2]);
-    
-    const valid = await crypto.subtle.verify(
-      'HMAC',
-      key,
-      signature,
-      encoder.encode(signingInput)
-    );
-    
+
+    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(signingInput));
+
     if (!valid) return null;
-    
+
     const payload = JSON.parse(base64UrlDecodeString(parts[1])) as JwtPayload;
-    
+
     // 检查过期
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp < now) return null;
-    
+
     return payload;
   } catch {
     return null;
@@ -122,10 +113,7 @@ export async function verifyJwtToken(token: string): Promise<JwtPayload | null> 
 // ==================== Helpers ====================
 
 function base64UrlEncode(str: string): string {
-  return btoa(str)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function base64UrlEncodeBuffer(buffer: Uint8Array): string {
@@ -133,10 +121,7 @@ function base64UrlEncodeBuffer(buffer: Uint8Array): string {
   for (let i = 0; i < buffer.length; i++) {
     binary += String.fromCharCode(buffer[i]);
   }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function base64UrlDecodeString(str: string): string {
@@ -159,16 +144,16 @@ function base64UrlDecode(str: string): Uint8Array {
 function parseDuration(duration: string): number {
   const match = duration.match(/^(\d+)([smhd])$/);
   if (!match) return 86400; // 默认 24 小时
-  
-  const value = parseInt(match[1], 10);
+
+  const value = Number.parseInt(match[1], 10);
   const unit = match[2];
-  
+
   const multipliers: Record<string, number> = {
     s: 1,
     m: 60,
     h: 3600,
     d: 86400,
   };
-  
+
   return value * (multipliers[unit] ?? 3600);
 }

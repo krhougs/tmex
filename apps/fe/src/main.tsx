@@ -1,11 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createBrowserRouter } from 'react-router';
 import { RootLayout } from './layouts/RootLayout';
-import { LoginPage } from './pages/LoginPage';
-import { DevicesPage } from './pages/DevicesPage';
 import { DevicePage } from './pages/DevicePage';
+import { DevicesPage } from './pages/DevicesPage';
+import { LoginPage } from './pages/LoginPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -46,7 +46,13 @@ const router = createBrowserRouter([
   },
 ]);
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root');
+
+if (!rootElement) {
+  throw new Error('Root element not found');
+}
+
+createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />

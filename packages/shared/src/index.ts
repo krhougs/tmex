@@ -141,11 +141,7 @@ export interface EventTmuxPayload {
   data: unknown;
 }
 
-export type DeviceEventType =
-  | 'tmux-missing'
-  | 'disconnected'
-  | 'error'
-  | 'reconnected';
+export type DeviceEventType = 'tmux-missing' | 'disconnected' | 'error' | 'reconnected';
 
 export interface EventDevicePayload {
   deviceId: string;

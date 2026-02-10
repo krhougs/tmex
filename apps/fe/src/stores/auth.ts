@@ -9,7 +9,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: null,
-  
+
   checkAuth: async () => {
     try {
       const res = await fetch('/api/auth/me', {
@@ -20,7 +20,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ isAuthenticated: false });
     }
   },
-  
+
   login: async (password: string) => {
     try {
       const res = await fetch('/api/auth/login', {
@@ -29,7 +29,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         credentials: 'include',
         body: JSON.stringify({ password }),
       });
-      
+
       if (res.ok) {
         set({ isAuthenticated: true });
         return true;
@@ -39,7 +39,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       return false;
     }
   },
-  
+
   logout: async () => {
     try {
       await fetch('/api/auth/logout', {

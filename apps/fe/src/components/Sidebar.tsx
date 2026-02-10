@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams, useNavigate } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
+import { useCallback, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useUIStore } from '../stores/ui';
 
 interface SidebarProps {
@@ -10,12 +10,16 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const { deviceId: selectedDeviceId, windowId: selectedWindowId, paneId: selectedPaneId } = useParams();
+  const {
+    deviceId: selectedDeviceId,
+    windowId: selectedWindowId,
+    paneId: selectedPaneId,
+  } = useParams();
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
+
   // 获取设备列表
   const { data: devicesData } = useQuery({
     queryKey: ['devices'],
@@ -25,7 +29,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       return res.json() as Promise<{ devices: Device[] }>;
     },
   });
-  
+
   // 删除设备
   const deleteDevice = useMutation({
     mutationFn: async (id: string) => {
@@ -39,7 +43,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
     },
   });
-  
+
   const toggleDevice = useCallback((deviceId: string) => {
     setExpandedDevices((prev) => {
       const next = new Set(prev);
@@ -51,14 +55,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       return next;
     });
   }, []);
-  
+
   const handlePaneClick = (deviceId: string, windowId: string, paneId: string) => {
     navigate(`/devices/${deviceId}/windows/${windowId}/panes/${paneId}`);
     onClose();
   };
-  
+
   const devices = devicesData?.devices ?? [];
-  
+
   return (
     <aside
       className={`sidebar ${isOpen ? 'open' : ''} ${sidebarCollapsed ? 'w-12' : 'w-64'} 
@@ -70,22 +74,25 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <div className="flex items-center justify-between p-3 border-b border-border">
         {!sidebarCollapsed && <span className="font-semibold text-lg">tmex</span>}
         <button
+          type="button"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           className="p-1 rounded hover:bg-bg-tertiary"
           title={sidebarCollapsed ? '展开' : '收起'}
+          aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
         >
           <svg
             width="16"
             height="16"
             viewBox="0 0 16 16"
             fill="currentColor"
+            aria-hidden="true"
             style={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none' }}
           >
             <path d="M9 4L5 8l4 4V4z" />
           </svg>
         </button>
       </div>
-      
+
       {/* 设备列表 */}
       <div className="flex-1 overflow-y-auto py-2">
         {devices.map((device) => (
@@ -102,7 +109,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             collapsed={sidebarCollapsed}
           />
         ))}
-        
+
         {devices.length === 0 && !sidebarCollapsed && (
           <div className="px-4 py-8 text-center text-text-secondary text-sm">
             暂无设备
@@ -117,16 +124,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           </div>
         )}
       </div>
-      
+
       {/* 底部 */}
       {!sidebarCollapsed && (
         <div className="p-3 border-t border-border">
-          <Link
-            to="/devices"
-            className="btn w-full justify-center"
-            onClick={onClose}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <Link to="/devices" className="btn w-full justify-center" onClick={onClose}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 12H7v-1h2v1zm0-3H7V4h2v5z" />
             </svg>
             管理设备
@@ -160,24 +163,26 @@ function DeviceTreeItem({
   collapsed,
 }: DeviceTreeItemProps) {
   const [showMenu, setShowMenu] = useState(false);
-  
+
   const icon = device.type === 'local' ? '🖥️' : '🌐';
-  
+
   if (collapsed) {
     return (
-      <div
+      <button
+        type="button"
         className={`tree-item justify-center ${isSelected ? 'active' : ''}`}
         onClick={onSelect}
         title={device.name}
       >
         <span>{icon}</span>
-      </div>
+      </button>
     );
   }
-  
+
   return (
     <div>
-      <div
+      <button
+        type="button"
         className={`tree-item ${isSelected ? 'active' : ''}`}
         onClick={onToggle}
         onContextMenu={(e) => {
@@ -189,18 +194,21 @@ function DeviceTreeItem({
         <span className="icon">{icon}</span>
         <span className="label">{device.name}</span>
         <span className="icon">{isExpanded ? '▼' : '▶'}</span>
-      </div>
-      
+      </button>
+
       {isExpanded && (
         <div className="tree-children">
-          <div className="text-text-secondary text-sm px-4 py-2">
-            连接到设备以查看窗口列表
-          </div>
+          <div className="text-text-secondary text-sm px-4 py-2">连接到设备以查看窗口列表</div>
         </div>
       )}
 
       {showMenu && (
-        <div className="sr-only" aria-hidden="true" onClick={() => setShowMenu(false)} />
+        <button
+          type="button"
+          className="sr-only"
+          aria-label="关闭菜单"
+          onClick={() => setShowMenu(false)}
+        />
       )}
     </div>
   );

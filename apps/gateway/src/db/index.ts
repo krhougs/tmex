@@ -1,6 +1,11 @@
 import { Database } from 'bun:sqlite';
+import type {
+  Device,
+  DeviceRuntimeStatus,
+  TelegramSubscription,
+  WebhookEndpoint,
+} from '@tmex/shared';
 import { config } from '../config';
-import type { Device, DeviceRuntimeStatus, WebhookEndpoint, TelegramSubscription } from '@tmex/shared';
 
 let db: Database | null = null;
 
@@ -14,7 +19,7 @@ export function getDb(): Database {
 
 export function initSchema(): void {
   const database = getDb();
-  
+
   // 设备表
   database.run(`
     CREATE TABLE IF NOT EXISTS devices (
@@ -33,7 +38,7 @@ export function initSchema(): void {
       updated_at TEXT NOT NULL
     )
   `);
-  
+
   // 设备运行时状态表
   database.run(`
     CREATE TABLE IF NOT EXISTS device_runtime_status (
@@ -44,7 +49,7 @@ export function initSchema(): void {
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     )
   `);
-  
+
   // Webhook 端点表
   database.run(`
     CREATE TABLE IF NOT EXISTS webhook_endpoints (
@@ -57,7 +62,7 @@ export function initSchema(): void {
       updated_at TEXT NOT NULL
     )
   `);
-  
+
   // Telegram 订阅表
   database.run(`
     CREATE TABLE IF NOT EXISTS telegram_subscriptions (
@@ -69,7 +74,7 @@ export function initSchema(): void {
       updated_at TEXT NOT NULL
     )
   `);
-  
+
   // 管理员表（单用户）
   database.run(`
     CREATE TABLE IF NOT EXISTS admin (
@@ -78,7 +83,7 @@ export function initSchema(): void {
       updated_at TEXT NOT NULL
     )
   `);
-  
+
   console.log('Database schema initialized');
 }
 
@@ -106,7 +111,7 @@ export function createDevice(device: Device): void {
     device.createdAt,
     device.updatedAt
   );
-  
+
   // 初始化运行时状态
   const statusStmt = database.prepare(`
     INSERT INTO device_runtime_status (device_id, last_seen_at, tmux_available, last_error)
@@ -134,21 +139,48 @@ export function updateDevice(id: string, updates: Partial<Device>): void {
   const database = getDb();
   const fields: string[] = [];
   const values: unknown[] = [];
-  
-  if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name); }
-  if (updates.host !== undefined) { fields.push('host = ?'); values.push(updates.host); }
-  if (updates.port !== undefined) { fields.push('port = ?'); values.push(updates.port); }
-  if (updates.username !== undefined) { fields.push('username = ?'); values.push(updates.username); }
-  if (updates.sshConfigRef !== undefined) { fields.push('ssh_config_ref = ?'); values.push(updates.sshConfigRef); }
-  if (updates.authMode !== undefined) { fields.push('auth_mode = ?'); values.push(updates.authMode); }
-  if (updates.passwordEnc !== undefined) { fields.push('password_enc = ?'); values.push(updates.passwordEnc); }
-  if (updates.privateKeyEnc !== undefined) { fields.push('private_key_enc = ?'); values.push(updates.privateKeyEnc); }
-  if (updates.privateKeyPassphraseEnc !== undefined) { fields.push('private_key_passphrase_enc = ?'); values.push(updates.privateKeyPassphraseEnc); }
-  
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.host !== undefined) {
+    fields.push('host = ?');
+    values.push(updates.host);
+  }
+  if (updates.port !== undefined) {
+    fields.push('port = ?');
+    values.push(updates.port);
+  }
+  if (updates.username !== undefined) {
+    fields.push('username = ?');
+    values.push(updates.username);
+  }
+  if (updates.sshConfigRef !== undefined) {
+    fields.push('ssh_config_ref = ?');
+    values.push(updates.sshConfigRef);
+  }
+  if (updates.authMode !== undefined) {
+    fields.push('auth_mode = ?');
+    values.push(updates.authMode);
+  }
+  if (updates.passwordEnc !== undefined) {
+    fields.push('password_enc = ?');
+    values.push(updates.passwordEnc);
+  }
+  if (updates.privateKeyEnc !== undefined) {
+    fields.push('private_key_enc = ?');
+    values.push(updates.privateKeyEnc);
+  }
+  if (updates.privateKeyPassphraseEnc !== undefined) {
+    fields.push('private_key_passphrase_enc = ?');
+    values.push(updates.privateKeyPassphraseEnc);
+  }
+
   fields.push('updated_at = ?');
   values.push(new Date().toISOString());
   values.push(id);
-  
+
   const stmt = database.prepare(`UPDATE devices SET ${fields.join(', ')} WHERE id = ?`);
   stmt.run(...values);
 }
@@ -174,19 +206,33 @@ export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus | 
   };
 }
 
-export function updateDeviceRuntimeStatus(deviceId: string, status: Partial<DeviceRuntimeStatus>): void {
+export function updateDeviceRuntimeStatus(
+  deviceId: string,
+  status: Partial<DeviceRuntimeStatus>
+): void {
   const database = getDb();
   const fields: string[] = [];
   const values: unknown[] = [];
-  
-  if (status.lastSeenAt !== undefined) { fields.push('last_seen_at = ?'); values.push(status.lastSeenAt); }
-  if (status.tmuxAvailable !== undefined) { fields.push('tmux_available = ?'); values.push(status.tmuxAvailable ? 1 : 0); }
-  if (status.lastError !== undefined) { fields.push('last_error = ?'); values.push(status.lastError); }
-  
+
+  if (status.lastSeenAt !== undefined) {
+    fields.push('last_seen_at = ?');
+    values.push(status.lastSeenAt);
+  }
+  if (status.tmuxAvailable !== undefined) {
+    fields.push('tmux_available = ?');
+    values.push(status.tmuxAvailable ? 1 : 0);
+  }
+  if (status.lastError !== undefined) {
+    fields.push('last_error = ?');
+    values.push(status.lastError);
+  }
+
   if (fields.length === 0) return;
-  
+
   values.push(deviceId);
-  const stmt = database.prepare(`UPDATE device_runtime_status SET ${fields.join(', ')} WHERE device_id = ?`);
+  const stmt = database.prepare(
+    `UPDATE device_runtime_status SET ${fields.join(', ')} WHERE device_id = ?`
+  );
   stmt.run(...values);
 }
 
@@ -213,7 +259,7 @@ export function getAllWebhookEndpoints(): WebhookEndpoint[] {
   const database = getDb();
   const stmt = database.prepare('SELECT * FROM webhook_endpoints ORDER BY created_at DESC');
   const rows = stmt.all() as Record<string, unknown>[];
-  return rows.map(row => ({
+  return rows.map((row) => ({
     id: row.id as string,
     enabled: Boolean(row.enabled),
     url: row.url as string,
@@ -252,7 +298,7 @@ export function getAllTelegramSubscriptions(): TelegramSubscription[] {
   const database = getDb();
   const stmt = database.prepare('SELECT * FROM telegram_subscriptions ORDER BY created_at DESC');
   const rows = stmt.all() as Record<string, unknown>[];
-  return rows.map(row => ({
+  return rows.map((row) => ({
     id: row.id as string,
     enabled: Boolean(row.enabled),
     chatId: row.chat_id as string,

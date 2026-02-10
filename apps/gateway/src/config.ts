@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync } from 'node:fs';
 
 function requireEnv(key: string): string {
   const value = process.env[key];
@@ -16,22 +16,22 @@ export const config = {
   // 核心安全配置
   masterKey: process.env.TMEX_MASTER_KEY,
   adminPassword: requireEnv('TMEX_ADMIN_PASSWORD'),
-  
+
   // 服务配置
-  port: parseInt(getEnv('GATEWAY_PORT', '8080'), 10),
+  port: Number.parseInt(getEnv('GATEWAY_PORT', '8080'), 10),
   baseUrl: getEnv('TMEX_BASE_URL', 'http://localhost:8080'),
-  
+
   // 数据库
   databaseUrl: getEnv('DATABASE_URL', '/data/tmex.db'),
-  
+
   // JWT
   jwtSecret: requireEnv('JWT_SECRET'),
   jwtExpiresIn: getEnv('JWT_EXPIRES_IN', '24h'),
-  
+
   // Telegram
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
   telegramDefaultChatIds: process.env.TELEGRAM_DEFAULT_CHAT_IDS?.split(',').filter(Boolean) ?? [],
-  
+
   // 环境
   isDev: getEnv('NODE_ENV', 'development') === 'development',
   isProd: getEnv('NODE_ENV', 'development') === 'production',
