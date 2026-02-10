@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    container_name: tmex-gateway
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - TMEX_MASTER_KEY=${TMEX_MASTER_KEY}
+      - TMEX_ADMIN_PASSWORD=${TMEX_ADMIN_PASSWORD}
+      - TMEX_BASE_URL=${TMEX_BASE_URL:-http://localhost}
+      - GATEWAY_PORT=8080
+      - DATABASE_URL=/data/tmex.db
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - tmex-data:/data
+      # SSH 配置（可选）
+      - ${HOME}/.ssh:/home/bunuser/.ssh:ro
+      # SSH Agent（可选）
+      - ${SSH_AUTH_SOCK:-/dev/null}:/tmp/ssh-agent.sock
+    environment:
+      SSH_AUTH_SOCK: /tmp/ssh-agent.sock
+    networks:
+      - tmex-network
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:8080/healthz').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  fe:
+    build:
+      context: .
+      dockerfile: apps/fe/Dockerfile
+    container_name: tmex-fe
+    restart: unless-stopped
+    ports:
+      - "${TMEX_PORT:-3000}:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - tmex-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  tmex-data:
+    driver: local
+
+networks:
+  tmex-network:
+    driver: bridge

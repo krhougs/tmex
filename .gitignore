@@ -1,0 +1,42 @@
+# 环境变量（包含敏感信息）
+.env
+.env.*
+!.env.example
+
+# 依赖
+node_modules/
+**/node_modules/
+
+# 构建产物
+dist/
+**/dist/
+
+# Vite 缓存（可能出现在 node_modules 下）
+**/node_modules/.vite/
+**/node_modules/.vite-temp/
+
+# TypeScript
+*.tsbuildinfo
+
+# Playwright
+playwright-report/
+test-results/
+**/playwright-report/
+**/test-results/
+
+# SQLite / 数据文件
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# 日志
+*.log
+
+# 运行时数据目录（若后续出现）
+data/
+**/data/
+
+# 系统文件
+.DS_Store
+

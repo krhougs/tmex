@@ -1,0 +1,24 @@
+{
+  "name": "@tmex/gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir ./dist --target bun",
+    "start": "bun dist/index.js",
+    "test": "bun test",
+    "db:migrate": "bun src/db/migrate.ts",
+    "db:seed": "bun src/db/seed.ts"
+  },
+  "dependencies": {
+    "@tmex/shared": "workspace:*",
+    "ssh2": "^1.16.0",
+    "uuid": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/ssh2": "^1.15.4",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.3"
+  }
+}
