@@ -169,6 +169,7 @@ async function handleCreateDevice(req: Request): Promise<Response> {
     port: body.port ?? 22,
     username: body.username,
     sshConfigRef: body.sshConfigRef,
+    session: body.session ?? 'tmex',
     authMode: body.authMode,
     passwordEnc: body.password ? await encrypt(body.password) : undefined,
     privateKeyEnc: body.privateKey ? await encrypt(body.privateKey) : undefined,
@@ -198,6 +199,7 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
   if (body.port !== undefined) updates.port = body.port;
   if (body.username !== undefined) updates.username = body.username;
   if (body.sshConfigRef !== undefined) updates.sshConfigRef = body.sshConfigRef;
+  if (body.session !== undefined) updates.session = body.session;
   if (body.authMode !== undefined) updates.authMode = body.authMode;
   if (body.password !== undefined) updates.passwordEnc = await encrypt(body.password);
   if (body.privateKey !== undefined) updates.privateKeyEnc = await encrypt(body.privateKey);

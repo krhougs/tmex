@@ -14,6 +14,7 @@ export interface Device {
   port?: number;
   username?: string;
   sshConfigRef?: string;
+  session?: string; // tmux 会话名称，默认为 'tmex'
   // 认证
   authMode: AuthMode;
   // 加密字段（存储时加密）
@@ -42,6 +43,9 @@ export type WsMessageType =
   | 'device/connected'
   | 'device/disconnected'
   | 'tmux/select'
+  | 'tmux/create-window'
+  | 'tmux/close-window'
+  | 'tmux/close-pane'
   | 'term/input'
   | 'term/resize'
   | 'term/paste'
@@ -95,6 +99,21 @@ export interface TermPastePayload {
   data: string;
 }
 
+export interface CreateWindowPayload {
+  deviceId: string;
+  name?: string;
+}
+
+export interface CloseWindowPayload {
+  deviceId: string;
+  windowId: string;
+}
+
+export interface ClosePanePayload {
+  deviceId: string;
+  paneId: string;
+}
+
 // 服务端 -> 客户端
 export interface TmuxWindow {
   id: string;
@@ -146,7 +165,9 @@ export type DeviceEventType = 'tmux-missing' | 'disconnected' | 'error' | 'recon
 export interface EventDevicePayload {
   deviceId: string;
   type: DeviceEventType;
+  errorType?: string;
   message?: string;
+  rawMessage?: string;
 }
 
 // ==================== Webhook & Telegram ====================
@@ -214,6 +235,7 @@ export interface CreateDeviceRequest {
   port?: number;
   username?: string;
   sshConfigRef?: string;
+  session?: string;
   authMode: AuthMode;
   password?: string;
   privateKey?: string;
@@ -226,6 +248,7 @@ export interface UpdateDeviceRequest {
   port?: number;
   username?: string;
   sshConfigRef?: string;
+  session?: string;
   authMode?: AuthMode;
   password?: string;
   privateKey?: string;

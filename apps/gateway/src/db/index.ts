@@ -30,6 +30,7 @@ export function initSchema(): void {
       port INTEGER DEFAULT 22,
       username TEXT,
       ssh_config_ref TEXT,
+      session TEXT DEFAULT 'tmex',
       auth_mode TEXT NOT NULL CHECK(auth_mode IN ('password', 'key', 'agent', 'configRef', 'auto')),
       password_enc TEXT,
       private_key_enc TEXT,
@@ -38,6 +39,14 @@ export function initSchema(): void {
       updated_at TEXT NOT NULL
     )
   `);
+
+  const deviceTableInfo = database
+    .prepare('PRAGMA table_info(devices)')
+    .all() as Array<{ name: string }>; 
+  const deviceColumns = new Set(deviceTableInfo.map((col) => col.name));
+  if (!deviceColumns.has('session')) {
+    database.run("ALTER TABLE devices ADD COLUMN session TEXT DEFAULT 'tmex'");
+  }
 
   // 设备运行时状态表
   database.run(`
@@ -92,9 +101,9 @@ export function initSchema(): void {
 export function createDevice(device: Device): void {
   const database = getDb();
   const stmt = database.prepare(`
-    INSERT INTO devices (id, name, type, host, port, username, ssh_config_ref, auth_mode,
+    INSERT INTO devices (id, name, type, host, port, username, ssh_config_ref, session, auth_mode,
       password_enc, private_key_enc, private_key_passphrase_enc, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     device.id,
@@ -104,6 +113,7 @@ export function createDevice(device: Device): void {
     device.port ?? 22,
     device.username ?? null,
     device.sshConfigRef ?? null,
+    device.session ?? 'tmex',
     device.authMode,
     device.passwordEnc ?? null,
     device.privateKeyEnc ?? null,
@@ -159,6 +169,10 @@ export function updateDevice(id: string, updates: Partial<Device>): void {
   if (updates.sshConfigRef !== undefined) {
     fields.push('ssh_config_ref = ?');
     values.push(updates.sshConfigRef);
+  }
+  if (updates.session !== undefined) {
+    fields.push('session = ?');
+    values.push(updates.session);
   }
   if (updates.authMode !== undefined) {
     fields.push('auth_mode = ?');
@@ -346,9 +360,10 @@ function rowToDevice(row: Record<string, unknown>): Device {
     port: row.port as number | undefined,
     username: row.username as string | undefined,
     sshConfigRef: row.ssh_config_ref as string | undefined,
+    session: (row.session as string | undefined) ?? 'tmex',
     authMode: row.auth_mode as 'password' | 'key' | 'agent' | 'configRef' | 'auto',
     passwordEnc: row.password_enc as string | undefined,
-    privateKeyEnc: row.privateKeyEnc as string | undefined,
+    privateKeyEnc: row.private_key_enc as string | undefined,
     privateKeyPassphraseEnc: row.private_key_passphrase_enc as string | undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,

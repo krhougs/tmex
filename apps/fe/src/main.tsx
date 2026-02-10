@@ -31,11 +31,11 @@ const router = createBrowserRouter([
         element: <DevicesPage />,
       },
       {
-        path: 'devices/:deviceId',
+        path: 'devices/:deviceId/windows/:windowId/panes/:paneId',
         element: <DevicePage />,
       },
       {
-        path: 'devices/:deviceId/windows/:windowId/panes/:paneId',
+        path: 'devices/:deviceId',
         element: <DevicePage />,
       },
       {

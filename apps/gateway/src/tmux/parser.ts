@@ -17,24 +17,82 @@
  * 同时会输出普通终端数据（直接发送到 pane）
  */
 
-import type { TmuxEventType, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
+import type { TmuxEventType } from '@tmex/shared';
 
 export interface TmuxEvent {
   type: TmuxEventType;
   data: unknown;
 }
 
+export interface TmuxOutputBlock {
+  time: number;
+  commandNo: number;
+  flags: number;
+  lines: string[];
+  isError: boolean;
+}
+
+export interface TmuxControlParserOptions {
+  onEvent: (event: TmuxEvent) => void;
+  onTerminalOutput: (paneId: string, data: Uint8Array) => void;
+  onOutputBlock?: (block: TmuxOutputBlock) => void;
+  onNonControlOutput?: (line: string) => void;
+  onExit?: (reason: string | null) => void;
+  onReady?: () => void;
+}
+
+export function decodeTmuxEscapedValue(value: string): Uint8Array {
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+  let cursor = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] !== '\\') {
+      continue;
+    }
+
+    const octal = value.slice(i + 1, i + 4);
+    if (!/^[0-7]{3}$/.test(octal)) {
+      continue;
+    }
+
+    if (cursor < i) {
+      bytes.push(...encoder.encode(value.slice(cursor, i)));
+    }
+
+    bytes.push(Number.parseInt(octal, 8));
+    i += 3;
+    cursor = i + 1;
+  }
+
+  if (cursor < value.length) {
+    bytes.push(...encoder.encode(value.slice(cursor)));
+  }
+
+  return new Uint8Array(bytes);
+}
+
 export class TmuxControlParser {
   private buffer = '';
   private onEvent: (event: TmuxEvent) => void;
   private onTerminalOutput: (paneId: string, data: Uint8Array) => void;
+  private onOutputBlock?: (block: TmuxOutputBlock) => void;
+  private onNonControlOutput?: (line: string) => void;
+  private onExit?: (reason: string | null) => void;
+  private onReady?: () => void;
 
-  constructor(
-    onEvent: (event: TmuxEvent) => void,
-    onTerminalOutput: (paneId: string, data: Uint8Array) => void
-  ) {
-    this.onEvent = onEvent;
-    this.onTerminalOutput = onTerminalOutput;
+  private inOutputBlock = false;
+  private outputBlockMeta: { time: number; commandNo: number; flags: number } | null = null;
+  private outputBlockLines: string[] = [];
+  private readyNotified = false;
+
+  constructor(options: TmuxControlParserOptions) {
+    this.onEvent = options.onEvent;
+    this.onTerminalOutput = options.onTerminalOutput;
+    this.onOutputBlock = options.onOutputBlock;
+    this.onNonControlOutput = options.onNonControlOutput;
+    this.onExit = options.onExit;
+    this.onReady = options.onReady;
   }
 
   /**
@@ -48,30 +106,111 @@ export class TmuxControlParser {
 
   private parseBuffer(): void {
     // tmux -CC 输出以 \n 或 \r\n 结束
+    // 也处理单独的 \r（行内回车）
     while (true) {
       const nlIndex = this.buffer.indexOf('\n');
-      if (nlIndex === -1) break;
+      const crIndex = this.buffer.indexOf('\r');
+      
+      // 找到最早的分隔符
+      let endIndex = nlIndex;
+      if (crIndex !== -1 && (nlIndex === -1 || crIndex < nlIndex)) {
+        endIndex = crIndex;
+      }
+      
+      if (endIndex === -1) break;
 
-      const line = this.buffer.slice(0, nlIndex).replace(/\r$/, '');
-      this.buffer = this.buffer.slice(nlIndex + 1);
+      const line = this.buffer.slice(0, endIndex);
+      this.buffer = this.buffer.slice(endIndex + 1);
 
-      this.parseLine(line);
+      // 忽略空行
+      if (line) {
+        this.parseLine(line);
+      }
     }
   }
 
   private parseLine(line: string): void {
-    // 忽略空行
-    if (!line.trim()) return;
+    // 处理 DCS 序列包装的情况 (如 \033P1000p%begin...)
+    const cleanLine = line.replace(/^\033P\d+p/, '');
+
+    if (this.inOutputBlock) {
+      if (cleanLine.startsWith('%end') || cleanLine.startsWith('%error')) {
+        this.finishOutputBlock(cleanLine);
+        return;
+      }
+      this.outputBlockLines.push(cleanLine);
+      return;
+    }
+
+    // 非输出块时忽略空行
+    if (!cleanLine.trim()) return;
+
+    if (cleanLine.startsWith('%begin')) {
+      this.startOutputBlock(cleanLine);
+      return;
+    }
 
     // 检查是否以 % 开头（tmux 控制序列）
-    if (line.startsWith('%')) {
-      this.parseControlLine(line);
-    } else {
-      // 普通输出（可能是未解析的 pane 输出）
-      // 在 -CC 模式下，大部分输出应该通过 %output 传递
-      // 这里可能是错误信息或其他输出
-      console.log('[tmux] non-control output:', line);
+    if (cleanLine.startsWith('%')) {
+      this.parseControlLine(cleanLine);
+      this.notifyReady();
+      return;
     }
+
+    // 普通输出：通常来自 SSH shell 回显或异常信息
+    this.onNonControlOutput?.(cleanLine);
+    console.log('[tmux] non-control output:', cleanLine);
+  }
+
+  private notifyReady(): void {
+    if (this.readyNotified) return;
+    this.readyNotified = true;
+    this.onReady?.();
+  }
+
+  private startOutputBlock(line: string): void {
+    const meta = this.parseOutputBlockMeta(line);
+    if (!meta) {
+      return;
+    }
+
+    this.inOutputBlock = true;
+    this.outputBlockMeta = meta;
+    this.outputBlockLines = [];
+  }
+
+  private finishOutputBlock(line: string): void {
+    const meta = this.parseOutputBlockMeta(line);
+    const currentMeta = this.outputBlockMeta;
+
+    this.inOutputBlock = false;
+    this.outputBlockMeta = null;
+
+    if (currentMeta && meta) {
+      this.onOutputBlock?.({
+        time: currentMeta.time,
+        commandNo: currentMeta.commandNo,
+        flags: currentMeta.flags,
+        lines: this.outputBlockLines,
+        isError: line.startsWith('%error'),
+      });
+    }
+
+    this.outputBlockLines = [];
+    this.notifyReady();
+  }
+
+  private parseOutputBlockMeta(line: string): { time: number; commandNo: number; flags: number } | null {
+    const spaceIndex = line.indexOf(' ');
+    if (spaceIndex === -1) return null;
+    const args = line.slice(spaceIndex + 1).trim();
+    const parts = args.split(/\s+/);
+    if (parts.length < 3) return null;
+    const time = Number(parts[0]);
+    const commandNo = Number(parts[1]);
+    const flags = Number(parts[2]);
+    if (Number.isNaN(time) || Number.isNaN(commandNo) || Number.isNaN(flags)) return null;
+    return { time, commandNo, flags };
   }
 
   private parseControlLine(line: string): void {
@@ -82,14 +221,17 @@ export class TmuxControlParser {
 
     switch (command) {
       case '%window-add':
+      case '%unlinked-window-add':
         this.onEvent({ type: 'window-add', data: { windowId: args } });
         break;
 
       case '%window-close':
+      case '%unlinked-window-close':
         this.onEvent({ type: 'window-close', data: { windowId: args } });
         break;
 
-      case '%window-renamed': {
+      case '%window-renamed':
+      case '%unlinked-window-renamed': {
         const parts = this.parseArgs(args);
         this.onEvent({
           type: 'window-renamed',
@@ -98,9 +240,30 @@ export class TmuxControlParser {
         break;
       }
 
+      case '%window-pane-changed': {
+        const parts = this.parseArgs(args);
+        this.onEvent({
+          type: 'pane-active',
+          data: { windowId: parts[0], paneId: parts[1] },
+        });
+        break;
+      }
+
       case '%pane-close':
         this.onEvent({ type: 'pane-close', data: { paneId: args } });
         break;
+
+      case '%pane-add': {
+        const parts = this.parseArgs(args);
+        this.onEvent({
+          type: 'pane-add',
+          data: {
+            paneId: parts[0] ?? args,
+            windowId: parts[1],
+          },
+        });
+        break;
+      }
 
       case '%pane-mode-changed':
         // Pane 模式变化（如进入/退出复制模式）
@@ -119,6 +282,16 @@ export class TmuxControlParser {
         // 会话列表变化
         break;
 
+      case '%session-window-changed': {
+        // 当前会话的活跃窗口变化
+        const parts = this.parseArgs(args);
+        this.onEvent({
+          type: 'window-active',
+          data: { sessionId: parts[0], windowId: parts[1] },
+        });
+        break;
+      }
+
       case '%layout-change': {
         const parts = this.parseArgs(args);
         this.onEvent({
@@ -129,27 +302,35 @@ export class TmuxControlParser {
       }
 
       case '%output': {
-        // 格式: %output <pane-id> <base64-data>
+        // 格式: %output <pane-id> <value>
+        // value escapes non-printable characters and backslash as octal \xxx
         const firstSpace = args.indexOf(' ');
         if (firstSpace !== -1) {
           const paneId = args.slice(0, firstSpace);
-          const base64Data = args.slice(firstSpace + 1);
-          try {
-            const data = Buffer.from(base64Data, 'base64');
-            this.onTerminalOutput(paneId, new Uint8Array(data));
-          } catch {
-            console.error('[tmux] failed to decode output for pane', paneId);
-          }
+          const value = args.slice(firstSpace + 1);
+          this.onTerminalOutput(paneId, decodeTmuxEscapedValue(value));
         }
         break;
       }
 
-      case '%bell':
-        this.onEvent({ type: 'bell', data: { windowId: args } });
+      case '%extended-output': {
+        // 格式: %extended-output <pane-id> <age> ... : <value>
+        const firstSpace = args.indexOf(' ');
+        if (firstSpace === -1) break;
+        const paneId = args.slice(0, firstSpace);
+        const colonIndex = args.indexOf(' : ');
+        if (colonIndex === -1) break;
+        const value = args.slice(colonIndex + 3);
+        this.onTerminalOutput(paneId, decodeTmuxEscapedValue(value));
+        break;
+      }
+
+      case '%exit':
+        this.onExit?.(args.trim() ? args : null);
         break;
 
-      case '%extended-output':
-        // 扩展输出（包含更多元数据）
+      case '%bell':
+        this.onEvent({ type: 'bell', data: { windowId: args } });
         break;
 
       case '%pause':
@@ -157,17 +338,13 @@ export class TmuxControlParser {
         // 暂停/恢复输出
         break;
 
-      case '%exit':
-        this.onEvent({ type: 'pane-close', data: { reason: 'exit', message: args } });
+      case 'lient-session-changed':
+      case 'lient-detached':
+        // 这些是 %client-* 事件被截断的情况，忽略即可
         break;
 
       default:
-        // 忽略未知的控制序列（包括 iTerm2 相关的 Window Position 等）
-        if (this.isITerm2Sequence(command)) {
-          console.log('[tmux] ignoring iTerm2 sequence:', command);
-        } else {
-          console.log('[tmux] unknown control sequence:', command, args);
-        }
+        console.log('[tmux] unknown control sequence:', command, args);
     }
   }
 
@@ -200,25 +377,6 @@ export class TmuxControlParser {
     }
 
     return result;
-  }
-
-  /**
-   * 检测 iTerm2 专有控制序列
-   * 这些序列包含窗口位置等信息，应该被忽略
-   */
-  private isITerm2Sequence(command: string): boolean {
-    const iTerm2Prefixes = [
-      '%begin', // iTerm2 响应开始
-      '%end', // iTerm2 响应结束
-      '%error', // iTerm2 错误
-      '%notify', // iTerm2 通知
-      '%noop', // iTerm2 空操作
-      '%window-pane-changed',
-      '%client-session-changed',
-      '%pane-title-changed',
-    ];
-
-    return iTerm2Prefixes.some((prefix) => command.startsWith(prefix));
   }
 
   /**
