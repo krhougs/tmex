@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { useParams } from 'react-router';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
@@ -8,7 +8,6 @@ import type { WsMessage, EventTmuxPayload, EventDevicePayload } from '@tmex/shar
 
 export function DevicePage() {
   const { deviceId, windowId, paneId } = useParams();
-  const navigate = useNavigate();
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -126,11 +125,11 @@ export function DevicePage() {
     if (data[0] === 0x01) {
       // 终端输出
       const paneIdLen = (data[1] << 8) | data[2];
-      const paneId = new TextDecoder().decode(data.slice(3, 3 + paneIdLen));
+      const outputPaneId = new TextDecoder().decode(data.slice(3, 3 + paneIdLen));
       const output = data.slice(3 + paneIdLen);
       
       // 如果当前选中的 pane 匹配，显示输出
-      if (paneId === paneId || true) { // 暂时显示所有输出
+      if (outputPaneId === paneId || true) { // 暂时显示所有输出
         terminal.current?.write(output);
       }
     }

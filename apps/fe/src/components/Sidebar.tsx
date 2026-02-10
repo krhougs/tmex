@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useNavigate } from 'react-router';
-import type { Device, TmuxWindow, TmuxPane } from '@tmex/shared';
+import type { Device } from '@tmex/shared';
 import { useUIStore } from '../stores/ui';
 
 interface SidebarProps {
@@ -13,7 +13,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { deviceId: selectedDeviceId, windowId: selectedWindowId, paneId: selectedPaneId } = useParams();
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
-  const [expandedWindows, setExpandedWindows] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   
@@ -48,18 +47,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         next.delete(deviceId);
       } else {
         next.add(deviceId);
-      }
-      return next;
-    });
-  }, []);
-  
-  const toggleWindow = useCallback((windowId: string) => {
-    setExpandedWindows((prev) => {
-      const next = new Set(prev);
-      if (next.has(windowId)) {
-        next.delete(windowId);
-      } else {
-        next.add(windowId);
       }
       return next;
     });
@@ -167,6 +154,7 @@ interface DeviceTreeItemProps {
 function DeviceTreeItem({
   device,
   isExpanded,
+  isSelected,
   onToggle,
   onSelect,
   collapsed,
@@ -209,6 +197,10 @@ function DeviceTreeItem({
             连接到设备以查看窗口列表
           </div>
         </div>
+      )}
+
+      {showMenu && (
+        <div className="sr-only" aria-hidden="true" onClick={() => setShowMenu(false)} />
       )}
     </div>
   );

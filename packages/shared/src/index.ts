@@ -34,9 +34,13 @@ export interface DeviceRuntimeStatus {
 // ==================== WebSocket 消息 ====================
 
 export type WsMessageType =
+  | 'connected'
+  | 'error'
   | 'auth/hello'
   | 'device/connect'
   | 'device/disconnect'
+  | 'device/connected'
+  | 'device/disconnected'
   | 'tmux/select'
   | 'term/input'
   | 'term/resize'
