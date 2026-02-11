@@ -26,6 +26,11 @@ interface EditorShortcut {
   payload: string;
 }
 
+function normalizeHistoryForXterm(data: string): string {
+  if (!data) return data;
+  return data.replace(/\r?\n/g, '\r\n');
+}
+
 const EDITOR_SHORTCUTS: EditorShortcut[] = [
 
   { key: 'ctrl-c', label: 'CTRL-C', payload: '\u0003' },
@@ -328,7 +333,7 @@ export function DevicePage() {
       return;
     }
 
-    term.write(data);
+    term.write(normalizeHistoryForXterm(data));
     for (const chunk of historyBuffer.current) {
       term.write(chunk);
     }

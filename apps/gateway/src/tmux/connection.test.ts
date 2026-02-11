@@ -13,6 +13,33 @@ async function createConnection(onHistory: (paneId: string, data: string) => voi
 }
 
 describe('TmuxConnection history selection', () => {
+  test('capturePaneHistory should keep -e and not use -J', async () => {
+    const connection = await createConnection(() => {});
+    const conn = connection as any;
+    const sentCommands: string[] = [];
+
+    conn.connected = true;
+    conn.sendCommand = (cmd: string) => {
+      sentCommands.push(cmd);
+    };
+
+    conn.capturePaneHistory('%9');
+
+    const state = conn.historyCaptureStates.get('%9');
+    if (state?.timeout) {
+      clearTimeout(state.timeout);
+      state.timeout = null;
+    }
+
+    const captureCommands = sentCommands.filter((cmd) => cmd.startsWith('capture-pane '));
+
+    expect(captureCommands).toEqual([
+      'capture-pane -t %9 -S -1000 -e -p\n',
+      'capture-pane -t %9 -a -S -1000 -e -p -q\n',
+    ]);
+    expect(captureCommands.every((cmd) => !cmd.includes(' -J'))).toBe(true);
+  });
+
   test('prefers alternate history when pane reports alternate_on=1', async () => {
     const histories: Array<{ paneId: string; data: string }> = [];
     const connection = await createConnection((paneId, data) => histories.push({ paneId, data }));

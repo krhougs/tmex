@@ -553,10 +553,10 @@ export class TmuxConnection {
     this.sendCommand(`display-message -p -t ${paneId} "#{alternate_on}"\n`, 'capture-pane-mode');
 
     this.pendingCapturePaneRequests.push({ paneId, mode: 'normal' });
-    this.sendCommand(`capture-pane -t ${paneId} -S -1000 -e -J -p\n`, 'capture-pane');
+    this.sendCommand(`capture-pane -t ${paneId} -S -1000 -e -p\n`, 'capture-pane');
 
     this.pendingCapturePaneRequests.push({ paneId, mode: 'alternate' });
-    this.sendCommand(`capture-pane -t ${paneId} -a -S -1000 -e -J -p -q\n`, 'capture-pane');
+    this.sendCommand(`capture-pane -t ${paneId} -a -S -1000 -e -p -q\n`, 'capture-pane');
   }
 
   /**
