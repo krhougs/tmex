@@ -38,6 +38,7 @@ interface TmuxState {
   deviceErrors: Record<string, DeviceError | undefined>;
   selectedPanes: Record<string, { windowId: string; paneId: string } | undefined>;
   connectionRefs: Record<string, Partial<Record<ConnectionRef, true>> | undefined>;
+  lastConnectRequest: { deviceId: string; ref: ConnectionRef; at: number } | null;
 
   ensureSocketConnected: () => void;
   connectDevice: (deviceId: string, ref?: ConnectionRef) => void;
@@ -64,6 +65,9 @@ const historySubscribers: HistorySubscriber[] = [];
 // 待发送的消息队列
 const pendingMessages: Array<Omit<WsMessage<unknown>, 'timestamp'>> = [];
 const MAX_PENDING_MESSAGES = 100;
+const isLocalDevRuntime =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 function extractTerminalOutput(
   frame: Uint8Array
@@ -302,6 +306,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   deviceErrors: {},
   selectedPanes: {},
   connectionRefs: {},
+  lastConnectRequest: null,
 
   ensureSocketConnected: () => {
     ensureSocket(set, get);
@@ -325,7 +330,16 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
       connectionRefs: nextConnectionRefs,
       connectedDevices: nextConnected,
       deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
+      lastConnectRequest: { deviceId, ref, at: Date.now() },
     }));
+
+    if (isLocalDevRuntime) {
+      console.log('[tmux] connectDevice', {
+        deviceId,
+        ref,
+        isFirstReference,
+      });
+    }
 
     ensureSocket(set, get);
     if (isFirstReference) {

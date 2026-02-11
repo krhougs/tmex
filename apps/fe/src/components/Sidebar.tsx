@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useMatch, useNavigate } from 'react-router';
+import { Link, matchPath, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
@@ -27,8 +27,9 @@ interface SidebarProps {
 // ==================== Sidebar 主组件 ====================
 
 export function Sidebar({ onClose }: SidebarProps) {
-  const paneMatch = useMatch('/devices/:deviceId/windows/:windowId/panes/:paneId');
-  const deviceMatch = useMatch('/devices/:deviceId');
+  const location = useLocation();
+  const paneMatch = matchPath('/devices/:deviceId/windows/:windowId/panes/:paneId', location.pathname);
+  const deviceMatch = matchPath('/devices/:deviceId', location.pathname);
   const selectedDeviceId = paneMatch?.params.deviceId ?? deviceMatch?.params.deviceId;
   const selectedWindowId = paneMatch?.params.windowId;
   const selectedPaneId = decodePaneIdFromUrlParam(paneMatch?.params.paneId);
@@ -92,11 +93,11 @@ export function Sidebar({ onClose }: SidebarProps) {
           // 折叠时如果当前设备未选中，则断开连接
           next.delete(deviceId);
           if (deviceId !== selectedDeviceId) {
-            disconnectDevice(deviceId);
+            disconnectDevice(deviceId, 'sidebar');
           }
         } else {
           next.add(deviceId);
-          connectDevice(deviceId);
+          connectDevice(deviceId, 'sidebar');
         }
         return next;
       });
@@ -155,9 +156,12 @@ export function Sidebar({ onClose }: SidebarProps) {
   useEffect(() => {
     if (selectedDeviceId && !expandedDevices.has(selectedDeviceId)) {
       setExpandedDevices((prev) => new Set(prev).add(selectedDeviceId));
-      connectDevice(selectedDeviceId);
+      const isPaneRoute = Boolean(paneMatch?.params.deviceId);
+      if (!isPaneRoute) {
+        connectDevice(selectedDeviceId, 'sidebar');
+      }
     }
-  }, [selectedDeviceId, connectDevice]);
+  }, [selectedDeviceId, expandedDevices, connectDevice, paneMatch?.params.deviceId]);
 
   useEffect(() => {
     const pendingEntries = Object.entries(pendingWindowSelection);
@@ -194,14 +198,15 @@ export function Sidebar({ onClose }: SidebarProps) {
 
   const devices = devicesData?.devices ?? [];
 
-  // 按连接状态排序：已连接的在前
+  // 按设备名称排序
   const sortedDevices = useMemo(() => {
     return [...devices].sort((a, b) => {
-      const aConnected = deviceConnected[a.id] ? 1 : 0;
-      const bConnected = deviceConnected[b.id] ? 1 : 0;
-      return bConnected - aConnected;
+      return a.name.localeCompare(b.name, 'zh-CN', {
+        numeric: true,
+        sensitivity: 'base',
+      });
     });
-  }, [devices, deviceConnected]);
+  }, [devices]);
 
   return (
     <aside
@@ -288,14 +293,14 @@ export function Sidebar({ onClose }: SidebarProps) {
       {!sidebarCollapsed && (
         <div className="p-3 border-t border-[var(--color-border)] flex-shrink-0">
           <div className="flex flex-col gap-2">
-            <Button variant="default" className="w-full justify-center" asChild>
+            <Button variant="default" className="w-full justify-start" asChild>
               <Link to="/devices" onClick={onClose}>
                 <Monitor className="h-4 w-4 mr-2 flex-shrink-0" />
                 管理设备
               </Link>
             </Button>
 
-            <Button variant="default" className="w-full justify-center" asChild>
+            <Button variant="default" className="w-full justify-start" asChild>
               <Link to="/settings" onClick={onClose}>
                 <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
                 设置
@@ -311,7 +316,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           <Button
             variant="ghost"
             size="sm"
-            className="w-full h-8 p-0 justify-center"
+            className="w-full h-8 px-2 justify-start"
             asChild
             title="管理设备"
           >
@@ -323,7 +328,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           <Button
             variant="ghost"
             size="sm"
-            className="w-full h-8 p-0 justify-center"
+            className="w-full h-8 px-2 justify-start"
             asChild
             title="设置"
           >
@@ -376,10 +381,14 @@ function DeviceTreeItem({
   onWindowClick,
 }: DeviceTreeItemProps) {
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
-  const hasSelectedPaneInDevice = Boolean(selectedPaneId);
-  const selectedWindow = windows?.find((window) => window.id === selectedWindowId);
-  const selectedPaneInWindow = selectedWindow?.panes.find((pane) => pane.id === selectedPaneId);
-  const isDeviceTreeSelected = isSelected && hasSelectedPaneInDevice && Boolean(selectedPaneInWindow);
+  const hasSelectedPaneInDevice = isSelected && Boolean(selectedPaneId);
+  const selectedWindow = hasSelectedPaneInDevice
+    ? windows?.find((window) => window.id === selectedWindowId)
+    : undefined;
+  const selectedPaneInWindow = hasSelectedPaneInDevice
+    ? selectedWindow?.panes.find((pane) => pane.id === selectedPaneId)
+    : undefined;
+  const isDeviceTreeSelected = hasSelectedPaneInDevice && Boolean(selectedPaneInWindow);
   
   // 折叠状态 - 只显示图标
   if (collapsed) {
@@ -518,7 +527,7 @@ function DeviceTreeItem({
               key={window.id}
               device={device}
               window={window}
-              isSelected={window.id === selectedWindowId}
+              isSelected={isSelected && window.id === selectedWindowId}
               isDeviceTreeSelected={isDeviceTreeSelected}
               selectedPaneId={selectedPaneId}
               parentSelected={isSelected}
@@ -700,7 +709,7 @@ function WindowTreeItem({
               deviceId={device.id}
               windowId={window.id}
               pane={pane}
-              isSelected={pane.id === selectedPaneId}
+              isSelected={isSelected && pane.id === selectedPaneId}
               isWindowTreeSelected={isWindowTreeSelected}
               parentWindowSelected={isSelected}
               paneCount={window.panes.length}

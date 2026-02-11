@@ -78,6 +78,7 @@ export function DevicePage() {
   const lastShownInvalidSelectionKey = useRef<string | null>(null);
 
   const connectDevice = useTmuxStore((state) => state.connectDevice);
+  const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
   const selectPane = useTmuxStore((state) => state.selectPane);
   const sendInput = useTmuxStore((state) => state.sendInput);
   const resizePane = useTmuxStore((state) => state.resizePane);
@@ -92,6 +93,7 @@ export function DevicePage() {
   const deviceConnected = useTmuxStore((state) =>
     deviceId ? state.deviceConnected?.[deviceId] : false
   );
+  const lastConnectRequest = useTmuxStore((state) => state.lastConnectRequest);
   const socketReady = useTmuxStore((state) => state.socketReady);
   const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
 
@@ -168,6 +170,27 @@ export function DevicePage() {
     return `${deviceId}:${windowId}:${resolvedPaneId}:${invalidSelectionMessage}`;
   }, [deviceId, invalidSelectionMessage, resolvedPaneId, windowId]);
   const canInteractWithPane = Boolean(deviceConnected && resolvedPaneId && !isSelectionInvalid);
+
+  const isLocalDevRuntime =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  useEffect(() => {
+    if (!isLocalDevRuntime || !deviceId) {
+      return;
+    }
+
+    if (!lastConnectRequest) {
+      return;
+    }
+
+    if (lastConnectRequest.deviceId !== deviceId) {
+      console.warn('[tmux] route device mismatch with last connect request', {
+        routeDeviceId: deviceId,
+        lastConnectRequest,
+      });
+    }
+  }, [deviceId, isLocalDevRuntime, lastConnectRequest]);
 
   const terminalTopbarLabel = useMemo(() => {
     if (!selectedWindow || !selectedPane) {
@@ -482,9 +505,13 @@ export function DevicePage() {
 
   useEffect(() => {
     if (!deviceId) return;
-    connectDevice(deviceId);
+    connectDevice(deviceId, 'page');
     autoSelected.current = false;
-  }, [connectDevice, deviceId]);
+
+    return () => {
+      disconnectDevice(deviceId, 'page');
+    };
+  }, [connectDevice, deviceId, disconnectDevice]);
 
   useEffect(() => {
     if (!deviceId) return;

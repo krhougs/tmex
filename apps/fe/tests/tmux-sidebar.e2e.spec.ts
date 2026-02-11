@@ -300,4 +300,81 @@ test.describe('Sidebar - 可读性和对比度', () => {
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await cleanupSession(page, deviceName);
   });
+
+  test('Sidebar 展开与折叠态底部按钮都应左对齐', async ({ page }) => {
+    await page.goto('/devices');
+
+    const manageDeviceLink = page.getByRole('link', { name: '管理设备', exact: true });
+    await expect(manageDeviceLink).toBeVisible();
+    const manageDeviceJustify = await manageDeviceLink.evaluate((element) => {
+      return window.getComputedStyle(element).justifyContent;
+    });
+    expect(manageDeviceJustify).toBe('flex-start');
+
+    const settingsLink = page.getByRole('link', { name: '设置', exact: true });
+    await expect(settingsLink).toBeVisible();
+    const settingsJustify = await settingsLink.evaluate((element) => {
+      return window.getComputedStyle(element).justifyContent;
+    });
+    expect(settingsJustify).toBe('flex-start');
+
+    const collapseButton = page.getByRole('button', { name: /收起侧边栏/ });
+    await expect(collapseButton).toBeVisible();
+    await collapseButton.click();
+
+    const collapsedManageDeviceLink = page.getByTestId('sidebar').locator('a[title="管理设备"]').first();
+    await expect(collapsedManageDeviceLink).toBeVisible();
+    const collapsedManageDeviceJustify = await collapsedManageDeviceLink.evaluate((element) => {
+      return window.getComputedStyle(element).justifyContent;
+    });
+    expect(collapsedManageDeviceJustify).toBe('flex-start');
+
+    const collapsedSettingsLink = page.getByTestId('sidebar').locator('a[title="设置"]').first();
+    await expect(collapsedSettingsLink).toBeVisible();
+    const collapsedSettingsJustify = await collapsedSettingsLink.evaluate((element) => {
+      return window.getComputedStyle(element).justifyContent;
+    });
+    expect(collapsedSettingsJustify).toBe('flex-start');
+  });
+
+  test('不同设备存在相同 window/pane id 时仅当前设备高亮', async ({ page }) => {
+    const deviceA = sanitizeSessionName(`e2e_cross_highlight_a_${RUN_ID}`);
+    const deviceB = sanitizeSessionName(`e2e_cross_highlight_b_${RUN_ID}`);
+
+    await openDevices(page);
+    await addLocalDevice(page, deviceA);
+    await addLocalDevice(page, deviceB);
+
+    await connectDevice(page, deviceA);
+    await connectDevice(page, deviceB);
+
+    await expect(page.locator('[data-testid^="window-item-"][data-active="true"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid^="pane-item-"][data-active="true"]')).toHaveCount(1);
+
+    await cleanupSession(page, deviceB);
+    await cleanupSession(page, deviceA);
+  });
+
+  test('设备列表应按名称排序且不受连接状态影响', async ({ page }) => {
+    const deviceA = sanitizeSessionName(`aaa_order_${RUN_ID}`);
+    const deviceZ = sanitizeSessionName(`zzz_order_${RUN_ID}`);
+
+    await openDevices(page);
+    await addLocalDevice(page, deviceA);
+    await addLocalDevice(page, deviceZ);
+
+    await connectDevice(page, deviceZ);
+    await page.goto('/devices');
+
+    const deviceNameButtons = page.locator('[data-testid^="device-item-"] button.flex-1.min-w-0.text-left.font-medium.truncate');
+    const orderedNames = await deviceNameButtons.allTextContents();
+    const indexA = orderedNames.findIndex((name) => name.trim() === deviceA);
+    const indexZ = orderedNames.findIndex((name) => name.trim() === deviceZ);
+
+    expect(indexA).toBeGreaterThanOrEqual(0);
+    expect(indexZ).toBeGreaterThanOrEqual(0);
+    expect(indexA).toBeLessThan(indexZ);
+
+    await cleanupSession(page, deviceZ);
+  });
 });

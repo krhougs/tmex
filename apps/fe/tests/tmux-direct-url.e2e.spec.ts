@@ -26,6 +26,21 @@ async function addLocalDevice(
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
 }
 
+async function connectDeviceAndGetPaneUrl(
+  page: import('@playwright/test').Page,
+  deviceName: string
+): Promise<string> {
+  await page.goto('/devices');
+  const deviceCardHeader = page
+    .getByRole('heading', { name: deviceName })
+    .locator('xpath=..')
+    .locator('xpath=..');
+  await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+  await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+  await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+  return page.url();
+}
+
 test.describe('直接URL访问 - 白屏检测', () => {
   test('从设备页URL直接访问应显示终端内容', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_direct_${RUN_ID}`);
@@ -188,6 +203,68 @@ test.describe('直接URL访问 - 白屏检测', () => {
     await page.locator('.xterm').click();
     await page.waitForTimeout(500);
     await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
+    await page.keyboard.press('Enter');
+  });
+
+  test('冷启动直链不应连接到其他设备', async ({ page, browser }) => {
+    const deviceAName = sanitizeSessionName(`e2e_direct_a_${RUN_ID}`);
+    const deviceBName = sanitizeSessionName(`e2e_direct_b_${RUN_ID}`);
+
+    await openDevices(page);
+    await addLocalDevice(page, deviceAName);
+    await addLocalDevice(page, deviceBName);
+
+    const directUrlA = await connectDeviceAndGetPaneUrl(page, deviceAName);
+    const directUrlB = await connectDeviceAndGetPaneUrl(page, deviceBName);
+
+    const matchA = directUrlA.match(/\/devices\/([^/]+)\/windows\/([^/]+)\/panes\/([^/]+)$/);
+    const matchB = directUrlB.match(/\/devices\/([^/]+)\/windows\/([^/]+)\/panes\/([^/]+)$/);
+    expect(matchA).not.toBeNull();
+    expect(matchB).not.toBeNull();
+
+    const [, deviceAId] = matchA!;
+    const [, deviceBId] = matchB!;
+
+    const coldPage = await browser.newPage();
+    const connectDeviceIds: string[] = [];
+
+    coldPage.on('websocket', (ws) => {
+      ws.on('framesent', (event) => {
+        const raw =
+          typeof event.payload === 'string' ? event.payload : event.payload.toString();
+        try {
+          const msg = JSON.parse(raw) as {
+            type?: string;
+            payload?: { deviceId?: string };
+          };
+          if (msg.type === 'device/connect' && msg.payload?.deviceId) {
+            connectDeviceIds.push(msg.payload.deviceId);
+          }
+        } catch {
+          // ignore non-json frames
+        }
+      });
+    });
+
+    await coldPage.goto(directUrlA);
+    await coldPage.waitForURL(
+      new RegExp(`/devices/${deviceAId}/windows/[^/]+/panes/[^/]+$`),
+      { timeout: 30_000 }
+    );
+    await expect(coldPage.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await coldPage.waitForTimeout(1_200);
+
+    expect(connectDeviceIds.includes(deviceAId)).toBe(true);
+    expect(connectDeviceIds.includes(deviceBId)).toBe(false);
+
+    await coldPage.close();
+
+    await page.goto(directUrlA);
+    await page.locator('.xterm').click();
+    await page.waitForTimeout(300);
+    await page.keyboard.type(`tmux kill-session -t ${deviceAName} || true`);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(`tmux kill-session -t ${deviceBName} || true`);
     await page.keyboard.press('Enter');
   });
 });
