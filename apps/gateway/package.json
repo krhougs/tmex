@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
+    "dev": "./scripts/run-with-ssh-agent.sh --watch src/index.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
-    "start": "bun dist/index.js",
+    "start": "./scripts/run-with-ssh-agent.sh dist/index.js",
     "test": "bun test",
+    "test:ssh-agent-local": "bun test ./src/tmux/ssh-agent-local.integration.ts",
     "db:migrate": "bun src/db/migrate.ts",
     "db:seed": "bun src/db/seed.ts"
   },

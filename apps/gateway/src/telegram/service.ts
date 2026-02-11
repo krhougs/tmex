@@ -44,6 +44,16 @@ interface RunningBot {
 export class TelegramService {
   private runningBots = new Map<string, RunningBot>();
 
+  async sendGatewayOnlineMessage(siteName: string): Promise<void> {
+    const text = [
+      '🟢 Gateway 已上线',
+      `站点：${siteName}`,
+      `时间：${new Date().toLocaleString('zh-CN')}`,
+    ].join('\n');
+
+    await this.sendToAuthorizedChats({ text });
+  }
+
   async refresh(): Promise<void> {
     const botConfigs = getAllTelegramBots();
     const activeIds = new Set(botConfigs.map((bot) => bot.id));

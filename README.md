@@ -40,8 +40,8 @@ bun install
 cp .env.example .env
 # 编辑 .env，设置 TMEX_MASTER_KEY
 
-# 3. 启动 Gateway
-cd apps/gateway && bun dev
+# 3. 启动 Gateway（自动尝试注入 SSH_AUTH_SOCK）
+cd apps/gateway && bun run dev
 
 # 4. 启动 Frontend（新终端）
 cd apps/fe && bun dev --host

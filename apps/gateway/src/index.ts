@@ -1,7 +1,7 @@
 import { handleApiRequest } from './api';
 import { runtimeController } from './control/runtime';
 import { config } from './config';
-import { initSchema } from './db';
+import { getSiteSettings, initSchema } from './db';
 import { telegramService } from './telegram/service';
 import { WebSocketServer } from './ws';
 
@@ -14,6 +14,13 @@ async function createRuntime(): Promise<RunningRuntime> {
 
   const wsServer = new WebSocketServer();
   await telegramService.refresh();
+
+  try {
+    const settings = getSiteSettings();
+    await telegramService.sendGatewayOnlineMessage(settings.siteName);
+  } catch (err) {
+    console.error('[gateway] failed to push startup message:', err);
+  }
 
   const server = Bun.serve({
     hostname: '0.0.0.0',

@@ -177,6 +177,7 @@ function ensureSocket(
         const deviceId = (msg.payload as { deviceId: string }).deviceId;
         setState((prev) => ({
           deviceConnected: { ...prev.deviceConnected, [deviceId]: true },
+          deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
         }));
         return;
       }
@@ -192,19 +193,21 @@ function ensureSocket(
       case 'event/device': {
         const payload = msg.payload as EventDevicePayload;
         if (payload.type === 'error') {
+          const displayMessage = payload.rawMessage ?? payload.message ?? '设备错误';
+
           setState((prev) => ({
             deviceErrors: {
               ...prev.deviceErrors,
-              [payload.deviceId]: { message: payload.message ?? '设备错误', type: payload.errorType },
+              [payload.deviceId]: { message: displayMessage, type: payload.errorType },
             },
           }));
 
-          if (payload.message) {
+          if (displayMessage) {
             window.dispatchEvent(
               new CustomEvent('tmex:sonner', {
                 detail: {
                   title: payload.errorType ? `[${payload.errorType}] 设备错误` : '设备错误',
-                  description: payload.message,
+                  description: displayMessage,
                 },
               })
             );
@@ -318,7 +321,11 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     const nextConnected = new Set(current.connectedDevices);
     nextConnected.add(deviceId);
 
-    set({ connectionRefs: nextConnectionRefs, connectedDevices: nextConnected });
+    set((prev) => ({
+      connectionRefs: nextConnectionRefs,
+      connectedDevices: nextConnected,
+      deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
+    }));
 
     ensureSocket(set, get);
     if (isFirstReference) {

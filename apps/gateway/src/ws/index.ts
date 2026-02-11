@@ -14,6 +14,7 @@ import type { Server, ServerWebSocket } from 'bun';
 import { getDeviceById, getSiteSettings } from '../db';
 import { eventNotifier } from '../events';
 import { TmuxConnection } from '../tmux/connection';
+import { classifySshError } from './error-classify';
 import type { TmuxEvent } from '../tmux/parser';
 
 interface TermSyncSizePayload {
@@ -21,46 +22,6 @@ interface TermSyncSizePayload {
   paneId: string;
   cols: number;
   rows: number;
-}
-
-function classifyError(error: Error): { type: string; message: string } {
-  const msg = error.message.toLowerCase();
-
-  if (msg.includes('all configured authentication methods failed')) {
-    return {
-      type: 'auth_failed',
-      message: '认证失败：用户名、密码或密钥不正确，请检查设备配置',
-    };
-  }
-  if (msg.includes('connect refused') || msg.includes('connection refused')) {
-    return {
-      type: 'connection_refused',
-      message: '连接被拒绝：无法连接到目标主机，请检查主机地址和端口是否正确',
-    };
-  }
-  if (msg.includes('timeout') || msg.includes('etimedout')) {
-    return {
-      type: 'timeout',
-      message: '连接超时：无法连接到设备，请检查网络或防火墙设置',
-    };
-  }
-  if (msg.includes('host not found') || msg.includes('getaddrinfo')) {
-    return {
-      type: 'host_not_found',
-      message: '主机未找到：无法解析主机地址，请检查 DNS 或主机名是否正确',
-    };
-  }
-  if (msg.includes('handshake failed') || msg.includes('unable to verify')) {
-    return {
-      type: 'handshake_failed',
-      message: '握手失败：无法建立安全连接，可能是密钥交换算法不兼容',
-    };
-  }
-
-  return {
-    type: 'unknown',
-    message: `连接失败：${error.message}`,
-  };
 }
 
 interface ClientState {
@@ -358,7 +319,7 @@ export class WebSocketServer {
         reconnectTimer: null,
       };
     } catch (err) {
-      const errorInfo = classifyError(err instanceof Error ? err : new Error(String(err)));
+      const errorInfo = classifySshError(err instanceof Error ? err : new Error(String(err)));
       ws.send(
         JSON.stringify({
           type: 'event/device',
@@ -656,12 +617,16 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
+    const errorInfo = classifySshError(err);
+
     const message = JSON.stringify({
       type: 'event/device',
       payload: {
         deviceId,
         type: 'error',
-        message: err.message,
+        errorType: errorInfo.type,
+        message: errorInfo.message,
+        rawMessage: err.message,
       },
     });
 

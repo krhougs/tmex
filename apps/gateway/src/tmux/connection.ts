@@ -3,6 +3,7 @@ import type { Subprocess, Terminal as BunTerminal } from 'bun';
 import { Client } from 'ssh2';
 import { decrypt } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
+import { resolveSshAgentSocket, resolveSshUsername } from './ssh-auth';
 import { TmuxControlParser, type TmuxEvent, type TmuxOutputBlock } from './parser';
 
 export interface TmuxConnectionOptions {
@@ -211,6 +212,31 @@ export class TmuxConnection {
     const port = this.device.port ?? 22;
     const username = this.device.username;
     const sessionName = this.device.session ?? 'tmex';
+    const resolvedUsername = resolveSshUsername(username, this.device.authMode);
+
+    const logStage = (stage: string, extra: Record<string, unknown> = {}): void => {
+      console.log('[ssh]', {
+        stage,
+        deviceId: this.deviceId,
+        host,
+        port,
+        username: resolvedUsername,
+        authMode: this.device?.authMode,
+        ...extra,
+      });
+    };
+
+    logStage('connect_start', {
+      hasHost: Boolean(host),
+      hasSshConfigRef: Boolean(this.device.sshConfigRef),
+      sessionName,
+    });
+
+    if (this.device.authMode === 'configRef' || (!host && this.device.sshConfigRef)) {
+      throw new Error(
+        'ssh_config_ref_not_supported: 当前版本暂不支持 SSH Config 引用，请改为填写 host + username，并选择 Agent/私钥/密码认证'
+      );
+    }
 
     if (!host) {
       throw new Error('SSH device missing host');
@@ -228,31 +254,32 @@ export class TmuxConnection {
     } = {
       host,
       port,
-      username: username ?? 'root',
+      username: resolvedUsername,
     };
 
     // 根据 authMode 准备认证
     switch (this.device.authMode) {
       case 'password': {
-        if (this.device.passwordEnc) {
-          authConfig.password = await decrypt(this.device.passwordEnc);
+        if (!this.device.passwordEnc) {
+          throw new Error('auth_password_missing: 密码认证未提供密码');
         }
+
+        authConfig.password = await decrypt(this.device.passwordEnc);
         break;
       }
       case 'key': {
-        if (this.device.privateKeyEnc) {
-          authConfig.privateKey = await decrypt(this.device.privateKeyEnc);
-          if (this.device.privateKeyPassphraseEnc) {
-            authConfig.passphrase = await decrypt(this.device.privateKeyPassphraseEnc);
-          }
+        if (!this.device.privateKeyEnc) {
+          throw new Error('auth_key_missing: 私钥认证未提供私钥');
+        }
+
+        authConfig.privateKey = await decrypt(this.device.privateKeyEnc);
+        if (this.device.privateKeyPassphraseEnc) {
+          authConfig.passphrase = await decrypt(this.device.privateKeyPassphraseEnc);
         }
         break;
       }
       case 'agent': {
-        const agentSocket = process.env.SSH_AUTH_SOCK;
-        if (agentSocket) {
-          authConfig.agent = agentSocket;
-        }
+        authConfig.agent = resolveSshAgentSocket('agent');
         break;
       }
       case 'configRef': {
@@ -261,6 +288,10 @@ export class TmuxConnection {
       }
       case 'auto': {
         // 尝试多种方式
+        const agentSocket = resolveSshAgentSocket('auto');
+        if (agentSocket) {
+          authConfig.agent = agentSocket;
+        }
         if (this.device.privateKeyEnc) {
           authConfig.privateKey = await decrypt(this.device.privateKeyEnc);
         } else if (this.device.passwordEnc) {
@@ -270,12 +301,43 @@ export class TmuxConnection {
       }
     }
 
-    return new Promise((resolve, reject) => {
-      conn.on('ready', () => {
-        console.log(`[ssh] connected to ${host}`);
+    if (this.device.authMode === 'auto' && !authConfig.agent && !authConfig.privateKey && !authConfig.password) {
+      throw new Error('auth_auto_missing: auto 模式下未找到可用认证方式（SSH_AUTH_SOCK / 私钥 / 密码）');
+    }
 
+    logStage('auth_config_resolved', {
+      hasAgent: Boolean(authConfig.agent),
+      hasPrivateKey: Boolean(authConfig.privateKey),
+      hasPassphrase: Boolean(authConfig.passphrase),
+      hasPassword: Boolean(authConfig.password),
+    });
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const resolveOnce = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve();
+      };
+      const rejectOnce = (error: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+
+      let stderrTail = '';
+
+      conn.on('ready', () => {
+        logStage('ssh_ready');
+
+        const tmuxCommand = `tmux -CC new-session -A -s ${sessionName}`;
+        logStage('tmux_exec_start', { command: tmuxCommand });
         conn.exec(
-          `tmux -CC new-session -A -s ${sessionName}`,
+          tmuxCommand,
           {
             pty: {
               term: 'xterm-256color',
@@ -285,14 +347,15 @@ export class TmuxConnection {
           },
           (err, stream) => {
             if (err) {
-              reject(err);
+              logStage('tmux_exec_failed', { error: err.message });
+              rejectOnce(new Error(`tmux_exec_failed: 启动远端 tmux 失败：${err.message}`));
               return;
             }
 
             this.sshStream = stream;
 
             stream.on('close', () => {
-              console.log('[ssh] stream closed');
+              logStage('ssh_stream_closed');
               if (!this.ready) {
                 this.failReady(new Error('SSH stream closed before tmux became ready'));
               }
@@ -310,7 +373,9 @@ export class TmuxConnection {
             });
 
             stream.stderr.on('data', (data: Buffer) => {
-              console.error('[ssh] stderr:', data.toString());
+              const chunk = data.toString();
+              stderrTail = `${stderrTail}${chunk}`.slice(-2000);
+              console.error('[ssh] stderr:', chunk);
             });
 
             this.connected = true;
@@ -323,28 +388,37 @@ export class TmuxConnection {
             this.waitForReady()
               .then(() => {
                 this.configureWindowSizePolicy();
-                resolve();
+                logStage('tmux_ready');
+                resolveOnce();
               })
               .catch((err) => {
+                const stderrText = stderrTail.trim();
+                const nextError =
+                  stderrText.length > 0
+                    ? new Error(`${err instanceof Error ? err.message : String(err)}\nssh stderr: ${stderrText}`)
+                    : err;
+                logStage('tmux_ready_failed', {
+                  error: nextError instanceof Error ? nextError.message : String(nextError),
+                });
                 this.cleanup();
-                reject(err);
+                rejectOnce(nextError);
               });
           }
         );
       });
 
       conn.on('error', (err) => {
-        console.error('[ssh] error:', err);
+        logStage('connect_error', { error: err.message });
         updateDeviceRuntimeStatus(this.deviceId, {
           lastSeenAt: new Date().toISOString(),
           tmuxAvailable: false,
           lastError: err.message,
         });
-        reject(err);
+        rejectOnce(err);
       });
 
       conn.on('close', () => {
-        console.log('[ssh] connection closed');
+        logStage('connection_closed', { manualDisconnect: this.manualDisconnect });
         if (!this.ready) {
           this.failReady(new Error('SSH connection closed before tmux became ready'));
         }
@@ -354,6 +428,7 @@ export class TmuxConnection {
         }
       });
 
+      logStage('connect_attempt');
       conn.connect(authConfig);
     });
   }

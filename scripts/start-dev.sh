@@ -54,7 +54,7 @@ trap cleanup INT TERM
 # 启动 Gateway
 echo "启动 Gateway..."
 cd apps/gateway
-bun src/index.ts &
+bun run dev &
 GATEWAY_PID=$!
 cd ../..
 
