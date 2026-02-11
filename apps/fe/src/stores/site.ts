@@ -1,4 +1,4 @@
-import { type SiteSettings, DEFAULT_LOCALE } from '@tmex/shared';
+import { DEFAULT_LOCALE, type SiteSettings } from '@tmex/shared';
 import { create } from 'zustand';
 
 interface SiteState {
@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS: SiteSettings = {
   siteName: 'tmex',
   siteUrl: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:9663',
   bellThrottleSeconds: 6,
+  enableBrowserBellToast: true,
+  enableTelegramBellPush: true,
   sshReconnectMaxRetries: 2,
   sshReconnectDelaySeconds: 10,
   language: DEFAULT_LOCALE,

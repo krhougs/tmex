@@ -6,6 +6,7 @@ import type {
   WsMessage,
 } from '@tmex/shared';
 import { create } from 'zustand';
+import { useSiteStore } from './site';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
 
@@ -132,7 +133,10 @@ function ensureSocket(
   setState: (partial: Partial<TmuxState> | ((prev: TmuxState) => Partial<TmuxState>)) => void,
   getState: () => TmuxState
 ): void {
-  if (wsSingleton && (wsSingleton.readyState === WebSocket.OPEN || wsSingleton.readyState === WebSocket.CONNECTING)) {
+  if (
+    wsSingleton &&
+    (wsSingleton.readyState === WebSocket.OPEN || wsSingleton.readyState === WebSocket.CONNECTING)
+  ) {
     return;
   }
 
@@ -266,6 +270,11 @@ function ensureSocket(
       case 'event/tmux': {
         const payload = msg.payload as EventTmuxPayload;
         if (payload.type === 'bell') {
+          const settings = useSiteStore.getState().settings;
+          if (settings?.enableBrowserBellToast === false) {
+            return;
+          }
+
           const data = (payload.data ?? {}) as Record<string, unknown>;
           const title = 'Terminal Bell';
           const description = [
@@ -458,7 +467,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   subscribeHistory: (deviceId, paneId, handler) => {
     const sub: HistorySubscriber = { deviceId, paneId, handler, subscribedAt: Date.now() };
     historySubscribers.push(sub);
-    
+
     // 清理过期的订阅（超过10分钟的）
     const cutoff = Date.now() - 10 * 60 * 1000;
     for (let i = historySubscribers.length - 1; i >= 0; i--) {
@@ -466,7 +475,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
         historySubscribers.splice(i, 1);
       }
     }
-    
+
     return () => {
       const idx = historySubscribers.indexOf(sub);
       if (idx >= 0) historySubscribers.splice(idx, 1);

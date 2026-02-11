@@ -73,7 +73,7 @@ describe('resolveBellContext', () => {
       paneId: '%12',
       windowIndex: 0,
       paneIndex: 1,
-      paneUrl: 'https://tmex.example.com/devices/device-1/windows/@1/panes/%2512',
+      paneUrl: 'https://tmex.example.com/devices/device-1/windows/%401/panes/%2512',
     });
   });
 
@@ -90,7 +90,7 @@ describe('resolveBellContext', () => {
       paneId: '%21',
       windowIndex: 1,
       paneIndex: 0,
-      paneUrl: 'https://tmex.example.com/devices/device-1/windows/@2/panes/%2521',
+      paneUrl: 'https://tmex.example.com/devices/device-1/windows/%402/panes/%2521',
     });
   });
 
@@ -111,4 +111,3 @@ describe('resolveBellContext', () => {
     });
   });
 });
-

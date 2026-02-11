@@ -5,13 +5,22 @@ import type {
   TelegramBotWithStats,
   UpdateSiteSettingsRequest,
 } from '@tmex/shared';
+import { toBCP47 as toBCP47Locale } from '@tmex/shared';
 import { Loader2, RefreshCcw, RotateCcw, Save, Send, Shield, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select, SelectOption } from '../components/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Select,
+  SelectOption,
+} from '../components/ui';
 import { useSiteStore } from '../stores/site';
-import { toBCP47 as toBCP47Locale } from '@tmex/shared';
 
 interface TelegramBotsResponse {
   bots: TelegramBotWithStats[];
@@ -43,6 +52,8 @@ export function SettingsPage() {
   const [siteUrl, setSiteUrl] = useState(window.location.origin);
   const [language, setLanguage] = useState<'en_US' | 'zh_CN'>('en_US');
   const [bellThrottleSeconds, setBellThrottleSeconds] = useState(6);
+  const [enableBrowserBellToast, setEnableBrowserBellToast] = useState(true);
+  const [enableTelegramBellPush, setEnableTelegramBellPush] = useState(true);
   const [sshReconnectMaxRetries, setSshReconnectMaxRetries] = useState(2);
   const [sshReconnectDelaySeconds, setSshReconnectDelaySeconds] = useState(10);
   const [showRefreshNotice, setShowRefreshNotice] = useState(false);
@@ -83,6 +94,8 @@ export function SettingsPage() {
     setSiteUrl(settings.siteUrl);
     setLanguage(settings.language ?? 'en_US');
     setBellThrottleSeconds(settings.bellThrottleSeconds);
+    setEnableBrowserBellToast(settings.enableBrowserBellToast ?? true);
+    setEnableTelegramBellPush(settings.enableTelegramBellPush ?? true);
     setSshReconnectMaxRetries(settings.sshReconnectMaxRetries);
     setSshReconnectDelaySeconds(settings.sshReconnectDelaySeconds);
   }, [settingsQuery.data?.settings]);
@@ -94,6 +107,8 @@ export function SettingsPage() {
         siteUrl,
         language,
         bellThrottleSeconds,
+        enableBrowserBellToast,
+        enableTelegramBellPush,
         sshReconnectMaxRetries,
         sshReconnectDelaySeconds,
       };
@@ -233,10 +248,43 @@ export function SettingsPage() {
               <SelectOption value="zh_CN">{t('settings.language_zh_CN')}</SelectOption>
             </Select>
             {showRefreshNotice && (
-              <p className="text-xs text-[var(--color-accent)] mt-1" data-testid="settings-refresh-notice">
+              <p
+                className="text-xs text-[var(--color-accent)] mt-1"
+                data-testid="settings-refresh-notice"
+              >
                 {t('settings.refreshToApply')}
               </p>
             )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label
+              className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none"
+              htmlFor="enable-browser-bell-toast"
+            >
+              <input
+                id="enable-browser-bell-toast"
+                data-testid="settings-enable-browser-bell-toast"
+                type="checkbox"
+                checked={enableBrowserBellToast}
+                onChange={(event) => setEnableBrowserBellToast(event.target.checked)}
+              />
+              <span>{t('settings.enableBrowserBellToast')}</span>
+            </label>
+
+            <label
+              className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none"
+              htmlFor="enable-telegram-bell-push"
+            >
+              <input
+                id="enable-telegram-bell-push"
+                data-testid="settings-enable-telegram-bell-push"
+                type="checkbox"
+                checked={enableTelegramBellPush}
+                onChange={(event) => setEnableTelegramBellPush(event.target.checked)}
+              />
+              <span>{t('settings.enableTelegramBellPush')}</span>
+            </label>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -272,7 +320,10 @@ export function SettingsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor="ssh-reconnect-delay-input">
+              <label
+                className="block text-sm font-medium mb-1.5"
+                htmlFor="ssh-reconnect-delay-input"
+              >
                 {t('settings.sshReconnectDelay')}
               </label>
               <Input
@@ -360,11 +411,15 @@ export function SettingsPage() {
 
           <div className="space-y-3">
             {botsQuery.isLoading && (
-              <div className="text-sm text-[var(--color-text-secondary)]">{t('common.loading')}</div>
+              <div className="text-sm text-[var(--color-text-secondary)]">
+                {t('common.loading')}
+              </div>
             )}
 
             {!botsQuery.isLoading && bots.length === 0 && (
-              <div className="text-sm text-[var(--color-text-secondary)]">{t('telegram.addBot')}</div>
+              <div className="text-sm text-[var(--color-text-secondary)]">
+                {t('telegram.addBot')}
+              </div>
             )}
 
             {bots.map((bot) => (
@@ -479,9 +534,12 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
 
   const approveMutation = useMutation({
     mutationFn: async (chatId: string) => {
-      const res = await fetch(`/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}/approve`, {
-        method: 'POST',
-      });
+      const res = await fetch(
+        `/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}/approve`,
+        {
+          method: 'POST',
+        }
+      );
       if (!res.ok) {
         throw new Error(await parseApiError(res, t('telegram.approveFailed')));
       }
@@ -500,9 +558,12 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
 
   const removeChatMutation = useMutation({
     mutationFn: async (chatId: string) => {
-      const res = await fetch(`/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}`, {
-        method: 'DELETE',
-      });
+      const res = await fetch(
+        `/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}`,
+        {
+          method: 'DELETE',
+        }
+      );
       if (!res.ok) {
         throw new Error(await parseApiError(res, t('telegram.removeFailed')));
       }
@@ -521,9 +582,12 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
 
   const testChatMutation = useMutation({
     mutationFn: async (chatId: string) => {
-      const res = await fetch(`/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}/test`, {
-        method: 'POST',
-      });
+      const res = await fetch(
+        `/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}/test`,
+        {
+          method: 'POST',
+        }
+      );
       if (!res.ok) {
         throw new Error(await parseApiError(res, t('telegram.testMessageFailed')));
       }
@@ -555,7 +619,11 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           <label className="block text-sm font-medium mb-1.5" htmlFor={`bot-name-${bot.id}`}>
             {t('telegram.botName')}
           </label>
-          <Input id={`bot-name-${bot.id}`} value={name} onChange={(event) => setName(event.target.value)} />
+          <Input
+            id={`bot-name-${bot.id}`}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </div>
         <div className="md:col-span-4">
           <label className="block text-sm font-medium mb-1.5" htmlFor={`bot-token-${bot.id}`}>
@@ -571,7 +639,11 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         </div>
         <div className="md:col-span-2">
           <label className="flex items-center gap-2 text-sm font-medium">
-            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+            />
             {t('common.enabled')}
           </label>
         </div>
@@ -639,7 +711,9 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           </div>
 
           {chatsQuery.isLoading && (
-            <div className="lg:col-span-2 text-xs text-[var(--color-text-secondary)]">{t('common.loading')}</div>
+            <div className="lg:col-span-2 text-xs text-[var(--color-text-secondary)]">
+              {t('common.loading')}
+            </div>
           )}
         </div>
       )}

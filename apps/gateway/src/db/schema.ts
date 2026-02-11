@@ -9,6 +9,12 @@ export const siteSettings = sqliteTable(
     siteName: text('site_name').notNull(),
     siteUrl: text('site_url').notNull(),
     bellThrottleSeconds: integer('bell_throttle_seconds').notNull(),
+    enableBrowserBellToast: integer('enable_browser_bell_toast', { mode: 'boolean' })
+      .notNull()
+      .default(true),
+    enableTelegramBellPush: integer('enable_telegram_bell_push', { mode: 'boolean' })
+      .notNull()
+      .default(true),
     sshReconnectMaxRetries: integer('ssh_reconnect_max_retries').notNull(),
     sshReconnectDelaySeconds: integer('ssh_reconnect_delay_seconds').notNull(),
     language: text('language').notNull().default('en_US'),
@@ -40,7 +46,10 @@ export const devices = sqliteTable(
   },
   (table) => [
     check('devices_type_check', sql`${table.type} in ('local', 'ssh')`),
-    check('devices_auth_mode_check', sql`${table.authMode} in ('password', 'key', 'agent', 'configRef', 'auto')`),
+    check(
+      'devices_auth_mode_check',
+      sql`${table.authMode} in ('password', 'key', 'agent', 'configRef', 'auto')`
+    ),
   ]
 );
 

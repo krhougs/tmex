@@ -11,6 +11,7 @@ import type {
   UpdateTelegramBotRequest,
   WebhookEndpoint,
 } from '@tmex/shared';
+import { toBCP47 } from '@tmex/shared';
 import type { Server } from 'bun';
 import { v4 as uuidv4 } from 'uuid';
 import { runtimeController } from '../control/runtime';
@@ -35,17 +36,17 @@ import {
   updateSiteSettings,
   updateTelegramBot,
 } from '../db';
-import { telegramService } from '../telegram/service';
 import { t } from '../i18n';
-import { toBCP47 } from '@tmex/shared';
 import { pushSupervisor } from '../push/supervisor';
+import { telegramService } from '../telegram/service';
 
 function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device>): boolean {
   if (updates.type !== undefined && updates.type !== existing.type) return true;
   if (updates.host !== undefined && updates.host !== existing.host) return true;
   if (updates.port !== undefined && updates.port !== existing.port) return true;
   if (updates.username !== undefined && updates.username !== existing.username) return true;
-  if (updates.sshConfigRef !== undefined && updates.sshConfigRef !== existing.sshConfigRef) return true;
+  if (updates.sshConfigRef !== undefined && updates.sshConfigRef !== existing.sshConfigRef)
+    return true;
   if (updates.session !== undefined && updates.session !== existing.session) return true;
   if (updates.authMode !== undefined && updates.authMode !== existing.authMode) return true;
   if (updates.passwordEnc !== undefined) return true;
@@ -55,7 +56,9 @@ function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device
   return false;
 }
 
-function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Omit<SiteSettings, 'updatedAt'>> {
+function normalizeSiteSettingsInput(
+  body: UpdateSiteSettingsRequest
+): Partial<Omit<SiteSettings, 'updatedAt'>> {
   const updates: Partial<Omit<SiteSettings, 'updatedAt'>> = {};
 
   if (body.siteName !== undefined) {
@@ -78,6 +81,20 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
       throw new Error(t('apiError.bellThrottleInvalid'));
     }
     updates.bellThrottleSeconds = value;
+  }
+
+  if (body.enableBrowserBellToast !== undefined) {
+    if (typeof body.enableBrowserBellToast !== 'boolean') {
+      throw new Error(t('apiError.invalidRequest'));
+    }
+    updates.enableBrowserBellToast = body.enableBrowserBellToast;
+  }
+
+  if (body.enableTelegramBellPush !== undefined) {
+    if (typeof body.enableTelegramBellPush !== 'boolean') {
+      throw new Error(t('apiError.invalidRequest'));
+    }
+    updates.enableTelegramBellPush = body.enableTelegramBellPush;
   }
 
   if (body.sshReconnectMaxRetries !== undefined) {
@@ -107,7 +124,10 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
   return updates;
 }
 
-export function handleApiRequest(req: Request, _server: Server<unknown>): Response | Promise<Response> {
+export function handleApiRequest(
+  req: Request,
+  _server: Server<unknown>
+): Response | Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -155,13 +175,22 @@ export function handleApiRequest(req: Request, _server: Server<unknown>): Respon
   if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats$/) && req.method === 'GET') {
     return handleListTelegramChats(path.split('/')[5]);
   }
-  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+\/approve$/) && req.method === 'POST') {
+  if (
+    path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+\/approve$/) &&
+    req.method === 'POST'
+  ) {
     return handleApproveTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
   }
-  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+\/test$/) && req.method === 'POST') {
+  if (
+    path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+\/test$/) &&
+    req.method === 'POST'
+  ) {
     return handleTestTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
   }
-  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+$/) && req.method === 'DELETE') {
+  if (
+    path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+$/) &&
+    req.method === 'DELETE'
+  ) {
     return handleDeleteTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
   }
 

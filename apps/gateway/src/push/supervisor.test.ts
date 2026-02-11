@@ -21,6 +21,8 @@ function createSettings(): SiteSettings {
     siteName: 'tmex',
     siteUrl: 'https://tmex.example.com',
     bellThrottleSeconds: 6,
+    enableBrowserBellToast: true,
+    enableTelegramBellPush: true,
     sshReconnectMaxRetries: 2,
     sshReconnectDelaySeconds: 1,
     language: 'zh_CN',
@@ -147,11 +149,10 @@ describe('PushSupervisor', () => {
       {
         paneId: '%1',
         windowId: '@1',
-        paneUrl: 'https://tmex.example.com/devices/d1/windows/@1/panes/%251',
+        paneUrl: 'https://tmex.example.com/devices/d1/windows/%401/panes/%251',
       },
     ]);
 
     await supervisor.stopAll();
   });
 });
-

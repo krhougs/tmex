@@ -147,7 +147,7 @@ describe('WebSocketServer bell extension', () => {
         paneId: '%1',
         windowIndex: 0,
         paneIndex: 0,
-        paneUrl: 'http://127.0.0.1:8085/devices/device-a/windows/@1/panes/%251',
+        paneUrl: 'http://127.0.0.1:8085/devices/device-a/windows/%401/panes/%251',
       },
     });
   });

@@ -7,7 +7,10 @@ interface ResolveBellContextOptions {
   rawData: unknown;
 }
 
-function pickPaneById(windows: TmuxWindow[], paneId: string): { window: TmuxWindow; pane: TmuxPane } | null {
+function pickPaneById(
+  windows: TmuxWindow[],
+  paneId: string
+): { window: TmuxWindow; pane: TmuxPane } | null {
   for (const window of windows) {
     const pane = window.panes.find((item) => item.id === paneId);
     if (pane) {
@@ -49,8 +52,7 @@ export function resolveBellContext(options: ResolveBellContextOptions): TmuxBell
 
   if (!targetWindow) {
     targetWindow =
-      snapshot.session.windows.find((window) => window.active) ??
-      snapshot.session.windows[0];
+      snapshot.session.windows.find((window) => window.active) ?? snapshot.session.windows[0];
   }
 
   if (!targetPane && targetWindow) {
@@ -63,7 +65,7 @@ export function resolveBellContext(options: ResolveBellContextOptions): TmuxBell
   const siteUrl = options.siteUrl.endsWith('/') ? options.siteUrl.slice(0, -1) : options.siteUrl;
   const paneUrl =
     targetWindow && targetPane
-      ? `${siteUrl}/devices/${deviceId}/windows/${targetWindow.id}/panes/${encodeURIComponent(targetPane.id)}`
+      ? `${siteUrl}/devices/${encodeURIComponent(deviceId)}/windows/${encodeURIComponent(targetWindow.id)}/panes/${encodeURIComponent(targetPane.id)}`
       : undefined;
 
   return {
@@ -74,4 +76,3 @@ export function resolveBellContext(options: ResolveBellContextOptions): TmuxBell
     paneUrl,
   };
 }
-

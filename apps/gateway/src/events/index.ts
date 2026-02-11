@@ -1,10 +1,18 @@
-import { toBCP47, type EventType, type WebhookEndpoint, type WebhookEvent } from '@tmex/shared';
+import { type EventType, type WebhookEndpoint, type WebhookEvent, toBCP47 } from '@tmex/shared';
 import { getAllWebhookEndpoints, getSiteSettings } from '../db';
 import { t } from '../i18n';
 import { telegramService } from '../telegram/service';
 
 function sanitizeMarkdownV2(input: string): string {
   return input.replace(/([_\*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+}
+
+function escapeTelegramHtmlText(input: string): string {
+  return input.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeTelegramHtmlAttribute(input: string): string {
+  return escapeTelegramHtmlText(input).replace(/"/g, '&quot;');
 }
 
 function trimTrailingSlash(url: string): string {
@@ -17,8 +25,30 @@ function buildPaneUrl(event: WebhookEvent): string | null {
   }
 
   const base = trimTrailingSlash(event.site.url);
-  const paneId = encodeURIComponent(event.tmux.paneId);
-  return `${base}/devices/${event.device.id}/windows/${event.tmux.windowId}/panes/${paneId}`;
+  const deviceId = encodeURIComponent(event.device.id);
+  const windowId = event.tmux.windowId;
+  const paneId = event.tmux.paneId;
+  return `${base}/devices/${deviceId}/windows/${windowId}/panes/${paneId}`;
+}
+
+function normalizeHttpUrl(input: string | null): string | null {
+  if (!input) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(input);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function encodePercentForTelegramUrl(url: string): string {
+  return url.replace(/%/g, '%25');
 }
 
 export class EventNotifier {
@@ -37,7 +67,10 @@ export class EventNotifier {
     console.log(`[events] refreshed config: ${this.webhooks.length} webhooks`);
   }
 
-  async notify(eventType: EventType, event: Omit<WebhookEvent, 'eventType' | 'timestamp'>): Promise<void> {
+  async notify(
+    eventType: EventType,
+    event: Omit<WebhookEvent, 'eventType' | 'timestamp'>
+  ): Promise<void> {
     this.refreshConfig();
 
     const fullEvent: WebhookEvent = {
@@ -109,13 +142,66 @@ export class EventNotifier {
     }
   }
 
-  private async sendTelegramNotifications(_eventType: EventType, event: WebhookEvent): Promise<void> {
-    const message = this.formatTelegramMessage(event);
+  private async sendTelegramNotifications(
+    eventType: EventType,
+    event: WebhookEvent
+  ): Promise<void> {
+    const settings = getSiteSettings();
+
+    if (eventType === 'terminal_bell') {
+      if (!settings.enableTelegramBellPush) {
+        return;
+      }
+      const bellMessage = this.formatTelegramBellMessage(event);
+      await telegramService.sendToAuthorizedChats({ text: bellMessage, parseMode: 'HTML' });
+      return;
+    }
+
+    const message = this.formatTelegramMessage(event, settings);
     await telegramService.sendToAuthorizedChats({ text: message });
   }
 
-  private formatTelegramMessage(event: WebhookEvent): string {
-    const settings = getSiteSettings();
+  private buildTerminalTopbarLabel(event: WebhookEvent): string {
+    const windowLabel =
+      typeof event.tmux?.windowIndex === 'number'
+        ? `${event.tmux.windowIndex}`
+        : (event.tmux?.windowId ?? '?');
+    const paneLabel =
+      typeof event.tmux?.paneIndex === 'number'
+        ? `${event.tmux.paneIndex}`
+        : (event.tmux?.paneId ?? '?');
+
+    return t('notification.telegramBell.terminalTopbarLabel', {
+      window: windowLabel,
+      pane: paneLabel,
+      device: event.device.name,
+    });
+  }
+
+  private formatTelegramBellMessage(event: WebhookEvent): string {
+    const title = t('notification.telegramBell.title', {
+      siteName: event.site.name,
+      terminalTopbarLabel: this.buildTerminalTopbarLabel(event),
+    });
+
+    const lines = [escapeTelegramHtmlText(title)];
+
+    const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
+    if (paneUrl) {
+      const tgSafePaneUrl = encodePercentForTelegramUrl(paneUrl);
+      lines.push(
+        '',
+        `<a href="${escapeTelegramHtmlAttribute(tgSafePaneUrl)}">${escapeTelegramHtmlText(t('notification.telegramBell.viewLink'))}</a>`
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  private formatTelegramMessage(
+    event: WebhookEvent,
+    settings: ReturnType<typeof getSiteSettings>
+  ): string {
     const emojiMap: Record<EventType, string> = {
       terminal_bell: '🔔',
       tmux_window_close: '🪟',

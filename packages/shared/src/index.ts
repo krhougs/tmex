@@ -45,6 +45,8 @@ export interface SiteSettings {
   siteName: string;
   siteUrl: string;
   bellThrottleSeconds: number;
+  enableBrowserBellToast: boolean;
+  enableTelegramBellPush: boolean;
   sshReconnectMaxRetries: number;
   sshReconnectDelaySeconds: number;
   language: LocaleCode;
@@ -326,6 +328,8 @@ export interface UpdateSiteSettingsRequest {
   siteName?: string;
   siteUrl?: string;
   bellThrottleSeconds?: number;
+  enableBrowserBellToast?: boolean;
+  enableTelegramBellPush?: boolean;
   sshReconnectMaxRetries?: number;
   sshReconnectDelaySeconds?: number;
   language?: LocaleCode;

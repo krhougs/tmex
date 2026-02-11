@@ -3,16 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { Unicode11Addon } from 'xterm-addon-unicode11';
 import 'xterm/css/xterm.css';
 import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
-import {
-  ArrowDownToLine,
-  Keyboard,
-  Send,
-  Smartphone,
-  Trash2,
-} from 'lucide-react';
+import { ArrowDownToLine, Keyboard, Send, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui';
 import { useSiteStore } from '../stores/site';
@@ -69,7 +64,6 @@ function normalizeLiveOutputForXterm(
 }
 
 const EDITOR_SHORTCUTS: EditorShortcut[] = [
-
   { key: 'ctrl-c', label: 'CTRL-C', payload: '\u0003' },
   { key: 'ctrl-d', label: 'CTRL-D', payload: '\u0004' },
   { key: 'home', label: 'HOME', payload: '\u001b[H' },
@@ -471,7 +465,8 @@ export function DevicePage() {
     const initTerminal = () => {
       try {
         const term = new Terminal({
-          fontFamily: 'SF Mono, Monaco, Inconsolata, "Fira Code", monospace',
+          fontFamily:
+            '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Sarasa Mono SC", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace',
           fontSize: 14,
           convertEol: true,
           scrollSensitivity: 1.35,
@@ -498,7 +493,12 @@ export function DevicePage() {
         });
 
         const fit = new FitAddon();
+        const unicode11 = new Unicode11Addon();
         term.loadAddon(fit);
+        term.loadAddon(unicode11);
+        if (term.unicode.versions.includes('11')) {
+          term.unicode.activeVersion = '11';
+        }
         term.open(container);
 
         requestAnimationFrame(() => {
@@ -553,7 +553,7 @@ export function DevicePage() {
       fitAddon.current = null;
       isTerminalReady.current = false;
     };
-    }, [applyHistoryIfAllowed, t]);
+  }, [applyHistoryIfAllowed, t]);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -569,10 +569,7 @@ export function DevicePage() {
     if (!deviceId) return;
 
     return subscribeBinary(deviceId, (output) => {
-      const normalizedOutput = normalizeLiveOutputForXterm(
-        output,
-        liveOutputEndedWithCR.current
-      );
+      const normalizedOutput = normalizeLiveOutputForXterm(output, liveOutputEndedWithCR.current);
       liveOutputEndedWithCR.current = normalizedOutput.endedWithCR;
 
       if (!isTerminalReady.current || !terminal.current) {
@@ -949,14 +946,22 @@ export function DevicePage() {
         </div>
       )}
 
-      <div className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' ? 'pb-2' : ''}`}>
+      <div
+        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' ? 'pb-2' : ''}`}
+      >
         <div ref={terminalRef} className="w-full h-full min-w-0 min-h-0" />
 
         {(isLoading || showConnecting) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/80 backdrop-blur-sm" data-testid="terminal-status-overlay">
+          <div
+            className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/80 backdrop-blur-sm"
+            data-testid="terminal-status-overlay"
+          >
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
-              <span className="text-[var(--color-text-secondary)]" data-testid="terminal-status-text">
+              <span
+                className="text-[var(--color-text-secondary)]"
+                data-testid="terminal-status-text"
+              >
                 {isLoading ? t('terminal.initializing') : t('terminal.connecting')}
               </span>
             </div>

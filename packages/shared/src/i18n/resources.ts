@@ -137,6 +137,8 @@ export const I18N_RESOURCES = {
         siteUrl: 'Site URL',
         siteUrlPlaceholder: 'http://localhost:3000',
         bellThrottle: 'Bell Throttle (seconds)',
+        enableBrowserBellToast: 'Enable Browser Bell Toast',
+        enableTelegramBellPush: 'Enable Telegram Bell Push',
         sshReconnectRetries: 'SSH Reconnect Retries',
         sshReconnectDelay: 'SSH Reconnect Delay (seconds)',
         language: 'Language',
@@ -198,7 +200,7 @@ export const I18N_RESOURCES = {
         authCount: '{{authorized}} authorized / {{pending}} pending (max 8)',
         chatId: 'Chat ID',
         applyTime: 'Application Time',
-        gatewayOnline: '🟢 Gateway Online\nSite: {{siteName}}\nTime: {{time}}',
+        gatewayOnline: '🟢 Gateway online @ {{siteName}}',
         authSuccess: '✅ Authorized. You will now receive notifications.',
         authPending: '⏳ Authorization request received. Please approve in tmex settings.',
         authFailed: '❌ Authorization request failed. Please contact administrator.',
@@ -210,22 +212,35 @@ export const I18N_RESOURCES = {
 
       // ==================== SSH Errors ====================
       sshError: {
-        sshConfigRefNotSupported: 'SSH Config reference is not supported in this version. Please use host + username with Agent/Key/Password authentication.',
-        configRefNotSupported: 'SSH Config reference is not supported in this version. Please use host + username with Agent/Key/Password authentication.',
-        agentUnavailable: 'SSH Agent unavailable: SSH_AUTH_SOCK not detected. Please check agent environment.',
+        sshConfigRefNotSupported:
+          'SSH Config reference is not supported in this version. Please use host + username with Agent/Key/Password authentication.',
+        configRefNotSupported:
+          'SSH Config reference is not supported in this version. Please use host + username with Agent/Key/Password authentication.',
+        agentUnavailable:
+          'SSH Agent unavailable: SSH_AUTH_SOCK not detected. Please check agent environment.',
         agentNoIdentity: 'SSH Agent has no available keys. Please run ssh-add first.',
         agentNoIdentities: 'SSH Agent has no available keys. Please run ssh-add first.',
-        authFailed: 'Authentication failed: incorrect username, password, or key. Please check device configuration.',
-        authFailedGeneric: 'Authentication failed: incorrect username, password, or key. Please check device configuration.',
-        networkUnreachable: 'Network unreachable: Please check routing, firewall, or VPN configuration.',
-        connectionRefused: 'Connection refused: Unable to connect to target host. Please check host address and port.',
-        timeout: 'Connection timeout: Unable to connect to device. Please check network or firewall settings.',
-        connectionTimeout: 'Connection timeout: Unable to connect to device. Please check network or firewall settings.',
-        hostNotFound: 'Host not found: Unable to resolve hostname. Please check DNS or hostname configuration.',
-        handshakeFailed: 'Handshake failed: Unable to establish secure connection. Possibly incompatible key exchange algorithm.',
-        tmuxUnavailable: 'Remote tmux unavailable or failed to start. Please ensure tmux is installed and supports -CC mode.',
+        authFailed:
+          'Authentication failed: incorrect username, password, or key. Please check device configuration.',
+        authFailedGeneric:
+          'Authentication failed: incorrect username, password, or key. Please check device configuration.',
+        networkUnreachable:
+          'Network unreachable: Please check routing, firewall, or VPN configuration.',
+        connectionRefused:
+          'Connection refused: Unable to connect to target host. Please check host address and port.',
+        timeout:
+          'Connection timeout: Unable to connect to device. Please check network or firewall settings.',
+        connectionTimeout:
+          'Connection timeout: Unable to connect to device. Please check network or firewall settings.',
+        hostNotFound:
+          'Host not found: Unable to resolve hostname. Please check DNS or hostname configuration.',
+        handshakeFailed:
+          'Handshake failed: Unable to establish secure connection. Possibly incompatible key exchange algorithm.',
+        tmuxUnavailable:
+          'Remote tmux unavailable or failed to start. Please ensure tmux is installed and supports -CC mode.',
         unknown: 'Connection failed: {{message}}',
-        reconnecting: 'Connection interrupted, reconnecting in {{delay}} seconds ({{attempt}}/{{maxRetries}})',
+        reconnecting:
+          'Connection interrupted, reconnecting in {{delay}} seconds ({{attempt}}/{{maxRetries}})',
         reconnectFailed: 'Auto-reconnect failed, please retry manually',
         reconnected: 'Device reconnected automatically',
       },
@@ -281,6 +296,11 @@ export const I18N_RESOURCES = {
         time: 'Time',
         directLink: 'Direct Link',
         message: 'Message',
+        telegramBell: {
+          title: '🔔 Bell from {{siteName}}: {{terminalTopbarLabel}}',
+          viewLink: 'Click to view',
+          terminalTopbarLabel: 'Window {{window}} · Pane {{pane}} @ {{device}}',
+        },
       },
 
       // ==================== Sidebar ====================
@@ -446,6 +466,8 @@ export const I18N_RESOURCES = {
         siteUrl: '站点访问 URL',
         siteUrlPlaceholder: 'http://localhost:3000',
         bellThrottle: 'Bell 频控（秒）',
+        enableBrowserBellToast: '开启浏览器 Bell Toast',
+        enableTelegramBellPush: '开启 Telegram Bell 推送',
         sshReconnectRetries: 'SSH 重连次数',
         sshReconnectDelay: 'SSH 重连等待（秒）',
         language: '语言',
@@ -507,7 +529,7 @@ export const I18N_RESOURCES = {
         authCount: '已授权 {{authorized}} / 待授权 {{pending}}（总上限 8）',
         chatId: 'chatId',
         applyTime: '申请时间',
-        gatewayOnline: '🟢 Gateway 已上线\n站点：{{siteName}}\n时间：{{time}}',
+        gatewayOnline: '🟢 Gateway online @ {{siteName}}',
         authSuccess: '✅ 已授权，可接收通知。',
         authPending: '⏳ 已收到授权申请，请在 tmex 设置页审批。',
         authFailed: '❌ 授权申请失败，请联系管理员。',
@@ -519,8 +541,10 @@ export const I18N_RESOURCES = {
 
       // ==================== SSH Errors ====================
       sshError: {
-        sshConfigRefNotSupported: '当前版本暂不支持 SSH Config 引用，请改为填写 host + username，并选择 Agent/私钥/密码认证',
-        configRefNotSupported: '当前版本暂不支持 SSH Config 引用，请改为填写 host + username，并选择 Agent/私钥/密码认证',
+        sshConfigRefNotSupported:
+          '当前版本暂不支持 SSH Config 引用，请改为填写 host + username，并选择 Agent/私钥/密码认证',
+        configRefNotSupported:
+          '当前版本暂不支持 SSH Config 引用，请改为填写 host + username，并选择 Agent/私钥/密码认证',
         agentUnavailable: 'SSH Agent 不可用：未检测到 SSH_AUTH_SOCK，请检查 agent 环境',
         agentNoIdentity: 'SSH Agent 未加载可用密钥，请先执行 ssh-add',
         agentNoIdentities: 'SSH Agent 未加载可用密钥，请先执行 ssh-add',
@@ -590,6 +614,11 @@ export const I18N_RESOURCES = {
         time: '时间',
         directLink: '直达',
         message: '信息',
+        telegramBell: {
+          title: '🔔 来自 {{siteName}} 的 Bell：{{terminalTopbarLabel}}',
+          viewLink: '点击查看',
+          terminalTopbarLabel: '窗口 {{window}} · Pane {{pane}} @ {{device}}',
+        },
       },
 
       // ==================== Sidebar ====================

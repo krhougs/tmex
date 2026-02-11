@@ -1,3 +1,4 @@
+import { toBCP47 } from '@tmex/shared';
 import { Bot } from 'gramio';
 import { decrypt } from '../crypto';
 import {
@@ -7,10 +8,11 @@ import {
   listAuthorizedTelegramChatsByBot,
   updateTelegramBot,
 } from '../db';
-import { toBCP47 } from '@tmex/shared';
 import { t } from '../i18n';
 
-function normalizeChatType(raw: string | undefined): 'private' | 'group' | 'supergroup' | 'channel' | 'unknown' {
+function normalizeChatType(
+  raw: string | undefined
+): 'private' | 'group' | 'supergroup' | 'channel' | 'unknown' {
   if (!raw) return 'unknown';
   if (raw === 'private' || raw === 'group' || raw === 'supergroup' || raw === 'channel') {
     return raw;
@@ -51,7 +53,6 @@ export class TelegramService {
     const settings = getSiteSettings();
     const text = t('telegram.gatewayOnline', {
       siteName,
-      time: new Date().toLocaleString(toBCP47(settings.language)),
     });
 
     await this.sendToAuthorizedChats({ text });
@@ -145,7 +146,7 @@ export class TelegramService {
         bot,
       });
 
-      const offset = bot.updates['offset'] as number | undefined;
+      const offset = bot.updates.offset as number | undefined;
       if (typeof offset === 'number') {
         updateTelegramBot(config.id, { lastUpdateId: offset });
       }
@@ -156,6 +157,7 @@ export class TelegramService {
 
   async sendToAuthorizedChats(params: {
     text: string;
+    parseMode?: 'HTML' | 'MarkdownV2';
   }): Promise<void> {
     for (const [botId, running] of this.runningBots) {
       const chats = listAuthorizedTelegramChatsByBot(botId);
@@ -169,9 +171,13 @@ export class TelegramService {
             await running.bot.api.sendMessage({
               chat_id: chat.chatId,
               text: params.text,
+              ...(params.parseMode ? { parse_mode: params.parseMode } : {}),
             });
           } catch (err) {
-            console.error(`[telegram] failed sending message to bot=${botId} chat=${chat.chatId}:`, err);
+            console.error(
+              `[telegram] failed sending message to bot=${botId} chat=${chat.chatId}:`,
+              err
+            );
           }
         })
       );
@@ -201,7 +207,7 @@ export class TelegramService {
       return;
     }
 
-    const offset = running.bot.updates['offset'] as number | undefined;
+    const offset = running.bot.updates.offset as number | undefined;
     if (typeof offset === 'number') {
       updateTelegramBot(botId, { lastUpdateId: offset });
     }

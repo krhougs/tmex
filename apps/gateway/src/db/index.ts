@@ -17,7 +17,14 @@ import { and, count, desc, eq } from 'drizzle-orm';
 import { config } from '../config';
 import { i18next } from '../i18n';
 import { getDb as getOrmDb, getSqliteClient } from './client';
-import { deviceRuntimeStatus, devices, siteSettings, telegramBotChats, telegramBots, webhookEndpoints } from './schema';
+import {
+  deviceRuntimeStatus,
+  devices,
+  siteSettings,
+  telegramBotChats,
+  telegramBots,
+  webhookEndpoints,
+} from './schema';
 
 export interface TelegramBotConfigRecord extends TelegramBotConfig {
   tokenEnc: string;
@@ -56,6 +63,8 @@ function toSiteSettings(row: typeof siteSettings.$inferSelect): SiteSettings {
     siteName: row.siteName,
     siteUrl: row.siteUrl,
     bellThrottleSeconds: row.bellThrottleSeconds,
+    enableBrowserBellToast: row.enableBrowserBellToast,
+    enableTelegramBellPush: row.enableTelegramBellPush,
     sshReconnectMaxRetries: row.sshReconnectMaxRetries,
     sshReconnectDelaySeconds: row.sshReconnectDelaySeconds,
     language: normalizeLocale(row.language),
@@ -117,6 +126,8 @@ export function ensureSiteSettingsInitialized(): void {
       siteName: config.siteNameDefault,
       siteUrl: config.baseUrl,
       bellThrottleSeconds: config.bellThrottleSecondsDefault,
+      enableBrowserBellToast: true,
+      enableTelegramBellPush: true,
       sshReconnectMaxRetries: config.sshReconnectMaxRetriesDefault,
       sshReconnectDelaySeconds: config.sshReconnectDelaySecondsDefault,
       language: normalizeLocale(config.languageDefault),
@@ -130,8 +141,7 @@ export function createDevice(device: Device): void {
   const orm = getOrmDb();
 
   orm.transaction((tx) => {
-    tx
-      .insert(devices)
+    tx.insert(devices)
       .values({
         id: device.id,
         name: device.name,
@@ -150,8 +160,7 @@ export function createDevice(device: Device): void {
       })
       .run();
 
-    tx
-      .insert(deviceRuntimeStatus)
+    tx.insert(deviceRuntimeStatus)
       .values({
         deviceId: device.id,
         lastSeenAt: null,
@@ -174,12 +183,7 @@ export function getDeviceById(id: string): Device | null {
 
 export function getAllDevices(): Device[] {
   const orm = getOrmDb();
-  return orm
-    .select()
-    .from(devices)
-    .orderBy(desc(devices.createdAt))
-    .all()
-    .map(toDevice);
+  return orm.select().from(devices).orderBy(desc(devices.createdAt)).all().map(toDevice);
 }
 
 export function updateDevice(id: string, updates: Partial<Device>): void {
@@ -252,7 +256,10 @@ export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus {
   };
 }
 
-export function updateDeviceRuntimeStatus(deviceId: string, status: Partial<DeviceRuntimeStatus>): void {
+export function updateDeviceRuntimeStatus(
+  deviceId: string,
+  status: Partial<DeviceRuntimeStatus>
+): void {
   const orm = getOrmDb();
   const setValues: Partial<typeof deviceRuntimeStatus.$inferInsert> = {};
 
@@ -270,7 +277,11 @@ export function updateDeviceRuntimeStatus(deviceId: string, status: Partial<Devi
     return;
   }
 
-  orm.update(deviceRuntimeStatus).set(setValues).where(eq(deviceRuntimeStatus.deviceId, deviceId)).run();
+  orm
+    .update(deviceRuntimeStatus)
+    .set(setValues)
+    .where(eq(deviceRuntimeStatus.deviceId, deviceId))
+    .run();
 }
 
 export function getSiteSettings(): SiteSettings {
@@ -295,12 +306,16 @@ export function getSiteSettings(): SiteSettings {
   return settings;
 }
 
-export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedAt'>>): SiteSettings {
+export function updateSiteSettings(
+  updates: Partial<Omit<SiteSettings, 'updatedAt'>>
+): SiteSettings {
   const current = getSiteSettings();
   const next: SiteSettings = {
     siteName: updates.siteName ?? current.siteName,
     siteUrl: updates.siteUrl ?? current.siteUrl,
     bellThrottleSeconds: updates.bellThrottleSeconds ?? current.bellThrottleSeconds,
+    enableBrowserBellToast: updates.enableBrowserBellToast ?? current.enableBrowserBellToast,
+    enableTelegramBellPush: updates.enableTelegramBellPush ?? current.enableTelegramBellPush,
     sshReconnectMaxRetries: updates.sshReconnectMaxRetries ?? current.sshReconnectMaxRetries,
     sshReconnectDelaySeconds: updates.sshReconnectDelaySeconds ?? current.sshReconnectDelaySeconds,
     language: updates.language ? normalizeLocale(updates.language) : current.language,
@@ -314,6 +329,8 @@ export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedA
       siteName: next.siteName,
       siteUrl: next.siteUrl,
       bellThrottleSeconds: next.bellThrottleSeconds,
+      enableBrowserBellToast: next.enableBrowserBellToast,
+      enableTelegramBellPush: next.enableTelegramBellPush,
       sshReconnectMaxRetries: next.sshReconnectMaxRetries,
       sshReconnectDelaySeconds: next.sshReconnectDelaySeconds,
       language: next.language,
@@ -434,7 +451,12 @@ export function getTelegramBotsWithStats(): TelegramBotWithStats[] {
 
 export function updateTelegramBot(
   botId: string,
-  updates: Partial<Pick<TelegramBotConfigRecord, 'name' | 'tokenEnc' | 'enabled' | 'allowAuthRequests' | 'lastUpdateId'>>
+  updates: Partial<
+    Pick<
+      TelegramBotConfigRecord,
+      'name' | 'tokenEnc' | 'enabled' | 'allowAuthRequests' | 'lastUpdateId'
+    >
+  >
 ): TelegramBotConfigRecord | null {
   const orm = getOrmDb();
   const setValues: Partial<typeof telegramBots.$inferInsert> = {
@@ -477,7 +499,10 @@ function getTelegramChatCount(botId: string): number {
   return Number(row?.total ?? 0);
 }
 
-export function getTelegramChatByBotAndChatId(botId: string, chatId: string): TelegramBotChat | null {
+export function getTelegramChatByBotAndChatId(
+  botId: string,
+  chatId: string
+): TelegramBotChat | null {
   const orm = getOrmDb();
   const row = orm
     .select()

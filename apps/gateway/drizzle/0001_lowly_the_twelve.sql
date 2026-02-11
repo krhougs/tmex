@@ -1,0 +1,2 @@
+ALTER TABLE `site_settings` ADD `enable_browser_bell_toast` integer DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE `site_settings` ADD `enable_telegram_bell_push` integer DEFAULT true NOT NULL;
