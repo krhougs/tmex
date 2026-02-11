@@ -3,9 +3,11 @@ import { decrypt } from '../crypto';
 import {
   createOrUpdatePendingTelegramChat,
   getAllTelegramBots,
+  getSiteSettings,
   listAuthorizedTelegramChatsByBot,
   updateTelegramBot,
 } from '../db';
+import { t } from '../i18n';
 
 function normalizeChatType(raw: string | undefined): 'private' | 'group' | 'supergroup' | 'channel' | 'unknown' {
   if (!raw) return 'unknown';
@@ -45,11 +47,11 @@ export class TelegramService {
   private runningBots = new Map<string, RunningBot>();
 
   async sendGatewayOnlineMessage(siteName: string): Promise<void> {
-    const text = [
-      '🟢 Gateway 已上线',
-      `站点：${siteName}`,
-      `时间：${new Date().toLocaleString('zh-CN')}`,
-    ].join('\n');
+    const settings = getSiteSettings();
+    const text = t('telegram.gatewayOnline', {
+      siteName,
+      time: new Date().toLocaleString(settings.language.replace('_', '-')),
+    });
 
     await this.sendToAuthorizedChats({ text });
   }
@@ -116,12 +118,12 @@ export class TelegramService {
           });
 
           if (result.status === 'authorized') {
-            await context.send('✅ 已授权，可接收通知。');
+            await context.send(t('telegram.authSuccess'));
           } else {
-            await context.send('⏳ 已收到授权申请，请在 tmex 设置页审批。');
+            await context.send(t('telegram.authPending'));
           }
         } catch (err) {
-          await context.send('❌ 授权申请失败，请联系管理员。');
+          await context.send(t('telegram.authFailed'));
           console.error('[telegram] failed to save pending chat:', err);
         }
       });
@@ -178,7 +180,7 @@ export class TelegramService {
   async sendTestMessage(botId: string, chatId: string, text: string): Promise<void> {
     const running = this.runningBots.get(botId);
     if (!running) {
-      throw new Error('Bot 未启动或不可用');
+      throw new Error(t('telegram.botNotRunning'));
     }
 
     await running.bot.api.sendMessage({

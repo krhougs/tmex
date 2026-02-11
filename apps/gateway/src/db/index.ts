@@ -13,6 +13,7 @@ import type {
   WebhookEndpoint,
 } from '@tmex/shared';
 import { config } from '../config';
+import { i18next } from '../i18n';
 
 type SqlValue = string | number | bigint | boolean | Uint8Array | null;
 
@@ -91,6 +92,13 @@ export function initSchema(): void {
   const deviceColumns = new Set(deviceTableInfo.map((col) => col.name));
   if (!deviceColumns.has('session')) {
     database.run("ALTER TABLE devices ADD COLUMN session TEXT DEFAULT 'tmex'");
+  }
+
+  // 幂等补列：site_settings.language（兼容旧数据库）
+  const siteSettingsTableInfo = database.prepare('PRAGMA table_info(site_settings)').all() as Array<{ name: string }>;
+  const siteSettingsColumns = new Set(siteSettingsTableInfo.map((col) => col.name));
+  if (!siteSettingsColumns.has('language')) {
+    database.run("ALTER TABLE site_settings ADD COLUMN language TEXT NOT NULL DEFAULT 'en_US'");
   }
 
   database.run(`
@@ -312,13 +320,20 @@ export function getSiteSettings(): SiteSettings {
     throw new Error('site_settings not initialized');
   }
 
+  const language = (row.language as LocaleCode) ?? 'en_US';
+
+  // 同步 i18next 语言设置（不启用自动探测）
+  if (i18next.language !== language) {
+    void i18next.changeLanguage(language);
+  }
+
   return {
     siteName: row.site_name as string,
     siteUrl: row.site_url as string,
     bellThrottleSeconds: row.bell_throttle_seconds as number,
     sshReconnectMaxRetries: row.ssh_reconnect_max_retries as number,
     sshReconnectDelaySeconds: row.ssh_reconnect_delay_seconds as number,
-    language: (row.language as LocaleCode) ?? 'en_US',
+    language,
     updatedAt: row.updated_at as string,
   };
 }

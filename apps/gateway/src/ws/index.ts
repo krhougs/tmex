@@ -16,6 +16,7 @@ import { eventNotifier } from '../events';
 import { TmuxConnection } from '../tmux/connection';
 import { classifySshError } from './error-classify';
 import type { TmuxEvent } from '../tmux/parser';
+import { t } from '../i18n';
 
 interface TermSyncSizePayload {
   deviceId: string;
@@ -348,6 +349,7 @@ export class WebSocketServer {
       };
     } catch (err) {
       const errorInfo = classifySshError(err instanceof Error ? err : new Error(String(err)));
+      const settings = getSiteSettings();
       ws.send(
         JSON.stringify({
           type: 'event/device',
@@ -355,7 +357,7 @@ export class WebSocketServer {
             deviceId,
             type: 'error',
             errorType: errorInfo.type,
-            message: errorInfo.message,
+            message: t(errorInfo.messageKey, { ...errorInfo.messageParams }),
             rawMessage: err instanceof Error ? err.message : String(err),
           },
         })
@@ -526,7 +528,7 @@ export class WebSocketServer {
         paneUrl: typeof payload.paneUrl === 'string' ? payload.paneUrl : undefined,
       },
       payload: {
-        message: 'tmux bell',
+        message: t('notification.eventType.terminal_bell'),
       },
     });
   }
@@ -646,6 +648,7 @@ export class WebSocketServer {
     if (!entry) return;
 
     const errorInfo = classifySshError(err);
+    const settings = getSiteSettings();
 
     const message = JSON.stringify({
       type: 'event/device',
@@ -653,7 +656,7 @@ export class WebSocketServer {
         deviceId,
         type: 'error',
         errorType: errorInfo.type,
-        message: errorInfo.message,
+        message: t(errorInfo.messageKey, { ...errorInfo.messageParams }),
         rawMessage: err.message,
       },
     });
@@ -678,11 +681,16 @@ export class WebSocketServer {
       entry.reconnectAttempts += 1;
       const delay = Math.max(1, sshReconnectDelaySeconds) * 1000;
 
+      const settings = getSiteSettings();
       const notifying: EventDevicePayload = {
         deviceId,
         type: 'error',
         errorType: 'reconnecting',
-        message: `连接中断，${delay / 1000} 秒后自动重连（${entry.reconnectAttempts}/${sshReconnectMaxRetries}）`,
+        message: t('sshError.reconnecting', {
+          delay: delay / 1000,
+          attempt: entry.reconnectAttempts,
+          maxRetries: sshReconnectMaxRetries,
+        }),
       };
       this.broadcastDeviceEvent(entry, notifying);
 
@@ -706,7 +714,7 @@ export class WebSocketServer {
             deviceId,
             type: 'error',
             errorType: 'reconnect_failed',
-            message: '自动重连失败，请手动重试',
+            message: t('sshError.reconnectFailed'),
           };
           this.broadcastDeviceEvent(entry, finalEvent);
           return;
@@ -719,7 +727,7 @@ export class WebSocketServer {
         const reconnected: EventDevicePayload = {
           deviceId,
           type: 'reconnected',
-          message: '设备已自动重连',
+          message: t('sshError.reconnected'),
         };
         this.broadcastDeviceEvent(retryConnection, reconnected);
 

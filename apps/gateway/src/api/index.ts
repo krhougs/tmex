@@ -36,20 +36,21 @@ import {
   updateTelegramBot,
 } from '../db';
 import { telegramService } from '../telegram/service';
+import { t } from '../i18n';
 
 function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Omit<SiteSettings, 'updatedAt'>> {
   const updates: Partial<Omit<SiteSettings, 'updatedAt'>> = {};
 
   if (body.siteName !== undefined) {
     const value = body.siteName.trim();
-    if (!value) throw new Error('站点名称不能为空');
+    if (!value) throw new Error(t('apiError.siteNameRequired'));
     updates.siteName = value;
   }
 
   if (body.siteUrl !== undefined) {
     const value = body.siteUrl.trim();
     if (!/^https?:\/\//i.test(value)) {
-      throw new Error('站点 URL 必须以 http:// 或 https:// 开头');
+      throw new Error(t('apiError.siteUrlInvalid'));
     }
     updates.siteUrl = value;
   }
@@ -57,7 +58,7 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
   if (body.bellThrottleSeconds !== undefined) {
     const value = Math.floor(Number(body.bellThrottleSeconds));
     if (Number.isNaN(value) || value < 0 || value > 300) {
-      throw new Error('Bell 频控秒数需在 0-300 之间');
+      throw new Error(t('apiError.bellThrottleInvalid'));
     }
     updates.bellThrottleSeconds = value;
   }
@@ -65,7 +66,7 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
   if (body.sshReconnectMaxRetries !== undefined) {
     const value = Math.floor(Number(body.sshReconnectMaxRetries));
     if (Number.isNaN(value) || value < 0 || value > 20) {
-      throw new Error('SSH 重连次数需在 0-20 之间');
+      throw new Error(t('apiError.sshRetriesInvalid'));
     }
     updates.sshReconnectMaxRetries = value;
   }
@@ -73,7 +74,7 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
   if (body.sshReconnectDelaySeconds !== undefined) {
     const value = Math.floor(Number(body.sshReconnectDelaySeconds));
     if (Number.isNaN(value) || value < 1 || value > 300) {
-      throw new Error('SSH 重连等待时间需在 1-300 秒之间');
+      throw new Error(t('apiError.sshDelayInvalid'));
     }
     updates.sshReconnectDelaySeconds = value;
   }
@@ -161,7 +162,7 @@ export function handleApiRequest(req: Request, _server: Server<unknown>): Respon
     return json({ status: 'ok', restarting: runtimeController.isRestarting() });
   }
 
-  return json({ error: 'Not found' }, 404);
+  return json({ error: t('apiError.notFound') }, 404);
 }
 
 async function handleGetDevices(): Promise<Response> {
@@ -172,7 +173,7 @@ async function handleGetDevices(): Promise<Response> {
 async function handleGetDevice(id: string): Promise<Response> {
   const device = getDeviceById(id);
   if (!device) {
-    return json({ error: 'Device not found' }, 404);
+    return json({ error: t('apiError.deviceNotFound') }, 404);
   }
   return json({ device });
 }
@@ -181,11 +182,11 @@ async function handleCreateDevice(req: Request): Promise<Response> {
   const body = (await req.json()) as CreateDeviceRequest;
 
   if (!body.name || !body.type || !body.authMode) {
-    return json({ error: 'Missing required fields' }, 400);
+    return json({ error: t('apiError.missingFields') }, 400);
   }
 
   if (body.type === 'ssh' && !body.host && !body.sshConfigRef) {
-    return json({ error: 'SSH device requires host or sshConfigRef' }, 400);
+    return json({ error: t('apiError.sshRequiresHost') }, 400);
   }
 
   const now = new Date().toISOString();
@@ -216,7 +217,7 @@ async function handleCreateDevice(req: Request): Promise<Response> {
 async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
   const existing = getDeviceById(id);
   if (!existing) {
-    return json({ error: 'Device not found' }, 404);
+    return json({ error: t('apiError.deviceNotFound') }, 404);
   }
 
   const body = (await req.json()) as UpdateDeviceRequest;
@@ -244,7 +245,7 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
 async function handleDeleteDevice(id: string): Promise<Response> {
   const existing = getDeviceById(id);
   if (!existing) {
-    return json({ error: 'Device not found' }, 404);
+    return json({ error: t('apiError.deviceNotFound') }, 404);
   }
 
   deleteDevice(id);
@@ -254,7 +255,7 @@ async function handleDeleteDevice(id: string): Promise<Response> {
 async function handleTestConnection(id: string): Promise<Response> {
   const device = getDeviceById(id);
   if (!device) {
-    return json({ error: 'Device not found' }, 404);
+    return json({ error: t('apiError.deviceNotFound') }, 404);
   }
 
   return json({
@@ -287,7 +288,7 @@ async function handleRestartGateway(): Promise<Response> {
 
   return json({
     success: true,
-    message: 'Gateway restart scheduled',
+    message: t('settings.restartScheduled'),
   });
 }
 
@@ -300,10 +301,10 @@ async function handleCreateTelegramBot(req: Request): Promise<Response> {
   const body = (await req.json()) as CreateTelegramBotRequest;
 
   if (!body.name?.trim()) {
-    return json({ error: 'Bot 名称不能为空' }, 400);
+    return json({ error: t('apiError.botNameRequired') }, 400);
   }
   if (!body.token?.trim()) {
-    return json({ error: 'Bot token 不能为空' }, 400);
+    return json({ error: t('apiError.botTokenRequired') }, 400);
   }
 
   const now = new Date().toISOString();
@@ -326,7 +327,7 @@ async function handleCreateTelegramBot(req: Request): Promise<Response> {
 async function handleUpdateTelegramBot(req: Request, botId: string): Promise<Response> {
   const existing = getTelegramBotById(botId);
   if (!existing) {
-    return json({ error: 'Bot 不存在' }, 404);
+    return json({ error: t('apiError.botNotFound') }, 404);
   }
 
   const body = (await req.json()) as UpdateTelegramBotRequest;
@@ -340,7 +341,7 @@ async function handleUpdateTelegramBot(req: Request, botId: string): Promise<Res
   if (body.name !== undefined) {
     const value = body.name.trim();
     if (!value) {
-      return json({ error: 'Bot 名称不能为空' }, 400);
+      return json({ error: t('apiError.botNameRequired') }, 400);
     }
     updates.name = value;
   }
@@ -348,7 +349,7 @@ async function handleUpdateTelegramBot(req: Request, botId: string): Promise<Res
   if (body.token !== undefined) {
     const token = body.token.trim();
     if (!token) {
-      return json({ error: 'Bot token 不能为空' }, 400);
+      return json({ error: t('apiError.botTokenRequired') }, 400);
     }
     updates.tokenEnc = await encrypt(token);
   }
@@ -370,7 +371,7 @@ async function handleUpdateTelegramBot(req: Request, botId: string): Promise<Res
 async function handleDeleteTelegramBot(botId: string): Promise<Response> {
   const existing = getTelegramBotById(botId);
   if (!existing) {
-    return json({ error: 'Bot 不存在' }, 404);
+    return json({ error: t('apiError.botNotFound') }, 404);
   }
 
   deleteTelegramBot(botId);
@@ -382,7 +383,7 @@ async function handleDeleteTelegramBot(botId: string): Promise<Response> {
 async function handleListTelegramChats(botId: string): Promise<Response> {
   const existing = getTelegramBotById(botId);
   if (!existing) {
-    return json({ error: 'Bot 不存在' }, 404);
+    return json({ error: t('apiError.botNotFound') }, 404);
   }
 
   const chats = listTelegramChatsByBot(botId);
@@ -392,18 +393,22 @@ async function handleListTelegramChats(botId: string): Promise<Response> {
 async function handleApproveTelegramChat(botId: string, chatId: string): Promise<Response> {
   const existing = getTelegramBotById(botId);
   if (!existing) {
-    return json({ error: 'Bot 不存在' }, 404);
+    return json({ error: t('apiError.botNotFound') }, 404);
   }
 
   const chat = approveTelegramChat(botId, chatId);
   if (!chat) {
-    return json({ error: 'Chat 不存在' }, 404);
+    return json({ error: t('apiError.chatNotFound') }, 404);
   }
 
+  const settings = getSiteSettings();
   await telegramService.sendTestMessage(
     botId,
     chatId,
-    `✅ 已通过 tmex 授权。\nBot：${existing.name}\n时间：${new Date().toLocaleString('zh-CN')}`
+    t('telegram.approveMessageTemplate', {
+      botName: existing.name,
+      time: new Date().toLocaleString(settings.language.replace('_', '-')),
+    })
   );
 
   return json({ chat });
@@ -412,7 +417,7 @@ async function handleApproveTelegramChat(botId: string, chatId: string): Promise
 async function handleDeleteTelegramChat(botId: string, chatId: string): Promise<Response> {
   const existing = getTelegramBotById(botId);
   if (!existing) {
-    return json({ error: 'Bot 不存在' }, 404);
+    return json({ error: t('apiError.botNotFound') }, 404);
   }
 
   deleteTelegramChat(botId, chatId);
@@ -422,7 +427,7 @@ async function handleDeleteTelegramChat(botId: string, chatId: string): Promise<
 async function handleTestTelegramChat(botId: string, chatId: string): Promise<Response> {
   const bot = getTelegramBotById(botId);
   if (!bot) {
-    return json({ error: 'Bot 不存在' }, 404);
+    return json({ error: t('apiError.botNotFound') }, 404);
   }
 
   const settings = getSiteSettings();
@@ -430,7 +435,10 @@ async function handleTestTelegramChat(botId: string, chatId: string): Promise<Re
   await telegramService.sendTestMessage(
     botId,
     chatId,
-    `🧪 测试消息\n站点：${settings.siteName}\n时间：${new Date().toLocaleString('zh-CN')}`
+    t('telegram.testMessageTemplate', {
+      siteName: settings.siteName,
+      time: new Date().toLocaleString(settings.language.replace('_', '-')),
+    })
   );
 
   return json({ success: true });
@@ -445,7 +453,7 @@ async function handleCreateWebhook(req: Request): Promise<Response> {
   const body = await req.json();
 
   if (!body.url || !body.secret) {
-    return json({ error: 'URL and secret required' }, 400);
+    return json({ error: t('apiError.urlAndSecretRequired') }, 400);
   }
 
   const now = new Date().toISOString();
