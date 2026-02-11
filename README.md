@@ -21,6 +21,12 @@ A Vibe Coding supervisor optimized for CJK input and mobile operation ~~, and a 
 - 🤖 **95% Vibe-coded** — 95% 代码由 AI 生成，经过人工审阅把关代码质量
 - 🤖 **95% Vibe-coded** — 95% of the code is AI-generated, human-reviewed for code quality
 
+## 健康免责 / Health Disclaimer
+
+本项目不对因使用本工具导致的睡眠障碍、作息紊乱及其他健康问题承担任何责任。Coding Agent 凌晨三点喊你 review 不是我们的锅。
+
+We are not responsible for any sleep deprivation, disrupted schedules, or other health issues caused by using this tool. It's not our fault if your Coding Agent wakes you up at 3 AM for a review.
+
 <p align="center">
   <img src="docs/images/3.jpg" width="200" alt="Mobile - Editor mode on phone" />&nbsp;&nbsp;
   <img src="docs/images/1.jpg" width="620" alt="Desktop - Coding Agent running in tmux" />
@@ -51,12 +57,6 @@ A Vibe Coding supervisor optimized for CJK input and mobile operation ~~, and a 
 
 - 敏感数据（密码、私钥）使用 AES-256-GCM 加密存储 / Sensitive data (passwords, private keys) stored with AES-256-GCM encryption
 - Webhook 使用 HMAC-SHA256 签名验证 / Webhooks verified with HMAC-SHA256 signatures
-
-## 健康免责 / Health Disclaimer
-
-本项目不对因使用本工具导致的睡眠障碍、作息紊乱及其他健康问题承担任何责任。Coding Agent 凌晨三点喊你 review 不是我们的锅。
-
-We are not responsible for any sleep deprivation, disrupted schedules, or other health issues caused by using this tool. It's not our fault if your Coding Agent wakes you up at 3 AM for a review.
 
 ## 使用说明 / Usage
 
