@@ -18,8 +18,8 @@ export const config = {
   adminPassword: requireEnv('TMEX_ADMIN_PASSWORD'),
 
   // 服务配置
-  port: Number.parseInt(getEnv('GATEWAY_PORT', '8080'), 10),
-  baseUrl: getEnv('TMEX_BASE_URL', 'http://localhost:8080'),
+  port: Number.parseInt(getEnv('GATEWAY_PORT', '9663'), 10),
+  baseUrl: getEnv('TMEX_BASE_URL', 'http://localhost:9663'),
 
   // 数据库
   databaseUrl: getEnv('DATABASE_URL', '/data/tmex.db'),

@@ -1,9 +1,11 @@
-import type { EventDevicePayload, StateSnapshotPayload, WsMessage } from '@tmex/shared';
+import type { EventDevicePayload, StateSnapshotPayload, TermHistoryPayload, WsMessage } from '@tmex/shared';
 import { create } from 'zustand';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
 
 type ConnectionRef = 'sidebar' | 'page';
+
+type HistoryHandler = (data: string) => void;
 
 interface DeviceError {
   message: string;
@@ -13,6 +15,13 @@ interface DeviceError {
 interface PendingBinarySubscriber {
   deviceId: string;
   handler: (data: Uint8Array) => void;
+}
+
+interface HistorySubscriber {
+  deviceId: string;
+  paneId: string;
+  handler: HistoryHandler;
+  subscribedAt: number;
 }
 
 interface TmuxState {
@@ -29,18 +38,26 @@ interface TmuxState {
   disconnectDevice: (deviceId: string, ref?: ConnectionRef) => void;
   clearDeviceError: (deviceId: string) => void;
   selectPane: (deviceId: string, windowId: string, paneId: string) => void;
+  selectWindow: (deviceId: string, windowId: string) => void;
   sendInput: (deviceId: string, paneId: string, data: string, isComposing?: boolean) => void;
   resizePane: (deviceId: string, paneId: string, cols: number, rows: number) => void;
+  syncPaneSize: (deviceId: string, paneId: string, cols: number, rows: number) => void;
   paste: (deviceId: string, paneId: string, data: string) => void;
   createWindow: (deviceId: string, name?: string) => void;
   closeWindow: (deviceId: string, windowId: string) => void;
   closePane: (deviceId: string, paneId: string) => void;
 
   subscribeBinary: (deviceId: string, handler: (output: Uint8Array) => void) => () => void;
+  subscribeHistory: (deviceId: string, paneId: string, handler: HistoryHandler) => () => void;
 }
 
 let wsSingleton: WebSocket | null = null;
 const binarySubscribers: PendingBinarySubscriber[] = [];
+const historySubscribers: HistorySubscriber[] = [];
+
+// 待发送的消息队列
+const pendingMessages: Array<Omit<WsMessage<unknown>, 'timestamp'>> = [];
+const MAX_PENDING_MESSAGES = 100;
 
 function extractTerminalOutput(
   frame: Uint8Array
@@ -59,8 +76,31 @@ function extractTerminalOutput(
   return { deviceId, paneId, output };
 }
 
+function flushPendingMessages(): Set<string> {
+  const connectedDeviceIds = new Set<string>();
+  if (!wsSingleton || wsSingleton.readyState !== WebSocket.OPEN) return connectedDeviceIds;
+  while (pendingMessages.length > 0) {
+    const msg = pendingMessages.shift();
+    if (msg) {
+      if (msg.type === 'device/connect') {
+        const payload = msg.payload as { deviceId?: string };
+        if (payload?.deviceId) {
+          connectedDeviceIds.add(payload.deviceId);
+        }
+      }
+      wsSingleton.send(JSON.stringify({ ...msg, timestamp: new Date().toISOString() }));
+    }
+  }
+
+  return connectedDeviceIds;
+}
+
 function sendJson(message: Omit<WsMessage<unknown>, 'timestamp'>): void {
   if (!wsSingleton || wsSingleton.readyState !== WebSocket.OPEN) {
+    // 如果 socket 未就绪，将消息加入队列（限制队列大小）
+    if (pendingMessages.length < MAX_PENDING_MESSAGES) {
+      pendingMessages.push(message);
+    }
     return;
   }
   wsSingleton.send(JSON.stringify({ ...message, timestamp: new Date().toISOString() }));
@@ -79,7 +119,15 @@ function ensureSocket(
 
   wsSingleton.onopen = () => {
     setState({ socketReady: true });
+
+    // 先发送队列中的消息，避免与重连逻辑重复触发 connect
+    const alreadyConnected = flushPendingMessages();
+
+    // 重新连接所有已连接的设备
     for (const deviceId of getState().connectedDevices) {
+      if (alreadyConnected.has(deviceId)) {
+        continue;
+      }
       sendJson({ type: 'device/connect', payload: { deviceId } });
     }
   };
@@ -163,6 +211,16 @@ function ensureSocket(
         }));
         return;
       }
+
+      case 'term/history': {
+        const payload = msg.payload as TermHistoryPayload;
+        for (const sub of historySubscribers) {
+          if (sub.deviceId === payload.deviceId && sub.paneId === payload.paneId) {
+            sub.handler(payload.data);
+          }
+        }
+        return;
+      }
     }
   };
 
@@ -177,7 +235,8 @@ function ensureSocket(
     wsSingleton = null;
   };
 
-  wsSingleton.onerror = () => {
+  wsSingleton.onerror = (error) => {
+    console.error('[tmux] WebSocket error:', error);
     setState({ socketReady: false });
   };
 }
@@ -203,6 +262,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
       return;
     }
 
+    const isFirstReference = Object.keys(existingRefs).length === 0;
     const nextRefs: Partial<Record<ConnectionRef, true>> = { ...existingRefs, [ref]: true };
     const nextConnectionRefs = { ...current.connectionRefs, [deviceId]: nextRefs };
     const nextConnected = new Set(current.connectedDevices);
@@ -211,7 +271,9 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     set({ connectionRefs: nextConnectionRefs, connectedDevices: nextConnected });
 
     ensureSocket(set, get);
-    sendJson({ type: 'device/connect', payload: { deviceId } });
+    if (isFirstReference) {
+      sendJson({ type: 'device/connect', payload: { deviceId } });
+    }
   },
 
   disconnectDevice: (deviceId, ref = 'page') => {
@@ -259,12 +321,20 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     sendJson({ type: 'tmux/select', payload: { deviceId, windowId, paneId } });
   },
 
+  selectWindow: (deviceId, windowId) => {
+    sendJson({ type: 'tmux/select-window', payload: { deviceId, windowId } });
+  },
+
   sendInput: (deviceId, paneId, data, isComposing) => {
     sendJson({ type: 'term/input', payload: { deviceId, paneId, data, isComposing } });
   },
 
   resizePane: (deviceId, paneId, cols, rows) => {
     sendJson({ type: 'term/resize', payload: { deviceId, paneId, cols, rows } });
+  },
+
+  syncPaneSize: (deviceId, paneId, cols, rows) => {
+    sendJson({ type: 'term/sync-size', payload: { deviceId, paneId, cols, rows } });
   },
 
   paste: (deviceId, paneId, data) => {
@@ -289,6 +359,24 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     return () => {
       const idx = binarySubscribers.indexOf(sub);
       if (idx >= 0) binarySubscribers.splice(idx, 1);
+    };
+  },
+
+  subscribeHistory: (deviceId, paneId, handler) => {
+    const sub: HistorySubscriber = { deviceId, paneId, handler, subscribedAt: Date.now() };
+    historySubscribers.push(sub);
+    
+    // 清理过期的订阅（超过10分钟的）
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (let i = historySubscribers.length - 1; i >= 0; i--) {
+      if (historySubscribers[i].subscribedAt < cutoff) {
+        historySubscribers.splice(i, 1);
+      }
+    }
+    
+    return () => {
+      const idx = historySubscribers.indexOf(sub);
+      if (idx >= 0) historySubscribers.splice(idx, 1);
     };
   },
 }));

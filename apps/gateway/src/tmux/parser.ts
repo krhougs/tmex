@@ -72,6 +72,20 @@ export function decodeTmuxEscapedValue(value: string): Uint8Array {
   return new Uint8Array(bytes);
 }
 
+function stripTmuxDcsWrapper(line: string): string {
+  let cleanLine = line;
+
+  cleanLine = cleanLine.replace(/^\u001bP\d+p/, '');
+
+  if (cleanLine.endsWith('\u001b\\')) {
+    cleanLine = cleanLine.slice(0, -2);
+  } else if (cleanLine.endsWith('\u009c')) {
+    cleanLine = cleanLine.slice(0, -1);
+  }
+
+  return cleanLine;
+}
+
 export class TmuxControlParser {
   private buffer = '';
   private onEvent: (event: TmuxEvent) => void;
@@ -105,22 +119,17 @@ export class TmuxControlParser {
   }
 
   private parseBuffer(): void {
-    // tmux -CC 输出以 \n 或 \r\n 结束
-    // 也处理单独的 \r（行内回车）
+    // tmux -CC 协议按换行分隔控制消息；保留行内的 \r，避免破坏 TUI 重绘序列
     while (true) {
       const nlIndex = this.buffer.indexOf('\n');
-      const crIndex = this.buffer.indexOf('\r');
-      
-      // 找到最早的分隔符
-      let endIndex = nlIndex;
-      if (crIndex !== -1 && (nlIndex === -1 || crIndex < nlIndex)) {
-        endIndex = crIndex;
-      }
-      
-      if (endIndex === -1) break;
+      if (nlIndex === -1) break;
 
-      const line = this.buffer.slice(0, endIndex);
-      this.buffer = this.buffer.slice(endIndex + 1);
+      let line = this.buffer.slice(0, nlIndex);
+      this.buffer = this.buffer.slice(nlIndex + 1);
+
+      if (line.endsWith('\r')) {
+        line = line.slice(0, -1);
+      }
 
       // 忽略空行
       if (line) {
@@ -130,8 +139,7 @@ export class TmuxControlParser {
   }
 
   private parseLine(line: string): void {
-    // 处理 DCS 序列包装的情况 (如 \033P1000p%begin...)
-    const cleanLine = line.replace(/^\033P\d+p/, '');
+    const cleanLine = stripTmuxDcsWrapper(line);
 
     if (this.inOutputBlock) {
       if (cleanLine.startsWith('%end') || cleanLine.startsWith('%error')) {
@@ -338,9 +346,11 @@ export class TmuxControlParser {
         // 暂停/恢复输出
         break;
 
+      case '%client-session-changed':
+      case '%client-detached':
       case 'lient-session-changed':
       case 'lient-detached':
-        // 这些是 %client-* 事件被截断的情况，忽略即可
+        // 处理 %client-* 事件（包括可能被截断的情况）
         break;
 
       default:
@@ -383,9 +393,6 @@ export class TmuxControlParser {
    * 清空缓冲区
    */
   flush(): void {
-    if (this.buffer) {
-      console.log('[tmux] flushing remaining buffer:', this.buffer);
-      this.buffer = '';
-    }
+    this.buffer = '';
   }
 }

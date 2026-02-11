@@ -8,8 +8,17 @@ import type {
   TermPastePayload,
   TermResizePayload,
   TmuxSelectPayload,
+  TmuxSelectWindowPayload,
   WsMessage,
 } from '@tmex/shared';
+
+// TermSyncSizePayload 与 TermResizePayload 结构相同
+interface TermSyncSizePayload {
+  deviceId: string;
+  paneId: string;
+  cols: number;
+  rows: number;
+}
 import type { Server, ServerWebSocket } from 'bun';
 import { verifyJwtToken } from '../auth';
 import { TmuxConnection } from '../tmux/connection';
@@ -66,6 +75,7 @@ interface DeviceConnectionEntry {
   clients: Set<ServerWebSocket<ClientState>>;
   lastSnapshot: StateSnapshotPayload | null;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
+  snapshotPollTimer: ReturnType<typeof setInterval> | null;
 }
 
 export class WebSocketServer {
@@ -75,6 +85,42 @@ export class WebSocketServer {
     if (!entry.snapshotTimer) return;
     clearTimeout(entry.snapshotTimer);
     entry.snapshotTimer = null;
+  }
+
+  private clearSnapshotPollTimer(entry: DeviceConnectionEntry): void {
+    if (!entry.snapshotPollTimer) return;
+    clearInterval(entry.snapshotPollTimer);
+    entry.snapshotPollTimer = null;
+  }
+
+  private refreshSnapshotPolling(deviceId: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+
+    const hasSelectedPaneClient = Array.from(entry.clients).some((client) =>
+      Boolean(client.data.selectedPanes[deviceId])
+    );
+
+    if (!hasSelectedPaneClient) {
+      this.clearSnapshotPollTimer(entry);
+      return;
+    }
+
+    if (entry.snapshotPollTimer) {
+      return;
+    }
+
+    entry.snapshotPollTimer = setInterval(() => {
+      if (this.connections.get(deviceId) !== entry) {
+        return;
+      }
+
+      try {
+        entry.connection.requestSnapshot();
+      } catch (err) {
+        console.error('[ws] polling snapshot failed:', err);
+      }
+    }, 1000);
   }
 
   private scheduleSnapshot(deviceId: string): void {
@@ -145,8 +191,11 @@ export class WebSocketServer {
       if (entry.clients.size === 0) {
         console.log(`[ws] no more clients for device ${deviceId}, disconnecting`);
         this.clearSnapshotTimer(entry);
+        this.clearSnapshotPollTimer(entry);
         entry.connection.disconnect();
         toDelete.push(deviceId);
+      } else {
+        this.refreshSnapshotPolling(deviceId);
       }
     }
 
@@ -180,6 +229,12 @@ export class WebSocketServer {
         break;
       }
 
+      case 'tmux/select-window': {
+        const data = payload as TmuxSelectWindowPayload;
+        this.handleTmuxSelectWindow(ws, data);
+        break;
+      }
+
       case 'term/input': {
         const data = payload as TermInputPayload;
         this.handleTermInput(ws, data);
@@ -189,6 +244,12 @@ export class WebSocketServer {
       case 'term/resize': {
         const data = payload as TermResizePayload;
         this.handleTermResize(ws, data);
+        break;
+      }
+
+      case 'term/sync-size': {
+        const data = payload as TermSyncSizePayload;
+        this.handleTermSyncSize(ws, data);
         break;
       }
 
@@ -233,6 +294,7 @@ export class WebSocketServer {
         deviceId,
         onEvent: (event) => this.broadcastTmuxEvent(deviceId, event),
         onTerminalOutput: (paneId, data) => this.broadcastTerminalOutput(deviceId, paneId, data),
+        onTerminalHistory: (paneId, data) => this.broadcastTerminalHistory(deviceId, paneId, data),
         onSnapshot: (payload) => this.broadcastStateSnapshot(deviceId, payload),
         onError: (err) => this.broadcastError(deviceId, err),
         onClose: () => this.handleConnectionClose(deviceId),
@@ -245,6 +307,7 @@ export class WebSocketServer {
           clients: new Set(),
           lastSnapshot: null,
           snapshotTimer: null,
+          snapshotPollTimer: null,
         };
         this.connections.set(deviceId, entry);
       } catch (err) {
@@ -294,9 +357,11 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (entry) {
       entry.clients.delete(ws);
+      this.refreshSnapshotPolling(deviceId);
 
       if (entry.clients.size === 0) {
         this.clearSnapshotTimer(entry);
+        this.clearSnapshotPollTimer(entry);
         entry.connection.disconnect();
         this.connections.delete(deviceId);
       }
@@ -312,12 +377,25 @@ export class WebSocketServer {
     );
   }
 
-  private handleTmuxSelect(ws: ServerWebSocket<ClientState>, data: TmuxSelectPayload): void {
+  private handleTmuxSelectWindow(ws: ServerWebSocket<ClientState>, data: TmuxSelectWindowPayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
+    entry.connection.selectWindow(data.windowId);
+  }
+
+  private handleTmuxSelect(ws: ServerWebSocket<ClientState>, data: TmuxSelectPayload): void {
+    console.log('[ws] handleTmuxSelect', data.deviceId, data.windowId, data.paneId);
+
     if (data.paneId !== undefined) {
       ws.data.selectedPanes[data.deviceId] = data.paneId;
+      this.refreshSnapshotPolling(data.deviceId);
+    }
+
+    const entry = this.connections.get(data.deviceId);
+    if (!entry) {
+      console.log('[ws] no entry for device', data.deviceId);
+      return;
     }
 
     if (data.windowId && data.paneId) {
@@ -340,6 +418,17 @@ export class WebSocketServer {
   private handleTermResize(ws: ServerWebSocket<ClientState>, data: TermResizePayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
+
+    console.log('[ws] term/resize', data.deviceId, data.paneId, `${data.cols}x${data.rows}`);
+
+    entry.connection.resizePane(data.paneId, data.cols, data.rows);
+  }
+
+  private handleTermSyncSize(ws: ServerWebSocket<ClientState>, data: TermSyncSizePayload): void {
+    const entry = this.connections.get(data.deviceId);
+    if (!entry) return;
+
+    console.log('[ws] term/sync-size', data.deviceId, data.paneId, `${data.cols}x${data.rows}`);
 
     entry.connection.resizePane(data.paneId, data.cols, data.rows);
   }
@@ -446,6 +535,34 @@ export class WebSocketServer {
     }
   }
 
+  private broadcastTerminalHistory(deviceId: string, paneId: string, data: string): void {
+    console.log('[ws] broadcastTerminalHistory', deviceId, paneId, 'data length:', data.length);
+    const entry = this.connections.get(deviceId);
+    if (!entry) {
+      console.log('[ws] no entry for device', deviceId);
+      return;
+    }
+
+    const message = JSON.stringify({
+      type: 'term/history',
+      payload: {
+        deviceId,
+        paneId,
+        data,
+      },
+    });
+
+    let sentCount = 0;
+    for (const client of entry.clients) {
+      if (client.data.selectedPanes[deviceId] !== paneId) {
+        continue;
+      }
+      client.send(message);
+      sentCount++;
+    }
+    console.log('[ws] sent history to', sentCount, 'clients');
+  }
+
   private broadcastError(deviceId: string, err: Error): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
@@ -469,6 +586,7 @@ export class WebSocketServer {
     if (!entry) return;
 
     this.clearSnapshotTimer(entry);
+    this.clearSnapshotPollTimer(entry);
 
     const message = JSON.stringify({
       type: 'event/device',

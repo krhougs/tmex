@@ -17,7 +17,12 @@ function resolveBunExecutable(): string {
   return 'bun';
 }
 
-const baseURL = process.env.TMEX_E2E_BASE_URL ?? 'http://localhost:3000';
+// 默认端口配置
+const DEFAULT_GATEWAY_PORT = 9663;
+const DEFAULT_FE_PORT = 9883;
+
+const gatewayPort = Number(process.env.TMEX_E2E_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT;
+const fePort = Number(process.env.TMEX_E2E_FE_PORT) || DEFAULT_FE_PORT;
 const adminPassword = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const bunExecutable = resolveBunExecutable();
 
@@ -30,7 +35,7 @@ export default defineConfig({
     ? [['line'], ['html', { open: 'never' }]]
     : [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL,
+    baseURL: `http://localhost:${fePort}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -51,11 +56,11 @@ export default defineConfig({
         TMEX_MASTER_KEY: 'tGd9gPmdUkJrpRQK+db60sc+NkxymxgGqKrReDU4Kus=',
         TMEX_ADMIN_PASSWORD: adminPassword,
         JWT_SECRET: 'dev-jwt-secret-not-for-production',
-        GATEWAY_PORT: '8080',
-        DATABASE_URL: '/tmp/tmex-e2e.db',
-        TMEX_BASE_URL: 'http://localhost:8080',
+        GATEWAY_PORT: String(gatewayPort),
+        DATABASE_URL: process.env.TMEX_E2E_DATABASE_URL ?? `/tmp/tmex-e2e-${Date.now()}.db`,
+        TMEX_BASE_URL: `http://localhost:${gatewayPort}`,
       },
-      url: 'http://localhost:8080/healthz',
+      url: `http://localhost:${gatewayPort}/healthz`,
       timeout: 60_000,
       reuseExistingServer: !process.env.CI,
       stdout: 'pipe',
@@ -65,9 +70,13 @@ export default defineConfig({
     {
       name: 'fe',
       cwd: '.',
-      command: 'npm run dev -- --host 0.0.0.0 --port 3000',
-      env: { ...process.env },
-      url: baseURL,
+      command: `${bunExecutable} run dev`,
+      env: {
+        ...process.env,
+        FE_PORT: String(fePort),
+        TMEX_GATEWAY_URL: `http://localhost:${gatewayPort}`,
+      },
+      url: `http://localhost:${fePort}`,
       timeout: 60_000,
       reuseExistingServer: !process.env.CI,
       stdout: 'pipe',
@@ -76,3 +85,5 @@ export default defineConfig({
     },
   ],
 });
+
+export { DEFAULT_GATEWAY_PORT, DEFAULT_FE_PORT };

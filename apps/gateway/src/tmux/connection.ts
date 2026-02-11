@@ -9,6 +9,7 @@ export interface TmuxConnectionOptions {
   deviceId: string;
   onEvent: (event: TmuxEvent) => void;
   onTerminalOutput: (paneId: string, data: Uint8Array) => void;
+  onTerminalHistory: (paneId: string, data: string) => void;
   onSnapshot: (payload: StateSnapshotPayload) => void;
   onError: (error: Error) => void;
   onClose: () => void;
@@ -24,10 +25,12 @@ export class TmuxConnection {
   private parser: TmuxControlParser;
   private onEvent: (event: TmuxEvent) => void;
   private onTerminalOutput: (paneId: string, data: Uint8Array) => void;
+  private onTerminalHistory: (paneId: string, data: string) => void;
   private onSnapshot: (payload: StateSnapshotPayload) => void;
   private onError: (error: Error) => void;
   private onClose: () => void;
   private activePaneId: string | null = null;
+  private activeWindowId: string | null = null;
   private connected = false;
 
   private ready = false;
@@ -39,15 +42,35 @@ export class TmuxConnection {
 
   private lastExitReason: string | null = null;
 
-  private pendingCommandKinds: Array<'snapshot-session' | 'snapshot-windows' | 'snapshot-panes'> = [];
+  private pendingCommandKinds: Array<
+    | 'noop'
+    | 'snapshot-session'
+    | 'snapshot-windows'
+    | 'snapshot-panes'
+    | 'capture-pane'
+    | 'capture-pane-mode'
+  > = [];
+  private pendingCapturePaneRequests: Array<{ paneId: string; mode: 'normal' | 'alternate' }> = [];
+  private pendingCapturePaneModeRequests: string[] = [];
   private snapshotSession: Pick<TmuxSession, 'id' | 'name'> | null = null;
   private snapshotWindows = new Map<string, TmuxWindow>();
   private snapshotPanesReady = false;
+  private historyCaptureStates = new Map<
+    string,
+    {
+      normal: string | null;
+      alternate: string | null;
+      preferAlternate: boolean | null;
+      timeout: ReturnType<typeof setTimeout> | null;
+    }
+  >();
+  private resizeSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: TmuxConnectionOptions) {
     this.deviceId = options.deviceId;
     this.onEvent = options.onEvent;
     this.onTerminalOutput = options.onTerminalOutput;
+    this.onTerminalHistory = options.onTerminalHistory;
     this.onSnapshot = options.onSnapshot;
     this.onError = options.onError;
     this.onClose = options.onClose;
@@ -167,6 +190,7 @@ export class TmuxConnection {
 
     try {
       await this.waitForReady();
+      this.configureWindowSizePolicy();
     } catch (err) {
       this.cleanup();
       throw err;
@@ -291,7 +315,10 @@ export class TmuxConnection {
             });
 
             this.waitForReady()
-              .then(() => resolve())
+              .then(() => {
+                this.configureWindowSizePolicy();
+                resolve();
+              })
               .catch((err) => {
                 this.cleanup();
                 reject(err);
@@ -326,6 +353,23 @@ export class TmuxConnection {
   private handleTmuxEvent(event: TmuxEvent): void {
     // 可以在这里添加统一的事件处理逻辑
     this.onEvent(event);
+  }
+
+  private configureWindowSizePolicy(): void {
+    if (!this.connected) return;
+    this.sendCommand('set-option -g -w window-size latest\n');
+    this.sendCommand('set-option -g -w aggressive-resize off\n');
+  }
+
+  private scheduleSnapshotAfterResize(delayMs = 120): void {
+    if (this.resizeSnapshotTimer) {
+      clearTimeout(this.resizeSnapshotTimer);
+    }
+
+    this.resizeSnapshotTimer = setTimeout(() => {
+      this.resizeSnapshotTimer = null;
+      this.requestSnapshot();
+    }, delayMs);
   }
 
   /**
@@ -364,23 +408,91 @@ export class TmuxConnection {
   }
 
   /**
+   * 仅选择窗口并刷新快照
+   */
+  selectWindow(windowId: string): void {
+    if (!this.connected) {
+      console.log('[tmux] cannot select window: not connected');
+      return;
+    }
+
+    this.activeWindowId = windowId;
+    this.sendCommand(`select-window -t ${windowId}\n`);
+    this.requestSnapshot();
+  }
+
+  /**
    * 选择窗口和 pane
    */
   selectPane(windowId: string, paneId: string): void {
-    if (!this.connected) return;
+    if (!this.connected) {
+      console.log('[tmux] cannot select pane: not connected');
+      return;
+    }
 
+    console.log('[tmux] selecting pane', paneId, 'in window', windowId);
     this.activePaneId = paneId;
+    this.activeWindowId = windowId;
     this.sendCommand(`select-window -t ${windowId}\n`);
     this.sendCommand(`select-pane -t ${paneId}\n`);
+    // 捕获历史内容
+    this.capturePaneHistory(paneId);
+  }
+
+  /**
+   * 捕获 pane 历史内容
+   */
+  capturePaneHistory(paneId: string): void {
+    if (!this.connected) {
+      console.log('[tmux] cannot capture history: not connected');
+      return;
+    }
+
+    console.log('[tmux] capturing history for pane', paneId);
+
+    const existing = this.historyCaptureStates.get(paneId);
+    if (existing?.timeout) {
+      clearTimeout(existing.timeout);
+    }
+
+    const timeout = setTimeout(() => {
+      this.emitCapturedHistory(paneId);
+    }, 220);
+
+    this.historyCaptureStates.set(paneId, {
+      normal: null,
+      alternate: null,
+      preferAlternate: null,
+      timeout,
+    });
+
+    this.pendingCapturePaneModeRequests.push(paneId);
+    this.sendCommand(`display-message -p -t ${paneId} "#{alternate_on}"\n`, 'capture-pane-mode');
+
+    this.pendingCapturePaneRequests.push({ paneId, mode: 'normal' });
+    this.sendCommand(`capture-pane -t ${paneId} -S -1000 -e -J -p\n`, 'capture-pane');
+
+    this.pendingCapturePaneRequests.push({ paneId, mode: 'alternate' });
+    this.sendCommand(`capture-pane -t ${paneId} -a -S -1000 -e -J -p -q\n`, 'capture-pane');
   }
 
   /**
    * 调整 pane 大小
    */
-  resizePane(paneId: string, cols: number, rows: number): void {
+  resizePane(_paneId: string, cols: number, rows: number): void {
     if (!this.connected) return;
 
-    this.sendCommand(`resize-pane -t ${paneId} -x ${cols} -y ${rows}\n`);
+    const safeCols = Math.max(2, Math.floor(cols));
+    const safeRows = Math.max(2, Math.floor(rows));
+    this.sendCommand(`refresh-client -C ${safeCols}x${safeRows}\n`);
+
+    const windowId = this.activeWindowId;
+    if (windowId) {
+      this.sendCommand(`resize-window -x ${safeCols} -y ${safeRows} -t ${windowId}\n`);
+      this.sendCommand(`set-window-option -t ${windowId} window-size latest\n`);
+    }
+
+    this.scheduleSnapshotAfterResize();
   }
 
   /**
@@ -402,6 +514,7 @@ export class TmuxConnection {
   closeWindow(windowId: string): void {
     if (!this.connected) return;
 
+    this.sendCommand("if-shell -F '#{==:#{session_windows},1}' 'new-window -d' ''\n");
     this.sendCommand(`kill-window -t ${windowId}\n`);
   }
 
@@ -429,24 +542,22 @@ export class TmuxConnection {
   requestSnapshot(): void {
     if (!this.connected) return;
 
-    this.pendingCommandKinds.push('snapshot-session');
-    this.sendCommand('display-message -p "#{session_id}\t#{session_name}"\n');
-    this.pendingCommandKinds.push('snapshot-windows');
+    this.sendCommand('display-message -p "#{session_id}\t#{session_name}"\n', 'snapshot-session');
     this.sendCommand(
-      'list-windows -F "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}"\n'
+      'list-windows -F "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}"\n',
+      'snapshot-windows'
     );
-    this.pendingCommandKinds.push('snapshot-panes');
     this.sendCommand(
-      'list-panes -F "#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_active}\t#{pane_width}\t#{pane_height}"\n'
+      'list-panes -F "#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_active}\t#{pane_width}\t#{pane_height}"\n',
+      'snapshot-panes'
     );
   }
 
   private handleOutputBlock(block: TmuxOutputBlock): void {
     this.markReady();
     const kind = this.pendingCommandKinds.shift();
-    if (!kind) {
-      return;
-    }
+    console.log('[tmux] handleOutputBlock kind:', kind, 'lines:', block.lines.length);
+    const resolvedKind = kind ?? 'noop';
 
     if (block.isError) {
       const message = block.lines.join('\n').trim();
@@ -456,7 +567,9 @@ export class TmuxConnection {
       return;
     }
 
-    switch (kind) {
+    switch (resolvedKind) {
+      case 'noop':
+        break;
       case 'snapshot-session':
         this.parseSnapshotSession(block.lines);
         break;
@@ -465,6 +578,12 @@ export class TmuxConnection {
         break;
       case 'snapshot-panes':
         this.parseSnapshotPanes(block.lines);
+        break;
+      case 'capture-pane':
+        this.handleCapturePaneOutput(block.lines);
+        break;
+      case 'capture-pane-mode':
+        this.handleCapturePaneModeOutput(block.lines);
         break;
     }
 
@@ -551,10 +670,22 @@ export class TmuxConnection {
     });
   }
 
-  private sendCommand(cmd: string): void {
+  private sendCommand(
+    cmd: string,
+    kind:
+      | 'noop'
+      | 'snapshot-session'
+      | 'snapshot-windows'
+      | 'snapshot-panes'
+      | 'capture-pane'
+      | 'capture-pane-mode' = 'noop'
+  ): void {
+    this.pendingCommandKinds.push(kind);
     if (this.terminal) {
       this.terminal.write(cmd);
-    } else if (this.sshStream) {
+      return;
+    }
+    if (this.sshStream) {
       (this.sshStream as { write: (data: string) => void }).write(cmd);
     }
   }
@@ -576,15 +707,111 @@ export class TmuxConnection {
     this.cleanup();
   }
 
+  private handleCapturePaneOutput(lines: string[]): void {
+    console.log('[tmux] capture-pane output:', lines.length, 'lines');
+    const request = this.pendingCapturePaneRequests.shift() ?? null;
+    if (!request) {
+      console.log('[tmux] no pending pane id for capture-pane output');
+      return;
+    }
+
+    const data = lines.join('\n');
+
+    const state = this.historyCaptureStates.get(request.paneId);
+    if (!state) {
+      return;
+    }
+
+    if (request.mode === 'normal') {
+      state.normal = data;
+    } else {
+      state.alternate = data;
+    }
+
+    if (state.normal !== null && state.alternate !== null) {
+      this.emitCapturedHistory(request.paneId);
+    }
+  }
+
+
+  private handleCapturePaneModeOutput(lines: string[]): void {
+    const paneId = this.pendingCapturePaneModeRequests.shift() ?? null;
+    if (!paneId) {
+      return;
+    }
+
+    const state = this.historyCaptureStates.get(paneId);
+    if (!state) {
+      return;
+    }
+
+    const firstLine = lines.find((line) => line.trim().length > 0)?.trim() ?? '';
+    if (firstLine === '1') {
+      state.preferAlternate = true;
+    } else if (firstLine === '0') {
+      state.preferAlternate = false;
+    }
+
+    if (state.normal !== null && state.alternate !== null) {
+      this.emitCapturedHistory(paneId);
+    }
+  }
+
+  private emitCapturedHistory(paneId: string): void {
+    const state = this.historyCaptureStates.get(paneId);
+    if (!state) return;
+
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+      state.timeout = null;
+    }
+
+    const normal = state.normal ?? '';
+    const alternate = state.alternate ?? '';
+
+    let selected = normal;
+    if (state.preferAlternate === true) {
+      selected = alternate || normal;
+    } else if (state.preferAlternate === false) {
+      selected = normal || alternate;
+    } else if (alternate.length > normal.length) {
+      selected = alternate;
+    }
+
+    if (selected) {
+      console.log('[tmux] sending history for pane', paneId, 'data length:', selected.length);
+      this.onTerminalHistory(paneId, selected);
+    }
+
+    this.historyCaptureStates.delete(paneId);
+  }
+
   private cleanup(): void {
     this.connected = false;
     this.parser.flush();
 
     this.pendingCommandKinds = [];
+    this.pendingCapturePaneRequests = [];
+    this.pendingCapturePaneModeRequests = [];
+
+    for (const state of this.historyCaptureStates.values()) {
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+      }
+    }
+    this.historyCaptureStates.clear();
+
     this.snapshotSession = null;
     this.snapshotWindows.clear();
     this.snapshotPanesReady = false;
     this.lastExitReason = null;
+    this.activePaneId = null;
+    this.activeWindowId = null;
+
+    if (this.resizeSnapshotTimer) {
+      clearTimeout(this.resizeSnapshotTimer);
+      this.resizeSnapshotTimer = null;
+    }
 
     if (this.terminal) {
       this.terminal.close();

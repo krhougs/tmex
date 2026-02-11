@@ -43,12 +43,15 @@ export type WsMessageType =
   | 'device/connected'
   | 'device/disconnected'
   | 'tmux/select'
+  | 'tmux/select-window'
   | 'tmux/create-window'
   | 'tmux/close-window'
   | 'tmux/close-pane'
   | 'term/input'
   | 'term/resize'
+  | 'term/sync-size'
   | 'term/paste'
+  | 'term/history'
   | 'state/snapshot'
   | 'event/tmux'
   | 'event/device'
@@ -79,6 +82,11 @@ export interface TmuxSelectPayload {
   paneId?: string;
 }
 
+export interface TmuxSelectWindowPayload {
+  deviceId: string;
+  windowId: string;
+}
+
 export interface TermInputPayload {
   deviceId: string;
   paneId: string;
@@ -94,6 +102,12 @@ export interface TermResizePayload {
 }
 
 export interface TermPastePayload {
+  deviceId: string;
+  paneId: string;
+  data: string;
+}
+
+export interface TermHistoryPayload {
   deviceId: string;
   paneId: string;
   data: string;
