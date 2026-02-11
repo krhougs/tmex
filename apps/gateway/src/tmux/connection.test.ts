@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-async function createConnection(onHistory: (paneId: string, data: string) => void) {
+async function createConnection(options?: {
+  onHistory?: (paneId: string, data: string) => void;
+  onSnapshot?: (payload: unknown) => void;
+}) {
   const mod = await import('./connection');
   return new mod.TmuxConnection({
     deviceId: 'test-device',
     onEvent: () => {},
     onTerminalOutput: () => {},
-    onTerminalHistory: onHistory,
-    onSnapshot: () => {},
+    onTerminalHistory: options?.onHistory ?? (() => {}),
+    onSnapshot: options?.onSnapshot ?? (() => {}),
     onError: () => {},
     onClose: () => {},
   });
@@ -14,7 +17,7 @@ async function createConnection(onHistory: (paneId: string, data: string) => voi
 
 describe('TmuxConnection history selection', () => {
   test('capturePaneHistory should keep -e and not use -J', async () => {
-    const connection = await createConnection(() => {});
+    const connection = await createConnection();
     const conn = connection as any;
     const sentCommands: string[] = [];
 
@@ -42,7 +45,9 @@ describe('TmuxConnection history selection', () => {
 
   test('prefers alternate history when pane reports alternate_on=1', async () => {
     const histories: Array<{ paneId: string; data: string }> = [];
-    const connection = await createConnection((paneId, data) => histories.push({ paneId, data }));
+    const connection = await createConnection({
+      onHistory: (paneId, data) => histories.push({ paneId, data }),
+    });
     const conn = connection as any;
 
     conn.historyCaptureStates.set('%1', {
@@ -59,7 +64,9 @@ describe('TmuxConnection history selection', () => {
 
   test('prefers normal history when pane reports alternate_on=0', async () => {
     const histories: Array<{ paneId: string; data: string }> = [];
-    const connection = await createConnection((paneId, data) => histories.push({ paneId, data }));
+    const connection = await createConnection({
+      onHistory: (paneId, data) => histories.push({ paneId, data }),
+    });
     const conn = connection as any;
 
     conn.historyCaptureStates.set('%2', {
@@ -76,7 +83,9 @@ describe('TmuxConnection history selection', () => {
 
   test('falls back to longer history when mode is unknown', async () => {
     const histories: Array<{ paneId: string; data: string }> = [];
-    const connection = await createConnection((paneId, data) => histories.push({ paneId, data }));
+    const connection = await createConnection({
+      onHistory: (paneId, data) => histories.push({ paneId, data }),
+    });
     const conn = connection as any;
 
     conn.historyCaptureStates.set('%3', {
@@ -89,5 +98,51 @@ describe('TmuxConnection history selection', () => {
     conn.emitCapturedHistory('%3');
 
     expect(histories).toEqual([{ paneId: '%3', data: 'much-longer-alt-history' }]);
+  });
+
+  test('applies pending pane title during snapshot panes parse', async () => {
+    const connection = await createConnection();
+    const conn = connection as any;
+
+    conn.parseSnapshotWindows(['@1\t0\tmain\t1']);
+    conn.pendingPaneTitles.set('%7', 'live-title');
+
+    conn.parseSnapshotPanes(['%7\t@1\t0\told-title\t1\t80\t24']);
+
+    const window = conn.snapshotWindows.get('@1');
+    expect(window.panes[0].title).toBe('live-title');
+    expect(conn.pendingPaneTitles.has('%7')).toBe(false);
+  });
+
+  test('updates existing pane title and emits snapshot', async () => {
+    const snapshots: unknown[] = [];
+    const connection = await createConnection({ onSnapshot: (payload) => snapshots.push(payload) });
+    const conn = connection as any;
+
+    conn.snapshotSession = { id: '$1', name: 'tmex' };
+    conn.snapshotPanesReady = true;
+    conn.snapshotWindows.set('@1', {
+      id: '@1',
+      name: 'main',
+      index: 0,
+      active: true,
+      panes: [
+        {
+          id: '%1',
+          windowId: '@1',
+          index: 0,
+          title: 'old',
+          active: true,
+          width: 80,
+          height: 24,
+        },
+      ],
+    });
+
+    conn.handlePaneTitleUpdate('%1', 'new-pane-title');
+
+    const window = conn.snapshotWindows.get('@1');
+    expect(window.panes[0].title).toBe('new-pane-title');
+    expect(snapshots.length).toBe(1);
   });
 });

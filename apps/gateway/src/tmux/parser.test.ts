@@ -207,6 +207,53 @@ describe('TmuxControlParser', () => {
     ]);
   });
 
+  test('strips screen title sequence and reports pane title', () => {
+    const outputs: Array<{ paneId: string; text: string }> = [];
+    const titles: Array<{ paneId: string; title: string }> = [];
+    const parser = new TmuxControlParser({
+      onEvent: () => {},
+      onTerminalOutput: (paneId, data) => outputs.push({ paneId, text: new TextDecoder().decode(data) }),
+      onPaneTitle: (paneId, title) => titles.push({ paneId, title }),
+    });
+
+    parser.processData('%output %1 hello\\033kmy-pane\\033\\134\\012\n');
+
+    expect(outputs).toEqual([{ paneId: '%1', text: 'hello\r\n' }]);
+    expect(titles).toEqual([{ paneId: '%1', title: 'my-pane' }]);
+  });
+
+  test('parses pane title sequence across chunks', () => {
+    const titles: Array<{ paneId: string; title: string }> = [];
+    const parser = new TmuxControlParser({
+      onEvent: () => {},
+      onTerminalOutput: () => {},
+      onPaneTitle: (paneId, title) => titles.push({ paneId, title }),
+    });
+
+    parser.processData('%output %1 \\033kpane\n');
+    parser.processData('%output %1 -name\\033\\134\\012\n');
+
+    expect(titles).toEqual([{ paneId: '%1', title: 'pane-name' }]);
+  });
+
+  test('keeps title parse state isolated by pane id', () => {
+    const titles: Array<{ paneId: string; title: string }> = [];
+    const parser = new TmuxControlParser({
+      onEvent: () => {},
+      onTerminalOutput: () => {},
+      onPaneTitle: (paneId, title) => titles.push({ paneId, title }),
+    });
+
+    parser.processData('%output %1 \\033kleft\n');
+    parser.processData('%output %2 \\033kright\\033\\134\\012\n');
+    parser.processData('%output %1 -pane\\033\\134\\012\n');
+
+    expect(titles).toEqual([
+      { paneId: '%2', title: 'right' },
+      { paneId: '%1', title: 'left-pane' },
+    ]);
+  });
+
   test('emits exit reason for %exit', () => {
     const reasons: Array<string | null> = [];
     const parser = new TmuxControlParser({

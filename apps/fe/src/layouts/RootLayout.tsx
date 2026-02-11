@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Smartphone } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -94,6 +94,7 @@ export function RootLayout() {
   const canInteractWithPane = Boolean(
     isTerminalRoute && matchedPaneId && matchedDeviceConnected && matchedSelectedPane?.paneId === matchedPaneId
   );
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   const handleToggleInputMode = () => {
     setInputMode(inputMode === 'direct' ? 'editor' : 'direct');
@@ -203,8 +204,109 @@ export function RootLayout() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  useEffect(() => {
+    const body = document.body;
+    const shouldGuardGesture = isMobile && isTerminalRoute;
+
+    if (shouldGuardGesture) {
+      body.classList.add('tmex-terminal-mobile-gesture-guard');
+      return () => body.classList.remove('tmex-terminal-mobile-gesture-guard');
+    }
+
+    body.classList.remove('tmex-terminal-mobile-gesture-guard');
+    return undefined;
+  }, [isMobile, isTerminalRoute]);
+
+  useEffect(() => {
+    if (!(isMobile && isTerminalRoute)) {
+      return;
+    }
+
+    const root = rootRef.current;
+    if (!root) {
+      return;
+    }
+
+    let startY = 0;
+
+    const findScrollContainer = (node: EventTarget | null): HTMLElement | null => {
+      if (!(node instanceof HTMLElement)) {
+        return null;
+      }
+
+      let current: HTMLElement | null = node;
+      while (current && current !== root) {
+        const style = window.getComputedStyle(current);
+        const scrollable = /(auto|scroll)/.test(style.overflowY);
+        if (scrollable && current.scrollHeight > current.clientHeight) {
+          return current;
+        }
+        current = current.parentElement;
+      }
+
+      return null;
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        return;
+      }
+      startY = event.touches[0]?.clientY ?? 0;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        return;
+      }
+
+      const currentY = event.touches[0]?.clientY ?? 0;
+      const deltaY = currentY - startY;
+
+      if (deltaY <= 0) {
+        return;
+      }
+
+      const scrollContainer = findScrollContainer(event.target);
+      const containerAtTop = !scrollContainer || scrollContainer.scrollTop <= 0;
+      if (containerAtTop) {
+        event.preventDefault();
+      }
+    };
+
+    root.addEventListener('touchstart', handleTouchStart, { passive: true });
+    root.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      root.removeEventListener('touchstart', handleTouchStart);
+      root.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [isMobile, isTerminalRoute]);
+
+  useEffect(() => {
+    const setViewportHeightVar = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty('--tmex-viewport-height', `${Math.round(viewportHeight)}px`);
+    };
+
+    setViewportHeightVar();
+
+    window.addEventListener('resize', setViewportHeightVar);
+    window.visualViewport?.addEventListener('resize', setViewportHeightVar);
+    window.visualViewport?.addEventListener('scroll', setViewportHeightVar);
+
+    return () => {
+      window.removeEventListener('resize', setViewportHeightVar);
+      window.visualViewport?.removeEventListener('resize', setViewportHeightVar);
+      window.visualViewport?.removeEventListener('scroll', setViewportHeightVar);
+    };
+  }, []);
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--color-bg)]">
+    <div
+      ref={rootRef}
+      className="flex w-screen overflow-hidden bg-[var(--color-bg)]"
+      style={{ height: 'var(--tmex-viewport-height)' }}
+    >
       {/* 移动端遮罩 */}
       {isMobile && sidebarOpen && (
         <button
@@ -287,7 +389,11 @@ export function RootLayout() {
         )}
 
         {/* 内容 */}
-        <main className={`flex-1 min-w-0 min-h-0 ${isScrollableContentRoute ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+        <main
+          className={`flex-1 min-w-0 min-h-0 ${isScrollableContentRoute ? 'overflow-y-auto' : 'overflow-hidden'} ${
+            isMobile && isTerminalRoute ? 'overscroll-none' : ''
+          }`}
+        >
           <Outlet />
         </main>
       </div>

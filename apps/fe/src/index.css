@@ -15,6 +15,7 @@
   --color-warning: #d29922;
   --color-danger: #da3633;
   --color-bell: #f85149;
+  --tmex-viewport-height: 100dvh;
 }
 
 * {
@@ -38,6 +39,15 @@ body {
   background-color: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body.tmex-terminal-mobile-gesture-guard {
+  height: 100%;
+  overflow: hidden;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+  overscroll-behavior-y: none;
 }
 
 /* Scrollbar styles */
@@ -64,6 +74,18 @@ body {
   width: 100% !important;
   height: 100% !important;
   padding: 0;
+}
+
+body.tmex-terminal-mobile-gesture-guard .xterm .xterm-viewport {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+
+body.tmex-terminal-mobile-gesture-guard .xterm .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 /* Mobile optimizations */
@@ -141,6 +163,15 @@ body {
   flex-wrap: wrap;
 }
 
+.editor-mode-input .send-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .editor-mode-input .shortcut-row {
   width: 100%;
   display: flex;
@@ -151,6 +182,35 @@ body {
 
 .editor-mode-input .shortcut-row button {
   min-height: 28px;
+}
+
+.editor-mode-input .send-with-enter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-right: 4px;
+}
+
+.editor-mode-input .send-with-enter-toggle input {
+  accent-color: var(--color-accent);
+}
+
+@media (max-width: 768px) {
+  .editor-mode-input {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .editor-mode-input .actions {
+    max-height: 40vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .editor-mode-input .shortcut-row {
+    justify-content: flex-start;
+  }
 }
 
 /* Animation utilities */

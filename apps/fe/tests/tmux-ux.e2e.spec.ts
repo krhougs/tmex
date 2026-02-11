@@ -236,12 +236,34 @@ test.describe('输入模式切换', () => {
 
     const editor = page.getByTestId('editor-input');
     await expect(editor).toBeVisible();
+    await expect(page.getByTestId('editor-send-line-by-line')).toBeVisible();
+    await expect(page.getByTestId('editor-send-row')).toBeVisible();
+
+    const sendRowChildren = page.locator('[data-testid="editor-send-row"] > *');
+    await expect(sendRowChildren).toHaveCount(4);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByTestId('editor-send-row')).toBeVisible();
+    await expect(page.getByTestId('editor-shortcuts-row')).toBeVisible();
+
+    const sendWithEnterCheckbox = page
+      .getByTestId('editor-send-with-enter-toggle')
+      .locator('input[type="checkbox"]');
+    await expect(sendWithEnterCheckbox).toBeChecked();
 
     await editor.fill('echo pc_editor_mode_ok');
     await page.getByTestId('editor-send').click();
 
     await page.waitForTimeout(800);
     await expect(page.locator('.xterm')).toBeVisible();
+
+    await page.locator('.xterm').click();
+    await page.keyboard.type('echo editor_direct_mode_ok');
+    await page.keyboard.press('Enter');
+
+    await expect
+      .poll(async () => (await page.locator('.xterm-screen').textContent()) ?? '', { timeout: 15_000 })
+      .toContain('editor_direct_mode_ok');
 
     await cleanupSession(page, deviceName);
   });
@@ -262,6 +284,17 @@ test.describe('输入模式切换', () => {
     await expect(page.getByTestId('editor-shortcut-esc')).toBeVisible();
     await expect(page.getByTestId('editor-shortcut-ctrl-d')).toBeVisible();
     await expect(page.getByTestId('editor-shortcut-shift-enter')).toBeVisible();
+    await expect(page.getByTestId('editor-send-line-by-line')).toBeVisible();
+
+    await page.getByTestId('editor-input').fill('echo line_send_one\necho line_send_two');
+    await page.getByTestId('editor-send-line-by-line').click();
+
+    await expect
+      .poll(async () => (await page.locator('.xterm-screen').textContent()) ?? '', { timeout: 15_000 })
+      .toContain('line_send_one');
+    await expect
+      .poll(async () => (await page.locator('.xterm-screen').textContent()) ?? '', { timeout: 15_000 })
+      .toContain('line_send_two');
 
     await page.getByTestId('editor-shortcut-ctrl-c').click();
     await page.waitForTimeout(200);

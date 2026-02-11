@@ -35,10 +35,16 @@ export interface TmuxOutputBlock {
 export interface TmuxControlParserOptions {
   onEvent: (event: TmuxEvent) => void;
   onTerminalOutput: (paneId: string, data: Uint8Array) => void;
+  onPaneTitle?: (paneId: string, title: string) => void;
   onOutputBlock?: (block: TmuxOutputBlock) => void;
   onNonControlOutput?: (line: string) => void;
   onExit?: (reason: string | null) => void;
   onReady?: () => void;
+}
+
+interface TitleParseState {
+  phase: 'normal' | 'esc' | 'title' | 'titleEsc';
+  titleBytes: number[];
 }
 
 function isSameBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -102,6 +108,7 @@ export class TmuxControlParser {
   private buffer = '';
   private onEvent: (event: TmuxEvent) => void;
   private onTerminalOutput: (paneId: string, data: Uint8Array) => void;
+  private onPaneTitle?: (paneId: string, title: string) => void;
   private onOutputBlock?: (block: TmuxOutputBlock) => void;
   private onNonControlOutput?: (line: string) => void;
   private onExit?: (reason: string | null) => void;
@@ -114,11 +121,12 @@ export class TmuxControlParser {
   private lastOutputEndedWithCR = false;
   private lastOutputFrame: { mode: 'output' | 'extended'; paneId: string; data: Uint8Array } | null =
     null;
-  private outputScreenTitleState: 'normal' | 'esc' | 'title' | 'titleEsc' = 'normal';
+  private outputTitleStates = new Map<string, TitleParseState>();
 
   constructor(options: TmuxControlParserOptions) {
     this.onEvent = options.onEvent;
     this.onTerminalOutput = options.onTerminalOutput;
+    this.onPaneTitle = options.onPaneTitle;
     this.onOutputBlock = options.onOutputBlock;
     this.onNonControlOutput = options.onNonControlOutput;
     this.onExit = options.onExit;
@@ -272,57 +280,92 @@ export class TmuxControlParser {
     return normalized;
   }
 
-  private stripScreenTitleSequence(data: Uint8Array): Uint8Array {
+  private getTitleParseState(paneId: string): TitleParseState {
+    const existing = this.outputTitleStates.get(paneId);
+    if (existing) {
+      return existing;
+    }
+
+    const created: TitleParseState = {
+      phase: 'normal',
+      titleBytes: [],
+    };
+    this.outputTitleStates.set(paneId, created);
+    return created;
+  }
+
+  private emitPaneTitleIfNeeded(paneId: string, titleBytes: number[]): void {
+    if (titleBytes.length === 0) {
+      return;
+    }
+
+    const title = new TextDecoder().decode(new Uint8Array(titleBytes)).trim();
+    if (!title) {
+      return;
+    }
+
+    this.onPaneTitle?.(paneId, title);
+  }
+
+  private stripScreenTitleSequence(paneId: string, data: Uint8Array): Uint8Array {
     if (data.length === 0) {
       return data;
     }
 
+    const parseState = this.getTitleParseState(paneId);
     const output: number[] = [];
-    let state = this.outputScreenTitleState;
+    let phase = parseState.phase;
+    const titleBytes = parseState.titleBytes;
 
     for (const byte of data) {
-      if (state === 'normal') {
+      if (phase === 'normal') {
         if (byte === 0x1b) {
-          state = 'esc';
+          phase = 'esc';
         } else {
           output.push(byte);
         }
         continue;
       }
 
-      if (state === 'esc') {
+      if (phase === 'esc') {
         if (byte === 0x6b) {
-          state = 'title';
+          phase = 'title';
+          titleBytes.length = 0;
           continue;
         }
 
         output.push(0x1b);
         if (byte === 0x1b) {
-          state = 'esc';
+          phase = 'esc';
         } else {
           output.push(byte);
-          state = 'normal';
+          phase = 'normal';
         }
         continue;
       }
 
-      if (state === 'title') {
+      if (phase === 'title') {
         if (byte === 0x1b) {
-          state = 'titleEsc';
+          phase = 'titleEsc';
+        } else {
+          titleBytes.push(byte);
         }
         continue;
       }
 
       if (byte === 0x5c) {
-        state = 'normal';
+        this.emitPaneTitleIfNeeded(paneId, titleBytes);
+        titleBytes.length = 0;
+        phase = 'normal';
       } else if (byte === 0x1b) {
-        state = 'titleEsc';
+        phase = 'titleEsc';
       } else {
-        state = 'title';
+        titleBytes.push(0x1b, byte);
+        phase = 'title';
       }
     }
 
-    this.outputScreenTitleState = state;
+    parseState.phase = phase;
     return new Uint8Array(output);
   }
 
@@ -445,7 +488,7 @@ export class TmuxControlParser {
           const paneId = args.slice(0, firstSpace);
           const value = args.slice(firstSpace + 1);
           const decoded = decodeTmuxEscapedValue(value);
-          const stripped = this.stripScreenTitleSequence(decoded);
+          const stripped = this.stripScreenTitleSequence(paneId, decoded);
           const normalized = this.normalizeTerminalOutputNewline(stripped);
           this.emitTerminalOutput('output', paneId, normalized);
         }
@@ -461,7 +504,7 @@ export class TmuxControlParser {
         if (colonIndex === -1) break;
         const value = args.slice(colonIndex + 3);
         const decoded = decodeTmuxEscapedValue(value);
-        const stripped = this.stripScreenTitleSequence(decoded);
+        const stripped = this.stripScreenTitleSequence(paneId, decoded);
         const normalized = this.normalizeTerminalOutputNewline(stripped);
         this.emitTerminalOutput('extended', paneId, normalized);
         break;
@@ -530,6 +573,6 @@ export class TmuxControlParser {
     this.buffer = '';
     this.lastOutputEndedWithCR = false;
     this.lastOutputFrame = null;
-    this.outputScreenTitleState = 'normal';
+    this.outputTitleStates.clear();
   }
 }

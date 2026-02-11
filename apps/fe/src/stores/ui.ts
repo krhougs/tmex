@@ -4,10 +4,12 @@ import { persist } from 'zustand/middleware';
 interface UIState {
   sidebarCollapsed: boolean;
   inputMode: 'direct' | 'editor';
+  editorSendWithEnter: boolean;
   editorHistory: string[];
   editorDrafts: Record<string, string>;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setInputMode: (mode: 'direct' | 'editor') => void;
+  setEditorSendWithEnter: (enabled: boolean) => void;
   addEditorHistory: (text: string) => void;
   setEditorDraft: (draftKey: string, text: string) => void;
   removeEditorDraft: (draftKey: string) => void;
@@ -18,11 +20,13 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       sidebarCollapsed: false,
       inputMode: 'direct',
+      editorSendWithEnter: true,
       editorHistory: [],
       editorDrafts: {},
 
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       setInputMode: (mode) => set({ inputMode: mode }),
+      setEditorSendWithEnter: (enabled) => set({ editorSendWithEnter: enabled }),
 
       addEditorHistory: (text) =>
         set((state) => ({
@@ -52,6 +56,7 @@ export const useUIStore = create<UIState>()(
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
         inputMode: state.inputMode,
+        editorSendWithEnter: state.editorSendWithEnter,
         editorHistory: state.editorHistory,
         editorDrafts: state.editorDrafts,
       }),

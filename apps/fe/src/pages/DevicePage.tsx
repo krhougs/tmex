@@ -153,6 +153,8 @@ export function DevicePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const inputMode = useUIStore((state) => state.inputMode);
+  const editorSendWithEnter = useUIStore((state) => state.editorSendWithEnter);
+  const setEditorSendWithEnter = useUIStore((state) => state.setEditorSendWithEnter);
   const addEditorHistory = useUIStore((state) => state.addEditorHistory);
   const setEditorDraft = useUIStore((state) => state.setEditorDraft);
   const removeEditorDraft = useUIStore((state) => state.removeEditorDraft);
@@ -472,6 +474,10 @@ export function DevicePage() {
           fontFamily: 'SF Mono, Monaco, Inconsolata, "Fira Code", monospace',
           fontSize: 14,
           convertEol: true,
+          scrollSensitivity: 1.35,
+          smoothScrollDuration: 120,
+          fastScrollModifier: 'none',
+          fastScrollSensitivity: 1,
           theme: {
             background: '#0d1117',
             foreground: '#c9d1d9',
@@ -695,7 +701,7 @@ export function DevicePage() {
 
     const disposableData = term.onData((data) => {
       if (!canInteractWithPane) return;
-      if (inputMode === 'direct' && !isComposing) {
+      if (!isComposing) {
         sendInput(deviceId, resolvedPaneId, data, false);
       }
     });
@@ -835,7 +841,37 @@ export function DevicePage() {
     if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
     if (!editorText.trim()) return;
 
-    sendInput(deviceId, resolvedPaneId, editorText, false);
+    const payload = editorSendWithEnter ? `${editorText}\r` : editorText;
+    sendInput(deviceId, resolvedPaneId, payload, false);
+    addEditorHistory(editorText);
+    if (draftKey) {
+      removeEditorDraft(draftKey);
+    }
+    setEditorText('');
+  }, [
+    addEditorHistory,
+    canInteractWithPane,
+    deviceId,
+    draftKey,
+    editorSendWithEnter,
+    editorText,
+    removeEditorDraft,
+    resolvedPaneId,
+    sendInput,
+  ]);
+
+  const handleEditorSendLineByLine = useCallback(() => {
+    if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
+    if (!editorText.trim()) return;
+
+    const lines = editorText.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+      sendInput(deviceId, resolvedPaneId, `${line}\r`, false);
+    }
+
     addEditorHistory(editorText);
     if (draftKey) {
       removeEditorDraft(draftKey);
@@ -950,6 +986,51 @@ export function DevicePage() {
             onCompositionEnd={() => setIsComposing(false)}
           />
           <div className="actions">
+            <div className="send-row" data-testid="editor-send-row">
+              <label className="send-with-enter-toggle" data-testid="editor-send-with-enter-toggle">
+                <input
+                  type="checkbox"
+                  checked={editorSendWithEnter}
+                  onChange={(event) => setEditorSendWithEnter(event.target.checked)}
+                />
+                <span>{t('terminal.editorSendWithEnter')}</span>
+              </label>
+              <Button
+                variant="default"
+                size="sm"
+                data-testid="editor-clear"
+                onClick={() => {
+                  setEditorText('');
+                  if (draftKey) {
+                    removeEditorDraft(draftKey);
+                  }
+                }}
+                title={t('terminal.clear')}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                {t('terminal.clear')}
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                data-testid="editor-send-line-by-line"
+                onClick={handleEditorSendLineByLine}
+                disabled={!canInteractWithPane}
+              >
+                <Send className="h-4 w-4 mr-1" />
+                {t('terminal.editorSendLineByLine')}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="editor-send"
+                onClick={handleEditorSend}
+                disabled={!canInteractWithPane}
+              >
+                <Send className="h-4 w-4 mr-1" />
+                {t('common.send')}
+              </Button>
+            </div>
             <div className="shortcut-row" data-testid="editor-shortcuts-row">
               {EDITOR_SHORTCUTS.map((shortcut) => (
                 <Button
@@ -966,32 +1047,6 @@ export function DevicePage() {
                 </Button>
               ))}
             </div>
-
-            <Button
-              variant="default"
-              size="sm"
-              data-testid="editor-clear"
-              onClick={() => {
-                setEditorText('');
-                if (draftKey) {
-                  removeEditorDraft(draftKey);
-                }
-              }}
-              title={t('terminal.clear')}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              {t('terminal.clear')}
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              data-testid="editor-send"
-              onClick={handleEditorSend}
-              disabled={!canInteractWithPane}
-            >
-              <Send className="h-4 w-4 mr-1" />
-              {t('common.send')}
-            </Button>
           </div>
         </div>
       )}

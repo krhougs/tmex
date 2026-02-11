@@ -56,6 +56,7 @@ export class TmuxConnection {
   private pendingCapturePaneModeRequests: string[] = [];
   private snapshotSession: Pick<TmuxSession, 'id' | 'name'> | null = null;
   private snapshotWindows = new Map<string, TmuxWindow>();
+  private pendingPaneTitles = new Map<string, string>();
   private snapshotPanesReady = false;
   private historyCaptureStates = new Map<
     string,
@@ -85,6 +86,7 @@ export class TmuxConnection {
     this.parser = new TmuxControlParser({
       onEvent: (event) => this.handleTmuxEvent(event),
       onTerminalOutput: (paneId, data) => this.onTerminalOutput(paneId, data),
+      onPaneTitle: (paneId, title) => this.handlePaneTitleUpdate(paneId, title),
       onOutputBlock: (block) => this.handleOutputBlock(block),
       onNonControlOutput: (line) => this.handleNonControlOutput(line),
       onReady: () => this.markReady(),
@@ -438,6 +440,41 @@ export class TmuxConnection {
     this.onEvent(event);
   }
 
+  private handlePaneTitleUpdate(paneId: string, title: string): void {
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      return;
+    }
+
+    let found = false;
+    let updated = false;
+
+    for (const window of this.snapshotWindows.values()) {
+      const pane = window.panes.find((item) => item.id === paneId);
+      if (!pane) {
+        continue;
+      }
+      found = true;
+      if (pane.title !== nextTitle) {
+        pane.title = nextTitle;
+        updated = true;
+      }
+      this.pendingPaneTitles.delete(paneId);
+      break;
+    }
+
+    if (found && !updated) {
+      return;
+    }
+
+    if (!updated) {
+      this.pendingPaneTitles.set(paneId, nextTitle);
+      return;
+    }
+
+    this.emitSnapshotIfReady();
+  }
+
   private configureWindowSizePolicy(): void {
     if (!this.connected) return;
     this.sendCommand('set-option -g -w window-size latest\n');
@@ -719,7 +756,7 @@ export class TmuxConnection {
         id: paneId,
         windowId,
         index: Number.isNaN(index) ? 0 : index,
-        title,
+        title: this.pendingPaneTitles.get(paneId) ?? title,
         active: activeRaw === '1',
         width: Number.isNaN(width) ? 0 : width,
         height: Number.isNaN(height) ? 0 : height,
@@ -728,6 +765,7 @@ export class TmuxConnection {
       const win = this.snapshotWindows.get(windowId);
       if (!win) continue;
       win.panes.push(pane);
+      this.pendingPaneTitles.delete(paneId);
     }
 
     for (const win of this.snapshotWindows.values()) {
@@ -893,6 +931,7 @@ export class TmuxConnection {
 
     this.snapshotSession = null;
     this.snapshotWindows.clear();
+    this.pendingPaneTitles.clear();
     this.snapshotPanesReady = false;
     this.lastExitReason = null;
     this.activePaneId = null;
