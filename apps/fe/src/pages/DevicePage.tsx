@@ -469,10 +469,11 @@ export function DevicePage() {
             '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Sarasa Mono SC", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace',
           fontSize: 14,
           convertEol: true,
-          scrollSensitivity: 1.35,
+          scrollSensitivity: 2,
           smoothScrollDuration: 120,
           fastScrollModifier: 'none',
           fastScrollSensitivity: 1,
+          letterSpacing: 0,
           theme: {
             background: '#0d1117',
             foreground: '#c9d1d9',
