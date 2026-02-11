@@ -18,6 +18,7 @@ export const config = {
   bellThrottleSecondsDefault: Number.parseInt(getEnv('TMEX_BELL_THROTTLE_SECONDS', '6'), 10),
   sshReconnectMaxRetriesDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_MAX_RETRIES', '2'), 10),
   sshReconnectDelaySecondsDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_DELAY_SECONDS', '10'), 10),
+  languageDefault: getEnv('TMEX_DEFAULT_LANGUAGE', 'en_US'),
 
   // 环境
   isDev: getEnv('NODE_ENV', 'development') === 'development',

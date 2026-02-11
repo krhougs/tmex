@@ -3,6 +3,7 @@ import type {
   Device,
   DeviceRuntimeStatus,
   EventType,
+  LocaleCode,
   SiteSettings,
   TelegramBotChat,
   TelegramBotConfig,
@@ -39,6 +40,7 @@ export function initSchema(): void {
       bell_throttle_seconds INTEGER NOT NULL,
       ssh_reconnect_max_retries INTEGER NOT NULL,
       ssh_reconnect_delay_seconds INTEGER NOT NULL,
+      language TEXT NOT NULL DEFAULT 'en_US',
       updated_at TEXT NOT NULL
     )
   `);
@@ -51,9 +53,10 @@ export function initSchema(): void {
       bell_throttle_seconds,
       ssh_reconnect_max_retries,
       ssh_reconnect_delay_seconds,
+      language,
       updated_at
     )
-    VALUES (1, ?, ?, ?, ?, ?, ?)
+    VALUES (1, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
   `, [
     config.siteNameDefault,
@@ -61,6 +64,7 @@ export function initSchema(): void {
     config.bellThrottleSecondsDefault,
     config.sshReconnectMaxRetriesDefault,
     config.sshReconnectDelaySecondsDefault,
+    config.languageDefault ?? 'en_US',
     new Date().toISOString(),
   ]);
 
@@ -314,6 +318,7 @@ export function getSiteSettings(): SiteSettings {
     bellThrottleSeconds: row.bell_throttle_seconds as number,
     sshReconnectMaxRetries: row.ssh_reconnect_max_retries as number,
     sshReconnectDelaySeconds: row.ssh_reconnect_delay_seconds as number,
+    language: (row.language as LocaleCode) ?? 'en_US',
     updatedAt: row.updated_at as string,
   };
 }
@@ -326,6 +331,7 @@ export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedA
     bellThrottleSeconds: updates.bellThrottleSeconds ?? current.bellThrottleSeconds,
     sshReconnectMaxRetries: updates.sshReconnectMaxRetries ?? current.sshReconnectMaxRetries,
     sshReconnectDelaySeconds: updates.sshReconnectDelaySeconds ?? current.sshReconnectDelaySeconds,
+    language: updates.language ?? current.language,
     updatedAt: new Date().toISOString(),
   };
 
@@ -338,6 +344,7 @@ export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedA
           bell_throttle_seconds = ?,
           ssh_reconnect_max_retries = ?,
           ssh_reconnect_delay_seconds = ?,
+          language = ?,
           updated_at = ?
       WHERE id = 1
     `,
@@ -347,6 +354,7 @@ export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedA
       next.bellThrottleSeconds,
       next.sshReconnectMaxRetries,
       next.sshReconnectDelaySeconds,
+      next.language,
       next.updatedAt,
     ]
   );

@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS: SiteSettings = {
   bellThrottleSeconds: 6,
   sshReconnectMaxRetries: 2,
   sshReconnectDelaySeconds: 10,
+  language: 'en_US',
   updatedAt: new Date(0).toISOString(),
 };
 

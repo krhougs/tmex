@@ -2,6 +2,7 @@ import type {
   CreateDeviceRequest,
   CreateTelegramBotRequest,
   Device,
+  LocaleCode,
   SiteSettings,
   TelegramBotChat,
   TelegramBotConfig,
@@ -75,6 +76,14 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
       throw new Error('SSH 重连等待时间需在 1-300 秒之间');
     }
     updates.sshReconnectDelaySeconds = value;
+  }
+
+  if (body.language !== undefined) {
+    const value = body.language.trim();
+    if (value !== 'en_US' && value !== 'zh_CN') {
+      throw new Error('语言必须是 en_US 或 zh_CN');
+    }
+    updates.language = value as LocaleCode;
   }
 
   return updates;

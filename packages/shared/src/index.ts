@@ -1,5 +1,15 @@
 // tmex 前后端共享类型定义
 
+// ==================== i18n ====================
+
+export type LocaleCode = 'en_US' | 'zh_CN';
+
+export const DEFAULT_LOCALE: LocaleCode = 'en_US';
+
+export function toBCP47(locale: LocaleCode): string {
+  return locale.replace('_', '-');
+}
+
 // ==================== Device ====================
 
 export type DeviceType = 'local' | 'ssh';
@@ -37,6 +47,7 @@ export interface SiteSettings {
   bellThrottleSeconds: number;
   sshReconnectMaxRetries: number;
   sshReconnectDelaySeconds: number;
+  language: LocaleCode;
   updatedAt: string;
 }
 
@@ -317,6 +328,7 @@ export interface UpdateSiteSettingsRequest {
   bellThrottleSeconds?: number;
   sshReconnectMaxRetries?: number;
   sshReconnectDelaySeconds?: number;
+  language?: LocaleCode;
 }
 
 export interface UpdateSiteSettingsResponse {
@@ -349,3 +361,7 @@ export interface RestartGatewayResponse {
   success: boolean;
   message: string;
 }
+
+// ==================== i18n Resources ====================
+
+export { I18N_RESOURCES } from './i18n/resources.js';
