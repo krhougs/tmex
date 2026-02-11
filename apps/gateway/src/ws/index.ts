@@ -11,9 +11,9 @@ import type {
   WsMessage,
 } from '@tmex/shared';
 import type { Server, ServerWebSocket } from 'bun';
-import { getDeviceById, getSiteSettings } from '../db';
-import { eventNotifier } from '../events';
+import { getSiteSettings } from '../db';
 import { TmuxConnection } from '../tmux/connection';
+import { resolveBellContext } from '../tmux/bell-context';
 import { classifySshError } from './error-classify';
 import type { TmuxEvent } from '../tmux/parser';
 import { t } from '../i18n';
@@ -493,44 +493,6 @@ export class WebSocketServer {
     for (const client of entry.clients) {
       client.send(message);
     }
-
-    if (event.type === 'bell') {
-      await this.notifyBell(deviceId, extendedEvent.data);
-    }
-  }
-
-  private async notifyBell(deviceId: string, data: unknown): Promise<void> {
-    const device = getDeviceById(deviceId);
-    if (!device) {
-      return;
-    }
-
-    const settings = getSiteSettings();
-    const payload = (data ?? {}) as Record<string, unknown>;
-
-    await eventNotifier.notify('terminal_bell', {
-      site: {
-        name: settings.siteName,
-        url: settings.siteUrl,
-      },
-      device: {
-        id: device.id,
-        name: device.name,
-        type: device.type,
-        host: device.host,
-      },
-      tmux: {
-        sessionName: device.session,
-        windowId: typeof payload.windowId === 'string' ? payload.windowId : undefined,
-        paneId: typeof payload.paneId === 'string' ? payload.paneId : undefined,
-        windowIndex: typeof payload.windowIndex === 'number' ? payload.windowIndex : undefined,
-        paneIndex: typeof payload.paneIndex === 'number' ? payload.paneIndex : undefined,
-        paneUrl: typeof payload.paneUrl === 'string' ? payload.paneUrl : undefined,
-      },
-      payload: {
-        message: t('notification.eventType.terminal_bell'),
-      },
-    });
   }
 
   private async extendTmuxEvent(deviceId: string, event: TmuxEvent): Promise<TmuxEvent> {
@@ -538,40 +500,18 @@ export class WebSocketServer {
       return event;
     }
 
-    const snapshot = this.connections.get(deviceId)?.lastSnapshot;
-    if (!snapshot?.session) {
-      return event;
-    }
-
     const settings = getSiteSettings();
-    const siteUrl = settings.siteUrl.endsWith('/') ? settings.siteUrl.slice(0, -1) : settings.siteUrl;
-
-    const raw = (event.data as Record<string, unknown> | undefined) ?? {};
-    const bellWindowId = typeof raw.windowId === 'string' && raw.windowId ? raw.windowId : undefined;
-
-    const targetWindow =
-      snapshot.session.windows.find((window) => window.id === bellWindowId) ??
-      snapshot.session.windows.find((window) => window.active) ??
-      snapshot.session.windows[0];
-
-    const targetPane =
-      targetWindow?.panes.find((pane) => pane.active) ??
-      targetWindow?.panes[0];
-
-    const paneUrl =
-      targetWindow && targetPane
-        ? `${siteUrl}/devices/${deviceId}/windows/${targetWindow.id}/panes/${encodeURIComponent(targetPane.id)}`
-        : undefined;
+    const snapshot = this.connections.get(deviceId)?.lastSnapshot ?? null;
+    const data = resolveBellContext({
+      deviceId,
+      siteUrl: settings.siteUrl,
+      snapshot,
+      rawData: event.data,
+    });
 
     return {
       type: 'bell',
-      data: {
-        windowId: targetWindow?.id ?? bellWindowId,
-        paneId: targetPane?.id,
-        windowIndex: targetWindow?.index,
-        paneIndex: targetPane?.index,
-        paneUrl,
-      },
+      data,
     };
   }
 

@@ -3,6 +3,7 @@ import { runtimeController } from './control/runtime';
 import { config } from './config';
 import { ensureSiteSettingsInitialized, getSiteSettings } from './db';
 import { runMigrations } from './db/migrate';
+import { pushSupervisor } from './push/supervisor';
 import { telegramService } from './telegram/service';
 import { WebSocketServer } from './ws';
 
@@ -13,6 +14,7 @@ interface RunningRuntime {
 async function createRuntime(): Promise<RunningRuntime> {
   const wsServer = new WebSocketServer();
   await telegramService.refresh();
+  await pushSupervisor.start();
 
   try {
     const settings = getSiteSettings();
@@ -62,6 +64,7 @@ async function createRuntime(): Promise<RunningRuntime> {
   return {
     async stop() {
       wsServer.closeAll();
+      await pushSupervisor.stopAll();
       await telegramService.stopAll();
       server.stop(true);
     },

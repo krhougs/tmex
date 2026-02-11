@@ -16,6 +16,31 @@ async function createConnection(options?: {
 }
 
 describe('TmuxConnection history selection', () => {
+  test('emits bell event when terminal output contains BEL byte', async () => {
+    const events: Array<{ type: string; data: unknown }> = [];
+    const mod = await import('./connection');
+    const connection = new mod.TmuxConnection({
+      deviceId: 'test-device',
+      onEvent: (event) => events.push({ type: event.type, data: event.data }),
+      onTerminalOutput: () => {},
+      onTerminalHistory: () => {},
+      onSnapshot: () => {},
+      onError: () => {},
+      onClose: () => {},
+    }) as any;
+
+    connection.emitTerminalOutput('%9', new Uint8Array([0x48, 0x07, 0x69]));
+
+    expect(events).toEqual([
+      {
+        type: 'bell',
+        data: {
+          paneId: '%9',
+        },
+      },
+    ]);
+  });
+
   test('capturePaneHistory should keep -e and not use -J', async () => {
     const connection = await createConnection();
     const conn = connection as any;

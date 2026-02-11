@@ -515,7 +515,6 @@ export class TmuxControlParser {
         break;
 
       case '%bell':
-        this.onEvent({ type: 'bell', data: { windowId: args } });
         break;
 
       case '%pause':

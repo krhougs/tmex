@@ -85,7 +85,7 @@ export class TmuxConnection {
 
     this.parser = new TmuxControlParser({
       onEvent: (event) => this.handleTmuxEvent(event),
-      onTerminalOutput: (paneId, data) => this.onTerminalOutput(paneId, data),
+      onTerminalOutput: (paneId, data) => this.emitTerminalOutput(paneId, data),
       onPaneTitle: (paneId, title) => this.handlePaneTitleUpdate(paneId, title),
       onOutputBlock: (block) => this.handleOutputBlock(block),
       onNonControlOutput: (line) => this.handleNonControlOutput(line),
@@ -438,6 +438,22 @@ export class TmuxConnection {
   private handleTmuxEvent(event: TmuxEvent): void {
     // 可以在这里添加统一的事件处理逻辑
     this.onEvent(event);
+  }
+
+  private emitBellEventIfNeeded(paneId: string, data: Uint8Array): void {
+    for (const byte of data) {
+      if (byte !== 0x07) {
+        continue;
+      }
+
+      this.onEvent({
+        type: 'bell',
+        data: {
+          paneId,
+        },
+      });
+      break;
+    }
   }
 
   private handlePaneTitleUpdate(paneId: string, title: string): void {
@@ -811,6 +827,11 @@ export class TmuxConnection {
     if (this.sshStream) {
       (this.sshStream as { write: (data: string) => void }).write(cmd);
     }
+  }
+
+  private emitTerminalOutput(paneId: string, data: Uint8Array): void {
+    this.emitBellEventIfNeeded(paneId, data);
+    this.onTerminalOutput(paneId, data);
   }
 
   private handleNonControlOutput(line: string): void {

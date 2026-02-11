@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
+import { ensureSiteSettingsInitialized } from '../db';
+import { runMigrations } from '../db/migrate';
 import { WebSocketServer } from './index';
 
 function createMockWs() {
@@ -88,3 +90,65 @@ describe('WebSocketServer connection entry dedup', () => {
   });
 });
 
+describe('WebSocketServer bell extension', () => {
+  beforeAll(() => {
+    runMigrations();
+    ensureSiteSettingsInitialized();
+  });
+
+  test('extends bell event with pane context from snapshot', async () => {
+    const server = new WebSocketServer() as any;
+
+    server.connections.set('device-a', {
+      connection: {},
+      clients: new Set(),
+      lastSnapshot: {
+        deviceId: 'device-a',
+        session: {
+          id: '$1',
+          name: 'tmex',
+          windows: [
+            {
+              id: '@1',
+              name: 'main',
+              index: 0,
+              active: true,
+              panes: [
+                {
+                  id: '%1',
+                  windowId: '@1',
+                  index: 0,
+                  active: true,
+                  width: 80,
+                  height: 24,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
+
+    const result = await server.extendTmuxEvent('device-a', {
+      type: 'bell',
+      data: {
+        paneId: '%1',
+      },
+    });
+
+    expect(result).toEqual({
+      type: 'bell',
+      data: {
+        windowId: '@1',
+        paneId: '%1',
+        windowIndex: 0,
+        paneIndex: 0,
+        paneUrl: 'http://127.0.0.1:8085/devices/device-a/windows/@1/panes/%251',
+      },
+    });
+  });
+});

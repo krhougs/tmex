@@ -38,6 +38,22 @@ import {
 import { telegramService } from '../telegram/service';
 import { t } from '../i18n';
 import { toBCP47 } from '@tmex/shared';
+import { pushSupervisor } from '../push/supervisor';
+
+function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device>): boolean {
+  if (updates.type !== undefined && updates.type !== existing.type) return true;
+  if (updates.host !== undefined && updates.host !== existing.host) return true;
+  if (updates.port !== undefined && updates.port !== existing.port) return true;
+  if (updates.username !== undefined && updates.username !== existing.username) return true;
+  if (updates.sshConfigRef !== undefined && updates.sshConfigRef !== existing.sshConfigRef) return true;
+  if (updates.session !== undefined && updates.session !== existing.session) return true;
+  if (updates.authMode !== undefined && updates.authMode !== existing.authMode) return true;
+  if (updates.passwordEnc !== undefined) return true;
+  if (updates.privateKeyEnc !== undefined) return true;
+  if (updates.privateKeyPassphraseEnc !== undefined) return true;
+
+  return false;
+}
 
 function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Omit<SiteSettings, 'updatedAt'>> {
   const updates: Partial<Omit<SiteSettings, 'updatedAt'>> = {};
@@ -211,6 +227,7 @@ async function handleCreateDevice(req: Request): Promise<Response> {
   };
 
   createDevice(device);
+  await pushSupervisor.upsert(device.id);
 
   return json({ device }, 201);
 }
@@ -239,6 +256,10 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
 
   updateDevice(id, updates);
 
+  if (shouldReconnectPushSupervisor(existing, updates)) {
+    await pushSupervisor.reconnect(id);
+  }
+
   const device = getDeviceById(id);
   return json({ device });
 }
@@ -250,6 +271,7 @@ async function handleDeleteDevice(id: string): Promise<Response> {
   }
 
   deleteDevice(id);
+  pushSupervisor.remove(id);
   return json({ success: true });
 }
 
