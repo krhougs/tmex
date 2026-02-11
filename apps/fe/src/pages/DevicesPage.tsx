@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CreateDeviceRequest, Device } from '@tmex/shared';
-import { Globe, Monitor, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import type { CreateDeviceRequest, Device, UpdateDeviceRequest } from '@tmex/shared';
+import { Globe, Monitor, Pencil, Plus, Trash2 } from 'lucide-react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import {
@@ -24,8 +24,133 @@ import {
   Textarea,
 } from '../components/ui';
 
+type DeviceFormValues = {
+  name: string;
+  type: 'local' | 'ssh';
+  host: string;
+  port: number;
+  username: string;
+  sshConfigRef: string;
+  session: string;
+  authMode: CreateDeviceRequest['authMode'];
+  password: string;
+  privateKey: string;
+  privateKeyPassphrase: string;
+};
+
+function normalizeText(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function createDefaultFormValues(device?: Device): DeviceFormValues {
+  if (!device) {
+    return {
+      name: '',
+      type: 'local',
+      host: '',
+      port: 22,
+      username: '',
+      sshConfigRef: '',
+      session: 'tmex',
+      authMode: 'auto',
+      password: '',
+      privateKey: '',
+      privateKeyPassphrase: '',
+    };
+  }
+
+  return {
+    name: device.name,
+    type: device.type,
+    host: device.host ?? '',
+    port: device.port ?? 22,
+    username: device.username ?? '',
+    sshConfigRef: device.sshConfigRef ?? '',
+    session: device.session ?? 'tmex',
+    authMode: device.type === 'local' ? 'auto' : device.authMode,
+    password: '',
+    privateKey: '',
+    privateKeyPassphrase: '',
+  };
+}
+
+function buildCreatePayload(values: DeviceFormValues): CreateDeviceRequest {
+  if (values.type === 'local') {
+    return {
+      name: values.name.trim(),
+      type: 'local',
+      session: normalizeText(values.session) ?? 'tmex',
+      authMode: 'auto',
+    };
+  }
+
+  const payload: CreateDeviceRequest = {
+    name: values.name.trim(),
+    type: 'ssh',
+    host: normalizeText(values.host),
+    port: values.port,
+    username: normalizeText(values.username),
+    sshConfigRef: normalizeText(values.sshConfigRef),
+    session: normalizeText(values.session) ?? 'tmex',
+    authMode: values.authMode,
+  };
+
+  if (values.authMode === 'password') {
+    payload.password = values.password;
+  }
+
+  if (values.authMode === 'key') {
+    payload.privateKey = values.privateKey;
+    payload.privateKeyPassphrase = values.privateKeyPassphrase || undefined;
+  }
+
+  return payload;
+}
+
+function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
+  if (values.type === 'local') {
+    return {
+      name: values.name.trim(),
+      session: normalizeText(values.session) ?? 'tmex',
+      authMode: 'auto',
+    };
+  }
+
+  const payload: UpdateDeviceRequest = {
+    name: values.name.trim(),
+    host: normalizeText(values.host),
+    port: values.port,
+    username: normalizeText(values.username),
+    sshConfigRef: normalizeText(values.sshConfigRef),
+    session: normalizeText(values.session) ?? 'tmex',
+    authMode: values.authMode,
+  };
+
+  if (values.authMode === 'password' && values.password) {
+    payload.password = values.password;
+  }
+
+  if (values.authMode === 'key' && values.privateKey) {
+    payload.privateKey = values.privateKey;
+    payload.privateKeyPassphrase = values.privateKeyPassphrase || undefined;
+  }
+
+  return payload;
+}
+
+async function parseApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const payload = (await res.json()) as { error?: string };
+    return payload.error ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function DevicesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -85,25 +210,28 @@ export function DevicesPage() {
             <DeviceCard
               key={device.id}
               device={device}
+              onEdit={() => setEditingDevice(device)}
               onDelete={() => deleteDevice.mutate(device.id)}
             />
           ))}
         </div>
       )}
 
-      {showAddModal && <AddDeviceDialog onClose={() => setShowAddModal(false)} />}
+      {showAddModal && <DeviceDialog mode="create" onClose={() => setShowAddModal(false)} />}
+      {editingDevice && (
+        <DeviceDialog mode="edit" device={editingDevice} onClose={() => setEditingDevice(null)} />
+      )}
     </div>
   );
 }
 
-// ==================== 子组件 ====================
-
 interface DeviceCardProps {
   device: Device;
+  onEdit: () => void;
   onDelete: () => void;
 }
 
-function DeviceCard({ device, onDelete }: DeviceCardProps) {
+function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
   const icon =
     device.type === 'local' ? <Monitor className="h-6 w-6" /> : <Globe className="h-6 w-6" />;
   const subtitle =
@@ -123,6 +251,10 @@ function DeviceCard({ device, onDelete }: DeviceCardProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button variant="default" size="sm" onClick={onEdit} title="修改设备">
+            <Pencil className="h-4 w-4" />
+          </Button>
+
           <Button variant="primary" size="sm" asChild>
             <Link to={`/devices/${device.id}`}>连接</Link>
           </Button>
@@ -136,36 +268,36 @@ function DeviceCard({ device, onDelete }: DeviceCardProps) {
   );
 }
 
-interface AddDeviceDialogProps {
+interface DeviceDialogProps {
+  mode: 'create' | 'edit';
+  device?: Device;
   onClose: () => void;
 }
 
-function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
+function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState<CreateDeviceRequest>({
-    name: '',
-    type: 'local',
-    authMode: 'password',
-    host: '',
-    port: 22,
-    username: '',
-    session: 'tmex',
-    password: '',
-    privateKey: '',
-  });
+  const [formData, setFormData] = useState<DeviceFormValues>(() => createDefaultFormValues(device));
+
+  useEffect(() => {
+    setFormData(createDefaultFormValues(device));
+  }, [device]);
+
+  const isSSH = formData.type === 'ssh';
+  const isEditMode = mode === 'edit';
 
   const createDevice = useMutation({
-    mutationFn: async (data: CreateDeviceRequest) => {
+    mutationFn: async (payload: CreateDeviceRequest) => {
       const res = await fetch('/api/devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
+
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to create device');
+        throw new Error(await parseApiError(res, '创建设备失败'));
       }
+
       return res.json();
     },
     onSuccess: () => {
@@ -178,39 +310,71 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
     },
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const updateDevice = useMutation({
+    mutationFn: async (payload: UpdateDeviceRequest) => {
+      if (!device) {
+        throw new Error('设备不存在');
+      }
+
+      const res = await fetch(`/api/devices/${device.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, '更新设备失败'));
+      }
+
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      toast.success('设备已更新');
+      onClose();
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '更新设备失败');
+    },
+  });
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+
     try {
-      await createDevice.mutateAsync(formData);
-    } catch {}
-    setIsSubmitting(false);
+      if (mode === 'create') {
+        await createDevice.mutateAsync(buildCreatePayload(formData));
+      } else {
+        await updateDevice.mutateAsync(buildUpdatePayload(formData));
+      }
+    } catch {
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const isSSH = formData.type === 'ssh';
-
-  const deviceNameInputId = 'add-device-name';
-  const deviceTypeSelectId = 'add-device-type';
-  const sshHostInputId = 'add-device-host';
-  const sshPortInputId = 'add-device-port';
-  const sshUsernameInputId = 'add-device-username';
-  const sessionInputId = 'add-device-session';
-  const authModeSelectId = 'add-device-auth-mode';
-  const passwordInputId = 'add-device-password';
-  const privateKeyTextareaId = 'add-device-private-key';
-  const privateKeyPassphraseInputId = 'add-device-private-key-passphrase';
+  const deviceNameInputId = `${mode}-device-name`;
+  const deviceTypeSelectId = `${mode}-device-type`;
+  const sshHostInputId = `${mode}-device-host`;
+  const sshPortInputId = `${mode}-device-port`;
+  const sshUsernameInputId = `${mode}-device-username`;
+  const sessionInputId = `${mode}-device-session`;
+  const authModeSelectId = `${mode}-device-auth-mode`;
+  const passwordInputId = `${mode}-device-password`;
+  const privateKeyTextareaId = `${mode}-device-private-key`;
+  const privateKeyPassphraseInputId = `${mode}-device-private-key-passphrase`;
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-full max-w-lg">
         <DialogHeader>
-          <DialogTitle>添加设备</DialogTitle>
+          <DialogTitle>{isEditMode ? '修改设备' : '添加设备'}</DialogTitle>
           <DialogCloseButton />
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>
           <DialogBody className="space-y-4">
-            {/* 基本信息 */}
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor={deviceNameInputId}>
                 设备名称
@@ -232,16 +396,26 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
               <Select
                 id={deviceTypeSelectId}
                 value={formData.type}
-                onChange={(e) =>
-                  setFormData((d) => ({ ...d, type: e.target.value as 'local' | 'ssh' }))
-                }
+                onChange={(e) => {
+                  const nextType = e.target.value as 'local' | 'ssh';
+                  setFormData((d) => ({
+                    ...d,
+                    type: nextType,
+                    authMode:
+                      nextType === 'local'
+                        ? 'auto'
+                        : d.authMode === 'auto'
+                          ? 'password'
+                          : d.authMode,
+                  }));
+                }}
+                disabled={isEditMode}
               >
                 <SelectOption value="local">本地设备</SelectOption>
                 <SelectOption value="ssh">SSH 远程设备</SelectOption>
               </Select>
             </div>
 
-            {/* SSH 配置 */}
             {isSSH && (
               <>
                 <div className="grid grid-cols-3 gap-3">
@@ -255,9 +429,9 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
                       value={formData.host}
                       onChange={(e) => setFormData((d) => ({ ...d, host: e.target.value }))}
                       placeholder="example.com"
-                      required={isSSH}
                     />
                   </div>
+
                   <div>
                     <label className="block text-sm font-medium mb-1.5" htmlFor={sshPortInputId}>
                       端口
@@ -267,7 +441,10 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
                       type="number"
                       value={formData.port}
                       onChange={(e) =>
-                        setFormData((d) => ({ ...d, port: Number.parseInt(e.target.value) }))
+                        setFormData((d) => ({
+                          ...d,
+                          port: Number.parseInt(e.target.value || '22', 10),
+                        }))
                       }
                       min={1}
                       max={65535}
@@ -290,7 +467,6 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
               </>
             )}
 
-            {/* Session 配置 */}
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor={sessionInputId}>
                 Tmux 会话名称
@@ -307,75 +483,77 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
               </p>
             </div>
 
-            {/* 认证方式 */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor={authModeSelectId}>
-                认证方式
-              </label>
-              <Select
-                id={authModeSelectId}
-                value={formData.authMode}
-                onChange={(e) =>
-                  setFormData((d) => ({
-                    ...d,
-                    authMode: e.target.value as CreateDeviceRequest['authMode'],
-                  }))
-                }
-              >
-                <SelectOption value="password">密码</SelectOption>
-                <SelectOption value="key">私钥</SelectOption>
-                <SelectOption value="agent">SSH Agent</SelectOption>
-                {isSSH && <SelectOption value="configRef">SSH Config</SelectOption>}
-              </Select>
-            </div>
-
-            {formData.authMode === 'password' && (
-              <div>
-                <label className="block text-sm font-medium mb-1.5" htmlFor={passwordInputId}>
-                  密码
-                </label>
-                <Input
-                  id={passwordInputId}
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData((d) => ({ ...d, password: e.target.value }))}
-                />
-              </div>
-            )}
-
-            {formData.authMode === 'key' && (
+            {isSSH && (
               <>
                 <div>
-                  <label
-                    className="block text-sm font-medium mb-1.5"
-                    htmlFor={privateKeyTextareaId}
-                  >
-                    私钥
+                  <label className="block text-sm font-medium mb-1.5" htmlFor={authModeSelectId}>
+                    认证方式
                   </label>
-                  <Textarea
-                    id={privateKeyTextareaId}
-                    value={formData.privateKey}
-                    onChange={(e) => setFormData((d) => ({ ...d, privateKey: e.target.value }))}
-                    className="h-24 font-mono text-xs"
-                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                  />
-                </div>
-                <div>
-                  <label
-                    className="block text-sm font-medium mb-1.5"
-                    htmlFor={privateKeyPassphraseInputId}
-                  >
-                    私钥密码（可选）
-                  </label>
-                  <Input
-                    id={privateKeyPassphraseInputId}
-                    type="password"
-                    value={formData.privateKeyPassphrase}
+                  <Select
+                    id={authModeSelectId}
+                    value={formData.authMode}
                     onChange={(e) =>
-                      setFormData((d) => ({ ...d, privateKeyPassphrase: e.target.value }))
+                      setFormData((d) => ({
+                        ...d,
+                        authMode: e.target.value as CreateDeviceRequest['authMode'],
+                      }))
                     }
-                  />
+                  >
+                    <SelectOption value="password">密码</SelectOption>
+                    <SelectOption value="key">私钥</SelectOption>
+                    <SelectOption value="agent">SSH Agent</SelectOption>
+                    <SelectOption value="configRef">SSH Config</SelectOption>
+                  </Select>
                 </div>
+
+                {formData.authMode === 'password' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5" htmlFor={passwordInputId}>
+                      密码
+                    </label>
+                    <Input
+                      id={passwordInputId}
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData((d) => ({ ...d, password: e.target.value }))}
+                    />
+                  </div>
+                )}
+
+                {formData.authMode === 'key' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5" htmlFor={privateKeyTextareaId}>
+                        私钥
+                      </label>
+                      <Textarea
+                        id={privateKeyTextareaId}
+                        value={formData.privateKey}
+                        onChange={(e) =>
+                          setFormData((d) => ({ ...d, privateKey: e.target.value }))
+                        }
+                        className="h-24 font-mono text-xs"
+                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        className="block text-sm font-medium mb-1.5"
+                        htmlFor={privateKeyPassphraseInputId}
+                      >
+                        私钥密码（可选）
+                      </label>
+                      <Input
+                        id={privateKeyPassphraseInputId}
+                        type="password"
+                        value={formData.privateKeyPassphrase}
+                        onChange={(e) =>
+                          setFormData((d) => ({ ...d, privateKeyPassphrase: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
           </DialogBody>
@@ -385,7 +563,7 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
               取消
             </Button>
             <Button type="submit" variant="primary" className="flex-1" disabled={isSubmitting}>
-              {isSubmitting ? '添加中...' : '添加'}
+              {isSubmitting ? (isEditMode ? '保存中...' : '添加中...') : isEditMode ? '保存' : '添加'}
             </Button>
           </DialogFooter>
         </form>

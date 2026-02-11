@@ -21,7 +21,6 @@ async function addLocalDevice(
 
   await page.getByLabel('设备名称').fill(deviceName);
   await page.getByLabel('类型').selectOption('local');
-  await page.getByLabel('认证方式').selectOption('password');
   await page.getByLabel('Tmux 会话名称').fill(deviceName);
   await page.getByRole('button', { name: '添加' }).click();
 

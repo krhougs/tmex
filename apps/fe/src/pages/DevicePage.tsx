@@ -73,6 +73,9 @@ export function DevicePage() {
   const pendingLocalSize = useRef<{ cols: number; rows: number; at: number } | null>(null);
   const suppressLocalResizeUntil = useRef(0);
   const postSelectResizeTimers = useRef<number[]>([]);
+  const invalidToastTimer = useRef<number | null>(null);
+  const latestInvalidSelectionKey = useRef<string | null>(null);
+  const lastShownInvalidSelectionKey = useRef<string | null>(null);
 
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const selectPane = useTmuxStore((state) => state.selectPane);
@@ -93,13 +96,23 @@ export function DevicePage() {
   const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
 
   const resolvedPaneId = useMemo(() => decodePaneIdFromUrlParam(paneId), [paneId]);
+  const draftKey = useMemo(
+    () => (deviceId && resolvedPaneId ? `${deviceId}:${resolvedPaneId}` : null),
+    [deviceId, resolvedPaneId]
+  );
 
   const [isMobile, setIsMobile] = useState(false);
   const [editorText, setEditorText] = useState('');
   const [isComposing, setIsComposing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const { inputMode, addEditorHistory } = useUIStore();
+  const inputMode = useUIStore((state) => state.inputMode);
+  const addEditorHistory = useUIStore((state) => state.addEditorHistory);
+  const setEditorDraft = useUIStore((state) => state.setEditorDraft);
+  const removeEditorDraft = useUIStore((state) => state.removeEditorDraft);
+  const paneEditorDraft = useUIStore((state) =>
+    draftKey ? (state.editorDrafts[draftKey] ?? '') : ''
+  );
 
   const windows = snapshot?.session?.windows;
 
@@ -148,6 +161,12 @@ export function DevicePage() {
       : null;
 
   const isSelectionInvalid = Boolean(invalidSelectionMessage);
+  const invalidSelectionKey = useMemo(() => {
+    if (!invalidSelectionMessage || !deviceId || !windowId || !resolvedPaneId) {
+      return null;
+    }
+    return `${deviceId}:${windowId}:${resolvedPaneId}:${invalidSelectionMessage}`;
+  }, [deviceId, invalidSelectionMessage, resolvedPaneId, windowId]);
   const canInteractWithPane = Boolean(deviceConnected && resolvedPaneId && !isSelectionInvalid);
 
   const terminalTopbarLabel = useMemo(() => {
@@ -623,6 +642,10 @@ export function DevicePage() {
   }, [canInteractWithPane, deviceId, inputMode, isComposing, resolvedPaneId, sendInput]);
 
   useEffect(() => {
+    setEditorText(paneEditorDraft);
+  }, [paneEditorDraft]);
+
+  useEffect(() => {
     if (!canInteractWithPane) return;
 
     const handleWindowResize = () => {
@@ -662,11 +685,39 @@ export function DevicePage() {
   }, [loadError]);
 
   useEffect(() => {
-    if (!invalidSelectionMessage) {
+    latestInvalidSelectionKey.current = invalidSelectionKey;
+
+    if (invalidToastTimer.current !== null) {
+      window.clearTimeout(invalidToastTimer.current);
+      invalidToastTimer.current = null;
+    }
+
+    if (!invalidSelectionKey || !invalidSelectionMessage) {
+      lastShownInvalidSelectionKey.current = null;
       return;
     }
-    toast.error(invalidSelectionMessage);
-  }, [invalidSelectionMessage]);
+
+    if (lastShownInvalidSelectionKey.current === invalidSelectionKey) {
+      return;
+    }
+
+    invalidToastTimer.current = window.setTimeout(() => {
+      if (latestInvalidSelectionKey.current !== invalidSelectionKey) {
+        return;
+      }
+
+      toast.error(invalidSelectionMessage);
+      lastShownInvalidSelectionKey.current = invalidSelectionKey;
+      invalidToastTimer.current = null;
+    }, 500);
+
+    return () => {
+      if (invalidToastTimer.current !== null) {
+        window.clearTimeout(invalidToastTimer.current);
+        invalidToastTimer.current = null;
+      }
+    };
+  }, [invalidSelectionKey, invalidSelectionMessage]);
 
   useEffect(() => {
     document.title = buildBrowserTitle(terminalTopbarLabel);
@@ -707,8 +758,20 @@ export function DevicePage() {
 
     sendInput(deviceId, resolvedPaneId, editorText, false);
     addEditorHistory(editorText);
+    if (draftKey) {
+      removeEditorDraft(draftKey);
+    }
     setEditorText('');
-  }, [addEditorHistory, canInteractWithPane, deviceId, editorText, resolvedPaneId, sendInput]);
+  }, [
+    addEditorHistory,
+    canInteractWithPane,
+    deviceId,
+    draftKey,
+    editorText,
+    removeEditorDraft,
+    resolvedPaneId,
+    sendInput,
+  ]);
 
   const handleEditorSendLineByLine = useCallback(() => {
     if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
@@ -720,8 +783,20 @@ export function DevicePage() {
     }
 
     addEditorHistory(editorText);
+    if (draftKey) {
+      removeEditorDraft(draftKey);
+    }
     setEditorText('');
-  }, [addEditorHistory, canInteractWithPane, deviceId, editorText, resolvedPaneId, sendInput]);
+  }, [
+    addEditorHistory,
+    canInteractWithPane,
+    deviceId,
+    draftKey,
+    editorText,
+    removeEditorDraft,
+    resolvedPaneId,
+    sendInput,
+  ]);
 
   if (!deviceId) {
     return (
@@ -801,7 +876,18 @@ export function DevicePage() {
         <div className="editor-mode-input">
           <textarea
             value={editorText}
-            onChange={(e) => setEditorText(e.target.value)}
+            onChange={(e) => {
+              const nextText = e.target.value;
+              setEditorText(nextText);
+              if (!draftKey) {
+                return;
+              }
+              if (nextText) {
+                setEditorDraft(draftKey, nextText);
+                return;
+              }
+              removeEditorDraft(draftKey);
+            }}
             placeholder="在此输入命令..."
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
@@ -823,7 +909,17 @@ export function DevicePage() {
               ))}
             </div>
 
-            <Button variant="default" size="sm" onClick={() => setEditorText('')} title="清空">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                setEditorText('');
+                if (draftKey) {
+                  removeEditorDraft(draftKey);
+                }
+              }}
+              title="清空"
+            >
               <Trash2 className="h-4 w-4 mr-1" />
               清空
             </Button>

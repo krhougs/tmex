@@ -264,13 +264,22 @@ export function Sidebar({ onClose }: SidebarProps) {
         {sortedDevices.length === 0 && !sidebarCollapsed && (
           <div className="px-4 py-8 text-center text-[var(--color-text-secondary)] text-sm">
             <div className="mb-2">暂无设备</div>
-            <Link
-              to="/settings"
-              className="text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] hover:underline transition-colors"
-              onClick={onClose}
-            >
-              打开设置
-            </Link>
+            <div className="space-y-1">
+              <Link
+                to="/devices"
+                className="block text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] hover:underline transition-colors"
+                onClick={onClose}
+              >
+                添加设备
+              </Link>
+              <Link
+                to="/settings"
+                className="block text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:underline transition-colors"
+                onClick={onClose}
+              >
+                打开设置
+              </Link>
+            </div>
           </div>
         )}
       </div>
@@ -278,18 +287,39 @@ export function Sidebar({ onClose }: SidebarProps) {
       {/* 底部 */}
       {!sidebarCollapsed && (
         <div className="p-3 border-t border-[var(--color-border)] flex-shrink-0">
-          <Button variant="default" className="w-full justify-center" asChild>
-            <Link to="/settings" onClick={onClose}>
-              <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
-              设置
-            </Link>
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button variant="default" className="w-full justify-center" asChild>
+              <Link to="/devices" onClick={onClose}>
+                <Monitor className="h-4 w-4 mr-2 flex-shrink-0" />
+                管理设备
+              </Link>
+            </Button>
+
+            <Button variant="default" className="w-full justify-center" asChild>
+              <Link to="/settings" onClick={onClose}>
+                <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
+                设置
+              </Link>
+            </Button>
+          </div>
         </div>
       )}
 
-      {/* 折叠状态下的设置按钮 */}
+      {/* 折叠状态下的快捷按钮 */}
       {sidebarCollapsed && (
-        <div className="p-2 border-t border-[var(--color-border)] flex-shrink-0">
+        <div className="p-2 border-t border-[var(--color-border)] flex-shrink-0 flex flex-col gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full h-8 p-0 justify-center"
+            asChild
+            title="管理设备"
+          >
+            <Link to="/devices" onClick={onClose}>
+              <Monitor className="h-4 w-4" />
+            </Link>
+          </Button>
+
           <Button
             variant="ghost"
             size="sm"

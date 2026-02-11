@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Outlet, useMatch, useNavigate } from 'react-router';
+import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Sidebar } from '../components/Sidebar';
 import { useSiteStore } from '../stores/site';
@@ -25,6 +25,7 @@ export function RootLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const paneMatch = useMatch('/devices/:deviceId/windows/:windowId/panes/:paneId');
   const matchedDeviceId = paneMatch?.params.deviceId;
   const matchedWindowId = paneMatch?.params.windowId;
@@ -83,6 +84,9 @@ export function RootLayout() {
   }, [devicesData?.devices, matchedDeviceId, matchedPaneId, matchedWindowId, paneMatch, snapshots]);
 
   const isTerminalRoute = Boolean(paneMatch);
+  const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+  const isScrollableContentRoute =
+    normalizedPath === '/' || normalizedPath === '/devices' || normalizedPath === '/settings';
 
   const canInteractWithPane = Boolean(
     isTerminalRoute && matchedPaneId && matchedDeviceConnected && matchedSelectedPane?.paneId === matchedPaneId
@@ -270,7 +274,7 @@ export function RootLayout() {
         )}
 
         {/* 内容 */}
-        <main className="flex-1 min-w-0 min-h-0 overflow-hidden">
+        <main className={`flex-1 min-w-0 min-h-0 ${isScrollableContentRoute ? 'overflow-y-auto' : 'overflow-hidden'}`}>
           <Outlet />
         </main>
       </div>
