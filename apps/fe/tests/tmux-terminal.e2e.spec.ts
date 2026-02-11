@@ -227,6 +227,41 @@ test.describe('Terminal 历史内容显示', () => {
 });
 
 test.describe('Terminal 按键处理', () => {
+  test('回车后错误输出不应与命令回显粘连', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_enter_newline_${RUN_ID}`);
+
+    await openDevices(page);
+    await addLocalDevice(page, deviceName);
+
+    await page.goto('/devices');
+    const deviceCardHeader = page
+      .getByRole('heading', { name: deviceName })
+      .locator('xpath=..')
+      .locator('xpath=..');
+    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+
+    await page.locator('.xterm').click();
+    await page.waitForTimeout(300);
+    await page.keyboard.type('111');
+    await page.keyboard.press('Enter');
+
+    await expect
+      .poll(async () => {
+        const content = await page.locator('.xterm-screen').textContent();
+        return content ?? '';
+      }, { timeout: 15_000 })
+      .toContain('command not found: 111');
+
+    const terminalContent = (await page.locator('.xterm-screen').textContent()) ?? '';
+    expect(terminalContent.includes('111zsh: command not found: 111')).toBe(false);
+
+    await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
+    await page.keyboard.press('Enter');
+  });
+
   test('Shift+Enter 应正确传递', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_key_${RUN_ID}`);
 

@@ -31,6 +31,42 @@ function normalizeHistoryForXterm(data: string): string {
   return data.replace(/\r?\n/g, '\r\n');
 }
 
+function normalizeLiveOutputForXterm(
+  data: Uint8Array,
+  previousEndedWithCR: boolean
+): { normalized: Uint8Array; endedWithCR: boolean } {
+  let prevWasCR = previousEndedWithCR;
+  let extraCRCount = 0;
+
+  for (const byte of data) {
+    if (byte === 0x0a && !prevWasCR) {
+      extraCRCount += 1;
+    }
+    prevWasCR = byte === 0x0d;
+  }
+
+  const endedWithCR = prevWasCR;
+  if (extraCRCount === 0) {
+    return { normalized: data, endedWithCR };
+  }
+
+  const normalized = new Uint8Array(data.length + extraCRCount);
+  let writeIndex = 0;
+  prevWasCR = previousEndedWithCR;
+
+  for (const byte of data) {
+    if (byte === 0x0a && !prevWasCR) {
+      normalized[writeIndex] = 0x0d;
+      writeIndex += 1;
+    }
+    normalized[writeIndex] = byte;
+    writeIndex += 1;
+    prevWasCR = byte === 0x0d;
+  }
+
+  return { normalized, endedWithCR };
+}
+
 const EDITOR_SHORTCUTS: EditorShortcut[] = [
 
   { key: 'ctrl-c', label: 'CTRL-C', payload: '\u0003' },
@@ -71,6 +107,7 @@ export function DevicePage() {
   const historyApplied = useRef(false);
   const initialReplayReady = useRef(false);
   const historyFallbackTimer = useRef<number | null>(null);
+  const liveOutputEndedWithCR = useRef(false);
 
   const resizeRaf = useRef<number | null>(null);
   const resizeTimer = useRef<number | null>(null);
@@ -394,6 +431,7 @@ export function DevicePage() {
     historyApplied.current = false;
     pendingHistory.current = null;
     historyBuffer.current = [];
+    liveOutputEndedWithCR.current = false;
     lastReportedSize.current = null;
     pendingLocalSize.current = null;
 
@@ -431,6 +469,7 @@ export function DevicePage() {
         const term = new Terminal({
           fontFamily: 'SF Mono, Monaco, Inconsolata, "Fira Code", monospace',
           fontSize: 14,
+          convertEol: true,
           theme: {
             background: '#0d1117',
             foreground: '#c9d1d9',
@@ -522,17 +561,23 @@ export function DevicePage() {
     if (!deviceId) return;
 
     return subscribeBinary(deviceId, (output) => {
+      const normalizedOutput = normalizeLiveOutputForXterm(
+        output,
+        liveOutputEndedWithCR.current
+      );
+      liveOutputEndedWithCR.current = normalizedOutput.endedWithCR;
+
       if (!isTerminalReady.current || !terminal.current) {
-        historyBuffer.current.push(output.slice());
+        historyBuffer.current.push(normalizedOutput.normalized.slice());
         return;
       }
 
       if (!initialReplayReady.current) {
-        historyBuffer.current.push(output.slice());
+        historyBuffer.current.push(normalizedOutput.normalized.slice());
         return;
       }
 
-      terminal.current.write(output);
+      terminal.current.write(normalizedOutput.normalized);
     });
   }, [deviceId, subscribeBinary]);
 

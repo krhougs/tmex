@@ -41,6 +41,18 @@ export interface TmuxControlParserOptions {
   onReady?: () => void;
 }
 
+function isSameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function decodeTmuxEscapedValue(value: string): Uint8Array {
   const bytes: number[] = [];
   const encoder = new TextEncoder();
@@ -99,6 +111,10 @@ export class TmuxControlParser {
   private outputBlockMeta: { time: number; commandNo: number; flags: number } | null = null;
   private outputBlockLines: string[] = [];
   private readyNotified = false;
+  private lastOutputEndedWithCR = false;
+  private lastOutputFrame: { mode: 'output' | 'extended'; paneId: string; data: Uint8Array } | null =
+    null;
+  private outputScreenTitleState: 'normal' | 'esc' | 'title' | 'titleEsc' = 'normal';
 
   constructor(options: TmuxControlParserOptions) {
     this.onEvent = options.onEvent;
@@ -221,6 +237,118 @@ export class TmuxControlParser {
     return { time, commandNo, flags };
   }
 
+  private normalizeTerminalOutputNewline(data: Uint8Array): Uint8Array {
+    const startWithCR = this.lastOutputEndedWithCR;
+    let previousWasCR = startWithCR;
+    let extraCRCount = 0;
+
+    for (const byte of data) {
+      if (byte === 0x0a && !previousWasCR) {
+        extraCRCount += 1;
+      }
+      previousWasCR = byte === 0x0d;
+    }
+
+    this.lastOutputEndedWithCR = previousWasCR;
+
+    if (extraCRCount === 0) {
+      return data;
+    }
+
+    const normalized = new Uint8Array(data.length + extraCRCount);
+    let writeIndex = 0;
+    previousWasCR = startWithCR;
+
+    for (const byte of data) {
+      if (byte === 0x0a && !previousWasCR) {
+        normalized[writeIndex] = 0x0d;
+        writeIndex += 1;
+      }
+      normalized[writeIndex] = byte;
+      writeIndex += 1;
+      previousWasCR = byte === 0x0d;
+    }
+
+    return normalized;
+  }
+
+  private stripScreenTitleSequence(data: Uint8Array): Uint8Array {
+    if (data.length === 0) {
+      return data;
+    }
+
+    const output: number[] = [];
+    let state = this.outputScreenTitleState;
+
+    for (const byte of data) {
+      if (state === 'normal') {
+        if (byte === 0x1b) {
+          state = 'esc';
+        } else {
+          output.push(byte);
+        }
+        continue;
+      }
+
+      if (state === 'esc') {
+        if (byte === 0x6b) {
+          state = 'title';
+          continue;
+        }
+
+        output.push(0x1b);
+        if (byte === 0x1b) {
+          state = 'esc';
+        } else {
+          output.push(byte);
+          state = 'normal';
+        }
+        continue;
+      }
+
+      if (state === 'title') {
+        if (byte === 0x1b) {
+          state = 'titleEsc';
+        }
+        continue;
+      }
+
+      if (byte === 0x5c) {
+        state = 'normal';
+      } else if (byte === 0x1b) {
+        state = 'titleEsc';
+      } else {
+        state = 'title';
+      }
+    }
+
+    this.outputScreenTitleState = state;
+    return new Uint8Array(output);
+  }
+
+  private emitTerminalOutput(
+    mode: 'output' | 'extended',
+    paneId: string,
+    data: Uint8Array
+  ): void {
+    const last = this.lastOutputFrame;
+    const isCrossModeDuplicate =
+      last !== null &&
+      last.mode !== mode &&
+      last.paneId === paneId &&
+      isSameBytes(last.data, data);
+
+    if (!isCrossModeDuplicate) {
+      this.onTerminalOutput(paneId, data);
+    }
+
+    this.lastOutputFrame = {
+      mode,
+      paneId,
+      data: data.slice(),
+    };
+  }
+
   private parseControlLine(line: string): void {
     // 解析格式: %command args...
     const spaceIndex = line.indexOf(' ');
@@ -316,7 +444,10 @@ export class TmuxControlParser {
         if (firstSpace !== -1) {
           const paneId = args.slice(0, firstSpace);
           const value = args.slice(firstSpace + 1);
-          this.onTerminalOutput(paneId, decodeTmuxEscapedValue(value));
+          const decoded = decodeTmuxEscapedValue(value);
+          const stripped = this.stripScreenTitleSequence(decoded);
+          const normalized = this.normalizeTerminalOutputNewline(stripped);
+          this.emitTerminalOutput('output', paneId, normalized);
         }
         break;
       }
@@ -329,7 +460,10 @@ export class TmuxControlParser {
         const colonIndex = args.indexOf(' : ');
         if (colonIndex === -1) break;
         const value = args.slice(colonIndex + 3);
-        this.onTerminalOutput(paneId, decodeTmuxEscapedValue(value));
+        const decoded = decodeTmuxEscapedValue(value);
+        const stripped = this.stripScreenTitleSequence(decoded);
+        const normalized = this.normalizeTerminalOutputNewline(stripped);
+        this.emitTerminalOutput('extended', paneId, normalized);
         break;
       }
 
@@ -394,5 +528,8 @@ export class TmuxControlParser {
    */
   flush(): void {
     this.buffer = '';
+    this.lastOutputEndedWithCR = false;
+    this.lastOutputFrame = null;
+    this.outputScreenTitleState = 'normal';
   }
 }
