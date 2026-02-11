@@ -40,6 +40,7 @@ interface DeviceConnectionEntry {
 
 export class WebSocketServer {
   private connections = new Map<string, DeviceConnectionEntry>();
+  private pendingConnectionEntries = new Map<string, Promise<DeviceConnectionEntry | null>>();
 
   private clearSnapshotTimer(entry: DeviceConnectionEntry): void {
     if (!entry.snapshotTimer) return;
@@ -172,6 +173,39 @@ export class WebSocketServer {
       entry.connection.disconnect();
       this.connections.delete(deviceId);
     }
+    this.pendingConnectionEntries.clear();
+  }
+
+  private async getOrCreateConnectionEntry(
+    deviceId: string,
+    ws: ServerWebSocket<ClientState>
+  ): Promise<DeviceConnectionEntry | null> {
+    const existing = this.connections.get(deviceId);
+    if (existing) {
+      return existing;
+    }
+
+    const pending = this.pendingConnectionEntries.get(deviceId);
+    if (pending) {
+      return pending;
+    }
+
+    let creationPromise: Promise<DeviceConnectionEntry | null>;
+    creationPromise = this.createDeviceConnectionEntry(deviceId, ws)
+      .then((createdEntry) => {
+        if (createdEntry) {
+          this.connections.set(deviceId, createdEntry);
+        }
+        return createdEntry;
+      })
+      .finally(() => {
+        if (this.pendingConnectionEntries.get(deviceId) === creationPromise) {
+          this.pendingConnectionEntries.delete(deviceId);
+        }
+      });
+
+    this.pendingConnectionEntries.set(deviceId, creationPromise);
+    return creationPromise;
   }
 
   private async handleWsMessage(
@@ -256,15 +290,9 @@ export class WebSocketServer {
     ws: ServerWebSocket<ClientState>,
     deviceId: string
   ): Promise<void> {
-    let entry = this.connections.get(deviceId);
-
+    const entry = await this.getOrCreateConnectionEntry(deviceId, ws);
     if (!entry) {
-      const createdEntry = await this.createDeviceConnectionEntry(deviceId, ws);
-      if (!createdEntry) {
-        return;
-      }
-      entry = createdEntry;
-      this.connections.set(deviceId, entry);
+      return;
     }
 
     entry.clients.add(ws);

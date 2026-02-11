@@ -65,9 +65,21 @@ const historySubscribers: HistorySubscriber[] = [];
 // 待发送的消息队列
 const pendingMessages: Array<Omit<WsMessage<unknown>, 'timestamp'>> = [];
 const MAX_PENDING_MESSAGES = 100;
+const CONNECT_DEDUP_WINDOW_MS = 500;
+const lastConnectSentAt = new Map<string, number>();
 const isLocalDevRuntime =
   typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+function shouldSkipDuplicateConnect(deviceId: string): boolean {
+  const now = Date.now();
+  const last = lastConnectSentAt.get(deviceId);
+  if (last !== undefined && now - last < CONNECT_DEDUP_WINDOW_MS) {
+    return true;
+  }
+  lastConnectSentAt.set(deviceId, now);
+  return false;
+}
 
 function extractTerminalOutput(
   frame: Uint8Array
@@ -136,6 +148,9 @@ function ensureSocket(
     // 重新连接所有已连接的设备
     for (const deviceId of getState().connectedDevices) {
       if (alreadyConnected.has(deviceId)) {
+        continue;
+      }
+      if (shouldSkipDuplicateConnect(deviceId)) {
         continue;
       }
       sendJson({ type: 'device/connect', payload: { deviceId } });
@@ -343,6 +358,9 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
 
     ensureSocket(set, get);
     if (isFirstReference) {
+      if (shouldSkipDuplicateConnect(deviceId)) {
+        return;
+      }
       sendJson({ type: 'device/connect', payload: { deviceId } });
     }
   },
@@ -375,6 +393,8 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
       selectedPanes: { ...prev.selectedPanes, [deviceId]: undefined },
       deviceConnected: { ...prev.deviceConnected, [deviceId]: false },
     }));
+
+    lastConnectSentAt.delete(deviceId);
 
     sendJson({ type: 'device/disconnect', payload: { deviceId } });
   },
