@@ -15,16 +15,33 @@ async function openDevices(page: import('@playwright/test').Page): Promise<void>
 async function addLocalDevice(
   page: import('@playwright/test').Page,
   deviceName: string
-): Promise<void> {
+): Promise<string> {
   await page.goto('/devices');
   await page.getByTestId('devices-add').first().click();
 
   await page.getByTestId('device-name-input').fill(deviceName);
-  await page.getByLabel('类型').selectOption('local');
-  await page.getByLabel('Tmux 会话名称').fill(deviceName);
+  await page.getByTestId('device-type-select').selectOption('local');
+  await page.getByTestId('device-session-input').fill(deviceName);
   await page.getByTestId('device-dialog-save').click();
 
-  await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
+  const deviceCard = page
+    .locator(`[data-testid=\"device-card\"][data-device-name=\"${deviceName}\"]`)
+    .first();
+  await expect(deviceCard).toBeVisible({ timeout: 30_000 });
+
+  const deviceId = await deviceCard.getAttribute('data-device-id');
+  if (!deviceId) {
+    throw new Error('Device ID not found');
+  }
+  return deviceId;
+}
+
+async function connectDevice(page: import('@playwright/test').Page, deviceId: string): Promise<void> {
+  await page.goto('/devices');
+  await page.getByTestId(`device-connect-${deviceId}`).click();
+
+  await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+  await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
 }
 
 function readActivePaneSize(sessionName: string): { rows: number; cols: number } {
@@ -79,18 +96,10 @@ test.describe('Terminal 历史内容显示', () => {
     const deviceName = sanitizeSessionName(`e2e_history_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
     // 连接设备
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     // 在终端中输入一些内容
     await page.locator('.xterm').click();
@@ -144,17 +153,9 @@ test.describe('Terminal 历史内容显示', () => {
     });
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     await page.locator('.xterm').click();
     await page.waitForTimeout(400);
@@ -178,18 +179,10 @@ test.describe('Terminal 历史内容显示', () => {
     const deviceName = sanitizeSessionName(`e2e_scroll_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
     // 连接设备
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     // 生成大量输出来测试滚动
     await page.locator('.xterm').click();
@@ -231,17 +224,9 @@ test.describe('Terminal 按键处理', () => {
     const deviceName = sanitizeSessionName(`e2e_enter_newline_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     await page.locator('.xterm').click();
     await page.waitForTimeout(300);
@@ -266,18 +251,10 @@ test.describe('Terminal 按键处理', () => {
     const deviceName = sanitizeSessionName(`e2e_key_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
     // 连接设备
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     // 点击终端聚焦
     await page.locator('.xterm').click();
@@ -299,18 +276,10 @@ test.describe('Terminal 按键处理', () => {
     const deviceName = sanitizeSessionName(`e2e_ctrlc_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
     // 连接设备
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     // 点击终端聚焦
     await page.locator('.xterm').click();
@@ -341,17 +310,9 @@ test.describe('Terminal 尺寸同步', () => {
     const deviceName = sanitizeSessionName(`e2e_sync_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     const before = readActivePaneSize(deviceName);
 
@@ -383,17 +344,9 @@ test.describe('Terminal 尺寸同步', () => {
     const deviceName = sanitizeSessionName(`e2e_resize_sync_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.waitForTimeout(300);
@@ -471,17 +424,9 @@ test.describe('Terminal 尺寸同步', () => {
     });
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     const before = readActivePaneSize(deviceName);
     const targetCols = Math.max(40, before.cols - 12);
@@ -516,17 +461,9 @@ test.describe('Terminal 尺寸同步', () => {
     const deviceName = sanitizeSessionName(`e2e_invalid_selection_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     const activePaneItem = page.locator('[data-testid^="pane-item-"][data-active="true"]').first();
     await expect(activePaneItem).toBeVisible({ timeout: 30_000 });
@@ -539,17 +476,9 @@ test.describe('Terminal 尺寸同步', () => {
     const deviceName = sanitizeSessionName(`e2e_title_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
-    await page.getByTestId(`device-connect-${deviceId}`).click();
-
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+    await connectDevice(page, deviceId);
 
     await expect
       .poll(() => page.title(), { timeout: 15_000 })

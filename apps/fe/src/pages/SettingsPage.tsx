@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select, SelectOption } from '../components/ui';
 import { useSiteStore } from '../stores/site';
+import { toBCP47 as toBCP47Locale } from '@tmex/shared';
 
 interface TelegramBotsResponse {
   bots: TelegramBotWithStats[];
@@ -55,7 +56,7 @@ export function SettingsPage() {
     queryFn: async () => {
       const res = await fetch('/api/settings/site');
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '加载设置失败'));
+        throw new Error(await parseApiError(res, t('settings.loadFailed')));
       }
       return (await res.json()) as SiteSettingsResponse;
     },
@@ -66,7 +67,7 @@ export function SettingsPage() {
     queryFn: async () => {
       const res = await fetch('/api/settings/telegram/bots');
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '加载 Bot 列表失败'));
+        throw new Error(await parseApiError(res, t('telegram.loadBotsFailed')));
       }
       return (await res.json()) as TelegramBotsResponse;
     },
@@ -106,7 +107,7 @@ export function SettingsPage() {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '保存设置失败'));
+        throw new Error(await parseApiError(res, t('settings.saveFailed')));
       }
     },
     onSuccess: async () => {
@@ -128,7 +129,7 @@ export function SettingsPage() {
     mutationFn: async () => {
       const res = await fetch('/api/settings/restart', { method: 'POST' });
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '重启请求失败'));
+        throw new Error(await parseApiError(res, t('settings.restartFailed')));
       }
     },
     onSuccess: () => {
@@ -155,7 +156,7 @@ export function SettingsPage() {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '新增 Bot 失败'));
+        throw new Error(await parseApiError(res, t('telegram.createFailed')));
       }
     },
     onSuccess: async () => {
@@ -172,7 +173,7 @@ export function SettingsPage() {
   const bots = botsQuery.data?.bots ?? [];
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-6 max-w-5xl mx-auto space-y-6" data-testid="settings-page">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t('nav.settings')}</h1>
         <Button
@@ -224,6 +225,7 @@ export function SettingsPage() {
             </label>
             <Select
               id="language-select"
+              data-testid="settings-language-select"
               value={language}
               onChange={(e) => setLanguage(e.target.value as 'en_US' | 'zh_CN')}
             >
@@ -231,7 +233,7 @@ export function SettingsPage() {
               <SelectOption value="zh_CN">{t('settings.language_zh_CN')}</SelectOption>
             </Select>
             {showRefreshNotice && (
-              <p className="text-xs text-[var(--color-accent)] mt-1">
+              <p className="text-xs text-[var(--color-accent)] mt-1" data-testid="settings-refresh-notice">
                 {t('settings.refreshToApply')}
               </p>
             )}
@@ -287,6 +289,7 @@ export function SettingsPage() {
           <div className="flex items-center justify-end gap-2">
             <Button
               variant="danger"
+              data-testid="settings-restart"
               onClick={() => restartMutation.mutate()}
               disabled={restartMutation.isPending}
             >
@@ -296,6 +299,7 @@ export function SettingsPage() {
 
             <Button
               variant="primary"
+              data-testid="settings-save"
               onClick={() => saveSiteMutation.mutate()}
               disabled={saveSiteMutation.isPending}
             >
@@ -407,7 +411,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
     queryFn: async () => {
       const res = await fetch(`/api/settings/telegram/bots/${bot.id}/chats`);
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '加载 chat 列表失败'));
+        throw new Error(await parseApiError(res, t('telegram.loadChatsFailed')));
       }
       return (await res.json()) as TelegramChatsResponse;
     },
@@ -441,7 +445,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '更新 Bot 失败'));
+        throw new Error(await parseApiError(res, t('telegram.updateFailed')));
       }
     },
     onSuccess: async () => {
@@ -461,7 +465,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '删除 Bot 失败'));
+        throw new Error(await parseApiError(res, t('telegram.deleteFailed')));
       }
     },
     onSuccess: async () => {
@@ -479,7 +483,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         method: 'POST',
       });
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '批准授权失败'));
+        throw new Error(await parseApiError(res, t('telegram.approveFailed')));
       }
     },
     onSuccess: async () => {
@@ -500,7 +504,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         method: 'DELETE',
       });
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '删除 chat 失败'));
+        throw new Error(await parseApiError(res, t('telegram.removeFailed')));
       }
     },
     onSuccess: async () => {
@@ -521,7 +525,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         method: 'POST',
       });
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '发送测试消息失败'));
+        throw new Error(await parseApiError(res, t('telegram.testMessageFailed')));
       }
     },
     onSuccess: () => {
@@ -562,13 +566,13 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
             type="password"
             value={token}
             onChange={(event) => setToken(event.target.value)}
-            placeholder="Token"
+            placeholder={t('telegram.tokenPlaceholder')}
           />
         </div>
         <div className="md:col-span-2">
           <label className="flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
-            {t('telegram.enabled')}
+            {t('common.enabled')}
           </label>
         </div>
         <div className="md:col-span-3">
@@ -653,16 +657,17 @@ interface ChatRowProps {
 
 function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
   const { t } = useTranslation();
+  const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
   return (
     <div className="rounded border border-[var(--color-border)] p-3 bg-[var(--color-bg)] space-y-2">
       <div className="text-sm font-medium truncate" title={chat.displayName}>
         {chat.displayName}
       </div>
       <div className="text-xs text-[var(--color-text-secondary)]">
-        chatId：{chat.chatId}
+        {t('telegram.chatId')}：{chat.chatId}
       </div>
       <div className="text-xs text-[var(--color-text-secondary)]">
-        {new Date(chat.appliedAt).toLocaleString('zh-CN')}
+        {new Date(chat.appliedAt).toLocaleString(toBCP47Locale(language))}
       </div>
 
       <div className="flex items-center justify-end gap-2">

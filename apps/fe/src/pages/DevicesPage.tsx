@@ -159,7 +159,7 @@ export function DevicesPage() {
     queryKey: ['devices'],
     queryFn: async () => {
       const res = await fetch('/api/devices');
-      if (!res.ok) throw new Error('Failed to fetch');
+      if (!res.ok) throw new Error(t('device.loadFailed'));
       return res.json() as Promise<{ devices: Device[] }>;
     },
     throwOnError: false,
@@ -170,7 +170,7 @@ export function DevicesPage() {
       const res = await fetch(`/api/devices/${id}`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error('Failed to delete');
+      if (!res.ok) throw new Error(t('device.deleteFailed'));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
@@ -187,7 +187,7 @@ export function DevicesPage() {
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">{t('device.title')}</h1>
-        <Button variant="primary" onClick={() => setShowAddModal(true)}>
+        <Button variant="primary" data-testid="devices-add" onClick={() => setShowAddModal(true)}>
           <Plus className="h-4 w-4" />
           {t('device.addDevice')}
         </Button>
@@ -201,7 +201,7 @@ export function DevicesPage() {
             <div className="text-4xl mb-4">🖥️</div>
             <h3 className="text-lg font-medium mb-2">{t('device.noDevices')}</h3>
             <p className="text-[var(--color-text-secondary)] mb-4">{t('device.typeLocal')} / SSH {t('device.type')}</p>
-            <Button variant="primary" onClick={() => setShowAddModal(true)}>
+            <Button variant="primary" data-testid="devices-add-empty" onClick={() => setShowAddModal(true)}>
               {t('device.addDevice')}
             </Button>
           </CardContent>
@@ -241,7 +241,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
     device.type === 'local' ? t('device.typeLocal') : `${device.username}@${device.host}:${device.port}`;
 
   return (
-    <Card>
+    <Card data-testid="device-card" data-device-id={device.id} data-device-name={device.name}>
       <CardHeader>
         <div className="text-[var(--color-accent)]">{icon}</div>
 
@@ -259,7 +259,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
           </Button>
 
           <Button variant="primary" size="sm" asChild>
-            <Link to={`/devices/${device.id}`}>{t('device.connect')}</Link>
+            <Link data-testid={`device-connect-${device.id}`} to={`/devices/${device.id}`}>{t('device.connect')}</Link>
           </Button>
 
           <Button variant="danger" size="sm" onClick={onDelete} title={t('common.delete')}>
@@ -299,7 +299,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '创建设备失败'));
+        throw new Error(await parseApiError(res, t('device.createFailed')));
       }
 
       return res.json();
@@ -317,7 +317,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const updateDevice = useMutation({
     mutationFn: async (payload: UpdateDeviceRequest) => {
       if (!device) {
-        throw new Error('设备不存在');
+        throw new Error(t('apiError.deviceNotFound'));
       }
 
       const res = await fetch(`/api/devices/${device.id}`, {
@@ -327,7 +327,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res, '更新设备失败'));
+        throw new Error(await parseApiError(res, t('device.updateFailed')));
       }
 
       return res.json();
@@ -370,7 +370,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const privateKeyPassphraseInputId = `${mode}-device-private-key-passphrase`;
 
   return (
-    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()} data-testid="device-dialog">
       <DialogContent className="w-full max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEditMode ? t('device.editDevice') : t('device.addDevice')}</DialogTitle>
@@ -385,6 +385,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
               </label>
               <Input
                 id={deviceNameInputId}
+                data-testid="device-name-input"
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData((d) => ({ ...d, name: e.target.value }))}
@@ -398,7 +399,8 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                 {t('device.type')}
               </label>
               <Select
-                id={deviceTypeSelectId}
+                    id={deviceTypeSelectId}
+                    data-testid="device-type-select"
                 value={formData.type}
                 onChange={(e) => {
                   const nextType = e.target.value as 'local' | 'ssh';
@@ -477,6 +479,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
               </label>
               <Input
                 id={sessionInputId}
+                data-testid="device-session-input"
                 type="text"
                 value={formData.session}
                 onChange={(e) => setFormData((d) => ({ ...d, session: e.target.value }))}
@@ -566,7 +569,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
             <Button type="button" variant="default" className="flex-1" onClick={onClose}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" variant="primary" className="flex-1" disabled={isSubmitting}>
+            <Button type="submit" variant="primary" className="flex-1" data-testid="device-dialog-save" disabled={isSubmitting}>
               {isSubmitting ? t('common.saving') : t('common.save')}
             </Button>
           </DialogFooter>

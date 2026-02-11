@@ -7,6 +7,7 @@ import {
   listAuthorizedTelegramChatsByBot,
   updateTelegramBot,
 } from '../db';
+import { toBCP47 } from '@tmex/shared';
 import { t } from '../i18n';
 
 function normalizeChatType(raw: string | undefined): 'private' | 'group' | 'supergroup' | 'channel' | 'unknown' {
@@ -50,7 +51,7 @@ export class TelegramService {
     const settings = getSiteSettings();
     const text = t('telegram.gatewayOnline', {
       siteName,
-      time: new Date().toLocaleString(settings.language.replace('_', '-')),
+      time: new Date().toLocaleString(toBCP47(settings.language)),
     });
 
     await this.sendToAuthorizedChats({ text });

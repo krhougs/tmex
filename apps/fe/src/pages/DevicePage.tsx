@@ -512,7 +512,7 @@ export function DevicePage() {
         setIsLoading(false);
       } catch (err) {
         console.error('[DevicePage] Failed to initialize terminal:', err);
-        setLoadError('终端初始化失败');
+        setLoadError(t('terminal.initFailed'));
         setIsLoading(false);
       }
     };
@@ -547,7 +547,7 @@ export function DevicePage() {
       fitAddon.current = null;
       isTerminalReady.current = false;
     };
-  }, [applyHistoryIfAllowed]);
+    }, [applyHistoryIfAllowed, t]);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -863,7 +863,7 @@ export function DevicePage() {
   const showConnecting = !deviceConnected && !deviceError;
 
   return (
-    <div className="flex flex-col h-full bg-[var(--color-bg)]">
+    <div className="flex flex-col h-full bg-[var(--color-bg)]" data-testid="device-page">
       {!isMobile && (
         <div className="h-11 flex items-center justify-between px-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
@@ -880,18 +880,20 @@ export function DevicePage() {
             <Button
               variant="ghost"
               size="sm"
+              data-testid="terminal-jump-latest"
               className="px-2 py-1 text-xs"
               onClick={handleJumpToLatest}
-              title={t('terminal.jumpToLatest')}
+              title={t('nav.jumpToLatest')}
               disabled={!canInteractWithPane}
             >
               <ArrowDownToLine className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">{t('terminal.jumpToLatest')}</span>
+              <span className="hidden sm:inline">{t('nav.jumpToLatest')}</span>
             </Button>
 
             <Button
               variant="default"
               size="sm"
+              data-testid="terminal-input-mode-toggle"
               className="px-2 py-1 text-xs"
               onClick={() =>
                 useUIStore.setState({ inputMode: inputMode === 'direct' ? 'editor' : 'direct' })
@@ -899,11 +901,11 @@ export function DevicePage() {
             >
               {inputMode === 'direct' ? (
                 <>
-                  <Keyboard className="h-3 w-3 mr-1" /> {t('terminal.switchToEditor')}
+                  <Keyboard className="h-3 w-3 mr-1" /> {t('nav.switchToEditor')}
                 </>
               ) : (
                 <>
-                  <Smartphone className="h-3 w-3 mr-1" /> {t('terminal.switchToDirect')}
+                  <Smartphone className="h-3 w-3 mr-1" /> {t('nav.switchToDirect')}
                 </>
               )}
             </Button>
@@ -915,10 +917,10 @@ export function DevicePage() {
         <div ref={terminalRef} className="w-full h-full min-w-0 min-h-0" />
 
         {(isLoading || showConnecting) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/80 backdrop-blur-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/80 backdrop-blur-sm" data-testid="terminal-status-overlay">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
-              <span className="text-[var(--color-text-secondary)]">
+              <span className="text-[var(--color-text-secondary)]" data-testid="terminal-status-text">
                 {isLoading ? t('terminal.initializing') : t('terminal.connecting')}
               </span>
             </div>
@@ -929,6 +931,7 @@ export function DevicePage() {
       {inputMode === 'editor' && (
         <div className="editor-mode-input">
           <textarea
+            data-testid="editor-input"
             value={editorText}
             onChange={(e) => {
               const nextText = e.target.value;
@@ -955,6 +958,7 @@ export function DevicePage() {
                   size="sm"
                   title={shortcut.label}
                   aria-label={shortcut.label}
+                  data-testid={`editor-shortcut-${shortcut.key}`}
                   onClick={() => handleSendShortcut(shortcut.payload)}
                   disabled={!canInteractWithPane}
                 >
@@ -966,6 +970,7 @@ export function DevicePage() {
             <Button
               variant="default"
               size="sm"
+              data-testid="editor-clear"
               onClick={() => {
                 setEditorText('');
                 if (draftKey) {
@@ -980,6 +985,7 @@ export function DevicePage() {
             <Button
               variant="primary"
               size="sm"
+              data-testid="editor-send"
               onClick={handleEditorSend}
               disabled={!canInteractWithPane}
             >

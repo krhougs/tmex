@@ -1,5 +1,6 @@
-import type { EventType, WebhookEndpoint, WebhookEvent } from '@tmex/shared';
+import { toBCP47, type EventType, type WebhookEndpoint, type WebhookEvent } from '@tmex/shared';
 import { getAllWebhookEndpoints, getSiteSettings } from '../db';
+import { t } from '../i18n';
 import { telegramService } from '../telegram/service';
 
 function sanitizeMarkdownV2(input: string): string {
@@ -114,6 +115,7 @@ export class EventNotifier {
   }
 
   private formatTelegramMessage(event: WebhookEvent): string {
+    const settings = getSiteSettings();
     const emojiMap: Record<EventType, string> = {
       terminal_bell: '🔔',
       tmux_window_close: '🪟',
@@ -126,47 +128,49 @@ export class EventNotifier {
 
     const paneUrl = buildPaneUrl(event);
 
+    const eventTypeLabel = t(`notification.eventType.${event.eventType}` as const);
+
     const lines = [
-      `${emojiMap[event.eventType] ?? '📢'} ${event.eventType}`,
-      `站点：${event.site.name}`,
-      `时间：${new Date(event.timestamp).toLocaleString('zh-CN')}`,
-      `设备：${event.device.name} (${event.device.type})`,
+      `${emojiMap[event.eventType] ?? '📢'} ${eventTypeLabel}`,
+      `${t('notification.site')}：${event.site.name}`,
+      `${t('notification.time')}：${new Date(event.timestamp).toLocaleString(toBCP47(settings.language))}`,
+      `${t('notification.device')}：${event.device.name} (${event.device.type})`,
       event.tmux?.windowIndex !== undefined
-        ? `窗口：${event.tmux.windowIndex} (${event.tmux.windowId ?? '-'})`
+        ? `${t('notification.window')}：${event.tmux.windowIndex} (${event.tmux.windowId ?? '-'})`
         : event.tmux?.windowId
-          ? `窗口：${event.tmux.windowId}`
-          : '窗口：-',
+          ? `${t('notification.window')}：${event.tmux.windowId}`
+          : `${t('notification.window')}：-`,
       event.tmux?.paneIndex !== undefined
-        ? `Pane：${event.tmux.paneIndex} (${event.tmux.paneId ?? '-'})`
+        ? `${t('notification.pane')}：${event.tmux.paneIndex} (${event.tmux.paneId ?? '-'})`
         : event.tmux?.paneId
-          ? `Pane：${event.tmux.paneId}`
-          : 'Pane：-',
+          ? `${t('notification.pane')}：${event.tmux.paneId}`
+          : `${t('notification.pane')}：-`,
     ];
 
     if (paneUrl) {
-      lines.push(`直达：${paneUrl}`);
+      lines.push(`${t('notification.directLink')}：${paneUrl}`);
     }
 
-     if (event.payload?.message && typeof event.payload.message === 'string') {
-       lines.push(`信息：${event.payload.message}`);
-     }
+    if (event.payload?.message && typeof event.payload.message === 'string') {
+      lines.push(`${t('notification.message')}：${event.payload.message}`);
+    }
 
-     return lines.map((line) => sanitizeMarkdownV2(line)).join('\n');
-   }
+    return lines.map((line) => sanitizeMarkdownV2(line)).join('\n');
+  }
 
-   private async generateHmac(secret: string, message: string): Promise<string> {
-     const encoder = new TextEncoder();
-     const key = await crypto.subtle.importKey(
-       'raw',
-       encoder.encode(secret),
-       { name: 'HMAC', hash: 'SHA-256' },
-       false,
-       ['sign']
-     );
+  private async generateHmac(secret: string, message: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
 
-     const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-     return Buffer.from(signature).toString('hex');
-   }
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+    return Buffer.from(signature).toString('hex');
+  }
 }
 
 export const eventNotifier = new EventNotifier();

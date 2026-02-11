@@ -37,6 +37,7 @@ import {
 } from '../db';
 import { telegramService } from '../telegram/service';
 import { t } from '../i18n';
+import { toBCP47 } from '@tmex/shared';
 
 function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Omit<SiteSettings, 'updatedAt'>> {
   const updates: Partial<Omit<SiteSettings, 'updatedAt'>> = {};
@@ -82,7 +83,7 @@ function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Om
   if (body.language !== undefined) {
     const value = body.language.trim();
     if (value !== 'en_US' && value !== 'zh_CN') {
-      throw new Error('语言必须是 en_US 或 zh_CN');
+      throw new Error(t('apiError.languageInvalid'));
     }
     updates.language = value as LocaleCode;
   }
@@ -277,7 +278,7 @@ async function handleUpdateSiteSettings(req: Request): Promise<Response> {
 
     return json({ settings });
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : 'Invalid request' }, 400);
+    return json({ error: err instanceof Error ? err.message : t('apiError.invalidRequest') }, 400);
   }
 }
 
@@ -407,7 +408,7 @@ async function handleApproveTelegramChat(botId: string, chatId: string): Promise
     chatId,
     t('telegram.approveMessageTemplate', {
       botName: existing.name,
-      time: new Date().toLocaleString(settings.language.replace('_', '-')),
+      time: new Date().toLocaleString(toBCP47(settings.language)),
     })
   );
 
@@ -437,7 +438,7 @@ async function handleTestTelegramChat(botId: string, chatId: string): Promise<Re
     chatId,
     t('telegram.testMessageTemplate', {
       siteName: settings.siteName,
-      time: new Date().toLocaleString(settings.language.replace('_', '-')),
+      time: new Date().toLocaleString(toBCP47(settings.language)),
     })
   );
 

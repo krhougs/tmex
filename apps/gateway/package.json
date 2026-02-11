@@ -8,11 +8,12 @@
     "start": "./scripts/run-with-ssh-agent.sh dist/index.js",
     "test": "bun test",
     "test:ssh-agent-local": "bun test ./src/tmux/ssh-agent-local.integration.ts",
-    "db:migrate": "bun src/db/migrate.ts",
-    "db:seed": "bun src/db/seed.ts"
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "bun src/db/migrate.ts"
   },
   "dependencies": {
     "@tmex/shared": "workspace:*",
+    "drizzle-orm": "^0.45.1",
     "gramio": "^0.4.12",
     "i18next": "^25.8.5",
     "ssh2": "^1.16.0",
@@ -22,6 +23,7 @@
     "@types/bun": "latest",
     "@types/ssh2": "^1.15.4",
     "@types/uuid": "^10.0.0",
+    "drizzle-kit": "^0.31.9",
     "typescript": "^5.7.3"
   }
 }

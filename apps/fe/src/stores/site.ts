@@ -1,5 +1,4 @@
 import { type SiteSettings, DEFAULT_LOCALE } from '@tmex/shared';
-import i18next from 'i18next';
 import { create } from 'zustand';
 
 interface SiteState {
@@ -22,7 +21,7 @@ const DEFAULT_SETTINGS: SiteSettings = {
 async function fetchSiteSettingsFromApi(): Promise<SiteSettings> {
   const res = await fetch('/api/settings/site');
   if (!res.ok) {
-    throw new Error('加载站点设置失败');
+    throw new Error('Failed to load site settings');
   }
   const payload = (await res.json()) as { settings: SiteSettings };
   return payload.settings;
@@ -41,9 +40,6 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     set({ loading: true });
     try {
       const settings = await fetchSiteSettingsFromApi();
-      if (settings.language) {
-        void i18next.changeLanguage(settings.language);
-      }
       set({ settings, loading: false });
       return settings;
     } catch (err) {
@@ -57,9 +53,6 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     set({ loading: true });
     try {
       const settings = await fetchSiteSettingsFromApi();
-      if (settings.language) {
-        void i18next.changeLanguage(settings.language);
-      }
       set({ settings, loading: false });
       return settings;
     } catch (err) {

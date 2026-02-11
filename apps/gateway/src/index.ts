@@ -1,7 +1,8 @@
 import { handleApiRequest } from './api';
 import { runtimeController } from './control/runtime';
 import { config } from './config';
-import { getSiteSettings, initSchema } from './db';
+import { ensureSiteSettingsInitialized, getSiteSettings } from './db';
+import { runMigrations } from './db/migrate';
 import { telegramService } from './telegram/service';
 import { WebSocketServer } from './ws';
 
@@ -10,8 +11,6 @@ interface RunningRuntime {
 }
 
 async function createRuntime(): Promise<RunningRuntime> {
-  initSchema();
-
   const wsServer = new WebSocketServer();
   await telegramService.refresh();
 
@@ -70,6 +69,9 @@ async function createRuntime(): Promise<RunningRuntime> {
 }
 
 async function main(): Promise<void> {
+  runMigrations();
+  ensureSiteSettingsInitialized();
+
   while (true) {
     runtimeController.reset();
     const runtime = await createRuntime();

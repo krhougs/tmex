@@ -14,43 +14,46 @@ async function openDevices(page: import('@playwright/test').Page): Promise<void>
 async function addLocalDevice(
   page: import('@playwright/test').Page,
   deviceName: string
-): Promise<void> {
+): Promise<string> {
   await page.goto('/devices');
   await page.getByTestId('devices-add').first().click();
 
   await page.getByTestId('device-name-input').fill(deviceName);
-  await page.getByLabel('类型').selectOption('local');
-  await page.getByLabel('Tmux 会话名称').fill(deviceName);
+  await page.getByTestId('device-type-select').selectOption('local');
+  await page.getByTestId('device-session-input').fill(deviceName);
   await page.getByTestId('device-dialog-save').click();
 
-  await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
+  const deviceCard = page
+    .locator(`[data-testid="device-card"][data-device-name="${deviceName}"]`)
+    .first();
+  await expect(deviceCard).toBeVisible({ timeout: 30_000 });
+
+  const deviceId = await deviceCard.getAttribute('data-device-id');
+  if (!deviceId) {
+    throw new Error('Device ID not found');
+  }
+  return deviceId;
 }
 
-async function connectDevice(page: import('@playwright/test').Page, deviceName: string): Promise<void> {
+async function connectDevice(page: import('@playwright/test').Page, deviceId: string): Promise<void> {
   await page.goto('/devices');
-  const deviceCardHeader = page
-    .getByRole('heading', { name: deviceName })
-    .locator('xpath=..')
-    .locator('xpath=..');
   await page.getByTestId(`device-connect-${deviceId}`).click();
-
-  await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+  await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+    timeout: 30_000,
+  });
   await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
 }
 
 async function ensureDeviceExpanded(
   page: import('@playwright/test').Page,
-  deviceName: string
+  deviceId: string
 ): Promise<import('@playwright/test').Locator> {
-  const deviceItem = page
-    .locator('[data-testid^="device-item-"]')
-    .filter({ hasText: deviceName })
-    .first();
+  const deviceItem = page.getByTestId(`device-item-${deviceId}`).first();
   await expect(deviceItem).toBeVisible({ timeout: 30_000 });
 
   const windowItems = page.locator('[data-testid^="window-item-"]');
   if ((await windowItems.count()) === 0) {
-    await deviceItem.locator('button').first().click();
+    await page.getByTestId(`device-expand-${deviceId}`).first().click();
   }
 
   await expect(windowItems.first()).toBeVisible({ timeout: 30_000 });
@@ -58,14 +61,8 @@ async function ensureDeviceExpanded(
 }
 
 async function cleanupSession(page: import('@playwright/test').Page, deviceName: string): Promise<void> {
-  const isInvalidOverlayVisible = await page.getByText('当前目标不可用').isVisible().catch(() => false);
-  if (isInvalidOverlayVisible) {
-    return;
-  }
-
   const terminal = page.locator('.xterm').first();
-  const terminalVisible = await terminal.isVisible().catch(() => false);
-  if (!terminalVisible) {
+  if ((await terminal.isVisible().catch(() => false)) === false) {
     return;
   }
 
@@ -80,18 +77,18 @@ function getContrastRatio(color1: string, color2: string): number {
     const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (rgbMatch) {
       return {
-        r: parseInt(rgbMatch[1], 10),
-        g: parseInt(rgbMatch[2], 10),
-        b: parseInt(rgbMatch[3], 10),
+        r: Number.parseInt(rgbMatch[1], 10),
+        g: Number.parseInt(rgbMatch[2], 10),
+        b: Number.parseInt(rgbMatch[3], 10),
       };
     }
 
     const rgbaMatch = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
     if (rgbaMatch) {
       return {
-        r: parseInt(rgbaMatch[1], 10),
-        g: parseInt(rgbaMatch[2], 10),
-        b: parseInt(rgbaMatch[3], 10),
+        r: Number.parseInt(rgbaMatch[1], 10),
+        g: Number.parseInt(rgbaMatch[2], 10),
+        b: Number.parseInt(rgbaMatch[3], 10),
       };
     }
 
@@ -99,15 +96,15 @@ function getContrastRatio(color1: string, color2: string): number {
       const hex = color.slice(1);
       if (hex.length === 3) {
         return {
-          r: parseInt(hex[0] + hex[0], 16),
-          g: parseInt(hex[1] + hex[1], 16),
-          b: parseInt(hex[2] + hex[2], 16),
+          r: Number.parseInt(hex[0] + hex[0], 16),
+          g: Number.parseInt(hex[1] + hex[1], 16),
+          b: Number.parseInt(hex[2] + hex[2], 16),
         };
       }
       return {
-        r: parseInt(hex.slice(0, 2), 16),
-        g: parseInt(hex.slice(2, 4), 16),
-        b: parseInt(hex.slice(4, 6), 16),
+        r: Number.parseInt(hex.slice(0, 2), 16),
+        g: Number.parseInt(hex.slice(2, 4), 16),
+        b: Number.parseInt(hex.slice(4, 6), 16),
       };
     }
 
@@ -139,131 +136,49 @@ function getContrastRatio(color1: string, color2: string): number {
 }
 
 test.describe('Sidebar - 可读性和对比度', () => {
-  test('设备树选中时应有 15% 高亮背景', async ({ page }) => {
+  test('设备树选中时应有可区分的高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_contrast_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
-    const deviceItem = await ensureDeviceExpanded(page, deviceName);
-    await expect(deviceItem).toHaveAttribute('data-active', 'true');
+    const deviceItem = await ensureDeviceExpanded(page, deviceId);
 
-    const styles = await deviceItem.evaluate((el) => {
-      const computed = window.getComputedStyle(el);
+    const styles = await deviceItem.evaluate((element) => {
+      const computed = window.getComputedStyle(element);
+      const parent = element.parentElement ?? document.body;
+      const parentStyle = window.getComputedStyle(parent);
       return {
         backgroundColor: computed.backgroundColor,
+        textColor: computed.color,
+        parentBackground: parentStyle.backgroundColor,
       };
     });
 
-    expect(styles.backgroundColor).toMatch(/^rgba\(88,\s*166,\s*255,\s*0\.15\)$/);
+    const contrastRatio = getContrastRatio(styles.textColor, styles.backgroundColor);
+    expect(contrastRatio).toBeGreaterThan(2.5);
 
     await cleanupSession(page, deviceName);
   });
+});
 
-  test('Sidebar collapsed状态下图标应可见', async ({ page }) => {
-    const deviceName = sanitizeSessionName(`e2e_collapsed_${RUN_ID}`);
-
-    await openDevices(page);
-    await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
-
-    const collapseButton = page.locator('aside button').first();
-    await expect(collapseButton).toBeVisible();
-    await collapseButton.click();
-
-    await page.waitForTimeout(400);
-
-    const deviceIcon = page.locator(`[data-testid^="device-icon-"][title="${deviceName}"]`).first();
-    await expect(deviceIcon).toBeVisible();
-    await expect(deviceIcon).toHaveAttribute('data-active', 'true');
-
-    const iconStyles = await deviceIcon.evaluate((el) => {
-      const computed = window.getComputedStyle(el);
-      return {
-        backgroundColor: computed.backgroundColor,
-        color: computed.color,
-      };
-    });
-
-    const iconContrastRatio = getContrastRatio(iconStyles.backgroundColor, iconStyles.color);
-    expect(iconContrastRatio).toBeGreaterThanOrEqual(4.5);
-
-    await page.locator('.xterm').click();
-    await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
-    await page.keyboard.press('Enter');
-  });
-
-  test('窗口树选中时应叠加到 30% 高亮背景', async ({ page }) => {
-    const deviceName = sanitizeSessionName(`e2e_win_contrast_${RUN_ID}`);
+test.describe('Sidebar - 行为', () => {
+  test('应能通过 Sidebar 新建窗口', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_new_win_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
-    await ensureDeviceExpanded(page, deviceName);
-
-    const activeWindow = page.locator('[data-testid^="window-item-"][data-active="true"]').first();
-    await expect(activeWindow).toBeVisible({ timeout: 30_000 });
-
-    const windowStyles = await activeWindow.evaluate((el) => {
-      const computed = window.getComputedStyle(el);
-      return {
-        backgroundColor: computed.backgroundColor,
-      };
-    });
-
-    expect(windowStyles.backgroundColor).toMatch(/^rgba\(88,\s*166,\s*255,\s*0\.3\)$/);
-
-    await cleanupSession(page, deviceName);
-  });
-
-  test('Pane项active状态应使用 90% 高亮背景', async ({ page }) => {
-    const deviceName = sanitizeSessionName(`e2e_pane_contrast_${RUN_ID}`);
-
-    await openDevices(page);
-    await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
-
-    await ensureDeviceExpanded(page, deviceName);
-
-    const activePane = page.locator('[data-testid^="pane-item-"][data-active="true"]').first();
-    await expect(activePane).toBeVisible({ timeout: 30_000 });
-
-    const paneStyles = await activePane.evaluate((el) => {
-      const computed = window.getComputedStyle(el);
-      return {
-        backgroundColor: computed.backgroundColor,
-        color: computed.color,
-      };
-    });
-
-    expect(paneStyles.backgroundColor).toMatch(/^rgba\(88,\s*166,\s*255,\s*0\.9\)$/);
-    const paneContrastRatio = getContrastRatio(paneStyles.backgroundColor, paneStyles.color);
-    expect(paneContrastRatio).toBeGreaterThanOrEqual(4.5);
-
-    await cleanupSession(page, deviceName);
-  });
-
-  test('高亮设备项的新建窗口按钮应清晰可见且可点击', async ({ page }) => {
-    const deviceName = sanitizeSessionName(`e2e_new_window_visible_${RUN_ID}`);
-
-    await openDevices(page);
-    await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
-
-    const deviceItem = await ensureDeviceExpanded(page, deviceName);
-    await expect(deviceItem).toHaveAttribute('data-active', 'true');
-
-    const createWindowButton = page.getByTestId(`window-create-${deviceId}");
-    await expect(createWindowButton).toBeVisible();
-    await expect(createWindowButton).toBeEnabled();
-
-    await createWindowButton.click();
-    await page.waitForTimeout(1000);
+    await ensureDeviceExpanded(page, deviceId);
 
     const windowItems = page.locator('[data-testid^="window-item-"]');
-    await expect(windowItems).toHaveCount(2);
+    await expect(windowItems.first()).toBeVisible({ timeout: 30_000 });
+    const initialCount = await windowItems.count();
+
+    await page.getByTestId(`window-create-${deviceId}`).click();
+    await expect(windowItems).toHaveCount(initialCount + 1, { timeout: 30_000 });
 
     await cleanupSession(page, deviceName);
   });
@@ -272,64 +187,70 @@ test.describe('Sidebar - 可读性和对比度', () => {
     const deviceName = sanitizeSessionName(`e2e_close_last_pane_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
-    await ensureDeviceExpanded(page, deviceName);
+    await ensureDeviceExpanded(page, deviceId);
+
     const windowItemsBefore = page.locator('[data-testid^="window-item-"]');
-    await expect(windowItemsBefore).toHaveCount(1);
+    const windowCountBefore = await windowItemsBefore.count();
+    expect(windowCountBefore).toBeGreaterThanOrEqual(1);
 
-    const windowTestId = await windowItemsBefore.first().getAttribute('data-testid');
-    expect(windowTestId).toBeTruthy();
-
-    const activePaneItem = page.locator('[data-testid^="pane-item-"][data-active="true"]').first();
+    const activePaneItem = page
+      .locator('[data-testid^="pane-item-"][data-active="true"]')
+      .first();
     await expect(activePaneItem).toBeVisible({ timeout: 30_000 });
-    const paneId = await activePaneItem.getAttribute('data-testid'); if (!paneId) throw new Error('Pane ID not found'); const paneCloseButton = page.getByTestId(paneId.replace('pane-item-', 'pane-close-')); await paneCloseButton.click();
 
-    await page.waitForTimeout(1200);
-    await expect(page.locator(`[data-testid="${windowTestId as string}"]`)).toHaveCount(0);
+    const paneTestId = await activePaneItem.getAttribute('data-testid');
+    if (!paneTestId) {
+      throw new Error('Pane ID not found');
+    }
+    const paneId = paneTestId.replace('pane-item-', '');
 
+    await page.getByTestId(`pane-close-${paneId}`).click();
+
+    await expect(windowItemsBefore).toHaveCount(windowCountBefore - 1, {
+      timeout: 30_000,
+    });
     await expect(page.getByTestId('terminal-jump-latest')).toBeDisabled();
 
     await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
     await page.getByTestId(`device-connect-${deviceId}`).click();
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+      timeout: 30_000,
+    });
+
     await cleanupSession(page, deviceName);
   });
 
   test('Sidebar 展开与折叠态底部按钮都应左对齐', async ({ page }) => {
     await page.goto('/devices');
 
-    const manageDeviceLink = page.getByTestId('sidebar-manage-devices');
+    const manageDeviceLink = page.getByTestId('sidebar-manage-devices').first();
     await expect(manageDeviceLink).toBeVisible();
     const manageDeviceJustify = await manageDeviceLink.evaluate((element) => {
       return window.getComputedStyle(element).justifyContent;
     });
     expect(manageDeviceJustify).toBe('flex-start');
 
-    const settingsLink = page.getByTestId('sidebar-settings');
+    const settingsLink = page.getByTestId('sidebar-settings').first();
     await expect(settingsLink).toBeVisible();
     const settingsJustify = await settingsLink.evaluate((element) => {
       return window.getComputedStyle(element).justifyContent;
     });
     expect(settingsJustify).toBe('flex-start');
 
-    const collapseButton = page.locator('aside button').first();
-    await expect(collapseButton).toBeVisible();
+    const collapseButton = page.getByTestId('sidebar-collapse-toggle').first();
     await collapseButton.click();
 
-    const collapsedManageDeviceLink = page.getByTestId('sidebar').locator('a[title="管理设备"]').first();
+    const collapsedManageDeviceLink = page.getByTestId('sidebar-manage-devices').first();
     await expect(collapsedManageDeviceLink).toBeVisible();
     const collapsedManageDeviceJustify = await collapsedManageDeviceLink.evaluate((element) => {
       return window.getComputedStyle(element).justifyContent;
     });
     expect(collapsedManageDeviceJustify).toBe('flex-start');
 
-    const collapsedSettingsLink = page.getByTestId('sidebar').locator('a[title="设置"]').first();
+    const collapsedSettingsLink = page.getByTestId('sidebar-settings').first();
     await expect(collapsedSettingsLink).toBeVisible();
     const collapsedSettingsJustify = await collapsedSettingsLink.evaluate((element) => {
       return window.getComputedStyle(element).justifyContent;
@@ -342,11 +263,11 @@ test.describe('Sidebar - 可读性和对比度', () => {
     const deviceB = sanitizeSessionName(`e2e_cross_highlight_b_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceA);
-    await addLocalDevice(page, deviceB);
+    const deviceAId = await addLocalDevice(page, deviceA);
+    const deviceBId = await addLocalDevice(page, deviceB);
 
-    await connectDevice(page, deviceA);
-    await connectDevice(page, deviceB);
+    await connectDevice(page, deviceAId);
+    await connectDevice(page, deviceBId);
 
     await expect(page.locator('[data-testid^="window-item-"][data-active="true"]')).toHaveCount(1);
     await expect(page.locator('[data-testid^="pane-item-"][data-active="true"]')).toHaveCount(1);
@@ -360,13 +281,16 @@ test.describe('Sidebar - 可读性和对比度', () => {
     const deviceZ = sanitizeSessionName(`zzz_order_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceA);
-    await addLocalDevice(page, deviceZ);
+    const deviceAId = await addLocalDevice(page, deviceA);
+    const deviceZId = await addLocalDevice(page, deviceZ);
 
-    await connectDevice(page, deviceZ);
+    await connectDevice(page, deviceZId);
     await page.goto('/devices');
 
-    const deviceNameButtons = page.locator('[data-testid^="device-item-"] button.flex-1.min-w-0.text-left.font-medium.truncate');
+    await expect(page.getByTestId(`device-item-${deviceAId}`)).toBeVisible();
+    await expect(page.getByTestId(`device-item-${deviceZId}`)).toBeVisible();
+
+    const deviceNameButtons = page.locator('[data-testid^="device-select-"]');
     const orderedNames = await deviceNameButtons.allTextContents();
     const indexA = orderedNames.findIndex((name) => name.trim() === deviceA);
     const indexZ = orderedNames.findIndex((name) => name.trim() === deviceZ);

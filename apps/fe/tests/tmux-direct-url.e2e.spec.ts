@@ -14,29 +14,36 @@ async function openDevices(page: import('@playwright/test').Page): Promise<void>
 async function addLocalDevice(
   page: import('@playwright/test').Page,
   deviceName: string
-): Promise<void> {
+): Promise<string> {
   await page.goto('/devices');
   await page.getByTestId('devices-add').first().click();
 
   await page.getByTestId('device-name-input').fill(deviceName);
-  await page.getByLabel('类型').selectOption('local');
-  await page.getByLabel('Tmux 会话名称').fill(deviceName);
+  await page.getByTestId('device-type-select').selectOption('local');
+  await page.getByTestId('device-session-input').fill(deviceName);
   await page.getByTestId('device-dialog-save').click();
 
-  await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
+  const deviceCard = page
+    .locator(`[data-testid="device-card"][data-device-name="${deviceName}"]`)
+    .first();
+  await expect(deviceCard).toBeVisible({ timeout: 30_000 });
+
+  const deviceId = await deviceCard.getAttribute('data-device-id');
+  if (!deviceId) {
+    throw new Error('Device ID not found');
+  }
+  return deviceId;
 }
 
 async function connectDeviceAndGetPaneUrl(
   page: import('@playwright/test').Page,
-  deviceName: string
+  deviceId: string
 ): Promise<string> {
   await page.goto('/devices');
-  const deviceCardHeader = page
-    .getByRole('heading', { name: deviceName })
-    .locator('xpath=..')
-    .locator('xpath=..');
   await page.getByTestId(`device-connect-${deviceId}`).click();
-  await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+  await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+    timeout: 30_000,
+  });
   await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
   return page.url();
 }
@@ -45,77 +52,56 @@ test.describe('直接URL访问 - 白屏检测', () => {
   test('从设备页URL直接访问应显示终端内容', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_direct_${RUN_ID}`);
 
-    // 先打开设备页并创建设备
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    // 连接设备获取窗口和pane信息
     await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
     await page.getByTestId(`device-connect-${deviceId}`).click();
 
-    // 等待URL中包含窗口和pane信息
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    
-    // 等待终端可见
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+      timeout: 30_000,
+    });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
-    
-    // 获取当前URL
-    const currentUrl = page.url();
-    console.log('[e2e] Current URL:', currentUrl);
 
-    // 在终端中输入一些内容，确保有历史记录
+    const currentUrl = page.url();
+
     await page.locator('.xterm').click();
     await page.waitForTimeout(500);
     await page.keyboard.type('echo direct_url_test_content');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1000);
 
-    // 记住窗口和pane信息
     const urlMatch = currentUrl.match(/\/devices\/([^/]+)\/windows\/([^/]+)\/panes\/([^/]+)$/);
     expect(urlMatch).not.toBeNull();
-    
-    const [, deviceId, windowId, paneId] = urlMatch!;
-    console.log('[e2e] Device:', deviceId, 'Window:', windowId, 'Pane:', paneId);
 
-    // 直接访问URL（模拟从外部链接进入）
     await page.goto(currentUrl);
-    
-    // 关键验证：页面不应白屏
-    // 1. 终端应在3秒内可见
+
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 3_000 });
-    
-    // 2. 不应显示纯白色屏幕（检查body背景色）
+
     const bodyBg = await page.evaluate(() => {
       return window.getComputedStyle(document.body).backgroundColor;
     });
-    expect(bodyBg).not.toBe('rgb(255, 255, 255)'); // 不应是纯白色
-    console.log('[e2e] Body background:', bodyBg);
+    expect(bodyBg).not.toBe('rgb(255, 255, 255)');
 
-    // 3. 终端区域应有内容（通过检查xterm的DOM）
     const xtermContent = await page.locator('.xterm-screen').textContent();
-    console.log('[e2e] Terminal content length:', xtermContent?.length ?? 0);
-    
-    // 4. 检查是否显示加载状态而不是白屏
-    const loadingText = await page.getByText('初始化终端...').isVisible().catch(() => false);
-    const connectingText = await page.getByText('连接设备...').isVisible().catch(() => false);
-    
-    // 如果显示了加载状态，等待它消失
-    if (loadingText || connectingText) {
-      await page.waitForSelector('.xterm', { timeout: 10_000 });
+    expect(xtermContent).not.toBeNull();
+
+    const loadingVisible = await page
+      .getByTestId('terminal-status-overlay')
+      .isVisible()
+      .catch(() => false);
+    if (loadingVisible) {
+      await expect(page.getByTestId('terminal-status-overlay')).not.toBeVisible({
+        timeout: 10_000,
+      });
     }
 
-    // 5. 最终验证终端可见且可交互
     await expect(page.locator('.xterm')).toBeVisible();
     await page.locator('.xterm').click();
     await page.keyboard.type('echo still_working');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // 清理
     await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
     await page.keyboard.press('Enter');
   });
@@ -124,45 +110,32 @@ test.describe('直接URL访问 - 白屏检测', () => {
     const deviceName = sanitizeSessionName(`e2e_decode_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    // 连接设备
     await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
     await page.getByTestId(`device-connect-${deviceId}`).click();
 
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+      timeout: 30_000,
+    });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
 
-    // 获取原始URL
     const originalUrl = page.url();
     const urlMatch = originalUrl.match(/\/devices\/([^/]+)\/windows\/([^/]+)\/panes\/([^/]+)$/);
     expect(urlMatch).not.toBeNull();
-    
-    const [, deviceId, windowId, originalPaneId] = urlMatch!;
-    
-    // 测试双重编码的pane ID（模拟某些浏览器的行为）
+
+    const [, , , originalPaneId] = urlMatch!;
+
     const doubleEncodedPaneId = encodeURIComponent(encodeURIComponent(originalPaneId));
     const doubleEncodedUrl = `${page.url().split('/panes/')[0]}/panes/${doubleEncodedPaneId}`;
-    
-    console.log('[e2e] Original pane ID:', originalPaneId);
-    console.log('[e2e] Double encoded pane ID:', doubleEncodedPaneId);
-    console.log('[e2e] Double encoded URL:', doubleEncodedUrl);
 
-    // 访问双重编码的URL
     await page.goto(doubleEncodedUrl);
-    
-    // 应该能正确解码并显示终端
+
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
-    
-    // 验证页面没有报错
+
     const errorAlert = await page.locator('[role="alert"]').isVisible().catch(() => false);
     expect(errorAlert).toBe(false);
 
-    // 清理
     await page.locator('.xterm').click();
     await page.waitForTimeout(500);
     await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
@@ -173,33 +146,25 @@ test.describe('直接URL访问 - 白屏检测', () => {
     const deviceName = sanitizeSessionName(`e2e_autoselect_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceName);
+    const deviceId = await addLocalDevice(page, deviceName);
 
-    // 直接访问设备页（不带window/pane）
     await page.goto('/devices');
-    const deviceCardHeader = page
-      .getByRole('heading', { name: deviceName })
-      .locator('xpath=..')
-      .locator('xpath=..');
     await page.getByTestId(`device-connect-${deviceId}`).click();
 
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
-    
-    // 获取完整URL
-    const fullUrl = page.url();
-    console.log('[e2e] Auto-selected URL:', fullUrl);
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+      timeout: 30_000,
+    });
 
-    // 直接访问基础设备页（不带window/pane）
+    const fullUrl = page.url();
     const baseUrl = fullUrl.split('/windows/')[0];
     await page.goto(baseUrl);
 
-    // 应该自动重定向到包含window和pane的URL
-    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 10_000 });
-    
-    // 终端应该可见
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, {
+      timeout: 10_000,
+    });
+
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
 
-    // 清理
     await page.locator('.xterm').click();
     await page.waitForTimeout(500);
     await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
@@ -211,19 +176,19 @@ test.describe('直接URL访问 - 白屏检测', () => {
     const deviceBName = sanitizeSessionName(`e2e_direct_b_${RUN_ID}`);
 
     await openDevices(page);
-    await addLocalDevice(page, deviceAName);
-    await addLocalDevice(page, deviceBName);
+    const deviceAId = await addLocalDevice(page, deviceAName);
+    const deviceBId = await addLocalDevice(page, deviceBName);
 
-    const directUrlA = await connectDeviceAndGetPaneUrl(page, deviceAName);
-    const directUrlB = await connectDeviceAndGetPaneUrl(page, deviceBName);
+    const directUrlA = await connectDeviceAndGetPaneUrl(page, deviceAId);
+    const directUrlB = await connectDeviceAndGetPaneUrl(page, deviceBId);
 
     const matchA = directUrlA.match(/\/devices\/([^/]+)\/windows\/([^/]+)\/panes\/([^/]+)$/);
     const matchB = directUrlB.match(/\/devices\/([^/]+)\/windows\/([^/]+)\/panes\/([^/]+)$/);
     expect(matchA).not.toBeNull();
     expect(matchB).not.toBeNull();
 
-    const [, deviceAId] = matchA!;
-    const [, deviceBId] = matchB!;
+    const [, directAId] = matchA!;
+    const [, directBId] = matchB!;
 
     const coldPage = await browser.newPage();
     const connectDeviceIds: string[] = [];
@@ -248,14 +213,14 @@ test.describe('直接URL访问 - 白屏检测', () => {
 
     await coldPage.goto(directUrlA);
     await coldPage.waitForURL(
-      new RegExp(`/devices/${deviceAId}/windows/[^/]+/panes/[^/]+$`),
+      new RegExp(`/devices/${directAId}/windows/[^/]+/panes/[^/]+$`),
       { timeout: 30_000 }
     );
     await expect(coldPage.locator('.xterm')).toBeVisible({ timeout: 30_000 });
     await coldPage.waitForTimeout(1_200);
 
-    expect(connectDeviceIds.includes(deviceAId)).toBe(true);
-    expect(connectDeviceIds.includes(deviceBId)).toBe(false);
+    expect(connectDeviceIds.includes(directAId)).toBe(true);
+    expect(connectDeviceIds.includes(directBId)).toBe(false);
 
     await coldPage.close();
 

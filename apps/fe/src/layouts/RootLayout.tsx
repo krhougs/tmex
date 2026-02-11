@@ -11,6 +11,7 @@ import { useUIStore } from '../stores/ui';
 import { buildTerminalLabel } from '../utils/terminalMeta';
 import { decodePaneIdFromUrlParam } from '../utils/tmuxUrl';
 import { useTmuxStore } from '../stores/tmux';
+import i18next from 'i18next';
 
 declare global {
   interface WindowEventMap {
@@ -50,7 +51,7 @@ export function RootLayout() {
     queryFn: async () => {
       const res = await fetch('/api/devices');
       if (!res.ok) {
-        throw new Error('加载设备失败');
+        throw new Error(t('device.loadFailed'));
       }
       return res.json() as Promise<{ devices: Device[] }>;
     },
@@ -115,6 +116,12 @@ export function RootLayout() {
   }, [fetchSiteSettings]);
 
   useEffect(() => {
+    if (siteSettings?.language && i18next.language !== siteSettings.language) {
+      void i18next.changeLanguage(siteSettings.language);
+    }
+  }, [siteSettings?.language]);
+
+  useEffect(() => {
     if (devicesData || !isTerminalRoute) {
       return;
     }
@@ -161,7 +168,7 @@ export function RootLayout() {
               {detail.description && (
                 <div className="mt-1 text-xs text-[var(--color-text-secondary)]">{detail.description}</div>
               )}
-              <div className="mt-1 text-xs text-[var(--color-accent)]">点击跳转到对应 Pane</div>
+              <div className="mt-1 text-xs text-[var(--color-accent)]">{t('notification.clickToJump')}</div>
             </button>
           ),
           {
@@ -202,7 +209,8 @@ export function RootLayout() {
       {isMobile && sidebarOpen && (
         <button
           type="button"
-          aria-label="关闭侧边栏"
+          data-testid="mobile-sidebar-overlay"
+          aria-label={t('nav.closeSidebar')}
           className="fixed inset-0 bg-black/50 z-[99]"
           onClick={() => setSidebarOpen(false)}
         />
@@ -220,9 +228,10 @@ export function RootLayout() {
       <div className={`flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden ${isMobile ? 'pt-11' : ''}`}>
         {/* 顶部栏（移动端固定单行） */}
         {isMobile && (
-          <header className="fixed top-0 left-0 right-0 z-[120] h-11 flex items-center justify-between px-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2">
+          <header data-testid="mobile-topbar" className="fixed top-0 left-0 right-0 z-[120] h-11 flex items-center justify-between px-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2">
             <button
               type="button"
+              data-testid="mobile-sidebar-open"
               onClick={() => setSidebarOpen(true)}
               className="h-7 w-7 inline-flex items-center justify-center -ml-1 rounded hover:bg-[var(--color-bg-tertiary)]"
               aria-label={t('nav.openSidebar')}
@@ -249,10 +258,11 @@ export function RootLayout() {
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
                 type="button"
+                data-testid="terminal-input-mode-toggle"
                 onClick={handleToggleInputMode}
                 className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                aria-label={inputMode === 'direct' ? t('terminal.switchToEditor') : t('terminal.switchToDirect')}
-                title={inputMode === 'direct' ? t('terminal.switchToEditor') : t('terminal.switchToDirect')}
+                aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+                title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
                 disabled={!isTerminalRoute}
               >
                 {inputMode === 'direct' ? (
@@ -263,10 +273,11 @@ export function RootLayout() {
               </button>
               <button
                 type="button"
+                data-testid="terminal-jump-latest"
                 onClick={handleJumpToLatest}
                 className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                aria-label={t('terminal.jumpToLatest')}
-                title={t('terminal.jumpToLatest')}
+                aria-label={t('nav.jumpToLatest')}
+                title={t('nav.jumpToLatest')}
                 disabled={!canInteractWithPane}
               >
                 <ArrowDownToLine className="h-4 w-4" />

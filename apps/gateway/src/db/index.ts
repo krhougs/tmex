@@ -1,341 +1,298 @@
-import { Database } from 'bun:sqlite';
-import type {
-  Device,
-  DeviceRuntimeStatus,
-  EventType,
-  LocaleCode,
-  SiteSettings,
-  TelegramBotChat,
-  TelegramBotConfig,
-  TelegramBotWithStats,
-  TelegramChatStatus,
-  TelegramChatType,
-  WebhookEndpoint,
+import type { Database } from 'bun:sqlite';
+import {
+  DEFAULT_LOCALE,
+  type Device,
+  type DeviceRuntimeStatus,
+  type EventType,
+  type LocaleCode,
+  type SiteSettings,
+  type TelegramBotChat,
+  type TelegramBotConfig,
+  type TelegramBotWithStats,
+  type TelegramChatStatus,
+  type TelegramChatType,
+  type WebhookEndpoint,
 } from '@tmex/shared';
+import { and, count, desc, eq } from 'drizzle-orm';
 import { config } from '../config';
 import { i18next } from '../i18n';
+import { getDb as getOrmDb, getSqliteClient } from './client';
+import { deviceRuntimeStatus, devices, siteSettings, telegramBotChats, telegramBots, webhookEndpoints } from './schema';
 
-type SqlValue = string | number | bigint | boolean | Uint8Array | null;
-
-let db: Database | null = null;
-
-export function getDb(): Database {
-  if (!db) {
-    db = new Database(config.databaseUrl);
-    db.run('PRAGMA foreign_keys = ON');
-  }
-  return db;
+export interface TelegramBotConfigRecord extends TelegramBotConfig {
+  tokenEnc: string;
+  lastUpdateId: number | null;
 }
 
-export function initSchema(): void {
-  const database = getDb();
-
-  database.run('DROP TABLE IF EXISTS admin');
-  database.run('DROP TABLE IF EXISTS telegram_subscriptions');
-
-  database.run(`
-    CREATE TABLE IF NOT EXISTS site_settings (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
-      site_name TEXT NOT NULL,
-      site_url TEXT NOT NULL,
-      bell_throttle_seconds INTEGER NOT NULL,
-      ssh_reconnect_max_retries INTEGER NOT NULL,
-      ssh_reconnect_delay_seconds INTEGER NOT NULL,
-      language TEXT NOT NULL DEFAULT 'en_US',
-      updated_at TEXT NOT NULL
-    )
-  `);
-
-  database.run(`
-    INSERT INTO site_settings (
-      id,
-      site_name,
-      site_url,
-      bell_throttle_seconds,
-      ssh_reconnect_max_retries,
-      ssh_reconnect_delay_seconds,
-      language,
-      updated_at
-    )
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO NOTHING
-  `, [
-    config.siteNameDefault,
-    config.baseUrl,
-    config.bellThrottleSecondsDefault,
-    config.sshReconnectMaxRetriesDefault,
-    config.sshReconnectDelaySecondsDefault,
-    config.languageDefault ?? 'en_US',
-    new Date().toISOString(),
-  ]);
-
-  database.run(`
-    CREATE TABLE IF NOT EXISTS devices (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('local', 'ssh')),
-      host TEXT,
-      port INTEGER DEFAULT 22,
-      username TEXT,
-      ssh_config_ref TEXT,
-      session TEXT DEFAULT 'tmex',
-      auth_mode TEXT NOT NULL CHECK(auth_mode IN ('password', 'key', 'agent', 'configRef', 'auto')),
-      password_enc TEXT,
-      private_key_enc TEXT,
-      private_key_passphrase_enc TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
-
-  const deviceTableInfo = database.prepare('PRAGMA table_info(devices)').all() as Array<{ name: string }>;
-  const deviceColumns = new Set(deviceTableInfo.map((col) => col.name));
-  if (!deviceColumns.has('session')) {
-    database.run("ALTER TABLE devices ADD COLUMN session TEXT DEFAULT 'tmex'");
-  }
-
-  // 幂等补列：site_settings.language（兼容旧数据库）
-  const siteSettingsTableInfo = database.prepare('PRAGMA table_info(site_settings)').all() as Array<{ name: string }>;
-  const siteSettingsColumns = new Set(siteSettingsTableInfo.map((col) => col.name));
-  if (!siteSettingsColumns.has('language')) {
-    database.run("ALTER TABLE site_settings ADD COLUMN language TEXT NOT NULL DEFAULT 'en_US'");
-  }
-
-  database.run(`
-    CREATE TABLE IF NOT EXISTS device_runtime_status (
-      device_id TEXT PRIMARY KEY,
-      last_seen_at TEXT,
-      tmux_available INTEGER DEFAULT 0,
-      last_error TEXT,
-      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
-    )
-  `);
-
-  database.run(`
-    CREATE TABLE IF NOT EXISTS webhook_endpoints (
-      id TEXT PRIMARY KEY,
-      enabled INTEGER DEFAULT 1,
-      url TEXT NOT NULL,
-      secret TEXT NOT NULL,
-      event_mask TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
-
-  database.run(`
-    CREATE TABLE IF NOT EXISTS telegram_bots (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      token_enc TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      allow_auth_requests INTEGER NOT NULL DEFAULT 1,
-      last_update_id INTEGER,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
-
-  database.run(`
-    CREATE TABLE IF NOT EXISTS telegram_bot_chats (
-      id TEXT PRIMARY KEY,
-      bot_id TEXT NOT NULL,
-      chat_id TEXT NOT NULL,
-      chat_type TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('pending', 'authorized')),
-      applied_at TEXT NOT NULL,
-      authorized_at TEXT,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE,
-      UNIQUE(bot_id, chat_id)
-    )
-  `);
-
-  console.log('Database schema initialized');
+function optional<T>(value: T | null | undefined): T | undefined {
+  return value ?? undefined;
 }
 
-// ==================== Device CRUD ====================
-
-export function createDevice(device: Device): void {
-  const database = getDb();
-  const stmt = database.prepare(`
-    INSERT INTO devices (id, name, type, host, port, username, ssh_config_ref, session, auth_mode,
-      password_enc, private_key_enc, private_key_passphrase_enc, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    device.id,
-    device.name,
-    device.type,
-    device.host ?? null,
-    device.port ?? 22,
-    device.username ?? null,
-    device.sshConfigRef ?? null,
-    device.session ?? 'tmex',
-    device.authMode,
-    device.passwordEnc ?? null,
-    device.privateKeyEnc ?? null,
-    device.privateKeyPassphraseEnc ?? null,
-    device.createdAt,
-    device.updatedAt
-  );
-
-  const statusStmt = database.prepare(`
-    INSERT INTO device_runtime_status (device_id, last_seen_at, tmux_available, last_error)
-    VALUES (?, NULL, 0, NULL)
-  `);
-  statusStmt.run(device.id);
+function normalizeLocale(value: string | null | undefined): LocaleCode {
+  return value === 'zh_CN' ? 'zh_CN' : DEFAULT_LOCALE;
 }
 
-export function getDeviceById(id: string): Device | null {
-  const database = getDb();
-  const stmt = database.prepare('SELECT * FROM devices WHERE id = ?');
-  const row = stmt.get(id) as Record<string, unknown> | undefined;
-  if (!row) return null;
-  return rowToDevice(row);
-}
-
-export function getAllDevices(): Device[] {
-  const database = getDb();
-  const stmt = database.prepare('SELECT * FROM devices ORDER BY created_at DESC');
-  const rows = stmt.all() as Record<string, unknown>[];
-  return rows.map(rowToDevice);
-}
-
-export function updateDevice(id: string, updates: Partial<Device>): void {
-  const database = getDb();
-  const fields: string[] = [];
-  const values: SqlValue[] = [];
-
-  if (updates.name !== undefined) {
-    fields.push('name = ?');
-    values.push(updates.name);
-  }
-  if (updates.host !== undefined) {
-    fields.push('host = ?');
-    values.push(updates.host);
-  }
-  if (updates.port !== undefined) {
-    fields.push('port = ?');
-    values.push(updates.port);
-  }
-  if (updates.username !== undefined) {
-    fields.push('username = ?');
-    values.push(updates.username);
-  }
-  if (updates.sshConfigRef !== undefined) {
-    fields.push('ssh_config_ref = ?');
-    values.push(updates.sshConfigRef);
-  }
-  if (updates.session !== undefined) {
-    fields.push('session = ?');
-    values.push(updates.session);
-  }
-  if (updates.authMode !== undefined) {
-    fields.push('auth_mode = ?');
-    values.push(updates.authMode);
-  }
-  if (updates.passwordEnc !== undefined) {
-    fields.push('password_enc = ?');
-    values.push(updates.passwordEnc);
-  }
-  if (updates.privateKeyEnc !== undefined) {
-    fields.push('private_key_enc = ?');
-    values.push(updates.privateKeyEnc);
-  }
-  if (updates.privateKeyPassphraseEnc !== undefined) {
-    fields.push('private_key_passphrase_enc = ?');
-    values.push(updates.privateKeyPassphraseEnc);
-  }
-
-  fields.push('updated_at = ?');
-  values.push(new Date().toISOString());
-  values.push(id);
-
-  const stmt = database.prepare(`UPDATE devices SET ${fields.join(', ')} WHERE id = ?`);
-  stmt.run(...values);
-}
-
-export function deleteDevice(id: string): void {
-  const database = getDb();
-  const stmt = database.prepare('DELETE FROM devices WHERE id = ?');
-  stmt.run(id);
-}
-
-// ==================== Device Runtime Status ====================
-
-export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus | null {
-  const database = getDb();
-  const stmt = database.prepare('SELECT * FROM device_runtime_status WHERE device_id = ?');
-  const row = stmt.get(deviceId) as Record<string, unknown> | undefined;
-  if (!row) return null;
+function toDevice(row: typeof devices.$inferSelect): Device {
   return {
-    deviceId: row.device_id as string,
-    lastSeenAt: row.last_seen_at as string | null,
-    tmuxAvailable: Boolean(row.tmux_available),
-    lastError: row.last_error as string | null,
+    id: row.id,
+    name: row.name,
+    type: row.type as Device['type'],
+    host: optional(row.host),
+    port: optional(row.port),
+    username: optional(row.username),
+    sshConfigRef: optional(row.sshConfigRef),
+    session: row.session ?? 'tmex',
+    authMode: row.authMode as Device['authMode'],
+    passwordEnc: optional(row.passwordEnc),
+    privateKeyEnc: optional(row.privateKeyEnc),
+    privateKeyPassphraseEnc: optional(row.privateKeyPassphraseEnc),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
-export function updateDeviceRuntimeStatus(
-  deviceId: string,
-  status: Partial<DeviceRuntimeStatus>
-): void {
-  const database = getDb();
-  const fields: string[] = [];
-  const values: SqlValue[] = [];
-
-  if (status.lastSeenAt !== undefined) {
-    fields.push('last_seen_at = ?');
-    values.push(status.lastSeenAt);
-  }
-  if (status.tmuxAvailable !== undefined) {
-    fields.push('tmux_available = ?');
-    values.push(status.tmuxAvailable ? 1 : 0);
-  }
-  if (status.lastError !== undefined) {
-    fields.push('last_error = ?');
-    values.push(status.lastError);
-  }
-
-  if (fields.length === 0) return;
-
-  values.push(deviceId);
-  const stmt = database.prepare(
-    `UPDATE device_runtime_status SET ${fields.join(', ')} WHERE device_id = ?`
-  );
-  stmt.run(...values);
+function toSiteSettings(row: typeof siteSettings.$inferSelect): SiteSettings {
+  return {
+    siteName: row.siteName,
+    siteUrl: row.siteUrl,
+    bellThrottleSeconds: row.bellThrottleSeconds,
+    sshReconnectMaxRetries: row.sshReconnectMaxRetries,
+    sshReconnectDelaySeconds: row.sshReconnectDelaySeconds,
+    language: normalizeLocale(row.language),
+    updatedAt: row.updatedAt,
+  };
 }
 
-// ==================== Site Settings ====================
+function toTelegramBotConfigRecord(row: typeof telegramBots.$inferSelect): TelegramBotConfigRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    tokenEnc: row.tokenEnc,
+    enabled: row.enabled,
+    allowAuthRequests: row.allowAuthRequests,
+    lastUpdateId: row.lastUpdateId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toTelegramChat(row: typeof telegramBotChats.$inferSelect): TelegramBotChat {
+  return {
+    id: row.id,
+    botId: row.botId,
+    chatId: row.chatId,
+    chatType: (row.chatType || 'unknown') as TelegramChatType,
+    displayName: row.displayName,
+    status: row.status as TelegramChatStatus,
+    appliedAt: row.appliedAt,
+    authorizedAt: row.authorizedAt ?? null,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toWebhookEndpoint(row: typeof webhookEndpoints.$inferSelect): WebhookEndpoint {
+  return {
+    id: row.id,
+    enabled: row.enabled,
+    url: row.url,
+    secret: row.secret,
+    eventMask: Array.isArray(row.eventMask) ? (row.eventMask as EventType[]) : [],
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function getDb(): Database {
+  return getSqliteClient();
+}
+
+export function ensureSiteSettingsInitialized(): void {
+  const orm = getOrmDb();
+  const now = new Date().toISOString();
+
+  orm
+    .insert(siteSettings)
+    .values({
+      id: 1,
+      siteName: config.siteNameDefault,
+      siteUrl: config.baseUrl,
+      bellThrottleSeconds: config.bellThrottleSecondsDefault,
+      sshReconnectMaxRetries: config.sshReconnectMaxRetriesDefault,
+      sshReconnectDelaySeconds: config.sshReconnectDelaySecondsDefault,
+      language: normalizeLocale(config.languageDefault),
+      updatedAt: now,
+    })
+    .onConflictDoNothing({ target: siteSettings.id })
+    .run();
+}
+
+export function createDevice(device: Device): void {
+  const orm = getOrmDb();
+
+  orm.transaction((tx) => {
+    tx
+      .insert(devices)
+      .values({
+        id: device.id,
+        name: device.name,
+        type: device.type,
+        host: device.host ?? null,
+        port: device.port ?? 22,
+        username: device.username ?? null,
+        sshConfigRef: device.sshConfigRef ?? null,
+        session: device.session ?? 'tmex',
+        authMode: device.authMode,
+        passwordEnc: device.passwordEnc ?? null,
+        privateKeyEnc: device.privateKeyEnc ?? null,
+        privateKeyPassphraseEnc: device.privateKeyPassphraseEnc ?? null,
+        createdAt: device.createdAt,
+        updatedAt: device.updatedAt,
+      })
+      .run();
+
+    tx
+      .insert(deviceRuntimeStatus)
+      .values({
+        deviceId: device.id,
+        lastSeenAt: null,
+        tmuxAvailable: false,
+        lastError: null,
+      })
+      .onConflictDoNothing({ target: deviceRuntimeStatus.deviceId })
+      .run();
+  });
+}
+
+export function getDeviceById(id: string): Device | null {
+  const orm = getOrmDb();
+  const row = orm.select().from(devices).where(eq(devices.id, id)).get();
+  if (!row) {
+    return null;
+  }
+  return toDevice(row);
+}
+
+export function getAllDevices(): Device[] {
+  const orm = getOrmDb();
+  return orm
+    .select()
+    .from(devices)
+    .orderBy(desc(devices.createdAt))
+    .all()
+    .map(toDevice);
+}
+
+export function updateDevice(id: string, updates: Partial<Device>): void {
+  const orm = getOrmDb();
+  const setValues: Partial<typeof devices.$inferInsert> = {
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (updates.name !== undefined) {
+    setValues.name = updates.name;
+  }
+  if (updates.host !== undefined) {
+    setValues.host = updates.host;
+  }
+  if (updates.port !== undefined) {
+    setValues.port = updates.port;
+  }
+  if (updates.username !== undefined) {
+    setValues.username = updates.username;
+  }
+  if (updates.sshConfigRef !== undefined) {
+    setValues.sshConfigRef = updates.sshConfigRef;
+  }
+  if (updates.session !== undefined) {
+    setValues.session = updates.session;
+  }
+  if (updates.authMode !== undefined) {
+    setValues.authMode = updates.authMode;
+  }
+  if (updates.passwordEnc !== undefined) {
+    setValues.passwordEnc = updates.passwordEnc;
+  }
+  if (updates.privateKeyEnc !== undefined) {
+    setValues.privateKeyEnc = updates.privateKeyEnc;
+  }
+  if (updates.privateKeyPassphraseEnc !== undefined) {
+    setValues.privateKeyPassphraseEnc = updates.privateKeyPassphraseEnc;
+  }
+
+  orm.update(devices).set(setValues).where(eq(devices.id, id)).run();
+}
+
+export function deleteDevice(id: string): void {
+  const orm = getOrmDb();
+  orm.delete(devices).where(eq(devices.id, id)).run();
+}
+
+export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus {
+  const orm = getOrmDb();
+  const row = orm
+    .select()
+    .from(deviceRuntimeStatus)
+    .where(eq(deviceRuntimeStatus.deviceId, deviceId))
+    .get();
+
+  if (!row) {
+    return {
+      deviceId,
+      lastSeenAt: null,
+      tmuxAvailable: false,
+      lastError: null,
+    };
+  }
+
+  return {
+    deviceId: row.deviceId,
+    lastSeenAt: row.lastSeenAt,
+    tmuxAvailable: row.tmuxAvailable,
+    lastError: row.lastError,
+  };
+}
+
+export function updateDeviceRuntimeStatus(deviceId: string, status: Partial<DeviceRuntimeStatus>): void {
+  const orm = getOrmDb();
+  const setValues: Partial<typeof deviceRuntimeStatus.$inferInsert> = {};
+
+  if (status.lastSeenAt !== undefined) {
+    setValues.lastSeenAt = status.lastSeenAt;
+  }
+  if (status.tmuxAvailable !== undefined) {
+    setValues.tmuxAvailable = status.tmuxAvailable;
+  }
+  if (status.lastError !== undefined) {
+    setValues.lastError = status.lastError;
+  }
+
+  if (Object.keys(setValues).length === 0) {
+    return;
+  }
+
+  orm.update(deviceRuntimeStatus).set(setValues).where(eq(deviceRuntimeStatus.deviceId, deviceId)).run();
+}
 
 export function getSiteSettings(): SiteSettings {
-  const database = getDb();
-  const row = database
-    .prepare('SELECT * FROM site_settings WHERE id = 1')
-    .get() as Record<string, unknown> | undefined;
+  const orm = getOrmDb();
+  let row = orm.select().from(siteSettings).where(eq(siteSettings.id, 1)).get();
+
+  if (!row) {
+    ensureSiteSettingsInitialized();
+    row = orm.select().from(siteSettings).where(eq(siteSettings.id, 1)).get();
+  }
 
   if (!row) {
     throw new Error('site_settings not initialized');
   }
 
-  const language = (row.language as LocaleCode) ?? 'en_US';
+  const settings = toSiteSettings(row);
 
-  // 同步 i18next 语言设置（不启用自动探测）
-  if (i18next.language !== language) {
-    void i18next.changeLanguage(language);
+  if (i18next.language !== settings.language) {
+    void i18next.changeLanguage(settings.language);
   }
 
-  return {
-    siteName: row.site_name as string,
-    siteUrl: row.site_url as string,
-    bellThrottleSeconds: row.bell_throttle_seconds as number,
-    sshReconnectMaxRetries: row.ssh_reconnect_max_retries as number,
-    sshReconnectDelaySeconds: row.ssh_reconnect_delay_seconds as number,
-    language,
-    updatedAt: row.updated_at as string,
-  };
+  return settings;
 }
 
 export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedAt'>>): SiteSettings {
@@ -346,220 +303,193 @@ export function updateSiteSettings(updates: Partial<Omit<SiteSettings, 'updatedA
     bellThrottleSeconds: updates.bellThrottleSeconds ?? current.bellThrottleSeconds,
     sshReconnectMaxRetries: updates.sshReconnectMaxRetries ?? current.sshReconnectMaxRetries,
     sshReconnectDelaySeconds: updates.sshReconnectDelaySeconds ?? current.sshReconnectDelaySeconds,
-    language: updates.language ?? current.language,
+    language: updates.language ? normalizeLocale(updates.language) : current.language,
     updatedAt: new Date().toISOString(),
   };
 
-  const database = getDb();
-  database.run(
-    `
-      UPDATE site_settings
-      SET site_name = ?,
-          site_url = ?,
-          bell_throttle_seconds = ?,
-          ssh_reconnect_max_retries = ?,
-          ssh_reconnect_delay_seconds = ?,
-          language = ?,
-          updated_at = ?
-      WHERE id = 1
-    `,
-    [
-      next.siteName,
-      next.siteUrl,
-      next.bellThrottleSeconds,
-      next.sshReconnectMaxRetries,
-      next.sshReconnectDelaySeconds,
-      next.language,
-      next.updatedAt,
-    ]
-  );
+  const orm = getOrmDb();
+  orm
+    .update(siteSettings)
+    .set({
+      siteName: next.siteName,
+      siteUrl: next.siteUrl,
+      bellThrottleSeconds: next.bellThrottleSeconds,
+      sshReconnectMaxRetries: next.sshReconnectMaxRetries,
+      sshReconnectDelaySeconds: next.sshReconnectDelaySeconds,
+      language: next.language,
+      updatedAt: next.updatedAt,
+    })
+    .where(eq(siteSettings.id, 1))
+    .run();
+
+  if (i18next.language !== next.language) {
+    void i18next.changeLanguage(next.language);
+  }
 
   return next;
 }
 
-// ==================== Webhook ====================
-
 export function createWebhookEndpoint(endpoint: WebhookEndpoint): void {
-  const database = getDb();
-  const stmt = database.prepare(`
-    INSERT INTO webhook_endpoints (id, enabled, url, secret, event_mask, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    endpoint.id,
-    endpoint.enabled ? 1 : 0,
-    endpoint.url,
-    endpoint.secret,
-    JSON.stringify(endpoint.eventMask),
-    endpoint.createdAt,
-    endpoint.updatedAt
-  );
+  const orm = getOrmDb();
+  orm
+    .insert(webhookEndpoints)
+    .values({
+      id: endpoint.id,
+      enabled: endpoint.enabled,
+      url: endpoint.url,
+      secret: endpoint.secret,
+      eventMask: endpoint.eventMask,
+      createdAt: endpoint.createdAt,
+      updatedAt: endpoint.updatedAt,
+    })
+    .run();
 }
 
 export function getAllWebhookEndpoints(): WebhookEndpoint[] {
-  const database = getDb();
-  const stmt = database.prepare('SELECT * FROM webhook_endpoints ORDER BY created_at DESC');
-  const rows = stmt.all() as Record<string, unknown>[];
-  return rows.map((row) => ({
-    id: row.id as string,
-    enabled: Boolean(row.enabled),
-    url: row.url as string,
-    secret: row.secret as string,
-    eventMask: JSON.parse(row.event_mask as string),
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-  }));
+  const orm = getOrmDb();
+  return orm
+    .select()
+    .from(webhookEndpoints)
+    .orderBy(desc(webhookEndpoints.createdAt))
+    .all()
+    .map(toWebhookEndpoint);
 }
 
 export function deleteWebhookEndpoint(id: string): void {
-  const database = getDb();
-  const stmt = database.prepare('DELETE FROM webhook_endpoints WHERE id = ?');
-  stmt.run(id);
-}
-
-// ==================== Telegram Bots ====================
-
-export interface TelegramBotConfigRecord extends TelegramBotConfig {
-  tokenEnc: string;
-  lastUpdateId: number | null;
+  const orm = getOrmDb();
+  orm.delete(webhookEndpoints).where(eq(webhookEndpoints.id, id)).run();
 }
 
 export function createTelegramBot(configRecord: TelegramBotConfigRecord): void {
-  const database = getDb();
-  database.run(
-    `
-      INSERT INTO telegram_bots (
-        id,
-        name,
-        token_enc,
-        enabled,
-        allow_auth_requests,
-        last_update_id,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      configRecord.id,
-      configRecord.name,
-      configRecord.tokenEnc,
-      configRecord.enabled ? 1 : 0,
-      configRecord.allowAuthRequests ? 1 : 0,
-      configRecord.lastUpdateId,
-      configRecord.createdAt,
-      configRecord.updatedAt,
-    ]
-  );
+  const orm = getOrmDb();
+  orm
+    .insert(telegramBots)
+    .values({
+      id: configRecord.id,
+      name: configRecord.name,
+      tokenEnc: configRecord.tokenEnc,
+      enabled: configRecord.enabled,
+      allowAuthRequests: configRecord.allowAuthRequests,
+      lastUpdateId: configRecord.lastUpdateId,
+      createdAt: configRecord.createdAt,
+      updatedAt: configRecord.updatedAt,
+    })
+    .run();
 }
 
 export function getTelegramBotById(botId: string): TelegramBotConfigRecord | null {
-  const database = getDb();
-  const row = database
-    .prepare('SELECT * FROM telegram_bots WHERE id = ?')
-    .get(botId) as Record<string, unknown> | undefined;
-  if (!row) return null;
-  return rowToTelegramBot(row);
+  const orm = getOrmDb();
+  const row = orm.select().from(telegramBots).where(eq(telegramBots.id, botId)).get();
+  if (!row) {
+    return null;
+  }
+  return toTelegramBotConfigRecord(row);
 }
 
 export function getAllTelegramBots(): TelegramBotConfigRecord[] {
-  const database = getDb();
-  const rows = database
-    .prepare('SELECT * FROM telegram_bots ORDER BY created_at DESC')
-    .all() as Record<string, unknown>[];
-  return rows.map(rowToTelegramBot);
+  const orm = getOrmDb();
+  return orm
+    .select()
+    .from(telegramBots)
+    .orderBy(desc(telegramBots.createdAt))
+    .all()
+    .map(toTelegramBotConfigRecord);
 }
 
 export function getTelegramBotsWithStats(): TelegramBotWithStats[] {
-  const database = getDb();
-  const rows = database
-    .prepare(
-      `
-        SELECT
-          b.*,
-          SUM(CASE WHEN c.status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-          SUM(CASE WHEN c.status = 'authorized' THEN 1 ELSE 0 END) AS authorized_count
-        FROM telegram_bots b
-        LEFT JOIN telegram_bot_chats c ON c.bot_id = b.id
-        GROUP BY b.id
-        ORDER BY b.created_at DESC
-      `
-    )
-    .all() as Array<Record<string, unknown>>;
+  const orm = getOrmDb();
+  const bots = orm.select().from(telegramBots).orderBy(desc(telegramBots.createdAt)).all();
 
-  return rows.map((row) => ({
-    id: row.id as string,
-    name: row.name as string,
-    enabled: Boolean(row.enabled),
-    allowAuthRequests: Boolean(row.allow_auth_requests),
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-    pendingCount: Number(row.pending_count ?? 0),
-    authorizedCount: Number(row.authorized_count ?? 0),
-  }));
+  const counters = new Map<string, { pending: number; authorized: number }>();
+  const chatRows = orm
+    .select({ botId: telegramBotChats.botId, status: telegramBotChats.status })
+    .from(telegramBotChats)
+    .all();
+
+  for (const row of chatRows) {
+    const current = counters.get(row.botId) ?? { pending: 0, authorized: 0 };
+    if (row.status === 'pending') {
+      current.pending += 1;
+    }
+    if (row.status === 'authorized') {
+      current.authorized += 1;
+    }
+    counters.set(row.botId, current);
+  }
+
+  return bots.map((bot) => {
+    const counter = counters.get(bot.id) ?? { pending: 0, authorized: 0 };
+    return {
+      id: bot.id,
+      name: bot.name,
+      enabled: bot.enabled,
+      allowAuthRequests: bot.allowAuthRequests,
+      createdAt: bot.createdAt,
+      updatedAt: bot.updatedAt,
+      pendingCount: counter.pending,
+      authorizedCount: counter.authorized,
+    };
+  });
 }
 
 export function updateTelegramBot(
   botId: string,
   updates: Partial<Pick<TelegramBotConfigRecord, 'name' | 'tokenEnc' | 'enabled' | 'allowAuthRequests' | 'lastUpdateId'>>
 ): TelegramBotConfigRecord | null {
-  const fields: string[] = [];
-  const values: SqlValue[] = [];
+  const orm = getOrmDb();
+  const setValues: Partial<typeof telegramBots.$inferInsert> = {
+    updatedAt: new Date().toISOString(),
+  };
 
   if (updates.name !== undefined) {
-    fields.push('name = ?');
-    values.push(updates.name);
+    setValues.name = updates.name;
   }
   if (updates.tokenEnc !== undefined) {
-    fields.push('token_enc = ?');
-    values.push(updates.tokenEnc);
+    setValues.tokenEnc = updates.tokenEnc;
   }
   if (updates.enabled !== undefined) {
-    fields.push('enabled = ?');
-    values.push(updates.enabled ? 1 : 0);
+    setValues.enabled = updates.enabled;
   }
   if (updates.allowAuthRequests !== undefined) {
-    fields.push('allow_auth_requests = ?');
-    values.push(updates.allowAuthRequests ? 1 : 0);
+    setValues.allowAuthRequests = updates.allowAuthRequests;
   }
   if (updates.lastUpdateId !== undefined) {
-    fields.push('last_update_id = ?');
-    values.push(updates.lastUpdateId);
+    setValues.lastUpdateId = updates.lastUpdateId;
   }
 
-  fields.push('updated_at = ?');
-  values.push(new Date().toISOString());
-  values.push(botId);
-
-  const database = getDb();
-  database.prepare(`UPDATE telegram_bots SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  orm.update(telegramBots).set(setValues).where(eq(telegramBots.id, botId)).run();
   return getTelegramBotById(botId);
 }
 
 export function deleteTelegramBot(botId: string): void {
-  const database = getDb();
-  database.prepare('DELETE FROM telegram_bots WHERE id = ?').run(botId);
+  const orm = getOrmDb();
+  orm.delete(telegramBots).where(eq(telegramBots.id, botId)).run();
 }
 
-// ==================== Telegram Chats ====================
-
 function getTelegramChatCount(botId: string): number {
-  const database = getDb();
-  const row = database
-    .prepare('SELECT COUNT(*) AS total FROM telegram_bot_chats WHERE bot_id = ?')
-    .get(botId) as { total: number };
-  return Number(row.total ?? 0);
+  const orm = getOrmDb();
+  const row = orm
+    .select({ total: count() })
+    .from(telegramBotChats)
+    .where(eq(telegramBotChats.botId, botId))
+    .get();
+
+  return Number(row?.total ?? 0);
 }
 
 export function getTelegramChatByBotAndChatId(botId: string, chatId: string): TelegramBotChat | null {
-  const database = getDb();
-  const row = database
-    .prepare('SELECT * FROM telegram_bot_chats WHERE bot_id = ? AND chat_id = ?')
-    .get(botId, chatId) as Record<string, unknown> | undefined;
+  const orm = getOrmDb();
+  const row = orm
+    .select()
+    .from(telegramBotChats)
+    .where(and(eq(telegramBotChats.botId, botId), eq(telegramBotChats.chatId, chatId)))
+    .get();
+
   if (!row) {
     return null;
   }
-  return rowToTelegramChat(row);
+
+  return toTelegramChat(row);
 }
 
 export function createOrUpdatePendingTelegramChat(params: {
@@ -571,143 +501,106 @@ export function createOrUpdatePendingTelegramChat(params: {
 }): TelegramBotChat {
   const existing = getTelegramChatByBotAndChatId(params.botId, params.chatId);
   if (!existing && getTelegramChatCount(params.botId) >= 8) {
-    throw new Error('每个 bot 最多允许 8 个 chat（已授权 + 待授权）');
+    throw new Error(i18next.t('apiError.invalidRequest'));
   }
 
   const now = new Date().toISOString();
-  const database = getDb();
+  const orm = getOrmDb();
 
   if (!existing) {
-    const id = crypto.randomUUID();
-    database.run(
-      `
-        INSERT INTO telegram_bot_chats (
-          id,
-          bot_id,
-          chat_id,
-          chat_type,
-          display_name,
-          status,
-          applied_at,
-          authorized_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, 'pending', ?, NULL, ?)
-      `,
-      [id, params.botId, params.chatId, params.chatType, params.displayName, params.appliedAt, now]
-    );
+    orm
+      .insert(telegramBotChats)
+      .values({
+        id: crypto.randomUUID(),
+        botId: params.botId,
+        chatId: params.chatId,
+        chatType: params.chatType,
+        displayName: params.displayName,
+        status: 'pending',
+        appliedAt: params.appliedAt,
+        authorizedAt: null,
+        updatedAt: now,
+      })
+      .run();
   } else if (existing.status === 'authorized') {
-    database.run(
-      `
-        UPDATE telegram_bot_chats
-        SET chat_type = ?, display_name = ?, updated_at = ?
-        WHERE id = ?
-      `,
-      [params.chatType, params.displayName, now, existing.id]
-    );
+    orm
+      .update(telegramBotChats)
+      .set({
+        chatType: params.chatType,
+        displayName: params.displayName,
+        updatedAt: now,
+      })
+      .where(eq(telegramBotChats.id, existing.id))
+      .run();
   } else {
-    database.run(
-      `
-        UPDATE telegram_bot_chats
-        SET chat_type = ?, display_name = ?, applied_at = ?, status = 'pending', updated_at = ?
-        WHERE id = ?
-      `,
-      [params.chatType, params.displayName, params.appliedAt, now, existing.id]
-    );
+    orm
+      .update(telegramBotChats)
+      .set({
+        chatType: params.chatType,
+        displayName: params.displayName,
+        appliedAt: params.appliedAt,
+        status: 'pending',
+        updatedAt: now,
+      })
+      .where(eq(telegramBotChats.id, existing.id))
+      .run();
   }
 
   const next = getTelegramChatByBotAndChatId(params.botId, params.chatId);
   if (!next) {
     throw new Error('failed to upsert telegram chat');
   }
+
   return next;
 }
 
 export function listTelegramChatsByBot(botId: string): TelegramBotChat[] {
-  const database = getDb();
-  const rows = database
-    .prepare('SELECT * FROM telegram_bot_chats WHERE bot_id = ? ORDER BY applied_at DESC')
-    .all(botId) as Record<string, unknown>[];
-  return rows.map(rowToTelegramChat);
+  const orm = getOrmDb();
+  return orm
+    .select()
+    .from(telegramBotChats)
+    .where(eq(telegramBotChats.botId, botId))
+    .orderBy(desc(telegramBotChats.appliedAt))
+    .all()
+    .map(toTelegramChat);
 }
 
 export function listAuthorizedTelegramChatsByBot(botId: string): TelegramBotChat[] {
-  const database = getDb();
-  const rows = database
-    .prepare(
-      "SELECT * FROM telegram_bot_chats WHERE bot_id = ? AND status = 'authorized' ORDER BY authorized_at DESC"
-    )
-    .all(botId) as Record<string, unknown>[];
-  return rows.map(rowToTelegramChat);
+  const orm = getOrmDb();
+  return orm
+    .select()
+    .from(telegramBotChats)
+    .where(and(eq(telegramBotChats.botId, botId), eq(telegramBotChats.status, 'authorized')))
+    .orderBy(desc(telegramBotChats.authorizedAt))
+    .all()
+    .map(toTelegramChat);
 }
 
 export function approveTelegramChat(botId: string, chatId: string): TelegramBotChat | null {
   const existing = getTelegramChatByBotAndChatId(botId, chatId);
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   const now = new Date().toISOString();
-  const database = getDb();
-  database.run(
-    `
-      UPDATE telegram_bot_chats
-      SET status = 'authorized', authorized_at = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [now, now, existing.id]
-  );
+  const orm = getOrmDb();
+  orm
+    .update(telegramBotChats)
+    .set({
+      status: 'authorized',
+      authorizedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(telegramBotChats.id, existing.id))
+    .run();
 
   return getTelegramChatByBotAndChatId(botId, chatId);
 }
 
 export function deleteTelegramChat(botId: string, chatId: string): void {
-  const database = getDb();
-  database.prepare('DELETE FROM telegram_bot_chats WHERE bot_id = ? AND chat_id = ?').run(botId, chatId);
-}
-
-// ==================== Helpers ====================
-
-function rowToDevice(row: Record<string, unknown>): Device {
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    type: row.type as 'local' | 'ssh',
-    host: row.host as string | undefined,
-    port: row.port as number | undefined,
-    username: row.username as string | undefined,
-    sshConfigRef: row.ssh_config_ref as string | undefined,
-    session: (row.session as string | undefined) ?? 'tmex',
-    authMode: row.auth_mode as 'password' | 'key' | 'agent' | 'configRef' | 'auto',
-    passwordEnc: row.password_enc as string | undefined,
-    privateKeyEnc: row.private_key_enc as string | undefined,
-    privateKeyPassphraseEnc: row.private_key_passphrase_enc as string | undefined,
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-  };
-}
-
-function rowToTelegramBot(row: Record<string, unknown>): TelegramBotConfigRecord {
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    tokenEnc: row.token_enc as string,
-    enabled: Boolean(row.enabled),
-    allowAuthRequests: Boolean(row.allow_auth_requests),
-    lastUpdateId: (row.last_update_id as number | null) ?? null,
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-  };
-}
-
-function rowToTelegramChat(row: Record<string, unknown>): TelegramBotChat {
-  return {
-    id: row.id as string,
-    botId: row.bot_id as string,
-    chatId: row.chat_id as string,
-    chatType: ((row.chat_type as string) || 'unknown') as TelegramChatType,
-    displayName: row.display_name as string,
-    status: row.status as TelegramChatStatus,
-    appliedAt: row.applied_at as string,
-    authorizedAt: (row.authorized_at as string | null) ?? null,
-    updatedAt: row.updated_at as string,
-  };
+  const orm = getOrmDb();
+  orm
+    .delete(telegramBotChats)
+    .where(and(eq(telegramBotChats.botId, botId), eq(telegramBotChats.chatId, chatId)))
+    .run();
 }

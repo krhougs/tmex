@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, matchPath, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
+import { toBCP47 } from '@tmex/shared';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
@@ -50,6 +51,7 @@ export function Sidebar({ onClose }: SidebarProps) {
   const selectWindow = useTmuxStore((state) => state.selectWindow);
   const deviceConnected = useTmuxStore((state) => state.deviceConnected);
   const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
+  const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
 
   // 获取设备列表
   const { data: devicesData } = useQuery({
@@ -203,12 +205,12 @@ export function Sidebar({ onClose }: SidebarProps) {
   // 按设备名称排序
   const sortedDevices = useMemo(() => {
     return [...devices].sort((a, b) => {
-      return a.name.localeCompare(b.name, 'zh-CN', {
+      return a.name.localeCompare(b.name, toBCP47(language), {
         numeric: true,
         sensitivity: 'base',
       });
     });
-  }, [devices]);
+  }, [devices, language]);
 
   return (
     <aside
@@ -229,6 +231,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         <Button
           variant="ghost"
           size="sm"
+          data-testid="sidebar-collapse-toggle"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
           className={`
@@ -296,16 +299,16 @@ export function Sidebar({ onClose }: SidebarProps) {
         <div className="p-3 border-t border-[var(--color-border)] flex-shrink-0">
           <div className="flex flex-col gap-2">
             <Button variant="default" className="w-full justify-start" asChild>
-              <Link to="/devices" onClick={onClose}>
+              <Link data-testid="sidebar-manage-devices" to="/devices" onClick={onClose}>
                 <Monitor className="h-4 w-4 mr-2 flex-shrink-0" />
                 {t('sidebar.manageDevices')}
               </Link>
             </Button>
 
             <Button variant="default" className="w-full justify-start" asChild>
-              <Link to="/settings" onClick={onClose}>
+              <Link data-testid="sidebar-settings" to="/settings" onClick={onClose}>
                 <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
-                {t('common.settings')}
+                {t('sidebar.settings')}
               </Link>
             </Button>
           </div>
@@ -322,7 +325,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             asChild
             title={t('sidebar.manageDevices')}
           >
-            <Link to="/devices" onClick={onClose}>
+            <Link data-testid="sidebar-manage-devices" to="/devices" onClick={onClose}>
               <Monitor className="h-4 w-4" />
             </Link>
           </Button>
@@ -332,9 +335,9 @@ export function Sidebar({ onClose }: SidebarProps) {
             size="sm"
             className="w-full h-8 px-2 justify-start"
             asChild
-            title={t('common.settings')}
+            title={t('sidebar.settings')}
           >
-            <Link to="/settings" onClick={onClose}>
+            <Link data-testid="sidebar-settings" to="/settings" onClick={onClose}>
               <Settings className="h-4 w-4" />
             </Link>
           </Button>
@@ -398,8 +401,8 @@ function DeviceTreeItem({
     return (
       <div className="px-2 py-1">
         <button
-          type="button"
-          onClick={onSelect}
+            type="button"
+            onClick={onSelect}
           title={device.name}
           data-testid={`device-icon-${device.id}`}
           data-active={isSelected}
@@ -442,6 +445,7 @@ function DeviceTreeItem({
           {/* 展开/折叠按钮 */}
           <button
             type="button"
+            data-testid={`device-expand-${device.id}`}
             onClick={onToggle}
             className={`
               p-1 rounded mr-1 flex-shrink-0
@@ -468,6 +472,7 @@ function DeviceTreeItem({
           {/* 设备名称 - 可点击导航 */}
           <button
             type="button"
+            data-testid={`device-select-${device.id}`}
             onClick={onSelect}
             className="flex-1 min-w-0 text-left font-medium truncate"
             title={device.name}
@@ -489,6 +494,7 @@ function DeviceTreeItem({
           {/* 新建窗口按钮 */}
           <button
             type="button"
+            data-testid={`window-create-${device.id}`}
             onClick={(e) => {
               e.stopPropagation();
               onCreateWindow();
@@ -681,6 +687,7 @@ function WindowTreeItem({
 
           <button
             type="button"
+            data-testid={`window-close-${window.id}`}
             onClick={(event) => {
               event.stopPropagation();
               onCloseWindow(device.id, window.id);
@@ -805,6 +812,7 @@ function PaneTreeItem({
 
       <button
         type="button"
+        data-testid={`pane-close-${pane.id}`}
         onClick={(event) => {
           event.stopPropagation();
           onClosePane(deviceId, windowId, pane.id, paneCount);
