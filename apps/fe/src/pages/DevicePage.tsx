@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
@@ -93,6 +94,7 @@ const EDITOR_SHORTCUTS: EditorShortcut[] = [
 ];
 
 export function DevicePage() {
+  const { t } = useTranslation();
   const { deviceId, windowId, paneId } = useParams();
   const navigate = useNavigate();
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -199,9 +201,9 @@ export function DevicePage() {
     !selectedPane;
 
   const invalidSelectionMessage = isWindowMissing
-    ? '当前窗口已关闭，请在侧边栏重新选择窗口。'
+    ? t('wsError.checkGateway')
     : isPaneMissing
-      ? '当前 Pane 已关闭，请在侧边栏重新选择 Pane。'
+      ? t('wsError.checkGateway')
       : null;
 
   const isSelectionInvalid = Boolean(invalidSelectionMessage);
@@ -850,35 +852,10 @@ export function DevicePage() {
     sendInput,
   ]);
 
-  const handleEditorSendLineByLine = useCallback(() => {
-    if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
-
-    const lines = editorText.split('\n');
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      sendInput(deviceId, resolvedPaneId, `${line}\r`, false);
-    }
-
-    addEditorHistory(editorText);
-    if (draftKey) {
-      removeEditorDraft(draftKey);
-    }
-    setEditorText('');
-  }, [
-    addEditorHistory,
-    canInteractWithPane,
-    deviceId,
-    draftKey,
-    editorText,
-    removeEditorDraft,
-    resolvedPaneId,
-    sendInput,
-  ]);
-
   if (!deviceId) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-[var(--color-text-secondary)]">未选择设备</div>
+        <div className="text-[var(--color-text-secondary)]">{t('device.noDevices')}</div>
       </div>
     );
   }
@@ -905,11 +882,11 @@ export function DevicePage() {
               size="sm"
               className="px-2 py-1 text-xs"
               onClick={handleJumpToLatest}
-              title="跳转到最新"
+              title={t('terminal.jumpToLatest')}
               disabled={!canInteractWithPane}
             >
               <ArrowDownToLine className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">跳转到最新</span>
+              <span className="hidden sm:inline">{t('terminal.jumpToLatest')}</span>
             </Button>
 
             <Button
@@ -922,11 +899,11 @@ export function DevicePage() {
             >
               {inputMode === 'direct' ? (
                 <>
-                  <Keyboard className="h-3 w-3 mr-1" /> 编辑器
+                  <Keyboard className="h-3 w-3 mr-1" /> {t('terminal.switchToEditor')}
                 </>
               ) : (
                 <>
-                  <Smartphone className="h-3 w-3 mr-1" /> 直接输入
+                  <Smartphone className="h-3 w-3 mr-1" /> {t('terminal.switchToDirect')}
                 </>
               )}
             </Button>
@@ -942,7 +919,7 @@ export function DevicePage() {
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
               <span className="text-[var(--color-text-secondary)]">
-                {isLoading ? '初始化终端...' : '连接设备...'}
+                {isLoading ? t('terminal.initializing') : t('terminal.connecting')}
               </span>
             </div>
           </div>
@@ -965,7 +942,7 @@ export function DevicePage() {
               }
               removeEditorDraft(draftKey);
             }}
-            placeholder="在此输入命令..."
+            placeholder={t('terminal.inputPlaceholder')}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
           />
@@ -976,8 +953,8 @@ export function DevicePage() {
                   key={shortcut.key}
                   variant="default"
                   size="sm"
-                  title={`发送 ${shortcut.label}`}
-                  aria-label={`发送 ${shortcut.label}`}
+                  title={shortcut.label}
+                  aria-label={shortcut.label}
                   onClick={() => handleSendShortcut(shortcut.payload)}
                   disabled={!canInteractWithPane}
                 >
@@ -995,18 +972,10 @@ export function DevicePage() {
                   removeEditorDraft(draftKey);
                 }
               }}
-              title="清空"
+              title={t('terminal.clear')}
             >
               <Trash2 className="h-4 w-4 mr-1" />
-              清空
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleEditorSendLineByLine}
-              disabled={!canInteractWithPane}
-            >
-              逐行发送
+              {t('terminal.clear')}
             </Button>
             <Button
               variant="primary"
@@ -1015,7 +984,7 @@ export function DevicePage() {
               disabled={!canInteractWithPane}
             >
               <Send className="h-4 w-4 mr-1" />
-              发送
+              {t('common.send')}
             </Button>
           </div>
         </div>

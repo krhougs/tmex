@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, matchPath, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useSiteStore } from '../stores/site';
@@ -27,6 +28,7 @@ interface SidebarProps {
 // ==================== Sidebar 主组件 ====================
 
 export function Sidebar({ onClose }: SidebarProps) {
+  const { t } = useTranslation();
   const location = useLocation();
   const paneMatch = matchPath('/devices/:deviceId/windows/:windowId/panes/:paneId', location.pathname);
   const deviceMatch = matchPath('/devices/:deviceId', location.pathname);
@@ -64,8 +66,8 @@ export function Sidebar({ onClose }: SidebarProps) {
     if (devicesData) {
       return;
     }
-    toast.error('加载设备列表失败');
-  }, [devicesData]);
+    toast.error(t('common.error'));
+  }, [devicesData, t]);
 
   // 删除设备
   const deleteDevice = useMutation({
@@ -77,10 +79,10 @@ export function Sidebar({ onClose }: SidebarProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success('设备已删除');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '删除设备失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -228,7 +230,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           variant="ghost"
           size="sm"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+          title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
           className={`
             p-1.5 h-8 w-8
             ${sidebarCollapsed ? 'mx-auto' : ''}
@@ -268,21 +270,21 @@ export function Sidebar({ onClose }: SidebarProps) {
 
         {sortedDevices.length === 0 && !sidebarCollapsed && (
           <div className="px-4 py-8 text-center text-[var(--color-text-secondary)] text-sm">
-            <div className="mb-2">暂无设备</div>
+            <div className="mb-2">{t('sidebar.noDevices')}</div>
             <div className="space-y-1">
               <Link
                 to="/devices"
                 className="block text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] hover:underline transition-colors"
                 onClick={onClose}
               >
-                添加设备
+                {t('sidebar.addDevice')}
               </Link>
               <Link
                 to="/settings"
                 className="block text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:underline transition-colors"
                 onClick={onClose}
               >
-                打开设置
+                {t('sidebar.openSettings')}
               </Link>
             </div>
           </div>
@@ -296,14 +298,14 @@ export function Sidebar({ onClose }: SidebarProps) {
             <Button variant="default" className="w-full justify-start" asChild>
               <Link to="/devices" onClick={onClose}>
                 <Monitor className="h-4 w-4 mr-2 flex-shrink-0" />
-                管理设备
+                {t('sidebar.manageDevices')}
               </Link>
             </Button>
 
             <Button variant="default" className="w-full justify-start" asChild>
               <Link to="/settings" onClick={onClose}>
                 <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
-                设置
+                {t('common.settings')}
               </Link>
             </Button>
           </div>
@@ -318,7 +320,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             size="sm"
             className="w-full h-8 px-2 justify-start"
             asChild
-            title="管理设备"
+            title={t('sidebar.manageDevices')}
           >
             <Link to="/devices" onClick={onClose}>
               <Monitor className="h-4 w-4" />
@@ -330,7 +332,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             size="sm"
             className="w-full h-8 px-2 justify-start"
             asChild
-            title="设置"
+            title={t('common.settings')}
           >
             <Link to="/settings" onClick={onClose}>
               <Settings className="h-4 w-4" />
@@ -380,6 +382,7 @@ function DeviceTreeItem({
   onPaneClick,
   onWindowClick,
 }: DeviceTreeItemProps) {
+  const { t } = useTranslation();
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
   const hasSelectedPaneInDevice = isSelected && Boolean(selectedPaneId);
   const selectedWindow = hasSelectedPaneInDevice
@@ -445,7 +448,7 @@ function DeviceTreeItem({
               text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]
               transition-colors duration-150
             `}
-            title={isExpanded ? '折叠' : '展开'}
+            title={isExpanded ? t('common.collapse') : t('common.expand')}
           >
             {isExpanded ? (
               <ChevronDown className="h-3.5 w-3.5" />
@@ -479,7 +482,7 @@ function DeviceTreeItem({
                 ml-1.5 w-2 h-2 rounded-full flex-shrink-0
                 ${isSelected ? 'bg-[var(--color-success)]' : 'bg-[var(--color-success)]'}
               `}
-              title="已连接"
+              title={t('device.connected')}
             />
           )}
 
@@ -498,8 +501,8 @@ function DeviceTreeItem({
                 : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]'
               }
             `}
-            title="新建窗口"
-            aria-label={`为设备 ${device.name} 新建窗口`}
+            title={t('sidebar.newWindow')}
+            aria-label={`${device.name} ${t('sidebar.newWindow')}`}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -512,13 +515,13 @@ function DeviceTreeItem({
           {!windows && (
             <div className="px-3 py-2 text-sm text-[var(--color-text-secondary)] flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-[var(--color-accent)] rounded-full animate-pulse" />
-              连接中...
+              {t('terminal.connecting')}
             </div>
           )}
 
           {windows && windows.length === 0 && (
             <div className="px-3 py-2 text-sm text-[var(--color-text-secondary)]">
-              暂无窗口
+              -
             </div>
           )}
 
@@ -570,6 +573,7 @@ function WindowTreeItem({
   onCloseWindow,
   onClosePane,
 }: WindowTreeItemProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(isSelected);
 
   // 当选中状态变化时，自动展开
@@ -671,7 +675,7 @@ function WindowTreeItem({
                   : 'bg-[var(--color-success)]'
                 }
               `}
-              title="当前窗口"
+              title={t('sidebar.currentWindow')}
             />
           )}
 
@@ -689,8 +693,8 @@ function WindowTreeItem({
               }
               transition-colors duration-150
             `}
-            title="关闭窗口"
-            aria-label={`关闭窗口 ${window.name}`}
+            title={t('sidebar.closeWindow')}
+            aria-label={`${t('sidebar.closeWindow')} ${window.name}`}
           >
             <X className="h-3 w-3" />
           </button>
@@ -748,6 +752,7 @@ function PaneTreeItem({
   onClick,
   onClosePane,
 }: PaneTreeItemProps) {
+  const { t } = useTranslation();
   return (
     <div
       data-testid={`pane-item-${pane.id}`}
@@ -793,7 +798,7 @@ function PaneTreeItem({
                 : 'bg-[var(--color-success)]'
               }
             `}
-            title="当前pane"
+            title={t('sidebar.currentPane')}
           />
         )}
       </button>
@@ -814,8 +819,8 @@ function PaneTreeItem({
           }
           transition-colors duration-150
         `}
-        title="关闭 pane"
-        aria-label={`关闭 pane ${pane.index}`}
+        title={t('sidebar.closePane')}
+        aria-label={`${t('sidebar.closePane')} ${pane.index}`}
       >
         <X className="h-3 w-3" />
       </button>

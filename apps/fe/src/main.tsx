@@ -7,6 +7,7 @@ import { RootLayout } from './layouts/RootLayout';
 import { DevicePage } from './pages/DevicePage';
 import { DevicesPage } from './pages/DevicesPage';
 import { SettingsPage } from './pages/SettingsPage';
+import './i18n';
 import './index.css';
 
 const queryClient = new QueryClient({

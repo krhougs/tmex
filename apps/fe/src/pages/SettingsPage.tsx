@@ -7,8 +7,9 @@ import type {
 } from '@tmex/shared';
 import { Loader2, RefreshCcw, RotateCcw, Save, Send, Shield, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '../components/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select, SelectOption } from '../components/ui';
 import { useSiteStore } from '../stores/site';
 
 interface TelegramBotsResponse {
@@ -33,14 +34,17 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
 }
 
 export function SettingsPage() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { refreshSettings } = useSiteStore();
 
   const [siteName, setSiteName] = useState('tmex');
   const [siteUrl, setSiteUrl] = useState(window.location.origin);
+  const [language, setLanguage] = useState<'en_US' | 'zh_CN'>('en_US');
   const [bellThrottleSeconds, setBellThrottleSeconds] = useState(6);
   const [sshReconnectMaxRetries, setSshReconnectMaxRetries] = useState(2);
   const [sshReconnectDelaySeconds, setSshReconnectDelaySeconds] = useState(10);
+  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
 
   const [newBotName, setNewBotName] = useState('');
   const [newBotToken, setNewBotToken] = useState('');
@@ -76,6 +80,7 @@ export function SettingsPage() {
 
     setSiteName(settings.siteName);
     setSiteUrl(settings.siteUrl);
+    setLanguage(settings.language ?? 'en_US');
     setBellThrottleSeconds(settings.bellThrottleSeconds);
     setSshReconnectMaxRetries(settings.sshReconnectMaxRetries);
     setSshReconnectDelaySeconds(settings.sshReconnectDelaySeconds);
@@ -86,6 +91,7 @@ export function SettingsPage() {
       const payload: UpdateSiteSettingsRequest = {
         siteName,
         siteUrl,
+        language,
         bellThrottleSeconds,
         sshReconnectMaxRetries,
         sshReconnectDelaySeconds,
@@ -108,10 +114,13 @@ export function SettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['site-settings'] }),
         refreshSettings(),
       ]);
-      toast.success('站点设置已保存');
+      toast.success(t('settings.settingsSaved'));
+      if (settingsQuery.data?.settings?.language !== language) {
+        setShowRefreshNotice(true);
+      }
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '保存设置失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -123,10 +132,10 @@ export function SettingsPage() {
       }
     },
     onSuccess: () => {
-      toast.success('Gateway 重启请求已发送');
+      toast.success(t('settings.restartScheduled'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '重启请求失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -153,10 +162,10 @@ export function SettingsPage() {
       setNewBotName('');
       setNewBotToken('');
       await queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-      toast.success('Bot 已创建');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '新增 Bot 失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -165,7 +174,7 @@ export function SettingsPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">系统设置</h1>
+        <h1 className="text-2xl font-bold">{t('nav.settings')}</h1>
         <Button
           variant="ghost"
           onClick={() => {
@@ -176,43 +185,62 @@ export function SettingsPage() {
           }}
         >
           <RefreshCcw className="h-4 w-4" />
-          刷新
+          {t('common.refresh')}
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>站点设置</CardTitle>
+          <CardTitle>{t('settings.siteName')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1.5" htmlFor="site-name-input">
-              站点名称
+              {t('settings.siteName')}
             </label>
             <Input
               id="site-name-input"
               value={siteName}
               onChange={(event) => setSiteName(event.target.value)}
-              placeholder="tmex"
+              placeholder={t('settings.siteNamePlaceholder')}
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1.5" htmlFor="site-url-input">
-              站点访问 URL
+              {t('settings.siteUrl')}
             </label>
             <Input
               id="site-url-input"
               value={siteUrl}
               onChange={(event) => setSiteUrl(event.target.value)}
-              placeholder="http://localhost:3000"
+              placeholder={t('settings.siteUrlPlaceholder')}
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="language-select">
+              {t('settings.language')}
+            </label>
+            <Select
+              id="language-select"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'en_US' | 'zh_CN')}
+            >
+              <SelectOption value="en_US">{t('settings.language_en_US')}</SelectOption>
+              <SelectOption value="zh_CN">{t('settings.language_zh_CN')}</SelectOption>
+            </Select>
+            {showRefreshNotice && (
+              <p className="text-xs text-[var(--color-accent)] mt-1">
+                {t('settings.refreshToApply')}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor="bell-throttle-input">
-                Bell 频控（秒）
+                {t('settings.bellThrottle')}
               </label>
               <Input
                 id="bell-throttle-input"
@@ -229,7 +257,7 @@ export function SettingsPage() {
                 className="block text-sm font-medium mb-1.5"
                 htmlFor="ssh-reconnect-retries-input"
               >
-                SSH 重连次数
+                {t('settings.sshReconnectMaxRetries')}
               </label>
               <Input
                 id="ssh-reconnect-retries-input"
@@ -243,7 +271,7 @@ export function SettingsPage() {
 
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor="ssh-reconnect-delay-input">
-                SSH 重连等待（秒）
+                {t('settings.sshReconnectDelay')}
               </label>
               <Input
                 id="ssh-reconnect-delay-input"
@@ -263,7 +291,7 @@ export function SettingsPage() {
               disabled={restartMutation.isPending}
             >
               <RotateCcw className="h-4 w-4" />
-              重启 Gateway
+              {t('settings.restartGateway')}
             </Button>
 
             <Button
@@ -272,7 +300,7 @@ export function SettingsPage() {
               disabled={saveSiteMutation.isPending}
             >
               <Save className="h-4 w-4" />
-              保存设置
+              {t('common.save')}
             </Button>
           </div>
         </CardContent>
@@ -280,32 +308,32 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Telegram Bot 管理</CardTitle>
+          <CardTitle>{t('telegram.title')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
             <div className="md:col-span-3">
               <label className="block text-sm font-medium mb-1.5" htmlFor="new-bot-name">
-                Bot 名称
+                {t('telegram.botName')}
               </label>
               <Input
                 id="new-bot-name"
                 value={newBotName}
                 onChange={(event) => setNewBotName(event.target.value)}
-                placeholder="如：ops-bot"
+                placeholder={t('telegram.botNamePlaceholder')}
               />
             </div>
 
             <div className="md:col-span-7">
               <label className="block text-sm font-medium mb-1.5" htmlFor="new-bot-token">
-                Bot Token
+                {t('telegram.botToken')}
               </label>
               <Input
                 id="new-bot-token"
                 type="password"
                 value={newBotToken}
                 onChange={(event) => setNewBotToken(event.target.value)}
-                placeholder="123456:AA..."
+                placeholder={t('telegram.botTokenPlaceholder')}
               />
             </div>
 
@@ -321,18 +349,18 @@ export function SettingsPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                新增 Bot
+                {t('telegram.addBot')}
               </Button>
             </div>
           </div>
 
           <div className="space-y-3">
             {botsQuery.isLoading && (
-              <div className="text-sm text-[var(--color-text-secondary)]">加载 Bot 列表中...</div>
+              <div className="text-sm text-[var(--color-text-secondary)]">{t('common.loading')}</div>
             )}
 
             {!botsQuery.isLoading && bots.length === 0 && (
-              <div className="text-sm text-[var(--color-text-secondary)]">暂无 Bot，先添加一个。</div>
+              <div className="text-sm text-[var(--color-text-secondary)]">{t('telegram.addBot')}</div>
             )}
 
             {bots.map((bot) => (
@@ -359,6 +387,7 @@ interface BotCardProps {
 }
 
 function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const [name, setName] = useState(bot.name);
@@ -418,10 +447,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
     onSuccess: async () => {
       setToken('');
       await queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-      toast.success('Bot 已更新');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '更新 Bot 失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -437,10 +466,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-      toast.success('Bot 已删除');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '删除 Bot 失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -458,10 +487,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         queryClient.invalidateQueries({ queryKey: ['telegram-bots'] }),
         queryClient.invalidateQueries({ queryKey: ['telegram-bot-chats', bot.id] }),
       ]);
-      toast.success('授权已批准');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '批准授权失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -479,10 +508,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         queryClient.invalidateQueries({ queryKey: ['telegram-bots'] }),
         queryClient.invalidateQueries({ queryKey: ['telegram-bot-chats', bot.id] }),
       ]);
-      toast.success('chat 已移除');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '删除 chat 失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -496,10 +525,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
       }
     },
     onSuccess: () => {
-      toast.success('测试消息已发送');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '发送测试消息失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -509,37 +538,37 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
         <div>
           <div className="font-medium">{bot.name}</div>
           <div className="text-xs text-[var(--color-text-secondary)]">
-            已授权 {bot.authorizedCount} / 待授权 {bot.pendingCount}（总上限 8）
+            {bot.authorizedCount} / {bot.pendingCount}
           </div>
         </div>
         <Button variant="ghost" onClick={onToggleExpand}>
-          {expanded ? '收起' : '展开'}
+          {expanded ? t('common.collapse') : t('common.expand')}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
         <div className="md:col-span-3">
           <label className="block text-sm font-medium mb-1.5" htmlFor={`bot-name-${bot.id}`}>
-            名称
+            {t('telegram.botName')}
           </label>
           <Input id={`bot-name-${bot.id}`} value={name} onChange={(event) => setName(event.target.value)} />
         </div>
         <div className="md:col-span-4">
           <label className="block text-sm font-medium mb-1.5" htmlFor={`bot-token-${bot.id}`}>
-            Token（留空不改）
+            {t('telegram.botToken')}
           </label>
           <Input
             id={`bot-token-${bot.id}`}
             type="password"
             value={token}
             onChange={(event) => setToken(event.target.value)}
-            placeholder="输入新 token"
+            placeholder="Token"
           />
         </div>
         <div className="md:col-span-2">
           <label className="flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
-            启用 Bot
+            {t('telegram.enabled')}
           </label>
         </div>
         <div className="md:col-span-3">
@@ -549,7 +578,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
               checked={allowAuthRequests}
               onChange={(event) => setAllowAuthRequests(event.target.checked)}
             />
-            允许申请授权
+            {t('telegram.allowAuthRequests')}
           </label>
         </div>
       </div>
@@ -557,11 +586,11 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
       <div className="flex items-center justify-end gap-2">
         <Button variant="danger" onClick={() => deleteBotMutation.mutate()}>
           <Trash2 className="h-4 w-4" />
-          删除 Bot
+          {t('telegram.deleteBot')}
         </Button>
         <Button variant="primary" onClick={() => patchBotMutation.mutate()}>
           <Save className="h-4 w-4" />
-          保存 Bot 配置
+          {t('common.save')}
         </Button>
       </div>
 
@@ -570,10 +599,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           <div className="space-y-2">
             <h3 className="text-sm font-semibold flex items-center gap-1">
               <Shield className="h-4 w-4" />
-              待授权
+              {t('telegram.pendingChats')}
             </h3>
             {groupedChats.pending.length === 0 && (
-              <div className="text-xs text-[var(--color-text-secondary)]">暂无待授权 chat</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">-</div>
             )}
             {groupedChats.pending.map((chat) => (
               <ChatRow
@@ -589,10 +618,10 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           <div className="space-y-2">
             <h3 className="text-sm font-semibold flex items-center gap-1">
               <Shield className="h-4 w-4" />
-              已授权
+              {t('telegram.chats')}
             </h3>
             {groupedChats.authorized.length === 0 && (
-              <div className="text-xs text-[var(--color-text-secondary)]">暂无已授权 chat</div>
+              <div className="text-xs text-[var(--color-text-secondary)]">-</div>
             )}
             {groupedChats.authorized.map((chat) => (
               <ChatRow
@@ -606,7 +635,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           </div>
 
           {chatsQuery.isLoading && (
-            <div className="lg:col-span-2 text-xs text-[var(--color-text-secondary)]">加载 chat 列表中...</div>
+            <div className="lg:col-span-2 text-xs text-[var(--color-text-secondary)]">{t('common.loading')}</div>
           )}
         </div>
       )}
@@ -623,6 +652,7 @@ interface ChatRowProps {
 }
 
 function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
+  const { t } = useTranslation();
   return (
     <div className="rounded border border-[var(--color-border)] p-3 bg-[var(--color-bg)] space-y-2">
       <div className="text-sm font-medium truncate" title={chat.displayName}>
@@ -632,27 +662,27 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
         chatId：{chat.chatId}
       </div>
       <div className="text-xs text-[var(--color-text-secondary)]">
-        申请时间：{new Date(chat.appliedAt).toLocaleString('zh-CN')}
+        {new Date(chat.appliedAt).toLocaleString('zh-CN')}
       </div>
 
       <div className="flex items-center justify-end gap-2">
         {pending ? (
           <>
             <Button variant="default" size="sm" onClick={onDelete}>
-              拒绝
+              {t('telegram.reject')}
             </Button>
             <Button variant="primary" size="sm" onClick={onApprove}>
-              批准
+              {t('telegram.authorize')}
             </Button>
           </>
         ) : (
           <>
             <Button variant="default" size="sm" onClick={onTest}>
               <Send className="h-3.5 w-3.5" />
-              测试消息
+              {t('telegram.sendTestMessage')}
             </Button>
             <Button variant="danger" size="sm" onClick={onDelete}>
-              撤销授权
+              {t('common.delete')}
             </Button>
           </>
         )}

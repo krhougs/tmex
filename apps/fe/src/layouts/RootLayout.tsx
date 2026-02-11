@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Sidebar } from '../components/Sidebar';
@@ -22,6 +23,7 @@ declare global {
 }
 
 export function RootLayout() {
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const navigate = useNavigate();
@@ -117,8 +119,8 @@ export function RootLayout() {
       return;
     }
 
-    toast.error('加载设备信息失败');
-  }, [devicesData, isTerminalRoute]);
+    toast.error(t('common.error'));
+  }, [devicesData, isTerminalRoute, t]);
 
   useEffect(() => {
     document.title = siteSettings?.siteName ?? 'tmex';
@@ -223,8 +225,8 @@ export function RootLayout() {
               type="button"
               onClick={() => setSidebarOpen(true)}
               className="h-7 w-7 inline-flex items-center justify-center -ml-1 rounded hover:bg-[var(--color-bg-tertiary)]"
-              aria-label="打开侧边栏"
-              title="打开侧边栏"
+              aria-label={t('nav.openSidebar')}
+              title={t('nav.openSidebar')}
             >
               <svg
                 width="20"
@@ -249,8 +251,8 @@ export function RootLayout() {
                 type="button"
                 onClick={handleToggleInputMode}
                 className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                aria-label={inputMode === 'direct' ? '切换到编辑器输入' : '切换到直接输入'}
-                title={inputMode === 'direct' ? '切换到编辑器输入' : '切换到直接输入'}
+                aria-label={inputMode === 'direct' ? t('terminal.switchToEditor') : t('terminal.switchToDirect')}
+                title={inputMode === 'direct' ? t('terminal.switchToEditor') : t('terminal.switchToDirect')}
                 disabled={!isTerminalRoute}
               >
                 {inputMode === 'direct' ? (
@@ -263,8 +265,8 @@ export function RootLayout() {
                 type="button"
                 onClick={handleJumpToLatest}
                 className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                aria-label="跳转到最新"
-                title="跳转到最新"
+                aria-label={t('terminal.jumpToLatest')}
+                title={t('terminal.jumpToLatest')}
                 disabled={!canInteractWithPane}
               >
                 <ArrowDownToLine className="h-4 w-4" />

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateDeviceRequest, Device, UpdateDeviceRequest } from '@tmex/shared';
 import { Globe, Monitor, Pencil, Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import {
@@ -149,6 +150,7 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
 }
 
 export function DevicesPage() {
+  const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const queryClient = useQueryClient();
@@ -172,10 +174,10 @@ export function DevicesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success('设备已删除');
+      toast.success(t('common.success'));
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '删除设备失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -184,23 +186,23 @@ export function DevicesPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">设备管理</h1>
+        <h1 className="text-2xl font-bold">{t('device.title')}</h1>
         <Button variant="primary" onClick={() => setShowAddModal(true)}>
           <Plus className="h-4 w-4" />
-          添加设备
+          {t('device.addDevice')}
         </Button>
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12 text-[var(--color-text-secondary)]">加载中...</div>
+        <div className="text-center py-12 text-[var(--color-text-secondary)]">{t('common.loading')}</div>
       ) : devices.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
             <div className="text-4xl mb-4">🖥️</div>
-            <h3 className="text-lg font-medium mb-2">暂无设备</h3>
-            <p className="text-[var(--color-text-secondary)] mb-4">添加本地或 SSH 设备开始使用</p>
+            <h3 className="text-lg font-medium mb-2">{t('device.noDevices')}</h3>
+            <p className="text-[var(--color-text-secondary)] mb-4">{t('device.typeLocal')} / SSH {t('device.type')}</p>
             <Button variant="primary" onClick={() => setShowAddModal(true)}>
-              添加第一个设备
+              {t('device.addDevice')}
             </Button>
           </CardContent>
         </Card>
@@ -232,10 +234,11 @@ interface DeviceCardProps {
 }
 
 function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
+  const { t } = useTranslation();
   const icon =
     device.type === 'local' ? <Monitor className="h-6 w-6" /> : <Globe className="h-6 w-6" />;
   const subtitle =
-    device.type === 'local' ? '本地设备' : `${device.username}@${device.host}:${device.port}`;
+    device.type === 'local' ? t('device.typeLocal') : `${device.username}@${device.host}:${device.port}`;
 
   return (
     <Card>
@@ -251,15 +254,15 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="default" size="sm" onClick={onEdit} title="修改设备">
+          <Button variant="default" size="sm" onClick={onEdit} title={t('device.editDevice')}>
             <Pencil className="h-4 w-4" />
           </Button>
 
           <Button variant="primary" size="sm" asChild>
-            <Link to={`/devices/${device.id}`}>连接</Link>
+            <Link to={`/devices/${device.id}`}>{t('device.connect')}</Link>
           </Button>
 
-          <Button variant="danger" size="sm" onClick={onDelete} title="删除">
+          <Button variant="danger" size="sm" onClick={onDelete} title={t('common.delete')}>
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
@@ -275,6 +278,7 @@ interface DeviceDialogProps {
 }
 
 function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<DeviceFormValues>(() => createDefaultFormValues(device));
@@ -302,11 +306,11 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success('设备已创建');
+      toast.success(t('common.success'));
       onClose();
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '创建设备失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -330,11 +334,11 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success('设备已更新');
+      toast.success(t('common.success'));
       onClose();
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '更新设备失败');
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     },
   });
 
@@ -369,7 +373,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-full max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? '修改设备' : '添加设备'}</DialogTitle>
+          <DialogTitle>{isEditMode ? t('device.editDevice') : t('device.addDevice')}</DialogTitle>
           <DialogCloseButton />
         </DialogHeader>
 
@@ -377,21 +381,21 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
           <DialogBody className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor={deviceNameInputId}>
-                设备名称
+                {t('device.name')}
               </label>
               <Input
                 id={deviceNameInputId}
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData((d) => ({ ...d, name: e.target.value }))}
-                placeholder="例如：我的服务器"
+                placeholder={t('device.namePlaceholder')}
                 required
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor={deviceTypeSelectId}>
-                类型
+                {t('device.type')}
               </label>
               <Select
                 id={deviceTypeSelectId}
@@ -411,8 +415,8 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                 }}
                 disabled={isEditMode}
               >
-                <SelectOption value="local">本地设备</SelectOption>
-                <SelectOption value="ssh">SSH 远程设备</SelectOption>
+                <SelectOption value="local">{t('device.typeLocal')}</SelectOption>
+                <SelectOption value="ssh">SSH {t('device.type')}</SelectOption>
               </Select>
             </div>
 
@@ -421,20 +425,20 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2">
                     <label className="block text-sm font-medium mb-1.5" htmlFor={sshHostInputId}>
-                      主机
+                      {t('device.host')}
                     </label>
                     <Input
                       id={sshHostInputId}
                       type="text"
                       value={formData.host}
                       onChange={(e) => setFormData((d) => ({ ...d, host: e.target.value }))}
-                      placeholder="example.com"
+                      placeholder={t('device.hostPlaceholder')}
                     />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium mb-1.5" htmlFor={sshPortInputId}>
-                      端口
+                      {t('device.port')}
                     </label>
                     <Input
                       id={sshPortInputId}
@@ -454,14 +458,14 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
 
                 <div>
                   <label className="block text-sm font-medium mb-1.5" htmlFor={sshUsernameInputId}>
-                    用户名
+                    {t('device.username')}
                   </label>
                   <Input
                     id={sshUsernameInputId}
                     type="text"
                     value={formData.username}
                     onChange={(e) => setFormData((d) => ({ ...d, username: e.target.value }))}
-                    placeholder="root"
+                    placeholder={t('device.usernamePlaceholder')}
                   />
                 </div>
               </>
@@ -469,17 +473,17 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
 
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor={sessionInputId}>
-                Tmux 会话名称
+                {t('device.session')}
               </label>
               <Input
                 id={sessionInputId}
                 type="text"
                 value={formData.session}
                 onChange={(e) => setFormData((d) => ({ ...d, session: e.target.value }))}
-                placeholder="tmex"
+                placeholder={t('device.sessionPlaceholder')}
               />
               <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                留空将使用默认值 &quot;tmex&quot;
+                &quot;tmex&quot;
               </p>
             </div>
 
@@ -487,7 +491,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
               <>
                 <div>
                   <label className="block text-sm font-medium mb-1.5" htmlFor={authModeSelectId}>
-                    认证方式
+                    {t('device.authMode')}
                   </label>
                   <Select
                     id={authModeSelectId}
@@ -499,9 +503,9 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                       }))
                     }
                   >
-                    <SelectOption value="password">密码</SelectOption>
-                    <SelectOption value="key">私钥</SelectOption>
-                    <SelectOption value="agent">SSH Agent</SelectOption>
+                    <SelectOption value="password">{t('device.authPassword')}</SelectOption>
+                    <SelectOption value="key">{t('device.authKey')}</SelectOption>
+                    <SelectOption value="agent">{t('device.authAgent')}</SelectOption>
                     <SelectOption value="configRef">SSH Config</SelectOption>
                   </Select>
                 </div>
@@ -509,7 +513,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                 {formData.authMode === 'password' && (
                   <div>
                     <label className="block text-sm font-medium mb-1.5" htmlFor={passwordInputId}>
-                      密码
+                      {t('device.password')}
                     </label>
                     <Input
                       id={passwordInputId}
@@ -524,7 +528,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                   <>
                     <div>
                       <label className="block text-sm font-medium mb-1.5" htmlFor={privateKeyTextareaId}>
-                        私钥
+                        {t('device.privateKey')}
                       </label>
                       <Textarea
                         id={privateKeyTextareaId}
@@ -533,7 +537,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                           setFormData((d) => ({ ...d, privateKey: e.target.value }))
                         }
                         className="h-24 font-mono text-xs"
-                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                        placeholder={t('device.privateKeyPlaceholder')}
                       />
                     </div>
                     <div>
@@ -541,7 +545,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                         className="block text-sm font-medium mb-1.5"
                         htmlFor={privateKeyPassphraseInputId}
                       >
-                        私钥密码（可选）
+                        {t('device.passphrase')}
                       </label>
                       <Input
                         id={privateKeyPassphraseInputId}
@@ -560,10 +564,10 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
 
           <DialogFooter className="px-4 pb-4">
             <Button type="button" variant="default" className="flex-1" onClick={onClose}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" className="flex-1" disabled={isSubmitting}>
-              {isSubmitting ? (isEditMode ? '保存中...' : '添加中...') : isEditMode ? '保存' : '添加'}
+              {isSubmitting ? t('common.saving') : t('common.save')}
             </Button>
           </DialogFooter>
         </form>

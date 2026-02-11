@@ -212,7 +212,7 @@ function ensureSocket(
       case 'event/device': {
         const payload = msg.payload as EventDevicePayload;
         if (payload.type === 'error') {
-          const displayMessage = payload.rawMessage ?? payload.message ?? '设备错误';
+          const displayMessage = payload.rawMessage ?? payload.message ?? 'Device Error';
 
           setState((prev) => ({
             deviceErrors: {
@@ -225,7 +225,7 @@ function ensureSocket(
             window.dispatchEvent(
               new CustomEvent('tmex:sonner', {
                 detail: {
-                  title: payload.errorType ? `[${payload.errorType}] 设备错误` : '设备错误',
+                  title: payload.errorType ? `[${payload.errorType}] Device Error` : 'Device Error',
                   description: displayMessage,
                 },
               })
@@ -265,9 +265,9 @@ function ensureSocket(
         const payload = msg.payload as EventTmuxPayload;
         if (payload.type === 'bell') {
           const data = (payload.data ?? {}) as Record<string, unknown>;
-          const title = '终端 Bell 提醒';
+          const title = 'Terminal Bell';
           const description = [
-            typeof data.windowIndex === 'number' ? `窗口 ${data.windowIndex}` : undefined,
+            typeof data.windowIndex === 'number' ? `Window ${data.windowIndex}` : undefined,
             typeof data.paneIndex === 'number' ? `Pane ${data.paneIndex}` : undefined,
           ]
             .filter(Boolean)
@@ -277,7 +277,7 @@ function ensureSocket(
             new CustomEvent('tmex:sonner', {
               detail: {
                 title,
-                description: description || '收到 tmux bell',
+                description: description || 'Received tmux bell',
                 paneUrl: typeof data.paneUrl === 'string' ? data.paneUrl : undefined,
               },
             })
@@ -305,8 +305,8 @@ function ensureSocket(
     window.dispatchEvent(
       new CustomEvent('tmex:sonner', {
         detail: {
-          title: 'WebSocket 连接错误',
-          description: '请检查 Gateway 状态',
+          title: 'WebSocket Connection Error',
+          description: 'Please check Gateway status',
         },
       })
     );
