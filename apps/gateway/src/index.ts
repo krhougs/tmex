@@ -1,52 +1,79 @@
 import { handleApiRequest } from './api';
-import { initAdmin } from './auth';
+import { runtimeController } from './control/runtime';
 import { config } from './config';
 import { initSchema } from './db';
+import { telegramService } from './telegram/service';
 import { WebSocketServer } from './ws';
 
-// 初始化数据库
-initSchema();
-await initAdmin();
+interface RunningRuntime {
+  stop: () => Promise<void>;
+}
 
-const wsServer = new WebSocketServer();
+async function createRuntime(): Promise<RunningRuntime> {
+  initSchema();
 
-const server = Bun.serve({
-  hostname: '0.0.0.0',
-  port: config.port,
-  async fetch(req, server) {
-    const url = new URL(req.url);
+  const wsServer = new WebSocketServer();
+  await telegramService.refresh();
 
-    // WebSocket 升级
-    if (url.pathname === '/ws') {
-      const result = wsServer.handleUpgrade(req, server);
-      if (result === false) {
-        return new Response('Not Found', { status: 404 });
+  const server = Bun.serve({
+    hostname: '0.0.0.0',
+    port: config.port,
+    async fetch(req, bunServer) {
+      const url = new URL(req.url);
+
+      if (url.pathname === '/ws') {
+        const result = wsServer.handleUpgrade(req, bunServer);
+        if (result === false) {
+          return new Response('Not Found', { status: 404 });
+        }
+        if (result instanceof Response) {
+          return result;
+        }
+        return undefined as unknown as Response;
       }
-      if (result instanceof Response) {
-        return result;
+
+      if (url.pathname.startsWith('/api/') || url.pathname === '/healthz') {
+        return handleApiRequest(req, bunServer);
       }
-      return undefined as unknown as Response;
-    }
 
-    // API 请求
-    if (url.pathname.startsWith('/api/') || url.pathname === '/healthz') {
-      return handleApiRequest(req, server);
-    }
+      return new Response('Not Found', { status: 404 });
+    },
+    websocket: {
+      open(ws) {
+        wsServer.handleOpen(ws as any);
+      },
+      message(ws, message) {
+        wsServer.handleMessage(ws as any, message);
+      },
+      close(ws) {
+        wsServer.handleClose(ws as any);
+      },
+    },
+  });
 
-    // 静态文件（生产环境应该由 nginx 处理）
-    return new Response('Not Found', { status: 404 });
-  },
-  websocket: {
-    open(ws) {
-      wsServer.handleOpen(ws);
-    },
-    message(ws, message) {
-      wsServer.handleMessage(ws, message);
-    },
-    close(ws) {
-      wsServer.handleClose(ws);
-    },
-  },
-});
+  console.log(`[gateway] listening on port ${config.port}`);
 
-console.log(`[gateway] listening on port ${config.port}`);
+  return {
+    async stop() {
+      wsServer.closeAll();
+      await telegramService.stopAll();
+      server.stop(true);
+    },
+  };
+}
+
+async function main(): Promise<void> {
+  while (true) {
+    runtimeController.reset();
+    const runtime = await createRuntime();
+
+    await new Promise<void>((resolve) => {
+      runtimeController.onRestart(async () => {
+        await runtime.stop();
+        resolve();
+      });
+    });
+  }
+}
+
+await main();

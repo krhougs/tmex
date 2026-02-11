@@ -32,6 +32,7 @@ export class TmuxConnection {
   private activePaneId: string | null = null;
   private activeWindowId: string | null = null;
   private connected = false;
+  private manualDisconnect = false;
 
   private ready = false;
   private readyFailed = false;
@@ -142,6 +143,7 @@ export class TmuxConnection {
   }
 
   async connect(): Promise<void> {
+    this.manualDisconnect = false;
     this.device = getDeviceById(this.deviceId);
     if (!this.device) {
       throw new Error(`Device not found: ${this.deviceId}`);
@@ -174,7 +176,9 @@ export class TmuxConnection {
             this.onError(new Error(`tmux exited: ${this.lastExitReason}`));
           }
           this.cleanup();
-          this.onClose();
+          if (!this.manualDisconnect) {
+            this.onClose();
+          }
         },
       },
     });
@@ -296,7 +300,9 @@ export class TmuxConnection {
                 this.onError(new Error(`tmux exited: ${this.lastExitReason}`));
               }
               this.cleanup();
-              this.onClose();
+              if (!this.manualDisconnect) {
+                this.onClose();
+              }
             });
 
             stream.on('data', (data: Buffer) => {
@@ -343,7 +349,9 @@ export class TmuxConnection {
           this.failReady(new Error('SSH connection closed before tmux became ready'));
         }
         this.cleanup();
-        this.onClose();
+        if (!this.manualDisconnect) {
+          this.onClose();
+        }
       });
 
       conn.connect(authConfig);
@@ -706,7 +714,12 @@ export class TmuxConnection {
    * 断开连接
    */
   disconnect(): void {
+    this.manualDisconnect = true;
     this.cleanup();
+  }
+
+  wasManuallyDisconnected(): boolean {
+    return this.manualDisconnect;
   }
 
   private handleCapturePaneOutput(lines: string[]): void {

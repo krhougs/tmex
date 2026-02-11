@@ -23,7 +23,6 @@ const DEFAULT_FE_PORT = 9883;
 
 const gatewayPort = Number(process.env.TMEX_E2E_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT;
 const fePort = Number(process.env.TMEX_E2E_FE_PORT) || DEFAULT_FE_PORT;
-const adminPassword = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const bunExecutable = resolveBunExecutable();
 
 export default defineConfig({
@@ -54,8 +53,6 @@ export default defineConfig({
       env: {
         NODE_ENV: 'development',
         TMEX_MASTER_KEY: 'tGd9gPmdUkJrpRQK+db60sc+NkxymxgGqKrReDU4Kus=',
-        TMEX_ADMIN_PASSWORD: adminPassword,
-        JWT_SECRET: 'dev-jwt-secret-not-for-production',
         GATEWAY_PORT: String(gatewayPort),
         DATABASE_URL: process.env.TMEX_E2E_DATABASE_URL ?? `/tmp/tmex-e2e-${Date.now()}.db`,
         TMEX_BASE_URL: `http://localhost:${gatewayPort}`,

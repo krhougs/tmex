@@ -9,15 +9,12 @@ export interface Device {
   id: string;
   name: string;
   type: DeviceType;
-  // SSH 相关
   host?: string;
   port?: number;
   username?: string;
   sshConfigRef?: string;
-  session?: string; // tmux 会话名称，默认为 'tmex'
-  // 认证
+  session?: string;
   authMode: AuthMode;
-  // 加密字段（存储时加密）
   passwordEnc?: string;
   privateKeyEnc?: string;
   privateKeyPassphraseEnc?: string;
@@ -32,12 +29,54 @@ export interface DeviceRuntimeStatus {
   lastError: string | null;
 }
 
+// ==================== Site Settings ====================
+
+export interface SiteSettings {
+  siteName: string;
+  siteUrl: string;
+  bellThrottleSeconds: number;
+  sshReconnectMaxRetries: number;
+  sshReconnectDelaySeconds: number;
+  updatedAt: string;
+}
+
+// ==================== Telegram ====================
+
+export interface TelegramBotConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  allowAuthRequests: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TelegramBotWithStats extends TelegramBotConfig {
+  pendingCount: number;
+  authorizedCount: number;
+}
+
+export type TelegramChatStatus = 'pending' | 'authorized';
+
+export type TelegramChatType = 'private' | 'group' | 'supergroup' | 'channel' | 'unknown';
+
+export interface TelegramBotChat {
+  id: string;
+  botId: string;
+  chatId: string;
+  chatType: TelegramChatType;
+  displayName: string;
+  status: TelegramChatStatus;
+  appliedAt: string;
+  authorizedAt: string | null;
+  updatedAt: string;
+}
+
 // ==================== WebSocket 消息 ====================
 
 export type WsMessageType =
   | 'connected'
   | 'error'
-  | 'auth/hello'
   | 'device/connect'
   | 'device/disconnect'
   | 'device/connected'
@@ -61,11 +100,6 @@ export interface WsMessage<T = unknown> {
   type: WsMessageType;
   payload: T;
   timestamp: string;
-}
-
-// 客户端 -> 服务端
-export interface AuthHelloPayload {
-  token?: string;
 }
 
 export interface DeviceConnectPayload {
@@ -128,7 +162,6 @@ export interface ClosePanePayload {
   paneId: string;
 }
 
-// 服务端 -> 客户端
 export interface TmuxWindow {
   id: string;
   name: string;
@@ -158,10 +191,19 @@ export interface StateSnapshotPayload {
   session: TmuxSession | null;
 }
 
+export interface TmuxBellEventData {
+  windowId?: string;
+  paneId?: string;
+  windowIndex?: number;
+  paneIndex?: number;
+  paneUrl?: string;
+}
+
 export type TmuxEventType =
   | 'window-add'
   | 'window-close'
   | 'window-renamed'
+  | 'window-active'
   | 'pane-add'
   | 'pane-close'
   | 'pane-active'
@@ -185,7 +227,7 @@ export interface EventDevicePayload {
   rawMessage?: string;
 }
 
-// ==================== Webhook & Telegram ====================
+// ==================== Webhook & Notification ====================
 
 export type EventType =
   | 'terminal_bell'
@@ -200,16 +242,7 @@ export interface WebhookEndpoint {
   id: string;
   enabled: boolean;
   url: string;
-  secret: string; // 用于 HMAC
-  eventMask: EventType[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TelegramSubscription {
-  id: string;
-  enabled: boolean;
-  chatId: string;
+  secret: string;
   eventMask: EventType[];
   createdAt: string;
   updatedAt: string;
@@ -218,6 +251,10 @@ export interface TelegramSubscription {
 export interface WebhookEvent {
   eventType: EventType;
   timestamp: string;
+  site: {
+    name: string;
+    url: string;
+  };
   device: {
     id: string;
     name: string;
@@ -227,21 +264,15 @@ export interface WebhookEvent {
   tmux?: {
     sessionName?: string;
     windowId?: string;
+    windowIndex?: number;
     paneId?: string;
+    paneIndex?: number;
+    paneUrl?: string;
   };
   payload?: Record<string, unknown>;
 }
 
 // ==================== REST API ====================
-
-export interface LoginRequest {
-  password: string;
-}
-
-export interface LoginResponse {
-  success: boolean;
-  error?: string;
-}
 
 export interface CreateDeviceRequest {
   name: string;
@@ -274,4 +305,47 @@ export interface TestConnectionResult {
   success: boolean;
   tmuxAvailable: boolean;
   error?: string;
+}
+
+export interface GetSiteSettingsResponse {
+  settings: SiteSettings;
+}
+
+export interface UpdateSiteSettingsRequest {
+  siteName?: string;
+  siteUrl?: string;
+  bellThrottleSeconds?: number;
+  sshReconnectMaxRetries?: number;
+  sshReconnectDelaySeconds?: number;
+}
+
+export interface UpdateSiteSettingsResponse {
+  settings: SiteSettings;
+}
+
+export interface ListTelegramBotsResponse {
+  bots: TelegramBotWithStats[];
+}
+
+export interface CreateTelegramBotRequest {
+  name: string;
+  token: string;
+  enabled?: boolean;
+  allowAuthRequests?: boolean;
+}
+
+export interface UpdateTelegramBotRequest {
+  name?: string;
+  token?: string;
+  enabled?: boolean;
+  allowAuthRequests?: boolean;
+}
+
+export interface ListTelegramBotChatsResponse {
+  chats: TelegramBotChat[];
+}
+
+export interface RestartGatewayResponse {
+  success: boolean;
+  message: string;
 }

@@ -1,17 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
-const ADMIN_PASSWORD = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const RUN_ID = process.env.TMEX_E2E_RUN_ID ?? `${Date.now()}`;
 
 function sanitizeSessionName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-async function login(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('密码').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
+async function openDevices(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/devices');
   await page.waitForURL(/\/devices/);
 }
 
@@ -82,7 +79,7 @@ test.describe('Terminal 历史内容显示', () => {
   test('连接后应显示 pane 现有内容', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_history_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -147,7 +144,7 @@ test.describe('Terminal 历史内容显示', () => {
       });
     });
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     await page.goto('/devices');
@@ -181,7 +178,7 @@ test.describe('Terminal 历史内容显示', () => {
   test('鼠标滚轮应可以滚动查看历史内容', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_scroll_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -234,7 +231,7 @@ test.describe('Terminal 按键处理', () => {
   test('Shift+Enter 应正确传递', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_key_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -267,7 +264,7 @@ test.describe('Terminal 按键处理', () => {
   test('Ctrl+C 应正确传递', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_ctrlc_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -309,7 +306,7 @@ test.describe('Terminal 尺寸同步', () => {
   test('跳转到最新按钮应工作正常', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_sync_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     await page.goto('/devices');
@@ -351,7 +348,7 @@ test.describe('Terminal 尺寸同步', () => {
   test('调整窗口大小后应能同步', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_resize_sync_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     await page.goto('/devices');
@@ -439,7 +436,7 @@ test.describe('Terminal 尺寸同步', () => {
       });
     });
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     await page.goto('/devices');
@@ -484,7 +481,7 @@ test.describe('Terminal 尺寸同步', () => {
   test('当前 pane 被关闭后应显示失效态并禁用跳转到最新按钮', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_invalid_selection_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     await page.goto('/devices');
@@ -507,7 +504,7 @@ test.describe('Terminal 尺寸同步', () => {
   test('终端页面应更新浏览器标题', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_title_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     await page.goto('/devices');

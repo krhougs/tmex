@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useMatch, useNavigate } from 'react-router';
+import { toast } from 'sonner';
+import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
@@ -44,28 +46,40 @@ export function Sidebar({ onClose }: SidebarProps) {
   const closePane = useTmuxStore((state) => state.closePane);
   const selectWindow = useTmuxStore((state) => state.selectWindow);
   const deviceConnected = useTmuxStore((state) => state.deviceConnected);
+  const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
 
   // 获取设备列表
   const { data: devicesData } = useQuery({
     queryKey: ['devices'],
     queryFn: async () => {
-      const res = await fetch('/api/devices', { credentials: 'include' });
+      const res = await fetch('/api/devices');
       if (!res.ok) throw new Error('Failed to fetch devices');
       return res.json() as Promise<{ devices: Device[] }>;
     },
+    throwOnError: false,
   });
+
+  useEffect(() => {
+    if (devicesData) {
+      return;
+    }
+    toast.error('加载设备列表失败');
+  }, [devicesData]);
 
   // 删除设备
   const deleteDevice = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/devices/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to delete device');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      toast.success('设备已删除');
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '删除设备失败');
     },
   });
 
@@ -202,7 +216,7 @@ export function Sidebar({ onClose }: SidebarProps) {
       <div className="flex items-center justify-between px-3 h-11 border-b border-[var(--color-border)] flex-shrink-0">
         {!sidebarCollapsed && (
           <span className="font-semibold text-base text-[var(--color-text)] truncate">
-            tmex
+            {siteName}
           </span>
         )}
         <Button
@@ -251,11 +265,11 @@ export function Sidebar({ onClose }: SidebarProps) {
           <div className="px-4 py-8 text-center text-[var(--color-text-secondary)] text-sm">
             <div className="mb-2">暂无设备</div>
             <Link
-              to="/devices"
+              to="/settings"
               className="text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] hover:underline transition-colors"
               onClick={onClose}
             >
-              添加设备
+              打开设置
             </Link>
           </div>
         )}
@@ -265,9 +279,9 @@ export function Sidebar({ onClose }: SidebarProps) {
       {!sidebarCollapsed && (
         <div className="p-3 border-t border-[var(--color-border)] flex-shrink-0">
           <Button variant="default" className="w-full justify-center" asChild>
-            <Link to="/devices" onClick={onClose}>
+            <Link to="/settings" onClick={onClose}>
               <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
-              管理设备
+              设置
             </Link>
           </Button>
         </div>
@@ -281,9 +295,9 @@ export function Sidebar({ onClose }: SidebarProps) {
             size="sm"
             className="w-full h-8 p-0 justify-center"
             asChild
-            title="管理设备"
+            title="设置"
           >
-            <Link to="/devices" onClick={onClose}>
+            <Link to="/settings" onClick={onClose}>
               <Settings className="h-4 w-4" />
             </Link>
           </Button>

@@ -1,16 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-const ADMIN_PASSWORD = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const RUN_ID = process.env.TMEX_E2E_RUN_ID ?? `${Date.now()}`;
 
 function sanitizeSessionName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-async function login(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('密码').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
+async function openDevices(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/devices');
   await page.waitForURL(/\/devices/);
 }
 
@@ -37,7 +34,7 @@ test.describe('移动端布局', () => {
     // 设置 iPhone 尺寸
     await page.setViewportSize({ width: 390, height: 844 });
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -90,7 +87,7 @@ test.describe('移动端布局', () => {
     // 设置 iPad 尺寸
     await page.setViewportSize({ width: 768, height: 1024 });
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -125,7 +122,7 @@ test.describe('移动端布局', () => {
     // 使用桌面尺寸以便测试折叠 sidebar
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备

@@ -1,145 +1,166 @@
 import type {
   CreateDeviceRequest,
+  CreateTelegramBotRequest,
   Device,
-  LoginRequest,
-  TelegramSubscription,
+  SiteSettings,
+  TelegramBotChat,
+  TelegramBotConfig,
   UpdateDeviceRequest,
+  UpdateSiteSettingsRequest,
+  UpdateTelegramBotRequest,
   WebhookEndpoint,
 } from '@tmex/shared';
 import type { Server } from 'bun';
 import { v4 as uuidv4 } from 'uuid';
-import { createJwtToken, verifyAdmin, verifyJwtToken } from '../auth';
-import { encrypt } from '../crypto';
+import { runtimeController } from '../control/runtime';
+import { decrypt, encrypt } from '../crypto';
 import {
+  approveTelegramChat,
   createDevice,
-  createTelegramSubscription,
+  createTelegramBot,
   createWebhookEndpoint,
   deleteDevice,
-  deleteTelegramSubscription,
+  deleteTelegramBot,
+  deleteTelegramChat,
   deleteWebhookEndpoint,
   getAllDevices,
-  getAllTelegramSubscriptions,
   getAllWebhookEndpoints,
   getDeviceById,
+  getSiteSettings,
+  getTelegramBotById,
+  getTelegramBotsWithStats,
+  listTelegramChatsByBot,
   updateDevice,
+  updateSiteSettings,
+  updateTelegramBot,
 } from '../db';
+import { telegramService } from '../telegram/service';
 
-export function handleApiRequest(req: Request, server: Server): Response | Promise<Response> {
+function normalizeSiteSettingsInput(body: UpdateSiteSettingsRequest): Partial<Omit<SiteSettings, 'updatedAt'>> {
+  const updates: Partial<Omit<SiteSettings, 'updatedAt'>> = {};
+
+  if (body.siteName !== undefined) {
+    const value = body.siteName.trim();
+    if (!value) throw new Error('站点名称不能为空');
+    updates.siteName = value;
+  }
+
+  if (body.siteUrl !== undefined) {
+    const value = body.siteUrl.trim();
+    if (!/^https?:\/\//i.test(value)) {
+      throw new Error('站点 URL 必须以 http:// 或 https:// 开头');
+    }
+    updates.siteUrl = value;
+  }
+
+  if (body.bellThrottleSeconds !== undefined) {
+    const value = Math.floor(Number(body.bellThrottleSeconds));
+    if (Number.isNaN(value) || value < 0 || value > 300) {
+      throw new Error('Bell 频控秒数需在 0-300 之间');
+    }
+    updates.bellThrottleSeconds = value;
+  }
+
+  if (body.sshReconnectMaxRetries !== undefined) {
+    const value = Math.floor(Number(body.sshReconnectMaxRetries));
+    if (Number.isNaN(value) || value < 0 || value > 20) {
+      throw new Error('SSH 重连次数需在 0-20 之间');
+    }
+    updates.sshReconnectMaxRetries = value;
+  }
+
+  if (body.sshReconnectDelaySeconds !== undefined) {
+    const value = Math.floor(Number(body.sshReconnectDelaySeconds));
+    if (Number.isNaN(value) || value < 1 || value > 300) {
+      throw new Error('SSH 重连等待时间需在 1-300 秒之间');
+    }
+    updates.sshReconnectDelaySeconds = value;
+  }
+
+  return updates;
+}
+
+export function handleApiRequest(req: Request, _server: Server<unknown>): Response | Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // 公开路由
-  if (path === '/api/auth/login' && req.method === 'POST') {
-    return handleLogin(req);
-  }
-
-  // 需要认证的路由
-  if (!isAuthenticated(req)) {
-    return json({ error: 'Unauthorized' }, 401);
-  }
-
-  // 认证相关
-  if (path === '/api/auth/logout' && req.method === 'POST') {
-    return handleLogout(req);
-  }
-  if (path === '/api/auth/me' && req.method === 'GET') {
-    return handleGetMe(req);
-  }
-
-  // 设备管理
   if (path === '/api/devices' && req.method === 'GET') {
-    return handleGetDevices(req);
+    return handleGetDevices();
   }
   if (path === '/api/devices' && req.method === 'POST') {
     return handleCreateDevice(req);
   }
   if (path.match(/^\/api\/devices\/[^/]+$/) && req.method === 'GET') {
-    return handleGetDevice(req, path.split('/')[3]);
+    return handleGetDevice(path.split('/')[3]);
   }
   if (path.match(/^\/api\/devices\/[^/]+$/) && req.method === 'PATCH') {
     return handleUpdateDevice(req, path.split('/')[3]);
   }
   if (path.match(/^\/api\/devices\/[^/]+$/) && req.method === 'DELETE') {
-    return handleDeleteDevice(req, path.split('/')[3]);
+    return handleDeleteDevice(path.split('/')[3]);
   }
   if (path.match(/^\/api\/devices\/[^/]+\/test-connection$/) && req.method === 'POST') {
-    return handleTestConnection(req, path.split('/')[3]);
+    return handleTestConnection(path.split('/')[3]);
   }
 
-  // Webhook 管理
+  if (path === '/api/settings/site' && req.method === 'GET') {
+    return handleGetSiteSettings();
+  }
+  if (path === '/api/settings/site' && req.method === 'PATCH') {
+    return handleUpdateSiteSettings(req);
+  }
+  if (path === '/api/settings/restart' && req.method === 'POST') {
+    return handleRestartGateway();
+  }
+
+  if (path === '/api/settings/telegram/bots' && req.method === 'GET') {
+    return handleGetTelegramBots();
+  }
+  if (path === '/api/settings/telegram/bots' && req.method === 'POST') {
+    return handleCreateTelegramBot(req);
+  }
+  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+$/) && req.method === 'PATCH') {
+    return handleUpdateTelegramBot(req, path.split('/')[5]);
+  }
+  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+$/) && req.method === 'DELETE') {
+    return handleDeleteTelegramBot(path.split('/')[5]);
+  }
+  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats$/) && req.method === 'GET') {
+    return handleListTelegramChats(path.split('/')[5]);
+  }
+  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+\/approve$/) && req.method === 'POST') {
+    return handleApproveTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+\/test$/) && req.method === 'POST') {
+    return handleTestTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+  if (path.match(/^\/api\/settings\/telegram\/bots\/[^/]+\/chats\/[^/]+$/) && req.method === 'DELETE') {
+    return handleDeleteTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+
   if (path === '/api/webhooks' && req.method === 'GET') {
-    return handleGetWebhooks(req);
+    return handleGetWebhooks();
   }
   if (path === '/api/webhooks' && req.method === 'POST') {
     return handleCreateWebhook(req);
   }
   if (path.match(/^\/api\/webhooks\/[^/]+$/) && req.method === 'DELETE') {
-    return handleDeleteWebhook(req, path.split('/')[3]);
+    return handleDeleteWebhook(path.split('/')[3]);
   }
 
-  // Telegram 管理
-  if (path === '/api/telegram/subscriptions' && req.method === 'GET') {
-    return handleGetTelegramSubscriptions(req);
-  }
-  if (path === '/api/telegram/subscriptions' && req.method === 'POST') {
-    return handleCreateTelegramSubscription(req);
-  }
-  if (path.match(/^\/api\/telegram\/subscriptions\/[^/]+$/) && req.method === 'DELETE') {
-    return handleDeleteTelegramSubscription(req, path.split('/')[4]);
-  }
-
-  // 通知测试
-  if (path === '/api/notify/test' && req.method === 'POST') {
-    return handleTestNotify(req);
-  }
-
-  // Health check
   if (path === '/healthz' && req.method === 'GET') {
-    return json({ status: 'ok' });
+    return json({ status: 'ok', restarting: runtimeController.isRestarting() });
   }
 
   return json({ error: 'Not found' }, 404);
 }
 
-// ==================== 认证处理 ====================
-
-async function handleLogin(req: Request): Promise<Response> {
-  const body = (await req.json()) as LoginRequest;
-
-  if (!body.password) {
-    return json({ error: 'Password required' }, 400);
-  }
-
-  const valid = await verifyAdmin(body.password);
-  if (!valid) {
-    return json({ error: 'Invalid password' }, 401);
-  }
-
-  const token = await createJwtToken();
-
-  return json({ success: true }, 200, {
-    'Set-Cookie': `token=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Strict`,
-  });
-}
-
-async function handleLogout(req: Request): Promise<Response> {
-  return json({ success: true }, 200, {
-    'Set-Cookie': 'token=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict',
-  });
-}
-
-async function handleGetMe(req: Request): Promise<Response> {
-  return json({ id: 'admin', role: 'admin' });
-}
-
-// ==================== 设备处理 ====================
-
-async function handleGetDevices(req: Request): Promise<Response> {
+async function handleGetDevices(): Promise<Response> {
   const devices = getAllDevices();
   return json({ devices });
 }
 
-async function handleGetDevice(req: Request, id: string): Promise<Response> {
+async function handleGetDevice(id: string): Promise<Response> {
   const device = getDeviceById(id);
   if (!device) {
     return json({ error: 'Device not found' }, 404);
@@ -150,12 +171,10 @@ async function handleGetDevice(req: Request, id: string): Promise<Response> {
 async function handleCreateDevice(req: Request): Promise<Response> {
   const body = (await req.json()) as CreateDeviceRequest;
 
-  // 验证必填字段
   if (!body.name || !body.type || !body.authMode) {
     return json({ error: 'Missing required fields' }, 400);
   }
 
-  // SSH 类型需要 host
   if (body.type === 'ssh' && !body.host && !body.sshConfigRef) {
     return json({ error: 'SSH device requires host or sshConfigRef' }, 400);
   }
@@ -213,7 +232,7 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
   return json({ device });
 }
 
-async function handleDeleteDevice(req: Request, id: string): Promise<Response> {
+async function handleDeleteDevice(id: string): Promise<Response> {
   const existing = getDeviceById(id);
   if (!existing) {
     return json({ error: 'Device not found' }, 404);
@@ -223,14 +242,12 @@ async function handleDeleteDevice(req: Request, id: string): Promise<Response> {
   return json({ success: true });
 }
 
-async function handleTestConnection(req: Request, id: string): Promise<Response> {
+async function handleTestConnection(id: string): Promise<Response> {
   const device = getDeviceById(id);
   if (!device) {
     return json({ error: 'Device not found' }, 404);
   }
 
-  // TODO: 实现实际的连接测试
-  // 这里返回模拟结果
   return json({
     success: true,
     tmuxAvailable: false,
@@ -238,9 +255,179 @@ async function handleTestConnection(req: Request, id: string): Promise<Response>
   });
 }
 
-// ==================== Webhook 处理 ====================
+async function handleGetSiteSettings(): Promise<Response> {
+  return json({ settings: getSiteSettings() });
+}
 
-async function handleGetWebhooks(req: Request): Promise<Response> {
+async function handleUpdateSiteSettings(req: Request): Promise<Response> {
+  try {
+    const body = (await req.json()) as UpdateSiteSettingsRequest;
+    const updates = normalizeSiteSettingsInput(body);
+    const settings = updateSiteSettings(updates);
+
+    return json({ settings });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : 'Invalid request' }, 400);
+  }
+}
+
+async function handleRestartGateway(): Promise<Response> {
+  setTimeout(() => {
+    void runtimeController.requestRestart();
+  }, 50);
+
+  return json({
+    success: true,
+    message: 'Gateway restart scheduled',
+  });
+}
+
+async function handleGetTelegramBots(): Promise<Response> {
+  const bots = getTelegramBotsWithStats();
+  return json({ bots });
+}
+
+async function handleCreateTelegramBot(req: Request): Promise<Response> {
+  const body = (await req.json()) as CreateTelegramBotRequest;
+
+  if (!body.name?.trim()) {
+    return json({ error: 'Bot 名称不能为空' }, 400);
+  }
+  if (!body.token?.trim()) {
+    return json({ error: 'Bot token 不能为空' }, 400);
+  }
+
+  const now = new Date().toISOString();
+  createTelegramBot({
+    id: uuidv4(),
+    name: body.name.trim(),
+    tokenEnc: await encrypt(body.token.trim()),
+    enabled: body.enabled ?? true,
+    allowAuthRequests: body.allowAuthRequests ?? true,
+    lastUpdateId: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await telegramService.refresh();
+
+  return json({ success: true }, 201);
+}
+
+async function handleUpdateTelegramBot(req: Request, botId: string): Promise<Response> {
+  const existing = getTelegramBotById(botId);
+  if (!existing) {
+    return json({ error: 'Bot 不存在' }, 404);
+  }
+
+  const body = (await req.json()) as UpdateTelegramBotRequest;
+  const updates: Partial<{
+    name: string;
+    tokenEnc: string;
+    enabled: boolean;
+    allowAuthRequests: boolean;
+  }> = {};
+
+  if (body.name !== undefined) {
+    const value = body.name.trim();
+    if (!value) {
+      return json({ error: 'Bot 名称不能为空' }, 400);
+    }
+    updates.name = value;
+  }
+
+  if (body.token !== undefined) {
+    const token = body.token.trim();
+    if (!token) {
+      return json({ error: 'Bot token 不能为空' }, 400);
+    }
+    updates.tokenEnc = await encrypt(token);
+  }
+
+  if (body.enabled !== undefined) {
+    updates.enabled = body.enabled;
+  }
+
+  if (body.allowAuthRequests !== undefined) {
+    updates.allowAuthRequests = body.allowAuthRequests;
+  }
+
+  updateTelegramBot(botId, updates);
+  await telegramService.refresh();
+
+  return json({ success: true });
+}
+
+async function handleDeleteTelegramBot(botId: string): Promise<Response> {
+  const existing = getTelegramBotById(botId);
+  if (!existing) {
+    return json({ error: 'Bot 不存在' }, 404);
+  }
+
+  deleteTelegramBot(botId);
+  await telegramService.refresh();
+
+  return json({ success: true });
+}
+
+async function handleListTelegramChats(botId: string): Promise<Response> {
+  const existing = getTelegramBotById(botId);
+  if (!existing) {
+    return json({ error: 'Bot 不存在' }, 404);
+  }
+
+  const chats = listTelegramChatsByBot(botId);
+  return json({ chats });
+}
+
+async function handleApproveTelegramChat(botId: string, chatId: string): Promise<Response> {
+  const existing = getTelegramBotById(botId);
+  if (!existing) {
+    return json({ error: 'Bot 不存在' }, 404);
+  }
+
+  const chat = approveTelegramChat(botId, chatId);
+  if (!chat) {
+    return json({ error: 'Chat 不存在' }, 404);
+  }
+
+  await telegramService.sendTestMessage(
+    botId,
+    chatId,
+    `✅ 已通过 tmex 授权。\nBot：${existing.name}\n时间：${new Date().toLocaleString('zh-CN')}`
+  );
+
+  return json({ chat });
+}
+
+async function handleDeleteTelegramChat(botId: string, chatId: string): Promise<Response> {
+  const existing = getTelegramBotById(botId);
+  if (!existing) {
+    return json({ error: 'Bot 不存在' }, 404);
+  }
+
+  deleteTelegramChat(botId, chatId);
+  return json({ success: true });
+}
+
+async function handleTestTelegramChat(botId: string, chatId: string): Promise<Response> {
+  const bot = getTelegramBotById(botId);
+  if (!bot) {
+    return json({ error: 'Bot 不存在' }, 404);
+  }
+
+  const settings = getSiteSettings();
+
+  await telegramService.sendTestMessage(
+    botId,
+    chatId,
+    `🧪 测试消息\n站点：${settings.siteName}\n时间：${new Date().toLocaleString('zh-CN')}`
+  );
+
+  return json({ success: true });
+}
+
+async function handleGetWebhooks(): Promise<Response> {
   const webhooks = getAllWebhookEndpoints();
   return json({ webhooks });
 }
@@ -268,77 +455,9 @@ async function handleCreateWebhook(req: Request): Promise<Response> {
   return json({ webhook: endpoint }, 201);
 }
 
-async function handleDeleteWebhook(req: Request, id: string): Promise<Response> {
+async function handleDeleteWebhook(id: string): Promise<Response> {
   deleteWebhookEndpoint(id);
   return json({ success: true });
-}
-
-// ==================== Telegram 处理 ====================
-
-async function handleGetTelegramSubscriptions(req: Request): Promise<Response> {
-  const subs = getAllTelegramSubscriptions();
-  return json({ subscriptions: subs });
-}
-
-async function handleCreateTelegramSubscription(req: Request): Promise<Response> {
-  const body = await req.json();
-
-  if (!body.chatId) {
-    return json({ error: 'chatId required' }, 400);
-  }
-
-  const now = new Date().toISOString();
-  const sub: TelegramSubscription = {
-    id: uuidv4(),
-    enabled: body.enabled ?? true,
-    chatId: body.chatId,
-    eventMask: body.eventMask ?? [],
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  createTelegramSubscription(sub);
-
-  return json({ subscription: sub }, 201);
-}
-
-async function handleDeleteTelegramSubscription(req: Request, id: string): Promise<Response> {
-  deleteTelegramSubscription(id);
-  return json({ success: true });
-}
-
-// ==================== 通知测试 ====================
-
-async function handleTestNotify(req: Request): Promise<Response> {
-  const body = await req.json();
-
-  // TODO: 实现实际的测试通知
-  return json({
-    success: true,
-    message: 'Test notification sent',
-  });
-}
-
-// ==================== Helpers ====================
-
-function isAuthenticated(req: Request): boolean {
-  const cookie = req.headers.get('Cookie');
-  if (!cookie) return false;
-
-  const token = parseCookie(cookie, 'token');
-  if (!token) return false;
-
-  // 简单的 token 验证（实际应该验证 JWT）
-  return true;
-}
-
-function parseCookie(cookieHeader: string, name: string): string | null {
-  const cookies = cookieHeader.split(';');
-  for (const cookie of cookies) {
-    const [key, value] = cookie.trim().split('=');
-    if (key === name) return value;
-  }
-  return null;
 }
 
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {

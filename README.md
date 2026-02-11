@@ -10,7 +10,8 @@ Web 接入多设备 tmux 的终端控制平台。
 - 🔄 **实时同步** - WebSocket 实时推送终端输出和状态变化
 - 📱 **移动端优化** - 组合态输入保护 + 编辑器模式，解决手机输入痛点
 - 🔔 **事件通知** - Webhook + Telegram Bot 推送终端事件
-- 🔐 **安全加密** - AES-256-GCM 加密敏感数据，JWT + HTTP-only Cookie 认证
+- ⚙️ **设置中心** - 站点名、站点 URL、Bell 频控、SSH 自动重连、Telegram 多 Bot 授权审批
+- 🔐 **安全加密** - AES-256-GCM 加密敏感数据
 - 🐳 **易于部署** - Docker Compose 一键启动
 
 ## 快速开始
@@ -27,7 +28,7 @@ chmod +x scripts/quick-start.sh
 ./scripts/quick-start.sh
 ```
 
-访问 http://localhost:3000，使用默认密码 `admin123` 登录。
+访问 http://localhost:3000。
 
 ### 方式二：手动启动
 
@@ -37,7 +38,7 @@ bun install
 
 # 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，设置 TMEX_MASTER_KEY 和 TMEX_ADMIN_PASSWORD
+# 编辑 .env，设置 TMEX_MASTER_KEY
 
 # 3. 启动 Gateway
 cd apps/gateway && bun dev
@@ -50,6 +51,11 @@ cd apps/fe && bun dev --host
 ```
 
 ## 使用指南
+
+### 鉴权说明
+
+- 默认面向受控内网环境部署，应用内不启用登录鉴权。
+- 建议通过反向代理、内网 ACL 或 VPN 进行访问边界控制。
 
 ### 添加设备
 
@@ -73,6 +79,13 @@ cd apps/fe && bun dev --host
 
 - **直接输入模式**（默认）: 自动保护输入组合态，避免拼音候选被拆开发送
 - **编辑器模式**: 点击输入框进入，适合长文本输入，支持整段发送或逐行发送
+
+### 系统设置
+
+1. 侧边栏点击「设置」进入设置页。
+2. 可配置站点名称、站点访问 URL、Bell 频控与 SSH 自动重连参数。
+3. 可管理多个 Telegram Bot，审批待授权 chat、测试消息、撤销授权。
+4. 配置调整后可在设置页触发「重启 Gateway」。
 
 ## 文档
 
@@ -121,7 +134,7 @@ tmex/
 - 敏感数据（密码、私钥）使用 AES-256-GCM 加密存储
 - 生产环境强制要求配置 `TMEX_MASTER_KEY`
 - Webhook 使用 HMAC-SHA256 签名验证
-- JWT + HTTP-only Cookie 防 XSS
+- 建议结合内网访问策略或反向代理安全能力
 
 ## License
 

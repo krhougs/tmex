@@ -1,16 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-const ADMIN_PASSWORD = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const RUN_ID = process.env.TMEX_E2E_RUN_ID ?? `${Date.now()}`;
 
 function sanitizeSessionName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-async function login(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('密码').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
+async function openDevices(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/devices');
   await page.waitForURL(/\/devices/);
 }
 
@@ -53,14 +50,14 @@ test.describe('Terminal 白屏修复', () => {
   test('直接通过 URL 冷启动进入应正确显示 terminal', async ({ page, context }) => {
     const deviceName = sanitizeSessionName(`e2e_coldstart_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
     const currentUrl = page.url();
 
     const newPage = await context.newPage();
-    await login(newPage);
+    await openDevices(newPage);
     await newPage.goto(currentUrl);
 
     await newPage.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
@@ -82,7 +79,7 @@ test.describe('Sidebar 功能', () => {
   test('高亮样式应清晰可见', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_highlight_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -96,7 +93,7 @@ test.describe('Sidebar 功能', () => {
     const deviceName = sanitizeSessionName(`e2e_switch_win_${RUN_ID}`);
     const windowName = `e2e_win_${RUN_ID}`;
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -137,7 +134,7 @@ test.describe('Sidebar 功能', () => {
   test('应能通过 Sidebar 新建窗口', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_new_win_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -163,7 +160,7 @@ test.describe('Sidebar 功能', () => {
   test('Pane 列表应正确显示和切换', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_pane_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -188,7 +185,7 @@ test.describe('响应式布局', () => {
   test('调整浏览器宽度不应导致页面不可用', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_resize_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -227,7 +224,7 @@ test.describe('输入模式切换', () => {
     const deviceName = sanitizeSessionName(`e2e_editor_pc_${RUN_ID}`);
 
     await page.setViewportSize({ width: 1280, height: 800 });
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -249,7 +246,7 @@ test.describe('输入模式切换', () => {
     const deviceName = sanitizeSessionName(`e2e_editor_shortcut_${RUN_ID}`);
 
     await page.setViewportSize({ width: 1280, height: 800 });
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 

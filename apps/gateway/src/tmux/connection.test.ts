@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 async function createConnection(onHistory: (paneId: string, data: string) => void) {
-  process.env.TMEX_ADMIN_PASSWORD ??= 'test-admin-password';
-  process.env.JWT_SECRET ??= 'test-jwt-secret';
-
   const mod = await import('./connection');
   return new mod.TmuxConnection({
     deviceId: 'test-device',

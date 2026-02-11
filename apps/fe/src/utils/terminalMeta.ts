@@ -1,3 +1,5 @@
+import { getSiteNameFallback } from './site';
+
 interface TerminalLabelInput {
   paneIdx?: number | null;
   windowIdx?: number | null;
@@ -26,8 +28,9 @@ export function buildTerminalLabel({
 }
 
 export function buildBrowserTitle(label?: string | null): string {
+  const siteName = getSiteNameFallback();
   if (!label?.trim()) {
-    return 'tmex';
+    return siteName;
   }
-  return `[tmex]${label}`;
+  return `[${siteName}]${label}`;
 }

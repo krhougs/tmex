@@ -3,6 +3,7 @@ import type { CreateDeviceRequest, Device } from '@tmex/shared';
 import { Globe, Monitor, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { toast } from 'sonner';
 import {
   Button,
   Card,
@@ -30,22 +31,26 @@ export function DevicesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['devices'],
     queryFn: async () => {
-      const res = await fetch('/api/devices', { credentials: 'include' });
+      const res = await fetch('/api/devices');
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json() as Promise<{ devices: Device[] }>;
     },
+    throwOnError: false,
   });
 
   const deleteDevice = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/devices/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to delete');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      toast.success('设备已删除');
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '删除设备失败');
     },
   });
 
@@ -155,7 +160,6 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
       const res = await fetch('/api/devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (!res.ok) {
@@ -166,7 +170,11 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      toast.success('设备已创建');
       onClose();
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '创建设备失败');
     },
   });
 
@@ -175,9 +183,7 @@ function AddDeviceDialog({ onClose }: AddDeviceDialogProps) {
     setIsSubmitting(true);
     try {
       await createDevice.mutateAsync(formData);
-    } catch (err) {
-      console.error(err);
-    }
+    } catch {}
     setIsSubmitting(false);
   };
 

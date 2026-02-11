@@ -1,40 +1,42 @@
-import type { EventType, TelegramSubscription, WebhookEndpoint, WebhookEvent } from '@tmex/shared';
-import { decrypt, encrypt } from '../crypto';
-import { getAllTelegramSubscriptions, getAllWebhookEndpoints } from '../db';
+import type { EventType, WebhookEndpoint, WebhookEvent } from '@tmex/shared';
+import { getAllWebhookEndpoints, getSiteSettings } from '../db';
+import { telegramService } from '../telegram/service';
+
+function sanitizeMarkdownV2(input: string): string {
+  return input.replace(/([_\*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+}
+
+function trimTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+function buildPaneUrl(event: WebhookEvent): string | null {
+  if (!event.tmux?.windowId || !event.tmux?.paneId) {
+    return null;
+  }
+
+  const base = trimTrailingSlash(event.site.url);
+  const paneId = encodeURIComponent(event.tmux.paneId);
+  return `${base}/devices/${event.device.id}/windows/${event.tmux.windowId}/panes/${paneId}`;
+}
 
 export class EventNotifier {
   private webhooks: WebhookEndpoint[] = [];
-  private telegramSubs: TelegramSubscription[] = [];
   private lastRefresh = 0;
-  private readonly REFRESH_INTERVAL = 60000; // 60秒刷新一次配置
+  private readonly REFRESH_INTERVAL = 60_000;
+  private bellThrottleMap = new Map<string, number>();
 
-  constructor() {
-    this.refreshConfig();
-  }
-
-  /**
-   * 刷新配置
-   */
   refreshConfig(): void {
     const now = Date.now();
     if (now - this.lastRefresh < this.REFRESH_INTERVAL) return;
 
     this.webhooks = getAllWebhookEndpoints().filter((w) => w.enabled);
-    this.telegramSubs = getAllTelegramSubscriptions().filter((s) => s.enabled);
     this.lastRefresh = now;
 
-    console.log(
-      `[events] refreshed config: ${this.webhooks.length} webhooks, ${this.telegramSubs.length} telegram subs`
-    );
+    console.log(`[events] refreshed config: ${this.webhooks.length} webhooks`);
   }
 
-  /**
-   * 发送事件通知
-   */
-  async notify(
-    eventType: EventType,
-    event: Omit<WebhookEvent, 'eventType' | 'timestamp'>
-  ): Promise<void> {
+  async notify(eventType: EventType, event: Omit<WebhookEvent, 'eventType' | 'timestamp'>): Promise<void> {
     this.refreshConfig();
 
     const fullEvent: WebhookEvent = {
@@ -43,16 +45,35 @@ export class EventNotifier {
       timestamp: new Date().toISOString(),
     };
 
-    // 并发发送 webhook 和 telegram
+    if (eventType === 'terminal_bell' && !this.shouldPassBellThrottle(fullEvent)) {
+      return;
+    }
+
     await Promise.all([
       this.sendWebhooks(eventType, fullEvent),
       this.sendTelegramNotifications(eventType, fullEvent),
     ]);
   }
 
-  /**
-   * 发送 Webhook
-   */
+  private shouldPassBellThrottle(event: WebhookEvent): boolean {
+    const settings = getSiteSettings();
+    const throttleMs = Math.max(0, settings.bellThrottleSeconds) * 1000;
+    if (throttleMs === 0) {
+      return true;
+    }
+
+    const key = `${event.device.id}:${event.tmux?.paneId ?? '-'}:${event.eventType}`;
+    const now = Date.now();
+    const previous = this.bellThrottleMap.get(key) ?? 0;
+
+    if (now - previous < throttleMs) {
+      return false;
+    }
+
+    this.bellThrottleMap.set(key, now);
+    return true;
+  }
+
   private async sendWebhooks(eventType: EventType, event: WebhookEvent): Promise<void> {
     const targets = this.webhooks.filter((w) => w.eventMask.includes(eventType));
 
@@ -84,64 +105,14 @@ export class EventNotifier {
 
     if (!response.ok) {
       console.error(`[webhook] ${webhook.url} returned ${response.status}`);
-    } else {
-      console.log(`[webhook] sent to ${webhook.url}`);
     }
   }
 
-  /**
-   * 发送 Telegram 通知
-   */
-  private async sendTelegramNotifications(
-    eventType: EventType,
-    event: WebhookEvent
-  ): Promise<void> {
-    const targets = this.telegramSubs.filter((s) => s.eventMask.includes(eventType));
-    if (targets.length === 0) return;
-
+  private async sendTelegramNotifications(_eventType: EventType, event: WebhookEvent): Promise<void> {
     const message = this.formatTelegramMessage(event);
-    const botToken = await this.getBotToken();
-
-    if (!botToken) {
-      console.error('[telegram] no bot token configured');
-      return;
-    }
-
-    await Promise.all(
-      targets.map(async (sub) => {
-        try {
-          await this.sendTelegramMessage(botToken, sub.chatId, message);
-        } catch (err) {
-          console.error(`[telegram] failed to send to ${sub.chatId}:`, err);
-        }
-      })
-    );
+    await telegramService.sendToAuthorizedChats({ text: message });
   }
 
-  private async sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<void> {
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'Markdown',
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Telegram API error: ${error}`);
-    }
-
-    console.log(`[telegram] sent to ${chatId}`);
-  }
-
-  /**
-   * 格式化 Telegram 消息
-   */
   private formatTelegramMessage(event: WebhookEvent): string {
     const emojiMap: Record<EventType, string> = {
       terminal_bell: '🔔',
@@ -153,71 +124,49 @@ export class EventNotifier {
       session_closed: '🚪',
     };
 
+    const paneUrl = buildPaneUrl(event);
+
     const lines = [
-      `${emojiMap[event.eventType] || '📢'} **${event.eventType}**`,
-      '',
-      `📅 ${new Date(event.timestamp).toLocaleString('zh-CN')}`,
-      `🖥️ **Device**: ${event.device.name} (${event.device.type})`,
+      `${emojiMap[event.eventType] ?? '📢'} ${event.eventType}`,
+      `站点：${event.site.name}`,
+      `时间：${new Date(event.timestamp).toLocaleString('zh-CN')}`,
+      `设备：${event.device.name} (${event.device.type})`,
+      event.tmux?.windowIndex !== undefined
+        ? `窗口：${event.tmux.windowIndex} (${event.tmux.windowId ?? '-'})`
+        : event.tmux?.windowId
+          ? `窗口：${event.tmux.windowId}`
+          : '窗口：-',
+      event.tmux?.paneIndex !== undefined
+        ? `Pane：${event.tmux.paneIndex} (${event.tmux.paneId ?? '-'})`
+        : event.tmux?.paneId
+          ? `Pane：${event.tmux.paneId}`
+          : 'Pane：-',
     ];
 
-    if (event.device.host) {
-      lines.push(`🌐 **Host**: ${event.device.host}`);
+    if (paneUrl) {
+      lines.push(`直达：${paneUrl}`);
     }
 
-    if (event.tmux?.sessionName) {
-      lines.push(`📟 **Session**: ${event.tmux.sessionName}`);
-    }
+     if (event.payload?.message && typeof event.payload.message === 'string') {
+       lines.push(`信息：${event.payload.message}`);
+     }
 
-    if (event.tmux?.windowId) {
-      lines.push(`🪟 **Window**: ${event.tmux.windowId}`);
-    }
+     return lines.map((line) => sanitizeMarkdownV2(line)).join('\n');
+   }
 
-    if (event.tmux?.paneId) {
-      lines.push(`📱 **Pane**: ${event.tmux.paneId}`);
-    }
+   private async generateHmac(secret: string, message: string): Promise<string> {
+     const encoder = new TextEncoder();
+     const key = await crypto.subtle.importKey(
+       'raw',
+       encoder.encode(secret),
+       { name: 'HMAC', hash: 'SHA-256' },
+       false,
+       ['sign']
+     );
 
-    if (event.payload && typeof event.payload === 'object') {
-      const payload = event.payload as Record<string, unknown>;
-      if (payload.message) {
-        lines.push(`💬 **Message**: ${payload.message}`);
-      }
-      if (payload.exitCode !== undefined) {
-        lines.push(`🔢 **Exit Code**: ${payload.exitCode}`);
-      }
-    }
-
-    return lines.join('\n');
-  }
-
-  /**
-   * 生成 HMAC 签名
-   */
-  private async generateHmac(secret: string, message: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-
-    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-    return Buffer.from(signature).toString('hex');
-  }
-
-  /**
-   * 获取 Telegram Bot Token
-   */
-  private async getBotToken(): Promise<string | null> {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    if (!token) return null;
-
-    // 如果 token 是加密的，需要解密
-    // 这里假设环境变量中的 token 是明文的
-    return token;
-  }
+     const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+     return Buffer.from(signature).toString('hex');
+   }
 }
 
-// 全局事件通知器实例
 export const eventNotifier = new EventNotifier();

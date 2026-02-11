@@ -1,16 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-const ADMIN_PASSWORD = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const RUN_ID = process.env.TMEX_E2E_RUN_ID ?? `${Date.now()}`;
 
 function sanitizeSessionName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-async function login(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('密码').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
+async function openDevices(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/devices');
   await page.waitForURL(/\/devices/);
 }
 
@@ -34,8 +31,8 @@ test.describe('直接URL访问 - 白屏检测', () => {
   test('从设备页URL直接访问应显示终端内容', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_direct_${RUN_ID}`);
 
-    // 先登录并创建设备
-    await login(page);
+    // 先打开设备页并创建设备
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备获取窗口和pane信息
@@ -112,7 +109,7 @@ test.describe('直接URL访问 - 白屏检测', () => {
   test('直接访问应正确解码双重编码的pane ID', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_decode_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 连接设备
@@ -161,7 +158,7 @@ test.describe('直接URL访问 - 白屏检测', () => {
   test('直接访问无pane ID的设备页应自动选择第一个pane', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_autoselect_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
 
     // 直接访问设备页（不带window/pane）

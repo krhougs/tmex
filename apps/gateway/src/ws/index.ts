@@ -1,6 +1,5 @@
 import type {
   DeviceConnectPayload,
-  DeviceDisconnectPayload,
   EventDevicePayload,
   EventTmuxPayload,
   StateSnapshotPayload,
@@ -11,62 +10,60 @@ import type {
   TmuxSelectWindowPayload,
   WsMessage,
 } from '@tmex/shared';
+import type { Server, ServerWebSocket } from 'bun';
+import { getDeviceById, getSiteSettings } from '../db';
+import { eventNotifier } from '../events';
+import { TmuxConnection } from '../tmux/connection';
+import type { TmuxEvent } from '../tmux/parser';
 
-// TermSyncSizePayload 与 TermResizePayload 结构相同
 interface TermSyncSizePayload {
   deviceId: string;
   paneId: string;
   cols: number;
   rows: number;
 }
-import type { Server, ServerWebSocket } from 'bun';
-import { verifyJwtToken } from '../auth';
-import { TmuxConnection } from '../tmux/connection';
-import type { TmuxEvent } from '../tmux/parser';
 
-// 错误类型分类
 function classifyError(error: Error): { type: string; message: string } {
   const msg = error.message.toLowerCase();
 
   if (msg.includes('all configured authentication methods failed')) {
     return {
       type: 'auth_failed',
-      message: '认证失败：用户名、密码或密钥不正确，请检查设备配置'
+      message: '认证失败：用户名、密码或密钥不正确，请检查设备配置',
     };
   }
   if (msg.includes('connect refused') || msg.includes('connection refused')) {
     return {
       type: 'connection_refused',
-      message: '连接被拒绝：无法连接到目标主机，请检查主机地址和端口是否正确'
+      message: '连接被拒绝：无法连接到目标主机，请检查主机地址和端口是否正确',
     };
   }
   if (msg.includes('timeout') || msg.includes('etimedout')) {
     return {
       type: 'timeout',
-      message: '连接超时：无法连接到设备，请检查网络或防火墙设置'
+      message: '连接超时：无法连接到设备，请检查网络或防火墙设置',
     };
   }
   if (msg.includes('host not found') || msg.includes('getaddrinfo')) {
     return {
       type: 'host_not_found',
-      message: '主机未找到：无法解析主机地址，请检查 DNS 或主机名是否正确'
+      message: '主机未找到：无法解析主机地址，请检查 DNS 或主机名是否正确',
     };
   }
   if (msg.includes('handshake failed') || msg.includes('unable to verify')) {
     return {
       type: 'handshake_failed',
-      message: '握手失败：无法建立安全连接，可能是密钥交换算法不兼容'
+      message: '握手失败：无法建立安全连接，可能是密钥交换算法不兼容',
     };
   }
 
   return {
     type: 'unknown',
-    message: `连接失败：${error.message}`
+    message: `连接失败：${error.message}`,
   };
 }
 
 interface ClientState {
-  authenticated: boolean;
   selectedPanes: Record<string, string | null>;
 }
 
@@ -76,6 +73,8 @@ interface DeviceConnectionEntry {
   lastSnapshot: StateSnapshotPayload | null;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   snapshotPollTimer: ReturnType<typeof setInterval> | null;
+  reconnectAttempts: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export class WebSocketServer {
@@ -91,6 +90,12 @@ export class WebSocketServer {
     if (!entry.snapshotPollTimer) return;
     clearInterval(entry.snapshotPollTimer);
     entry.snapshotPollTimer = null;
+  }
+
+  private clearReconnectTimer(entry: DeviceConnectionEntry): void {
+    if (!entry.reconnectTimer) return;
+    clearTimeout(entry.reconnectTimer);
+    entry.reconnectTimer = null;
   }
 
   private refreshSnapshotPolling(deviceId: string): void {
@@ -141,23 +146,16 @@ export class WebSocketServer {
     }, 100);
   }
 
-  handleUpgrade(req: Request, server: Server): Response | false {
+  handleUpgrade(req: Request, server: Server<any>): Response | false | undefined {
     const url = new URL(req.url);
     if (url.pathname !== '/ws') {
       return false;
     }
 
-    // 验证认证
-    const cookie = req.headers.get('Cookie');
-    if (!cookie || !this.isAuthenticated(cookie)) {
-      return new Response('Unauthorized', { status: 401 });
-    }
-
-    const success = server.upgrade(req, {
+    const success = (server as any).upgrade(req, {
       data: {
-        authenticated: true,
         selectedPanes: {},
-      } as ClientState,
+      },
     });
 
     return success ? undefined : new Response('Upgrade failed', { status: 500 });
@@ -192,6 +190,7 @@ export class WebSocketServer {
         console.log(`[ws] no more clients for device ${deviceId}, disconnecting`);
         this.clearSnapshotTimer(entry);
         this.clearSnapshotPollTimer(entry);
+        this.clearReconnectTimer(entry);
         entry.connection.disconnect();
         toDelete.push(deviceId);
       } else {
@@ -200,6 +199,16 @@ export class WebSocketServer {
     }
 
     for (const deviceId of toDelete) {
+      this.connections.delete(deviceId);
+    }
+  }
+
+  closeAll(): void {
+    for (const [deviceId, entry] of this.connections) {
+      this.clearSnapshotTimer(entry);
+      this.clearSnapshotPollTimer(entry);
+      this.clearReconnectTimer(entry);
+      entry.connection.disconnect();
       this.connections.delete(deviceId);
     }
   }
@@ -218,8 +227,8 @@ export class WebSocketServer {
       }
 
       case 'device/disconnect': {
-        const { deviceId } = payload as DeviceDisconnectPayload;
-        await this.handleDeviceDisconnect(ws, deviceId);
+        const { deviceId } = payload as DeviceConnectPayload;
+        this.handleDeviceDisconnect(ws, deviceId);
         break;
       }
 
@@ -231,49 +240,49 @@ export class WebSocketServer {
 
       case 'tmux/select-window': {
         const data = payload as TmuxSelectWindowPayload;
-        this.handleTmuxSelectWindow(ws, data);
+        this.handleTmuxSelectWindow(data);
         break;
       }
 
       case 'term/input': {
         const data = payload as TermInputPayload;
-        this.handleTermInput(ws, data);
+        this.handleTermInput(data);
         break;
       }
 
       case 'term/resize': {
         const data = payload as TermResizePayload;
-        this.handleTermResize(ws, data);
+        this.handleTermResize(data);
         break;
       }
 
       case 'term/sync-size': {
         const data = payload as TermSyncSizePayload;
-        this.handleTermSyncSize(ws, data);
+        this.handleTermSyncSize(data);
         break;
       }
 
       case 'term/paste': {
         const data = payload as TermPastePayload;
-        this.handleTermPaste(ws, data);
+        this.handleTermPaste(data);
         break;
       }
 
       case 'tmux/create-window': {
         const data = payload as { deviceId: string; name?: string };
-        this.handleCreateWindow(ws, data);
+        this.handleCreateWindow(data);
         break;
       }
 
       case 'tmux/close-window': {
         const data = payload as { deviceId: string; windowId: string };
-        this.handleCloseWindow(ws, data);
+        this.handleCloseWindow(data);
         break;
       }
 
       case 'tmux/close-pane': {
         const data = payload as { deviceId: string; paneId: string };
-        this.handleClosePane(ws, data);
+        this.handleClosePane(data);
         break;
       }
 
@@ -289,43 +298,12 @@ export class WebSocketServer {
     let entry = this.connections.get(deviceId);
 
     if (!entry) {
-      // 创建新连接
-      const connection = new TmuxConnection({
-        deviceId,
-        onEvent: (event) => this.broadcastTmuxEvent(deviceId, event),
-        onTerminalOutput: (paneId, data) => this.broadcastTerminalOutput(deviceId, paneId, data),
-        onTerminalHistory: (paneId, data) => this.broadcastTerminalHistory(deviceId, paneId, data),
-        onSnapshot: (payload) => this.broadcastStateSnapshot(deviceId, payload),
-        onError: (err) => this.broadcastError(deviceId, err),
-        onClose: () => this.handleConnectionClose(deviceId),
-      });
-
-      try {
-        await connection.connect();
-        entry = {
-          connection,
-          clients: new Set(),
-          lastSnapshot: null,
-          snapshotTimer: null,
-          snapshotPollTimer: null,
-        };
-        this.connections.set(deviceId, entry);
-      } catch (err) {
-        const errorInfo = classifyError(err instanceof Error ? err : new Error(String(err)));
-        ws.send(
-          JSON.stringify({
-            type: 'event/device',
-            payload: {
-              deviceId,
-              type: 'error',
-              errorType: errorInfo.type,
-              message: errorInfo.message,
-              rawMessage: err instanceof Error ? err.message : String(err)
-            },
-          })
-        );
+      const createdEntry = await this.createDeviceConnectionEntry(deviceId, ws);
+      if (!createdEntry) {
         return;
       }
+      entry = createdEntry;
+      this.connections.set(deviceId, entry);
     }
 
     entry.clients.add(ws);
@@ -350,10 +328,54 @@ export class WebSocketServer {
     }
   }
 
-  private async handleDeviceDisconnect(
-    ws: ServerWebSocket<ClientState>,
-    deviceId: string
-  ): Promise<void> {
+  private async createDeviceConnectionEntry(
+    deviceId: string,
+    ws: ServerWebSocket<ClientState>
+  ): Promise<DeviceConnectionEntry | null> {
+    const connection = new TmuxConnection({
+      deviceId,
+      onEvent: (event) => {
+        void this.broadcastTmuxEvent(deviceId, event);
+      },
+      onTerminalOutput: (paneId, data) => this.broadcastTerminalOutput(deviceId, paneId, data),
+      onTerminalHistory: (paneId, data) => this.broadcastTerminalHistory(deviceId, paneId, data),
+      onSnapshot: (payload) => this.broadcastStateSnapshot(deviceId, payload),
+      onError: (err) => this.broadcastError(deviceId, err),
+      onClose: () => {
+        void this.handleConnectionClose(deviceId);
+      },
+    });
+
+    try {
+      await connection.connect();
+      return {
+        connection,
+        clients: new Set(),
+        lastSnapshot: null,
+        snapshotTimer: null,
+        snapshotPollTimer: null,
+        reconnectAttempts: 0,
+        reconnectTimer: null,
+      };
+    } catch (err) {
+      const errorInfo = classifyError(err instanceof Error ? err : new Error(String(err)));
+      ws.send(
+        JSON.stringify({
+          type: 'event/device',
+          payload: {
+            deviceId,
+            type: 'error',
+            errorType: errorInfo.type,
+            message: errorInfo.message,
+            rawMessage: err instanceof Error ? err.message : String(err),
+          },
+        })
+      );
+      return null;
+    }
+  }
+
+  private handleDeviceDisconnect(ws: ServerWebSocket<ClientState>, deviceId: string): void {
     const entry = this.connections.get(deviceId);
     if (entry) {
       entry.clients.delete(ws);
@@ -362,6 +384,7 @@ export class WebSocketServer {
       if (entry.clients.size === 0) {
         this.clearSnapshotTimer(entry);
         this.clearSnapshotPollTimer(entry);
+        this.clearReconnectTimer(entry);
         entry.connection.disconnect();
         this.connections.delete(deviceId);
       }
@@ -377,7 +400,7 @@ export class WebSocketServer {
     );
   }
 
-  private handleTmuxSelectWindow(ws: ServerWebSocket<ClientState>, data: TmuxSelectWindowPayload): void {
+  private handleTmuxSelectWindow(data: TmuxSelectWindowPayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
@@ -385,8 +408,6 @@ export class WebSocketServer {
   }
 
   private handleTmuxSelect(ws: ServerWebSocket<ClientState>, data: TmuxSelectPayload): void {
-    console.log('[ws] handleTmuxSelect', data.deviceId, data.windowId, data.paneId);
-
     if (data.paneId !== undefined) {
       ws.data.selectedPanes[data.deviceId] = data.paneId;
       this.refreshSnapshotPolling(data.deviceId);
@@ -394,7 +415,6 @@ export class WebSocketServer {
 
     const entry = this.connections.get(data.deviceId);
     if (!entry) {
-      console.log('[ws] no entry for device', data.deviceId);
       return;
     }
 
@@ -403,11 +423,10 @@ export class WebSocketServer {
     }
   }
 
-  private handleTermInput(ws: ServerWebSocket<ClientState>, data: TermInputPayload): void {
+  private handleTermInput(data: TermInputPayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
-    // 如果是组合输入状态，不发送
     if (data.isComposing) {
       return;
     }
@@ -415,29 +434,24 @@ export class WebSocketServer {
     entry.connection.sendInput(data.paneId, data.data);
   }
 
-  private handleTermResize(ws: ServerWebSocket<ClientState>, data: TermResizePayload): void {
+  private handleTermResize(data: TermResizePayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
-
-    console.log('[ws] term/resize', data.deviceId, data.paneId, `${data.cols}x${data.rows}`);
 
     entry.connection.resizePane(data.paneId, data.cols, data.rows);
   }
 
-  private handleTermSyncSize(ws: ServerWebSocket<ClientState>, data: TermSyncSizePayload): void {
+  private handleTermSyncSize(data: TermSyncSizePayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
-
-    console.log('[ws] term/sync-size', data.deviceId, data.paneId, `${data.cols}x${data.rows}`);
 
     entry.connection.resizePane(data.paneId, data.cols, data.rows);
   }
 
-  private handleTermPaste(ws: ServerWebSocket<ClientState>, data: TermPastePayload): void {
+  private handleTermPaste(data: TermPastePayload): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
-    // 分块发送粘贴内容
     const chunkSize = 1024;
     const text = data.data;
 
@@ -447,45 +461,127 @@ export class WebSocketServer {
     }
   }
 
-  private handleCreateWindow(ws: ServerWebSocket<ClientState>, data: { deviceId: string; name?: string }): void {
+  private handleCreateWindow(data: { deviceId: string; name?: string }): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
     entry.connection.createWindow(data.name);
   }
 
-  private handleCloseWindow(ws: ServerWebSocket<ClientState>, data: { deviceId: string; windowId: string }): void {
+  private handleCloseWindow(data: { deviceId: string; windowId: string }): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
     entry.connection.closeWindow(data.windowId);
   }
 
-  private handleClosePane(ws: ServerWebSocket<ClientState>, data: { deviceId: string; paneId: string }): void {
+  private handleClosePane(data: { deviceId: string; paneId: string }): void {
     const entry = this.connections.get(data.deviceId);
     if (!entry) return;
 
     entry.connection.closePane(data.paneId);
   }
 
-  private broadcastTmuxEvent(deviceId: string, event: TmuxEvent): void {
+  private async broadcastTmuxEvent(deviceId: string, event: TmuxEvent): Promise<void> {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
     this.scheduleSnapshot(deviceId);
 
+    const extendedEvent = await this.extendTmuxEvent(deviceId, event);
+
     const message = JSON.stringify({
       type: 'event/tmux',
       payload: {
         deviceId,
-        type: event.type,
-        data: event.data,
+        type: extendedEvent.type,
+        data: extendedEvent.data,
       },
     });
 
     for (const client of entry.clients) {
       client.send(message);
     }
+
+    if (event.type === 'bell') {
+      await this.notifyBell(deviceId, extendedEvent.data);
+    }
+  }
+
+  private async notifyBell(deviceId: string, data: unknown): Promise<void> {
+    const device = getDeviceById(deviceId);
+    if (!device) {
+      return;
+    }
+
+    const settings = getSiteSettings();
+    const payload = (data ?? {}) as Record<string, unknown>;
+
+    await eventNotifier.notify('terminal_bell', {
+      site: {
+        name: settings.siteName,
+        url: settings.siteUrl,
+      },
+      device: {
+        id: device.id,
+        name: device.name,
+        type: device.type,
+        host: device.host,
+      },
+      tmux: {
+        sessionName: device.session,
+        windowId: typeof payload.windowId === 'string' ? payload.windowId : undefined,
+        paneId: typeof payload.paneId === 'string' ? payload.paneId : undefined,
+        windowIndex: typeof payload.windowIndex === 'number' ? payload.windowIndex : undefined,
+        paneIndex: typeof payload.paneIndex === 'number' ? payload.paneIndex : undefined,
+        paneUrl: typeof payload.paneUrl === 'string' ? payload.paneUrl : undefined,
+      },
+      payload: {
+        message: 'tmux bell',
+      },
+    });
+  }
+
+  private async extendTmuxEvent(deviceId: string, event: TmuxEvent): Promise<TmuxEvent> {
+    if (event.type !== 'bell') {
+      return event;
+    }
+
+    const snapshot = this.connections.get(deviceId)?.lastSnapshot;
+    if (!snapshot?.session) {
+      return event;
+    }
+
+    const settings = getSiteSettings();
+    const siteUrl = settings.siteUrl.endsWith('/') ? settings.siteUrl.slice(0, -1) : settings.siteUrl;
+
+    const raw = (event.data as Record<string, unknown> | undefined) ?? {};
+    const bellWindowId = typeof raw.windowId === 'string' && raw.windowId ? raw.windowId : undefined;
+
+    const targetWindow =
+      snapshot.session.windows.find((window) => window.id === bellWindowId) ??
+      snapshot.session.windows.find((window) => window.active) ??
+      snapshot.session.windows[0];
+
+    const targetPane =
+      targetWindow?.panes.find((pane) => pane.active) ??
+      targetWindow?.panes[0];
+
+    const paneUrl =
+      targetWindow && targetPane
+        ? `${siteUrl}/devices/${deviceId}/windows/${targetWindow.id}/panes/${encodeURIComponent(targetPane.id)}`
+        : undefined;
+
+    return {
+      type: 'bell',
+      data: {
+        windowId: targetWindow?.id ?? bellWindowId,
+        paneId: targetPane?.id,
+        windowIndex: targetWindow?.index,
+        paneIndex: targetPane?.index,
+        paneUrl,
+      },
+    };
   }
 
   private broadcastStateSnapshot(deviceId: string, payload: StateSnapshotPayload): void {
@@ -508,13 +604,11 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
-    // 发送二进制数据
-    // 格式: [1 byte type][2 bytes deviceId length][deviceId bytes][2 bytes paneId length][paneId bytes][data bytes]
     const deviceIdBytes = new TextEncoder().encode(deviceId);
     const paneIdBytes = new TextEncoder().encode(paneId);
     const headerSize = 1 + 2 + deviceIdBytes.length + 2 + paneIdBytes.length;
     const message = new Uint8Array(headerSize + data.length);
-    message[0] = 0x01; // type: terminal output
+    message[0] = 0x01;
     message[1] = (deviceIdBytes.length >> 8) & 0xff;
     message[2] = deviceIdBytes.length & 0xff;
     message.set(deviceIdBytes, 3);
@@ -536,10 +630,8 @@ export class WebSocketServer {
   }
 
   private broadcastTerminalHistory(deviceId: string, paneId: string, data: string): void {
-    console.log('[ws] broadcastTerminalHistory', deviceId, paneId, 'data length:', data.length);
     const entry = this.connections.get(deviceId);
     if (!entry) {
-      console.log('[ws] no entry for device', deviceId);
       return;
     }
 
@@ -552,15 +644,12 @@ export class WebSocketServer {
       },
     });
 
-    let sentCount = 0;
     for (const client of entry.clients) {
       if (client.data.selectedPanes[deviceId] !== paneId) {
         continue;
       }
       client.send(message);
-      sentCount++;
     }
-    console.log('[ws] sent history to', sentCount, 'clients');
   }
 
   private broadcastError(deviceId: string, err: Error): void {
@@ -581,38 +670,94 @@ export class WebSocketServer {
     }
   }
 
-  private handleConnectionClose(deviceId: string): void {
+  private async handleConnectionClose(deviceId: string): Promise<void> {
     const entry = this.connections.get(deviceId);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
 
     this.clearSnapshotTimer(entry);
     this.clearSnapshotPollTimer(entry);
 
+    const { sshReconnectMaxRetries, sshReconnectDelaySeconds } = getSiteSettings();
+
+    if (entry.clients.size > 0 && entry.reconnectAttempts < sshReconnectMaxRetries) {
+      entry.reconnectAttempts += 1;
+      const delay = Math.max(1, sshReconnectDelaySeconds) * 1000;
+
+      const notifying: EventDevicePayload = {
+        deviceId,
+        type: 'error',
+        errorType: 'reconnecting',
+        message: `连接中断，${delay / 1000} 秒后自动重连（${entry.reconnectAttempts}/${sshReconnectMaxRetries}）`,
+      };
+      this.broadcastDeviceEvent(entry, notifying);
+
+      this.clearReconnectTimer(entry);
+      entry.reconnectTimer = setTimeout(async () => {
+        entry.reconnectTimer = null;
+
+        const current = this.connections.get(deviceId);
+        if (!current || current !== entry || entry.clients.size === 0) {
+          return;
+        }
+
+        const retryConnection = await this.createDeviceConnectionEntry(deviceId, Array.from(entry.clients)[0]);
+        if (!retryConnection) {
+          if (entry.reconnectAttempts < sshReconnectMaxRetries) {
+            await this.handleConnectionClose(deviceId);
+            return;
+          }
+
+          const finalEvent: EventDevicePayload = {
+            deviceId,
+            type: 'error',
+            errorType: 'reconnect_failed',
+            message: '自动重连失败，请手动重试',
+          };
+          this.broadcastDeviceEvent(entry, finalEvent);
+          return;
+        }
+
+        retryConnection.clients = entry.clients;
+        retryConnection.reconnectAttempts = entry.reconnectAttempts;
+        this.connections.set(deviceId, retryConnection);
+
+        const reconnected: EventDevicePayload = {
+          deviceId,
+          type: 'reconnected',
+          message: '设备已自动重连',
+        };
+        this.broadcastDeviceEvent(retryConnection, reconnected);
+
+        retryConnection.connection.requestSnapshot();
+      }, delay);
+
+      return;
+    }
+
+    const disconnected: EventDevicePayload = {
+      deviceId,
+      type: 'disconnected',
+    };
+    this.broadcastDeviceEvent(entry, disconnected);
+
+    for (const client of entry.clients) {
+      delete client.data.selectedPanes[deviceId];
+    }
+
+    this.clearReconnectTimer(entry);
+    this.connections.delete(deviceId);
+  }
+
+  private broadcastDeviceEvent(entry: DeviceConnectionEntry, payload: EventDevicePayload): void {
     const message = JSON.stringify({
       type: 'event/device',
-      payload: {
-        deviceId,
-        type: 'disconnected',
-      },
+      payload,
     });
 
     for (const client of entry.clients) {
       client.send(message);
-      delete client.data.selectedPanes[deviceId];
     }
-
-    this.connections.delete(deviceId);
-  }
-
-  private isAuthenticated(cookieHeader: string): boolean {
-    const cookies = cookieHeader.split(';');
-    for (const cookie of cookies) {
-      const [key, value] = cookie.trim().split('=');
-      if (key === 'token' && value) {
-        // 简化验证，实际应该完整验证 JWT
-        return true;
-      }
-    }
-    return false;
   }
 }

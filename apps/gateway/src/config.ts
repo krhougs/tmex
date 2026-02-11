@@ -1,36 +1,23 @@
-import { existsSync } from 'node:fs';
-
-function requireEnv(key: string): string {
-  const value = process.env[key];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`);
-  }
-  return value;
-}
-
 function getEnv(key: string, defaultValue: string): string {
   return process.env[key] ?? defaultValue;
 }
 
 export const config = {
-  // 核心安全配置
+  // 核心安全配置（生产环境建议配置，用于加密敏感字段）
   masterKey: process.env.TMEX_MASTER_KEY,
-  adminPassword: requireEnv('TMEX_ADMIN_PASSWORD'),
 
   // 服务配置
   port: Number.parseInt(getEnv('GATEWAY_PORT', '9663'), 10),
   baseUrl: getEnv('TMEX_BASE_URL', 'http://localhost:9663'),
+  siteNameDefault: getEnv('TMEX_SITE_NAME', 'tmex'),
 
   // 数据库
   databaseUrl: getEnv('DATABASE_URL', '/data/tmex.db'),
 
-  // JWT
-  jwtSecret: requireEnv('JWT_SECRET'),
-  jwtExpiresIn: getEnv('JWT_EXPIRES_IN', '24h'),
-
-  // Telegram
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
-  telegramDefaultChatIds: process.env.TELEGRAM_DEFAULT_CHAT_IDS?.split(',').filter(Boolean) ?? [],
+  // 设置默认值（可被数据库中的实际设置覆盖）
+  bellThrottleSecondsDefault: Number.parseInt(getEnv('TMEX_BELL_THROTTLE_SECONDS', '6'), 10),
+  sshReconnectMaxRetriesDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_MAX_RETRIES', '2'), 10),
+  sshReconnectDelaySecondsDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_DELAY_SECONDS', '10'), 10),
 
   // 环境
   isDev: getEnv('NODE_ENV', 'development') === 'development',

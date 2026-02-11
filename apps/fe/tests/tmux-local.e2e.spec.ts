@@ -1,16 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-const ADMIN_PASSWORD = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const RUN_ID = process.env.TMEX_E2E_RUN_ID ?? `${Date.now()}`;
 
 function sanitizeSessionName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-async function login(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('密码').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
+async function openDevices(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/devices');
   await page.waitForURL(/\/devices/);
 }
 
@@ -102,7 +99,7 @@ test('浏览器可连接本地 tmux，并能窗口/分屏操作', async ({ page 
     window.localStorage.removeItem('tmex-ui');
   });
 
-  await login(page);
+  await openDevices(page);
   await addLocalDevice(page, deviceName);
 
   await openDeviceTerminal(page, deviceName);

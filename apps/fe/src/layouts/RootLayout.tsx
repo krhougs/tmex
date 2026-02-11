@@ -2,19 +2,29 @@ import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Navigate, Outlet, useLocation, useMatch } from 'react-router';
+import { Outlet, useMatch, useNavigate } from 'react-router';
+import { toast } from 'sonner';
 import { Sidebar } from '../components/Sidebar';
+import { useSiteStore } from '../stores/site';
 import { useUIStore } from '../stores/ui';
 import { buildTerminalLabel } from '../utils/terminalMeta';
 import { decodePaneIdFromUrlParam } from '../utils/tmuxUrl';
-import { useAuthStore } from '../stores/auth';
 import { useTmuxStore } from '../stores/tmux';
 
+declare global {
+  interface WindowEventMap {
+    'tmex:sonner': CustomEvent<{
+      title: string;
+      description?: string;
+      paneUrl?: string;
+    }>;
+  }
+}
+
 export function RootLayout() {
-  const { isAuthenticated, checkAuth } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const location = useLocation();
+  const navigate = useNavigate();
   const paneMatch = useMatch('/devices/:deviceId/windows/:windowId/panes/:paneId');
   const matchedDeviceId = paneMatch?.params.deviceId;
   const matchedWindowId = paneMatch?.params.windowId;
@@ -29,16 +39,19 @@ export function RootLayout() {
     matchedDeviceId ? state.selectedPanes?.[matchedDeviceId] : undefined
   );
   const { inputMode, setInputMode } = useUIStore();
+  const siteSettings = useSiteStore((state) => state.settings);
+  const fetchSiteSettings = useSiteStore((state) => state.fetchSettings);
 
   const { data: devicesData } = useQuery({
     queryKey: ['devices'],
     queryFn: async () => {
-      const res = await fetch('/api/devices', { credentials: 'include' });
+      const res = await fetch('/api/devices');
       if (!res.ok) {
-        throw new Error('Failed to fetch devices');
+        throw new Error('加载设备失败');
       }
       return res.json() as Promise<{ devices: Device[] }>;
     },
+    throwOnError: false,
   });
 
   const mobileTerminalLabel = useMemo(() => {
@@ -88,12 +101,78 @@ export function RootLayout() {
   };
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
     ensureSocketConnected();
   }, [ensureSocketConnected]);
+
+  useEffect(() => {
+    void fetchSiteSettings();
+  }, [fetchSiteSettings]);
+
+  useEffect(() => {
+    if (devicesData || !isTerminalRoute) {
+      return;
+    }
+
+    toast.error('加载设备信息失败');
+  }, [devicesData, isTerminalRoute]);
+
+  useEffect(() => {
+    document.title = siteSettings?.siteName ?? 'tmex';
+  }, [siteSettings?.siteName]);
+
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const custom = event as CustomEvent<{
+        title: string;
+        description?: string;
+        paneUrl?: string;
+      }>;
+      const detail = custom.detail;
+      if (!detail?.title) {
+        return;
+      }
+
+      const handleJump = () => {
+        if (!detail.paneUrl) {
+          return;
+        }
+        const target = new URL(detail.paneUrl, window.location.origin);
+        navigate(`${target.pathname}${target.search}${target.hash}`);
+      };
+
+      if (detail.paneUrl) {
+        toast.custom(
+          (toastId) => (
+            <button
+              type="button"
+              className="w-full text-left rounded-md bg-[var(--color-bg-secondary)] px-3 py-2"
+              onClick={() => {
+                toast.dismiss(toastId);
+                handleJump();
+              }}
+            >
+              <div className="text-sm font-medium">{detail.title}</div>
+              {detail.description && (
+                <div className="mt-1 text-xs text-[var(--color-text-secondary)]">{detail.description}</div>
+              )}
+              <div className="mt-1 text-xs text-[var(--color-accent)]">点击跳转到对应 Pane</div>
+            </button>
+          ),
+          {
+            duration: 6000,
+          }
+        );
+        return;
+      }
+
+      toast.info(detail.title, {
+        description: detail.description,
+      });
+    };
+
+    window.addEventListener('tmex:sonner', listener as EventListener);
+    return () => window.removeEventListener('tmex:sonner', listener as EventListener);
+  }, [navigate]);
 
   // 监听窗口大小变化
   useEffect(() => {
@@ -110,20 +189,6 @@ export function RootLayout() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-
-  // 认证检查中
-  if (isAuthenticated === null) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-[var(--color-bg)]">
-        <div className="text-[var(--color-text-secondary)]">Loading...</div>
-      </div>
-    );
-  }
-
-  // 未认证，跳转到登录页
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--color-bg)]">
@@ -170,9 +235,9 @@ export function RootLayout() {
             <span
               data-testid="mobile-topbar-title"
               className="font-medium text-sm truncate text-center flex-1"
-              title={mobileTerminalLabel ?? 'tmex'}
+              title={mobileTerminalLabel ?? siteSettings?.siteName ?? 'tmex'}
             >
-              {mobileTerminalLabel ?? 'tmex'}
+              {mobileTerminalLabel ?? siteSettings?.siteName ?? 'tmex'}
             </span>
 
             <div className="flex items-center gap-1.5 flex-shrink-0">

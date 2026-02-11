@@ -1,16 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-const ADMIN_PASSWORD = process.env.TMEX_E2E_ADMIN_PASSWORD ?? 'admin123';
 const RUN_ID = process.env.TMEX_E2E_RUN_ID ?? `${Date.now()}`;
 
 function sanitizeSessionName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-async function login(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('密码').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
+async function openDevices(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/devices');
   await page.waitForURL(/\/devices/);
 }
 
@@ -146,7 +143,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('设备树选中时应有 15% 高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_contrast_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -168,7 +165,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('Sidebar collapsed状态下图标应可见', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_collapsed_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -201,7 +198,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('窗口树选中时应叠加到 30% 高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_win_contrast_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -225,7 +222,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('Pane项active状态应使用 90% 高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_pane_contrast_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -252,7 +249,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('高亮设备项的新建窗口按钮应清晰可见且可点击', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_new_window_visible_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
@@ -275,7 +272,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('关闭最后一个 pane 时应自动关闭对应 window', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_close_last_pane_${RUN_ID}`);
 
-    await login(page);
+    await openDevices(page);
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 

@@ -11,7 +11,7 @@ tmex 是一个通过网页接入多个设备（本地或 SSH）的 tmux -CC 终�
 - **数据库**: SQLite（持久化存储）
 - **SSH 连接**: ssh2 库
 - **加密**: Web Crypto API (AES-256-GCM)
-- **认证**: JWT + HTTP-only Cookie
+- **Bot 框架**: gramio（Telegram 多 Bot 管理）
 
 ### Frontend（前端）
 - **框架**: React 19 + TypeScript
@@ -34,7 +34,6 @@ tmex/
 │   │   │   ├── events/   # Webhook + Telegram
 │   │   │   ├── tmux/     # tmux -CC 连接与解析
 │   │   │   ├── ws/       # WebSocket 服务器
-│   │   │   ├── auth.ts   # 认证逻辑
 │   │   │   ├── config.ts # 配置管理
 │   │   │   └── index.ts  # 入口
 │   │   ├── Dockerfile
@@ -85,7 +84,13 @@ tmex/
 
 ### 4. 通知系统
 - Webhook: HMAC-SHA256 签名，支持重试
-- Telegram Bot: 多 chat_id 订阅，eventMask 过滤
+- Telegram Bot: 多 Bot + chat 审批授权流（待授权/已授权）
+
+### 5. 设置中心
+- 站点名称、站点访问 URL
+- Bell 频控参数
+- SSH 自动重连参数
+- Gateway 重启操作
 
 ## 部署
 
@@ -96,11 +101,12 @@ tmex/
 ```bash
 # 必需
 TMEX_MASTER_KEY=$(head -c 32 /dev/urandom | base64)
-TMEX_ADMIN_PASSWORD=your-admin-password
-JWT_SECRET=your-jwt-secret
 
 # 可选
-TELEGRAM_BOT_TOKEN=your-bot-token
+TMEX_SITE_NAME=tmex
+TMEX_BELL_THROTTLE_SECONDS=6
+TMEX_SSH_RECONNECT_MAX_RETRIES=2
+TMEX_SSH_RECONNECT_DELAY_SECONDS=10
 TMEX_PORT=3000
 ```
 
@@ -133,7 +139,7 @@ cd apps/fe && bun dev
 ## 安全考虑
 
 1. **加密**: 敏感数据（密码、私钥）使用 AES-256-GCM 加密存储
-2. **认证**: JWT + HTTP-only Cookie，防 XSS
+2. **访问控制**: 默认应用内无鉴权，建议通过反向代理/内网 ACL 控制访问
 3. **Webhook**: HMAC-SHA256 签名验证
 4. **生产环境**: 强制要求 TMEX_MASTER_KEY
 

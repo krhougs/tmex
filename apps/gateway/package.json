@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tmex/shared": "workspace:*",
+    "gramio": "^0.4.12",
     "ssh2": "^1.16.0",
     "uuid": "^11.0.5"
   },
