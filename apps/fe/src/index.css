@@ -10,6 +10,7 @@
   --color-text-muted: #6e7681;
   --color-accent: #58a6ff;
   --color-accent-hover: #79c0ff;
+  --color-accent-rgb: 88, 166, 255;
   --color-success: #238636;
   --color-warning: #d29922;
   --color-danger: #da3633;
@@ -106,14 +107,11 @@ body {
 
 /* Editor mode input */
 .editor-mode-input {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   background: var(--color-bg-secondary);
   border-top: 1px solid var(--color-border);
   padding: 8px 12px;
-  z-index: 50;
+  flex-shrink: 0;
 }
 
 .editor-mode-input textarea {
@@ -140,6 +138,19 @@ body {
   gap: 8px;
   margin-top: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.editor-mode-input .shortcut-row {
+  width: 100%;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.editor-mode-input .shortcut-row button {
+  min-height: 28px;
 }
 
 /* Animation utilities */

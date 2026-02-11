@@ -306,7 +306,7 @@ test.describe('Terminal 按键处理', () => {
 });
 
 test.describe('Terminal 尺寸同步', () => {
-  test('同步尺寸按钮应工作正常', async ({ page }) => {
+  test('跳转到最新按钮应工作正常', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_sync_${RUN_ID}`);
 
     await login(page);
@@ -329,10 +329,10 @@ test.describe('Terminal 尺寸同步', () => {
     await page.setViewportSize({ width: 860, height: 560 });
     await page.waitForTimeout(600);
 
-    const syncButton = page.getByRole('button', { name: /同步尺寸/ });
-    await expect(syncButton).toBeVisible();
-    await syncButton.click();
-    await page.waitForTimeout(1200);
+    const jumpToLatestButton = page.getByRole('button', { name: /跳转到最新/ });
+    await expect(jumpToLatestButton).toBeVisible();
+    await jumpToLatestButton.click();
+    await page.waitForTimeout(600);
 
     await expect
       .poll(
@@ -481,7 +481,7 @@ test.describe('Terminal 尺寸同步', () => {
     await page.keyboard.press('Enter');
   });
 
-  test('当前 pane 被关闭后应显示失效态并禁用同步按钮', async ({ page }) => {
+  test('当前 pane 被关闭后应显示失效态并禁用跳转到最新按钮', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_invalid_selection_${RUN_ID}`);
 
     await login(page);
@@ -501,6 +501,30 @@ test.describe('Terminal 尺寸同步', () => {
     await expect(activePaneItem).toBeVisible({ timeout: 30_000 });
     await activePaneItem.getByRole('button', { name: /关闭 pane/ }).click();
 
-    await expect(page.getByRole('button', { name: /同步尺寸/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /跳转到最新/ })).toBeDisabled();
+  });
+
+  test('终端页面应更新浏览器标题', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_title_${RUN_ID}`);
+
+    await login(page);
+    await addLocalDevice(page, deviceName);
+
+    await page.goto('/devices');
+    const deviceCardHeader = page
+      .getByRole('heading', { name: deviceName })
+      .locator('xpath=..')
+      .locator('xpath=..');
+    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+
+    await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
+    await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+
+    await expect
+      .poll(() => page.title(), { timeout: 15_000 })
+      .toMatch(/^\[tmex\]\d+\/\d+:\s+[^@]+@.+$/);
+
+    await page.goto('/devices');
+    await expect(page).toHaveTitle('tmex');
   });
 });

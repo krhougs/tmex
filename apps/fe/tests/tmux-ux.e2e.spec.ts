@@ -221,3 +221,50 @@ test.describe('响应式布局', () => {
     await cleanupSession(page, deviceName);
   });
 });
+
+test.describe('输入模式切换', () => {
+  test('PC 上应支持切换到编辑器并发送内容', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_editor_pc_${RUN_ID}`);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await login(page);
+    await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceName);
+
+    await page.getByRole('button', { name: /编辑器/ }).click();
+
+    const editor = page.locator('.editor-mode-input textarea');
+    await expect(editor).toBeVisible();
+
+    await editor.fill('echo pc_editor_mode_ok');
+    await page.getByRole('button', { name: /^发送$/ }).click();
+
+    await page.waitForTimeout(800);
+    await expect(page.locator('.xterm')).toBeVisible();
+
+    await cleanupSession(page, deviceName);
+  });
+
+  test('编辑器应提供快捷键并可直接发送', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_editor_shortcut_${RUN_ID}`);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await login(page);
+    await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceName);
+
+    await page.getByRole('button', { name: /编辑器/ }).click();
+
+    const shortcutRow = page.getByTestId('editor-shortcuts-row');
+    await expect(shortcutRow).toBeVisible();
+    await expect(shortcutRow.getByRole('button', { name: /发送 CTRL\+C/ })).toBeVisible();
+    await expect(shortcutRow.getByRole('button', { name: /发送 ESC/ })).toBeVisible();
+    await expect(shortcutRow.getByRole('button', { name: /发送 CTRL\+D/ })).toBeVisible();
+    await expect(shortcutRow.getByRole('button', { name: /发送 SHIFT\+ENTER/ })).toBeVisible();
+
+    await shortcutRow.getByRole('button', { name: /发送 CTRL\+C/ }).click();
+    await page.waitForTimeout(200);
+
+    await cleanupSession(page, deviceName);
+  });
+});

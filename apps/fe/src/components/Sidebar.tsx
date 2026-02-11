@@ -199,9 +199,9 @@ export function Sidebar({ onClose }: SidebarProps) {
       `}
     >
       {/* 头部 */}
-      <div className="flex items-center justify-between p-3 border-b border-[var(--color-border)] h-14 flex-shrink-0">
+      <div className="flex items-center justify-between px-3 h-11 border-b border-[var(--color-border)] flex-shrink-0">
         {!sidebarCollapsed && (
-          <span className="font-semibold text-lg text-[var(--color-text)] truncate">
+          <span className="font-semibold text-base text-[var(--color-text)] truncate">
             tmex
           </span>
         )}
@@ -332,6 +332,10 @@ function DeviceTreeItem({
   onWindowClick,
 }: DeviceTreeItemProps) {
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
+  const hasSelectedPaneInDevice = Boolean(selectedPaneId);
+  const selectedWindow = windows?.find((window) => window.id === selectedWindowId);
+  const selectedPaneInWindow = selectedWindow?.panes.find((pane) => pane.id === selectedPaneId);
+  const isDeviceTreeSelected = isSelected && hasSelectedPaneInDevice && Boolean(selectedPaneInWindow);
   
   // 折叠状态 - 只显示图标
   if (collapsed) {
@@ -347,7 +351,7 @@ function DeviceTreeItem({
             w-full h-9 rounded-md flex items-center justify-center
             transition-all duration-150 ease-in-out
             ${isSelected 
-              ? 'bg-[var(--color-accent)] text-[var(--color-bg)] shadow-sm' 
+              ? 'bg-[rgba(88,166,255,0.15)] text-[var(--color-text)] shadow-sm' 
               : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
             }
             ${isConnected && !isSelected ? 'border-l-2 border-[var(--color-success)]' : ''}
@@ -368,10 +372,13 @@ function DeviceTreeItem({
         data-active={isSelected}
         className={`
           mx-2 mb-1 rounded-md overflow-hidden
-          ${isSelected 
-            ? 'bg-[var(--color-accent)] text-[var(--color-bg)]' 
-            : 'text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
+          ${isDeviceTreeSelected
+            ? 'bg-[rgba(88,166,255,0.15)] text-[var(--color-text)]'
+            : isSelected
+              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text)]'
+              : 'text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
           }
+          ${isSelected && !isDeviceTreeSelected ? 'border-l-2 border-[var(--color-accent)]' : ''}
           transition-colors duration-150
         `}
       >
@@ -382,10 +389,7 @@ function DeviceTreeItem({
             onClick={onToggle}
             className={`
               p-1 rounded mr-1 flex-shrink-0
-              ${isSelected 
-                ? 'text-[var(--color-bg)]/70 hover:text-[var(--color-bg)] hover:bg-[var(--color-bg)]/10' 
-                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]'
-              }
+              text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]
               transition-colors duration-150
             `}
             title={isExpanded ? '折叠' : '展开'}
@@ -400,7 +404,7 @@ function DeviceTreeItem({
           {/* 设备图标 */}
           <span className={`
             mr-2 flex-shrink-0
-            ${isSelected ? 'text-[var(--color-bg)]' : 'text-[var(--color-text-secondary)]'}
+            ${isSelected ? 'text-[var(--color-text)]' : 'text-[var(--color-text-secondary)]'}
           `}>
             <DeviceIcon className="h-4 w-4" />
           </span>
@@ -420,7 +424,7 @@ function DeviceTreeItem({
             <span 
               className={`
                 ml-1.5 w-2 h-2 rounded-full flex-shrink-0
-                ${isSelected ? 'bg-[var(--color-bg)]/80' : 'bg-[var(--color-success)]'}
+                ${isSelected ? 'bg-[var(--color-success)]' : 'bg-[var(--color-success)]'}
               `}
               title="已连接"
             />
@@ -437,7 +441,7 @@ function DeviceTreeItem({
               ml-1 p-1 rounded flex-shrink-0
               transition-colors duration-150
               ${isSelected 
-                ? 'text-[var(--color-bg)] hover:bg-[var(--color-bg)]/20' 
+                ? 'text-[var(--color-text)] hover:bg-[var(--color-bg)]/40' 
                 : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]'
               }
             `}
@@ -471,6 +475,7 @@ function DeviceTreeItem({
               device={device}
               window={window}
               isSelected={window.id === selectedWindowId}
+              isDeviceTreeSelected={isDeviceTreeSelected}
               selectedPaneId={selectedPaneId}
               parentSelected={isSelected}
               onPaneClick={onPaneClick}
@@ -491,6 +496,7 @@ interface WindowTreeItemProps {
   device: Device;
   window: TmuxWindow;
   isSelected: boolean;
+  isDeviceTreeSelected: boolean;
   selectedPaneId?: string;
   parentSelected: boolean;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
@@ -503,6 +509,7 @@ function WindowTreeItem({
   device, 
   window, 
   isSelected, 
+  isDeviceTreeSelected,
   selectedPaneId, 
   parentSelected,
   onPaneClick,
@@ -524,6 +531,8 @@ function WindowTreeItem({
   }, [device.id, window.id, window.panes, onWindowClick]);
 
   const hasMultiplePanes = window.panes.length > 1;
+  const selectedPaneInWindow = window.panes.find((pane) => pane.id === selectedPaneId);
+  const isWindowTreeSelected = isDeviceTreeSelected && Boolean(selectedPaneInWindow);
 
   return (
     <div className="select-none">
@@ -542,9 +551,11 @@ function WindowTreeItem({
         }}
         className={`
           rounded-md mb-0.5
-          ${isSelected 
-            ? 'bg-[var(--color-accent)] text-[var(--color-bg)] border-l-2 border-[var(--color-accent)]' 
-            : 'text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
+          ${isWindowTreeSelected
+            ? 'bg-[rgba(88,166,255,0.3)] text-[var(--color-text)] border-l-2 border-[var(--color-accent)]'
+            : isSelected
+              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text)] border-l-2 border-[var(--color-accent)]'
+              : 'text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
           }
           ${!isSelected && parentSelected ? 'ml-2' : ''}
           transition-colors duration-150
@@ -562,7 +573,7 @@ function WindowTreeItem({
               className={`
                 p-0.5 rounded mr-1 flex-shrink-0
                 ${isSelected 
-                  ? 'text-[var(--color-bg)]/80 hover:text-[var(--color-bg)] hover:bg-[var(--color-bg)]/10' 
+                  ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]' 
                   : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]'
                 }
                 transition-colors duration-150
@@ -582,7 +593,7 @@ function WindowTreeItem({
           <span className={`
             text-xs mr-1.5 flex-shrink-0 min-w-[1.25rem]
             ${isSelected 
-              ? 'text-[var(--color-bg)]' 
+              ? 'text-[var(--color-text-secondary)]' 
               : 'text-[var(--color-text-muted)]'
             }
           `}>
@@ -603,7 +614,7 @@ function WindowTreeItem({
               className={`
                 ml-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0
                 ${isSelected 
-                  ? 'bg-[var(--color-bg)]/80' 
+                  ? 'bg-[var(--color-success)]' 
                   : 'bg-[var(--color-success)]'
                 }
               `}
@@ -620,7 +631,7 @@ function WindowTreeItem({
             className={`
               ml-1 p-1 rounded flex-shrink-0
               ${isSelected
-                ? 'text-[var(--color-bg)] hover:bg-[var(--color-bg)]/20'
+                ? 'text-[var(--color-text)] hover:bg-[var(--color-bg)]/40'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)]'
               }
               transition-colors duration-150
@@ -646,6 +657,7 @@ function WindowTreeItem({
               windowId={window.id}
               pane={pane}
               isSelected={pane.id === selectedPaneId}
+              isWindowTreeSelected={isWindowTreeSelected}
               parentWindowSelected={isSelected}
               paneCount={window.panes.length}
               onClick={onPaneClick}
@@ -665,6 +677,7 @@ interface PaneTreeItemProps {
   windowId: string;
   pane: TmuxPane;
   isSelected: boolean;
+  isWindowTreeSelected: boolean;
   parentWindowSelected: boolean;
   paneCount: number;
   onClick: (deviceId: string, windowId: string, paneId: string) => void;
@@ -676,6 +689,7 @@ function PaneTreeItem({
   windowId, 
   pane, 
   isSelected, 
+  isWindowTreeSelected,
   parentWindowSelected,
   paneCount,
   onClick,
@@ -688,7 +702,9 @@ function PaneTreeItem({
       className={`
         w-full flex items-center px-2 py-1 rounded-md text-left text-sm
         ${isSelected 
-          ? 'bg-[var(--color-accent)] text-[var(--color-bg)] border-l-2 border-[var(--color-accent)]' 
+          ? 'bg-[rgba(88,166,255,0.9)] text-[var(--color-bg)] border-l-2 border-[var(--color-accent)]' 
+          : isWindowTreeSelected
+            ? 'text-[var(--color-text)] bg-[rgba(88,166,255,0.15)] hover:bg-[rgba(88,166,255,0.2)]'
           : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
         }
         ${!isSelected && parentWindowSelected ? 'ml-2' : ''}
@@ -739,6 +755,8 @@ function PaneTreeItem({
           ml-1 p-1 rounded flex-shrink-0
           ${isSelected
             ? 'text-[var(--color-bg)] hover:bg-[var(--color-bg)]/20'
+            : isWindowTreeSelected
+              ? 'text-[var(--color-text)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)]/40'
             : 'text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)]'
           }
           transition-colors duration-150

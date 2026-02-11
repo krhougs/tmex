@@ -141,6 +141,7 @@ export interface TmuxPane {
   id: string;
   windowId: string;
   index: number;
+  title?: string;
   active: boolean;
   width: number;
   height: number;

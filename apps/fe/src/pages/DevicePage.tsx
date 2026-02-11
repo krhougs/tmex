@@ -3,11 +3,34 @@ import { useNavigate, useParams } from 'react-router';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
-import { AlertCircle, Keyboard, Maximize, Send, Smartphone, Trash2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import type { Device } from '@tmex/shared';
+import {
+  AlertCircle,
+  ArrowDownToLine,
+  Keyboard,
+  Send,
+  Smartphone,
+  Trash2,
+} from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle, Button } from '../components/ui';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
+import { buildBrowserTitle, buildTerminalLabel } from '../utils/terminalMeta';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
+
+interface EditorShortcut {
+  key: string;
+  label: string;
+  payload: string;
+}
+
+const EDITOR_SHORTCUTS: EditorShortcut[] = [
+  { key: 'ctrl-c', label: 'CTRL+C', payload: '\u0003' },
+  { key: 'esc', label: 'ESC', payload: '\u001b' },
+  { key: 'ctrl-d', label: 'CTRL+D', payload: '\u0004' },
+  { key: 'shift-enter', label: 'SHIFT+ENTER', payload: '\x1b[13;2u' },
+];
 
 export function DevicePage() {
   const { deviceId, windowId, paneId } = useParams();
@@ -60,6 +83,24 @@ export function DevicePage() {
 
   const windows = snapshot?.session?.windows;
 
+  const { data: devicesData } = useQuery({
+    queryKey: ['devices'],
+    queryFn: async () => {
+      const res = await fetch('/api/devices', { credentials: 'include' });
+      if (!res.ok) {
+        throw new Error('Failed to fetch devices');
+      }
+      return res.json() as Promise<{ devices: Device[] }>;
+    },
+  });
+
+  const currentDevice = useMemo(() => {
+    if (!deviceId) {
+      return undefined;
+    }
+    return devicesData?.devices.find((device) => device.id === deviceId);
+  }, [deviceId, devicesData?.devices]);
+
   const selectedWindow = useMemo(() => {
     if (!windowId || !windows) return undefined;
     return windows.find((win) => win.id === windowId);
@@ -87,6 +128,20 @@ export function DevicePage() {
 
   const isSelectionInvalid = Boolean(invalidSelectionMessage);
   const canInteractWithPane = Boolean(deviceConnected && resolvedPaneId && !isSelectionInvalid);
+
+  const terminalTopbarLabel = useMemo(() => {
+    if (!selectedWindow || !selectedPane) {
+      return null;
+    }
+    const deviceName = currentDevice?.name ?? deviceId;
+    return buildTerminalLabel({
+      paneIdx: selectedPane.index,
+      windowIdx: selectedWindow.index,
+      paneTitle: selectedPane.title,
+      windowName: selectedWindow.name,
+      deviceName,
+    });
+  }, [currentDevice?.name, deviceId, selectedPane, selectedWindow]);
 
   const reportPaneSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
@@ -569,9 +624,38 @@ export function DevicePage() {
     return () => observer.disconnect();
   }, [canInteractWithPane, scheduleResize]);
 
-  const handleSyncSize = useCallback(() => {
-    scheduleResize('sync', { immediate: true, force: true });
-  }, [scheduleResize]);
+  useEffect(() => {
+    document.title = buildBrowserTitle(terminalTopbarLabel);
+    return () => {
+      document.title = 'tmex';
+    };
+  }, [terminalTopbarLabel]);
+
+  useEffect(() => {
+    const handler = () => {
+      terminal.current?.scrollToBottom();
+    };
+
+    window.addEventListener('tmex:jump-to-latest', handler as EventListener);
+    return () => {
+      window.removeEventListener('tmex:jump-to-latest', handler as EventListener);
+    };
+  }, []);
+
+  const handleJumpToLatest = useCallback(() => {
+    terminal.current?.scrollToBottom();
+  }, []);
+
+  const handleSendShortcut = useCallback(
+    (payload: string) => {
+      if (!deviceId || !resolvedPaneId || !canInteractWithPane) {
+        return;
+      }
+
+      sendInput(deviceId, resolvedPaneId, payload, false);
+    },
+    [canInteractWithPane, deviceId, resolvedPaneId, sendInput]
+  );
 
   const handleEditorSend = useCallback(() => {
     if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
@@ -607,37 +691,31 @@ export function DevicePage() {
 
   return (
     <div className="flex flex-col h-full bg-[var(--color-bg)]">
-      <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2 flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-          <span className="text-sm font-medium truncate" title={deviceId}>
-            设备: {deviceId.slice(0, 8)}...
-          </span>
-          {windowId && (
-            <span className="text-sm text-[var(--color-text-secondary)] hidden sm:inline whitespace-nowrap">
-              / 窗口: {windowId}
+      {!isMobile && (
+        <div className="h-11 flex items-center justify-between px-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+            <span
+              data-testid="terminal-topbar-title"
+              className="text-sm font-medium truncate"
+              title={terminalTopbarLabel ?? 'tmex'}
+            >
+              {terminalTopbarLabel ?? 'tmex'}
             </span>
-          )}
-          {resolvedPaneId && (
-            <span className="text-sm text-[var(--color-text-secondary)] hidden md:inline whitespace-nowrap">
-              / Pane: {resolvedPaneId}
-            </span>
-          )}
-        </div>
+          </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="px-2 py-1 text-xs"
-            onClick={handleSyncSize}
-            title="同步终端尺寸"
-            disabled={!canInteractWithPane}
-          >
-            <Maximize className="h-3 w-3 mr-1" />
-            <span className="hidden sm:inline">同步尺寸</span>
-          </Button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-2 py-1 text-xs"
+              onClick={handleJumpToLatest}
+              title="跳转到最新"
+              disabled={!canInteractWithPane}
+            >
+              <ArrowDownToLine className="h-3 w-3 mr-1" />
+              <span className="hidden sm:inline">跳转到最新</span>
+            </Button>
 
-          {isMobile && (
             <Button
               variant="default"
               size="sm"
@@ -656,9 +734,9 @@ export function DevicePage() {
                 </>
               )}
             </Button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {deviceError && (
         <div className="px-4 py-2 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] flex-shrink-0">
@@ -692,7 +770,7 @@ export function DevicePage() {
         </div>
       )}
 
-      <div className="flex-1 relative overflow-hidden min-h-0 min-w-0">
+      <div className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' ? 'pb-2' : ''}`}>
         <div ref={terminalRef} className="w-full h-full min-w-0 min-h-0" />
 
         {(isLoading || showConnecting) && (
@@ -717,7 +795,7 @@ export function DevicePage() {
         )}
       </div>
 
-      {isMobile && inputMode === 'editor' && (
+      {inputMode === 'editor' && (
         <div className="editor-mode-input">
           <textarea
             value={editorText}
@@ -727,6 +805,23 @@ export function DevicePage() {
             onCompositionEnd={() => setIsComposing(false)}
           />
           <div className="actions">
+            <div className="shortcut-row" data-testid="editor-shortcuts-row">
+              {EDITOR_SHORTCUTS.map((shortcut) => (
+                <Button
+                  key={shortcut.key}
+                  variant="ghost"
+                  size="sm"
+                  title={`发送 ${shortcut.label}`}
+                  aria-label={`发送 ${shortcut.label}`}
+                  onClick={() => handleSendShortcut(shortcut.payload)}
+                  disabled={!canInteractWithPane}
+                >
+                  <Keyboard className="h-3.5 w-3.5" />
+                  {shortcut.label}
+                </Button>
+              ))}
+            </div>
+
             <Button variant="default" size="sm" onClick={() => setEditorText('')} title="清空">
               <Trash2 className="h-4 w-4 mr-1" />
               清空

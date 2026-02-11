@@ -548,7 +548,7 @@ export class TmuxConnection {
       'snapshot-windows'
     );
     this.sendCommand(
-      'list-panes -F "#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_active}\t#{pane_width}\t#{pane_height}"\n',
+      'list-panes -F "#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}"\n',
       'snapshot-panes'
     );
   }
@@ -626,15 +626,17 @@ export class TmuxConnection {
 
     for (const line of lines) {
       if (!line.trim()) continue;
-      const [paneId, windowId, indexRaw, activeRaw, widthRaw, heightRaw] = line.split('\t');
+      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw] = line.split('\t');
       if (!paneId || !windowId) continue;
       const index = Number.parseInt(indexRaw ?? '', 10);
       const width = Number.parseInt(widthRaw ?? '', 10);
       const height = Number.parseInt(heightRaw ?? '', 10);
+      const title = titleRaw?.trim() ? titleRaw : undefined;
       const pane: TmuxPane = {
         id: paneId,
         windowId,
         index: Number.isNaN(index) ? 0 : index,
+        title,
         active: activeRaw === '1',
         width: Number.isNaN(width) ? 0 : width,
         height: Number.isNaN(height) ? 0 : height,

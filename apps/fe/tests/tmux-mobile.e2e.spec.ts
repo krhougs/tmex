@@ -52,17 +52,26 @@ test.describe('移动端布局', () => {
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
 
     // 验证顶栏元素不重叠
-    const header = page.locator('header');
+    const header = page.locator('header').first();
     const headerBox = await header.boundingBox();
     expect(headerBox).toBeTruthy();
 
     // 验证汉堡菜单按钮可见
-    const menuButton = page.locator('header button').first();
+    const menuButton = header.getByRole('button', { name: '打开侧边栏' });
     await expect(menuButton).toBeVisible();
 
     // 验证标题可见
-    const title = page.locator('header span');
+    const title = page.getByTestId('mobile-topbar-title');
     await expect(title).toBeVisible();
+    await expect(title).toHaveText(/\d+\/\d+:\s+[^@]+@.+/);
+
+    // 验证只存在一行固定顶栏，且包含两个操作按钮
+    await expect(page.locator('header')).toHaveCount(1);
+    await expect(header.getByRole('button', { name: /切换到编辑器输入|切换到直接输入/ })).toBeVisible();
+    await expect(header.getByRole('button', { name: '跳转到最新' })).toBeVisible();
+
+    // 顶栏固定在视口顶部
+    await expect(header).toHaveCSS('position', 'fixed');
 
     // 点击终端验证可以输入
     await page.locator('.xterm').click();

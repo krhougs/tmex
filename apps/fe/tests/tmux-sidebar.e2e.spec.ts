@@ -143,7 +143,7 @@ function getContrastRatio(color1: string, color2: string): number {
 }
 
 test.describe('Sidebar - 可读性和对比度', () => {
-  test('设备项active状态应有足够的对比度', async ({ page }) => {
+  test('设备树选中时应有 15% 高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_contrast_${RUN_ID}`);
 
     await login(page);
@@ -157,12 +157,10 @@ test.describe('Sidebar - 可读性和对比度', () => {
       const computed = window.getComputedStyle(el);
       return {
         backgroundColor: computed.backgroundColor,
-        color: computed.color,
       };
     });
 
-    const contrastRatio = getContrastRatio(styles.backgroundColor, styles.color);
-    expect(contrastRatio).toBeGreaterThanOrEqual(4.5);
+    expect(styles.backgroundColor).toMatch(/^rgba\(88,\s*166,\s*255,\s*0\.15\)$/);
 
     await cleanupSession(page, deviceName);
   });
@@ -200,7 +198,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
     await page.keyboard.press('Enter');
   });
 
-  test('Window项active状态应有足够的对比度', async ({ page }) => {
+  test('窗口树选中时应叠加到 30% 高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_win_contrast_${RUN_ID}`);
 
     await login(page);
@@ -216,17 +214,15 @@ test.describe('Sidebar - 可读性和对比度', () => {
       const computed = window.getComputedStyle(el);
       return {
         backgroundColor: computed.backgroundColor,
-        color: computed.color,
       };
     });
 
-    const windowContrastRatio = getContrastRatio(windowStyles.backgroundColor, windowStyles.color);
-    expect(windowContrastRatio).toBeGreaterThanOrEqual(4.5);
+    expect(windowStyles.backgroundColor).toMatch(/^rgba\(88,\s*166,\s*255,\s*0\.3\)$/);
 
     await cleanupSession(page, deviceName);
   });
 
-  test('Pane项active状态应有足够的对比度', async ({ page }) => {
+  test('Pane项active状态应使用 90% 高亮背景', async ({ page }) => {
     const deviceName = sanitizeSessionName(`e2e_pane_contrast_${RUN_ID}`);
 
     await login(page);
@@ -246,6 +242,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
       };
     });
 
+    expect(paneStyles.backgroundColor).toMatch(/^rgba\(88,\s*166,\s*255,\s*0\.9\)$/);
     const paneContrastRatio = getContrastRatio(paneStyles.backgroundColor, paneStyles.color);
     expect(paneContrastRatio).toBeGreaterThanOrEqual(4.5);
 
@@ -296,7 +293,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
     await page.waitForTimeout(1200);
     await expect(page.locator(`[data-testid="${windowTestId as string}"]`)).toHaveCount(0);
 
-    await expect(page.getByRole('button', { name: /同步尺寸/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /跳转到最新/ })).toBeDisabled();
 
     await page.goto('/devices');
     const deviceCardHeader = page
