@@ -16,12 +16,12 @@ async function addLocalDevice(
   deviceName: string
 ): Promise<void> {
   await page.goto('/devices');
-  await page.getByRole('button', { name: '添加设备' }).first().click();
+  await page.getByTestId('devices-add').first().click();
 
-  await page.getByLabel('设备名称').fill(deviceName);
+  await page.getByTestId('device-name-input').fill(deviceName);
   await page.getByLabel('类型').selectOption('local');
   await page.getByLabel('Tmux 会话名称').fill(deviceName);
-  await page.getByRole('button', { name: '添加' }).click();
+  await page.getByTestId('device-dialog-save').click();
 
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
 }
@@ -42,7 +42,7 @@ test.describe('移动端布局', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -53,7 +53,7 @@ test.describe('移动端布局', () => {
     expect(headerBox).toBeTruthy();
 
     // 验证汉堡菜单按钮可见
-    const menuButton = header.getByRole('button', { name: '打开侧边栏' });
+    const menuButton = header.locator('button').first();
     await expect(menuButton).toBeVisible();
 
     // 验证标题可见
@@ -63,8 +63,8 @@ test.describe('移动端布局', () => {
 
     // 验证只存在一行固定顶栏，且包含两个操作按钮
     await expect(page.locator('header')).toHaveCount(1);
-    await expect(header.getByRole('button', { name: /切换到编辑器输入|切换到直接输入/ })).toBeVisible();
-    await expect(header.getByRole('button', { name: '跳转到最新' })).toBeVisible();
+    await expect(header.getByTestId('terminal-input-mode-toggle')).toBeVisible();
+    await expect(header.getByTestId('terminal-jump-latest')).toBeVisible();
 
     // 顶栏固定在视口顶部
     await expect(header).toHaveCSS('position', 'fixed');
@@ -95,7 +95,7 @@ test.describe('移动端布局', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -130,7 +130,7 @@ test.describe('移动端布局', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
 

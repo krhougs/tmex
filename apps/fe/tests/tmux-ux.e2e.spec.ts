@@ -16,23 +16,23 @@ async function addLocalDevice(
   deviceName: string
 ): Promise<void> {
   await page.goto('/devices');
-  await page.getByRole('button', { name: '添加设备' }).first().click();
+  await page.getByTestId('devices-add').first().click();
 
-  await page.getByLabel('设备名称').fill(deviceName);
+  await page.getByTestId('device-name-input').fill(deviceName);
   await page.getByLabel('类型').selectOption('local');
   await page.getByLabel('Tmux 会话名称').fill(deviceName);
-  await page.getByRole('button', { name: '添加' }).click();
+  await page.getByTestId('device-dialog-save').click();
 
-  await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
+  const deviceCard = page.getByTestId('device-card').filter({ hasText: deviceName }).first(); await expect(deviceCard).toBeVisible(); const deviceId = await deviceCard.getAttribute('data-device-id'); if (!deviceId) throw new Error('Device ID not found'); return deviceId;;
 }
 
-async function connectDevice(page: import('@playwright/test').Page, deviceName: string): Promise<void> {
+async function connectDevice(page: import('@playwright/test').Page, deviceId: string): Promise<void> {
   await page.goto('/devices');
   const deviceCardHeader = page
     .getByRole('heading', { name: deviceName })
     .locator('xpath=..')
     .locator('xpath=..');
-  await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+  await page.getByTestId(`device-connect-${deviceId}`).click();
 
   await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
   await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -51,7 +51,7 @@ test.describe('Terminal 白屏修复', () => {
 
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
     const currentUrl = page.url();
 
@@ -80,7 +80,7 @@ test.describe('Sidebar 功能', () => {
 
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
     const activeWindow = page.locator('[data-testid^="window-item-"][data-active="true"]').first();
     await expect(activeWindow).toBeVisible({ timeout: 30_000 });
@@ -94,7 +94,7 @@ test.describe('Sidebar 功能', () => {
 
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
     await page.locator('.xterm').click();
     await page.waitForTimeout(500);
@@ -135,13 +135,13 @@ test.describe('Sidebar 功能', () => {
 
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
     const windowItems = page.locator('[data-testid^="window-item-"]');
     await expect(windowItems.first()).toBeVisible({ timeout: 30_000 });
     const initialCount = await windowItems.count();
 
-    const newWindowButton = page.locator('[title="新建窗口"]').first();
+    const newWindowButton = page.getByTestId(`window-create-${deviceId}");
     await expect(newWindowButton).toBeVisible();
     await newWindowButton.click();
 
@@ -161,7 +161,7 @@ test.describe('Sidebar 功能', () => {
 
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
     await page.locator('.xterm').click();
     await page.waitForTimeout(500);
@@ -186,7 +186,7 @@ test.describe('响应式布局', () => {
 
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
     const sizes = [
       { width: 1920, height: 1080 },
@@ -225,15 +225,15 @@ test.describe('输入模式切换', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
-    await page.getByRole('button', { name: /编辑器/ }).click();
+    await page.getByTestId('terminal-input-mode-toggle').click();
 
     const editor = page.locator('.editor-mode-input textarea');
     await expect(editor).toBeVisible();
 
     await editor.fill('echo pc_editor_mode_ok');
-    await page.getByRole('button', { name: /^发送$/ }).click();
+    await page.getByTestId('editor-send').click();
 
     await page.waitForTimeout(800);
     await expect(page.locator('.xterm')).toBeVisible();
@@ -247,9 +247,9 @@ test.describe('输入模式切换', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await openDevices(page);
     await addLocalDevice(page, deviceName);
-    await connectDevice(page, deviceName);
+    await connectDevice(page, deviceId);
 
-    await page.getByRole('button', { name: /编辑器/ }).click();
+    await page.getByTestId('terminal-input-mode-toggle').click();
 
     const shortcutRow = page.getByTestId('editor-shortcuts-row');
     await expect(shortcutRow).toBeVisible();

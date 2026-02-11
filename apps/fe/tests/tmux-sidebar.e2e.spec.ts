@@ -16,12 +16,12 @@ async function addLocalDevice(
   deviceName: string
 ): Promise<void> {
   await page.goto('/devices');
-  await page.getByRole('button', { name: '添加设备' }).first().click();
+  await page.getByTestId('devices-add').first().click();
 
-  await page.getByLabel('设备名称').fill(deviceName);
+  await page.getByTestId('device-name-input').fill(deviceName);
   await page.getByLabel('类型').selectOption('local');
   await page.getByLabel('Tmux 会话名称').fill(deviceName);
-  await page.getByRole('button', { name: '添加' }).click();
+  await page.getByTestId('device-dialog-save').click();
 
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
 }
@@ -32,7 +32,7 @@ async function connectDevice(page: import('@playwright/test').Page, deviceName: 
     .getByRole('heading', { name: deviceName })
     .locator('xpath=..')
     .locator('xpath=..');
-  await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+  await page.getByTestId(`device-connect-${deviceId}`).click();
 
   await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
   await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -168,7 +168,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
     await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceName);
 
-    const collapseButton = page.getByRole('button', { name: /收起侧边栏/ });
+    const collapseButton = page.locator('aside button').first();
     await expect(collapseButton).toBeVisible();
     await collapseButton.click();
 
@@ -255,7 +255,7 @@ test.describe('Sidebar - 可读性和对比度', () => {
     const deviceItem = await ensureDeviceExpanded(page, deviceName);
     await expect(deviceItem).toHaveAttribute('data-active', 'true');
 
-    const createWindowButton = page.getByRole('button', { name: `为设备 ${deviceName} 新建窗口` });
+    const createWindowButton = page.getByTestId(`window-create-${deviceId}");
     await expect(createWindowButton).toBeVisible();
     await expect(createWindowButton).toBeEnabled();
 
@@ -284,19 +284,19 @@ test.describe('Sidebar - 可读性和对比度', () => {
 
     const activePaneItem = page.locator('[data-testid^="pane-item-"][data-active="true"]').first();
     await expect(activePaneItem).toBeVisible({ timeout: 30_000 });
-    await activePaneItem.getByRole('button', { name: /关闭 pane/ }).click();
+    const paneId = await activePaneItem.getAttribute('data-testid'); if (!paneId) throw new Error('Pane ID not found'); const paneCloseButton = page.getByTestId(paneId.replace('pane-item-', 'pane-close-')); await paneCloseButton.click();
 
     await page.waitForTimeout(1200);
     await expect(page.locator(`[data-testid="${windowTestId as string}"]`)).toHaveCount(0);
 
-    await expect(page.getByRole('button', { name: /跳转到最新/ })).toBeDisabled();
+    await expect(page.getByTestId('terminal-jump-latest')).toBeDisabled();
 
     await page.goto('/devices');
     const deviceCardHeader = page
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await cleanupSession(page, deviceName);
   });
@@ -304,21 +304,21 @@ test.describe('Sidebar - 可读性和对比度', () => {
   test('Sidebar 展开与折叠态底部按钮都应左对齐', async ({ page }) => {
     await page.goto('/devices');
 
-    const manageDeviceLink = page.getByRole('link', { name: '管理设备', exact: true });
+    const manageDeviceLink = page.getByTestId('sidebar-manage-devices');
     await expect(manageDeviceLink).toBeVisible();
     const manageDeviceJustify = await manageDeviceLink.evaluate((element) => {
       return window.getComputedStyle(element).justifyContent;
     });
     expect(manageDeviceJustify).toBe('flex-start');
 
-    const settingsLink = page.getByRole('link', { name: '设置', exact: true });
+    const settingsLink = page.getByTestId('sidebar-settings');
     await expect(settingsLink).toBeVisible();
     const settingsJustify = await settingsLink.evaluate((element) => {
       return window.getComputedStyle(element).justifyContent;
     });
     expect(settingsJustify).toBe('flex-start');
 
-    const collapseButton = page.getByRole('button', { name: /收起侧边栏/ });
+    const collapseButton = page.locator('aside button').first();
     await expect(collapseButton).toBeVisible();
     await collapseButton.click();
 

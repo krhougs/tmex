@@ -16,12 +16,12 @@ async function addLocalDevice(
   deviceName: string
 ): Promise<void> {
   await page.goto('/devices');
-  await page.getByRole('button', { name: '添加设备' }).first().click();
+  await page.getByTestId('devices-add').first().click();
 
-  await page.getByLabel('设备名称').fill(deviceName);
+  await page.getByTestId('device-name-input').fill(deviceName);
   await page.getByLabel('类型').selectOption('local');
   await page.getByLabel('Tmux 会话名称').fill(deviceName);
-  await page.getByRole('button', { name: '添加' }).click();
+  await page.getByTestId('device-dialog-save').click();
 
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
 }
@@ -36,7 +36,7 @@ async function openDeviceTerminal(
     .getByRole('heading', { name: deviceName })
     .locator('xpath=..')
     .locator('xpath=..');
-  await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+  await page.getByTestId(`device-connect-${deviceId}`).click();
 
   await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
   await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });

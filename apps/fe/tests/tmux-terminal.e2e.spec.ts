@@ -17,12 +17,12 @@ async function addLocalDevice(
   deviceName: string
 ): Promise<void> {
   await page.goto('/devices');
-  await page.getByRole('button', { name: '添加设备' }).first().click();
+  await page.getByTestId('devices-add').first().click();
 
-  await page.getByLabel('设备名称').fill(deviceName);
+  await page.getByTestId('device-name-input').fill(deviceName);
   await page.getByLabel('类型').selectOption('local');
   await page.getByLabel('Tmux 会话名称').fill(deviceName);
-  await page.getByRole('button', { name: '添加' }).click();
+  await page.getByTestId('device-dialog-save').click();
 
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
 }
@@ -87,7 +87,7 @@ test.describe('Terminal 历史内容显示', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -151,7 +151,7 @@ test.describe('Terminal 历史内容显示', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -186,7 +186,7 @@ test.describe('Terminal 历史内容显示', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -238,7 +238,7 @@ test.describe('Terminal 按键处理', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -274,7 +274,7 @@ test.describe('Terminal 按键处理', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -307,7 +307,7 @@ test.describe('Terminal 按键处理', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -348,7 +348,7 @@ test.describe('Terminal 尺寸同步', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -360,7 +360,7 @@ test.describe('Terminal 尺寸同步', () => {
     await page.setViewportSize({ width: 860, height: 560 });
     await page.waitForTimeout(600);
 
-    const jumpToLatestButton = page.getByRole('button', { name: /跳转到最新/ });
+    const jumpToLatestButton = page.getByTestId('terminal-jump-latest');
     await expect(jumpToLatestButton).toBeVisible();
     await jumpToLatestButton.click();
     await page.waitForTimeout(600);
@@ -390,7 +390,7 @@ test.describe('Terminal 尺寸同步', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -478,7 +478,7 @@ test.describe('Terminal 尺寸同步', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
@@ -523,16 +523,16 @@ test.describe('Terminal 尺寸同步', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
 
     const activePaneItem = page.locator('[data-testid^="pane-item-"][data-active="true"]').first();
     await expect(activePaneItem).toBeVisible({ timeout: 30_000 });
-    await activePaneItem.getByRole('button', { name: /关闭 pane/ }).click();
+    const paneId = await activePaneItem.getAttribute('data-testid'); if (!paneId) throw new Error('Pane ID not found'); const paneCloseButton = page.getByTestId(paneId.replace('pane-item-', 'pane-close-')); await paneCloseButton.click();
 
-    await expect(page.getByRole('button', { name: /跳转到最新/ })).toBeDisabled();
+    await expect(page.getByTestId('terminal-jump-latest')).toBeDisabled();
   });
 
   test('终端页面应更新浏览器标题', async ({ page }) => {
@@ -546,7 +546,7 @@ test.describe('Terminal 尺寸同步', () => {
       .getByRole('heading', { name: deviceName })
       .locator('xpath=..')
       .locator('xpath=..');
-    await deviceCardHeader.getByRole('link', { name: '连接' }).click();
+    await page.getByTestId(`device-connect-${deviceId}`).click();
 
     await page.waitForURL(/\/devices\/[^/]+\/windows\/[^/]+\/panes\/[^/]+$/, { timeout: 30_000 });
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
