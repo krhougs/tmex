@@ -10,6 +10,7 @@ node_modules/
 # 构建产物
 dist/
 **/dist/
+packages/app/resources/
 
 # Vite 缓存（可能出现在 node_modules 下）
 **/node_modules/.vite/

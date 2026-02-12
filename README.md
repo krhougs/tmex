@@ -4,6 +4,18 @@
 
 A Vibe Coding supervisor optimized for CJK input and mobile operation ~~, and a destroyer of your sleep quality~~.
 
+### **无缝兼容所有 Coding Agent CLI，交互通知开箱即用。零学习成本，有 tmux 就行。**
+
+### **Works with every Coding Agent CLI, interaction notifications included. Zero learning curve — just tmux.**
+
+---
+
+### 快速开始/Quick Start
+
+```
+npx tmex-cli init
+```
+
 ## 特性 / Features
 
 - ✏️ **CJK 输入优化** — 组合态输入保护，拼音/假名候选不会被拆开发送
@@ -34,21 +46,35 @@ We are not responsible for any sleep deprivation, disrupted schedules, or other 
 
 ## 部署 / Deployment
 
-> 面向小白的一键安装方案还在开发中，目前需要先安装 [Bun](https://bun.sh)。
+> 安装与升级依赖 [Bun](https://bun.sh)（`doctor` 会检查 Bun 版本）。
 >
-> A beginner-friendly one-click installer is in progress. For now, [Bun](https://bun.sh) is required.
+> Installation and upgrade require [Bun](https://bun.sh) (`doctor` checks Bun version).
 
 ```bash
-# 快速启动（自动安装依赖、生成配置、启动服务）
-# Quick start (auto-installs deps, generates config, starts services)
-./scripts/quick-start.sh
+# 交互式初始化（生成 app.env + 安装用户级服务）
+# Interactive setup (generates app.env + installs user service)
+npx tmex-cli init
 
-# 或使用开发模式启动 / Or start in dev mode
-./scripts/start-dev.sh
+# 无交互初始化（CI/自动化）
+# Non-interactive setup (CI/automation)
+npx tmex-cli init --no-interactive \
+  --install-dir ~/.local/share/tmex \
+  --host 127.0.0.1 \
+  --port 9883 \
+  --db-path ~/.local/share/tmex/data/tmex.db \
+  --autostart true
 
-# 或使用开发监工模式（自动重启服务 + 管理 ssh-agent）
-# Or use dev supervisor mode (auto-restart services + managed ssh-agent lifecycle)
-./scripts/dev-supervisor.sh
+# 环境诊断（一次性输出依赖与配置问题）
+# Environment diagnosis (one-shot dependency/config report)
+npx tmex-cli doctor
+
+# 升级到最新版（默认 latest，可用 --version 指定）
+# Upgrade to latest (default latest, use --version to pin)
+npx tmex-cli upgrade
+
+# 卸载（交互确认，可加 --yes / --purge 自动化）
+# Uninstall (interactive by default, use --yes / --purge for automation)
+npx tmex-cli uninstall
 ```
 
 ## 安全 / Security
@@ -61,6 +87,26 @@ We are not responsible for any sleep deprivation, disrupted schedules, or other 
 
 - 敏感数据（密码、私钥）使用 AES-256-GCM 加密存储 / Sensitive data (passwords, private keys) stored with AES-256-GCM encryption
 - Webhook 使用 HMAC-SHA256 签名验证 / Webhooks verified with HMAC-SHA256 signatures
+
+## FAQ
+
+**Q: 部分 Agent 在需要回答问题等交互场景下没有触发通知？**
+
+在项目的 `AGENTS.md`（或对应的 system prompt）中指示模型：在需要用户交互时（包括提问、任务完成、等待确认等）显式输出 `\a`（BEL 控制字符）。tmex 通过捕获 bell 事件来触发通知推送。
+
+**Q: Some agents don't trigger notifications when they need user interaction (e.g. asking a question)?**
+
+Add an instruction to your `AGENTS.md` (or system prompt) telling the model to explicitly output `\a` (the BEL control character) whenever user interaction is needed — including questions, task completion, or awaiting confirmation. tmex captures bell events to trigger push notifications.
+
+---
+
+**Q: 网络中断或其他原因导致模型中断输出，为什么没有通知？**
+
+这属于 Coding Agent 自身的职责范围。目前大多数 Coding Agent（无论 CLI 还是 Web）在输出意外中断时都不会发出提醒，tmex 无法感知 Agent 内部的异常状态。
+
+**Q: Why is there no notification when the model stops outputting due to network issues or other errors?**
+
+This falls under the Coding Agent's own responsibility. Most Coding Agents today — both CLI and web — do not emit any alert when output is unexpectedly interrupted, so tmex has no way to detect the agent's internal failure state.
 
 ## 使用说明 / Usage
 
@@ -152,19 +198,78 @@ chmod +x scripts/health-check.sh
 ./scripts/health-check.sh
 ```
 
+## 发版 / Publish
+
+> 维护者指南，普通用户无需关注。
+>
+> Maintainers only.
+
+1. 更新版本号 / Bump version
+
+修改 `packages/app/package.json` 的 `version`（npm 包名为 `tmex-cli`）。
+
+1. 构建与门禁（含 FE/Gateway/resources）/ Build & checks (including FE/Gateway/resources)
+
+```bash
+bun install
+
+# 先构建前端资源（生成 apps/fe/dist）
+bun run --filter @tmex/fe build
+
+# 校验 gateway 构建
+bun run --filter @tmex/gateway build
+
+# 生成 packages/app/resources
+# - resources/fe-dist 来自 apps/fe/dist
+# - resources/gateway-drizzle 来自 apps/gateway/drizzle
+bun run build:tmex:resources
+
+# 构建 CLI + runtime
+bun run build:tmex:runtime
+bun run build:tmex:cli
+
+# 测试并预演打包
+bun run test:tmex
+npm pack --dry-run --workspace tmex-cli
+```
+
+1. 登录并发布稳定版（`latest`）/ Publish stable to `latest`
+
+```bash
+npm whoami
+cd packages/app
+npm publish --access public --tag latest
+```
+
+1. 发布预发布版本（`next`）/ Publish pre-release to `next`
+
+当版本号包含 `-alpha/-beta/-rc` 等后缀时，建议使用 `next`，避免影响默认安装用户。
+
+```bash
+cd packages/app
+npm publish --access public --tag next
+```
+
+1. 发布后验证 / Post-publish verification
+
+```bash
+npm view tmex-cli version
+npx --yes tmex-cli@<version> --lang en help
+```
+
 ## 环境变量 / Environment Variables
 
-| 变量 / Variable    | 必需 / Required | 默认值 / Default        | 说明 / Description                                                         |
-| ------------------ | --------------- | ----------------------- | -------------------------------------------------------------------------- |
-| `TMEX_MASTER_KEY`  | 是 / Yes        | —                       | 加密主密钥（生产环境必需）/ Master encryption key (required in production) |
-| `TMEX_BASE_URL`    | 否 / No         | `http://127.0.0.1:9883` | 站点访问 URL / Site access URL                                             |
-| `TMEX_SITE_NAME`   | 否 / No         | `tmex`                  | 站点名称 / Site name                                                       |
-| `GATEWAY_PORT`     | 否 / No         | `9663`                  | Gateway 服务端口 / Gateway service port                                    |
-| `FE_PORT`          | 否 / No         | `9883`                  | 前端服务端口 / Frontend service port                                       |
-| `DATABASE_URL`     | 否 / No         | `/tmp/tmex.db`          | SQLite 数据库路径 / SQLite database path                                   |
-| `TMEX_GATEWAY_URL` | 否 / No         | `http://localhost:9663` | 前端代理 Gateway 地址 / Frontend proxy target for Gateway                  |
-| `NODE_ENV`         | 否 / No         | `development`           | 环境模式 / Environment mode                                                |
-| `GATEWAY_WAIT_TIMEOUT_SECONDS` | 否 / No | `30` | `dev-supervisor` 首次启动前端前等待 Gateway 就绪的超时时间（秒）/ Timeout (seconds) before first frontend start when waiting for gateway readiness in `dev-supervisor` |
+| 变量 / Variable                | 必需 / Required | 默认值 / Default        | 说明 / Description                                                                                                                                                     |
+| ------------------------------ | --------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TMEX_MASTER_KEY`              | 是 / Yes        | —                       | 加密主密钥（生产环境必需）/ Master encryption key (required in production)                                                                                             |
+| `TMEX_BASE_URL`                | 否 / No         | `http://127.0.0.1:9883` | 站点访问 URL / Site access URL                                                                                                                                         |
+| `TMEX_SITE_NAME`               | 否 / No         | `tmex`                  | 站点名称 / Site name                                                                                                                                                   |
+| `GATEWAY_PORT`                 | 否 / No         | `9663`                  | Gateway 服务端口 / Gateway service port                                                                                                                                |
+| `FE_PORT`                      | 否 / No         | `9883`                  | 前端服务端口 / Frontend service port                                                                                                                                   |
+| `DATABASE_URL`                 | 否 / No         | `/tmp/tmex.db`          | SQLite 数据库路径 / SQLite database path                                                                                                                               |
+| `TMEX_GATEWAY_URL`             | 否 / No         | `http://localhost:9663` | 前端代理 Gateway 地址 / Frontend proxy target for Gateway                                                                                                              |
+| `NODE_ENV`                     | 否 / No         | `development`           | 环境模式 / Environment mode                                                                                                                                            |
+| `GATEWAY_WAIT_TIMEOUT_SECONDS` | 否 / No         | `30`                    | `dev-supervisor` 首次启动前端前等待 Gateway 就绪的超时时间（秒）/ Timeout (seconds) before first frontend start when waiting for gateway readiness in `dev-supervisor` |
 
 ## 文档 / Documentation
 

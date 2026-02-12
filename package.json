@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "bash ./scripts/dev-supervisor.sh",
     "build": "bun run --filter '*' build",
+    "build:tmex": "bun run --filter tmex-cli build",
+    "build:tmex:resources": "bun run --filter tmex-cli bundle:resources",
+    "build:tmex:runtime": "bun run --filter tmex-cli build:runtime",
+    "build:tmex:cli": "bun run --filter tmex-cli build:cli",
     "test": "bun run --filter '*' test",
+    "test:tmex": "bun run --filter tmex-cli test",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
     "format": "biome format . --write"

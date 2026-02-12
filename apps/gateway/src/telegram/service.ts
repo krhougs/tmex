@@ -1,6 +1,6 @@
 import { toBCP47 } from '@tmex/shared';
 import { Bot } from 'gramio';
-import { decrypt } from '../crypto';
+import { decryptWithContext } from '../crypto';
 import {
   createOrUpdatePendingTelegramChat,
   getAllTelegramBots,
@@ -76,7 +76,11 @@ export class TelegramService {
         continue;
       }
 
-      const token = await decrypt(config.tokenEnc);
+      const token = await decryptWithContext(config.tokenEnc, {
+        scope: 'telegram_bot',
+        entityId: config.id,
+        field: 'token_enc',
+      });
       const running = this.runningBots.get(config.id);
       if (running && running.token === token) {
         continue;

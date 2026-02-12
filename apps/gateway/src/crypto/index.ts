@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { CryptoDecryptError, type CryptoContext } from './errors';
 
 // 使用 Web Crypto API (Bun 支持)
 const ALGORITHM = 'AES-GCM';
@@ -69,4 +70,15 @@ export async function decrypt(ciphertext: string): Promise<string> {
 
   const decoder = new TextDecoder();
   return decoder.decode(decrypted);
+}
+
+export async function decryptWithContext(
+  ciphertext: string,
+  context: CryptoContext
+): Promise<string> {
+  try {
+    return await decrypt(ciphertext);
+  } catch (error) {
+    throw new CryptoDecryptError(context, error);
+  }
 }

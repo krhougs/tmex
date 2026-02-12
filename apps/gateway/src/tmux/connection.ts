@@ -1,7 +1,7 @@
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import type { Subprocess, Terminal as BunTerminal } from 'bun';
 import { Client } from 'ssh2';
-import { decrypt } from '../crypto';
+import { decryptWithContext } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { resolveSshAgentSocket, resolveSshUsername } from './ssh-auth';
 import { TmuxControlParser, type TmuxEvent, type TmuxOutputBlock } from './parser';
@@ -266,7 +266,11 @@ export class TmuxConnection {
           throw new Error('auth_password_missing: 密码认证未提供密码');
         }
 
-        authConfig.password = await decrypt(this.device.passwordEnc);
+        authConfig.password = await decryptWithContext(this.device.passwordEnc, {
+          scope: 'device',
+          entityId: this.device.id,
+          field: 'password_enc',
+        });
         break;
       }
       case 'key': {
@@ -274,9 +278,17 @@ export class TmuxConnection {
           throw new Error('auth_key_missing: 私钥认证未提供私钥');
         }
 
-        authConfig.privateKey = await decrypt(this.device.privateKeyEnc);
+        authConfig.privateKey = await decryptWithContext(this.device.privateKeyEnc, {
+          scope: 'device',
+          entityId: this.device.id,
+          field: 'private_key_enc',
+        });
         if (this.device.privateKeyPassphraseEnc) {
-          authConfig.passphrase = await decrypt(this.device.privateKeyPassphraseEnc);
+          authConfig.passphrase = await decryptWithContext(this.device.privateKeyPassphraseEnc, {
+            scope: 'device',
+            entityId: this.device.id,
+            field: 'private_key_passphrase_enc',
+          });
         }
         break;
       }
@@ -295,9 +307,17 @@ export class TmuxConnection {
           authConfig.agent = agentSocket;
         }
         if (this.device.privateKeyEnc) {
-          authConfig.privateKey = await decrypt(this.device.privateKeyEnc);
+          authConfig.privateKey = await decryptWithContext(this.device.privateKeyEnc, {
+            scope: 'device',
+            entityId: this.device.id,
+            field: 'private_key_enc',
+          });
         } else if (this.device.passwordEnc) {
-          authConfig.password = await decrypt(this.device.passwordEnc);
+          authConfig.password = await decryptWithContext(this.device.passwordEnc, {
+            scope: 'device',
+            entityId: this.device.id,
+            field: 'password_enc',
+          });
         }
         break;
       }
