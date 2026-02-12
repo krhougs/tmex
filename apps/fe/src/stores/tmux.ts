@@ -217,26 +217,24 @@ function ensureSocket(
         const payload = msg.payload as EventDevicePayload;
         if (payload.type === 'error') {
           const summary = payload.message ?? 'Device Error';
-          const raw = payload.rawMessage;
-          const description = raw && raw !== summary ? raw : undefined;
 
-          setState((prev) => ({
-            deviceErrors: {
-              ...prev.deviceErrors,
-              [payload.deviceId]: { message: summary, type: payload.errorType },
-            },
-          }));
+          setState((prev) => {
+            const previousError = prev.deviceErrors[payload.deviceId];
+            if (
+              previousError?.message === summary &&
+              previousError?.type === payload.errorType
+            ) {
+              return {};
+            }
 
-          if (summary) {
-            window.dispatchEvent(
-              new CustomEvent('tmex:sonner', {
-                detail: {
-                  title: payload.errorType ? `[${payload.errorType}] ${summary}` : summary,
-                  description,
-                },
-              })
-            );
-          }
+            return {
+              deviceErrors: {
+                ...prev.deviceErrors,
+                [payload.deviceId]: { message: summary, type: payload.errorType },
+              },
+            };
+          });
+
           return;
         }
 

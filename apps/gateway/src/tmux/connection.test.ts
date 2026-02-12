@@ -16,6 +16,37 @@ async function createConnection(options?: {
 }
 
 describe('TmuxConnection history selection', () => {
+  test('suppresses recoverable target missing errors and requests snapshot', async () => {
+    const errors: Error[] = [];
+    const mod = await import('./connection');
+    const connection = new mod.TmuxConnection({
+      deviceId: 'test-device',
+      onEvent: () => {},
+      onTerminalOutput: () => {},
+      onTerminalHistory: () => {},
+      onSnapshot: () => {},
+      onError: (error) => errors.push(error),
+      onClose: () => {},
+    }) as any;
+
+    let snapshotRequested = false;
+    connection.connected = true;
+    connection.requestSnapshot = () => {
+      snapshotRequested = true;
+    };
+
+    connection.handleOutputBlock({
+      time: Date.now(),
+      commandNo: 1,
+      flags: 0,
+      lines: ["can't find window: @519"],
+      isError: true,
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(snapshotRequested).toBe(true);
+  });
+
   test('emits bell event when terminal output contains BEL byte', async () => {
     const events: Array<{ type: string; data: unknown }> = [];
     const mod = await import('./connection');

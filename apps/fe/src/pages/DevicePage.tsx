@@ -22,6 +22,18 @@ interface EditorShortcut {
   payload: string;
 }
 
+function hasTouchCapability(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (navigator.maxTouchPoints > 0) {
+    return true;
+  }
+
+  return window.matchMedia?.('(any-pointer: coarse)').matches ?? false;
+}
+
 function normalizeHistoryForXterm(data: string): string {
   if (!data) return data;
   return data.replace(/\r?\n/g, '\r\n');
@@ -464,14 +476,19 @@ export function DevicePage() {
 
     const initTerminal = () => {
       try {
+        const touchOptimizedScroll = hasTouchCapability();
         const term = new Terminal({
           fontFamily:
             '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Sarasa Mono SC", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace',
           fontSize: 14,
           convertEol: true,
-          scrollSensitivity: 2,
-          smoothScrollDuration: 120,
-          fastScrollModifier: 'none',
+          ...(touchOptimizedScroll
+            ? {
+                scrollSensitivity: 2,
+                smoothScrollDuration: 120,
+              }
+            : {}),
+          fastScrollModifier: 'ctrl',
           fastScrollSensitivity: 1,
           letterSpacing: 0,
           theme: {
@@ -947,6 +964,25 @@ export function DevicePage() {
         </div>
       )}
 
+      <div className="terminal-shortcuts-strip" data-testid="terminal-shortcuts-strip">
+        <div className="shortcut-row" data-testid="editor-shortcuts-row">
+          {EDITOR_SHORTCUTS.map((shortcut) => (
+            <Button
+              key={shortcut.key}
+              variant="default"
+              size="sm"
+              title={shortcut.label}
+              aria-label={shortcut.label}
+              data-testid={`editor-shortcut-${shortcut.key}`}
+              onClick={() => handleSendShortcut(shortcut.payload)}
+              disabled={!canInteractWithPane}
+            >
+              {shortcut.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       <div
         className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' ? 'pb-2' : ''}`}
       >
@@ -1036,22 +1072,6 @@ export function DevicePage() {
                 <Send className="h-4 w-4 mr-1" />
                 {t('common.send')}
               </Button>
-            </div>
-            <div className="shortcut-row" data-testid="editor-shortcuts-row">
-              {EDITOR_SHORTCUTS.map((shortcut) => (
-                <Button
-                  key={shortcut.key}
-                  variant="default"
-                  size="sm"
-                  title={shortcut.label}
-                  aria-label={shortcut.label}
-                  data-testid={`editor-shortcut-${shortcut.key}`}
-                  onClick={() => handleSendShortcut(shortcut.payload)}
-                  disabled={!canInteractWithPane}
-                >
-                  {shortcut.label}
-                </Button>
-              ))}
             </div>
           </div>
         </div>

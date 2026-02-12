@@ -45,6 +45,10 @@ We are not responsible for any sleep deprivation, disrupted schedules, or other 
 
 # 或使用开发模式启动 / Or start in dev mode
 ./scripts/start-dev.sh
+
+# 或使用开发监工模式（自动重启服务 + 管理 ssh-agent）
+# Or use dev supervisor mode (auto-restart services + managed ssh-agent lifecycle)
+./scripts/dev-supervisor.sh
 ```
 
 ## 安全 / Security
@@ -160,6 +164,7 @@ chmod +x scripts/health-check.sh
 | `DATABASE_URL`     | 否 / No         | `/tmp/tmex.db`          | SQLite 数据库路径 / SQLite database path                                   |
 | `TMEX_GATEWAY_URL` | 否 / No         | `http://localhost:9663` | 前端代理 Gateway 地址 / Frontend proxy target for Gateway                  |
 | `NODE_ENV`         | 否 / No         | `development`           | 环境模式 / Environment mode                                                |
+| `GATEWAY_WAIT_TIMEOUT_SECONDS` | 否 / No | `30` | `dev-supervisor` 首次启动前端前等待 Gateway 就绪的超时时间（秒）/ Timeout (seconds) before first frontend start when waiting for gateway readiness in `dev-supervisor` |
 
 ## 文档 / Documentation
 

@@ -697,7 +697,12 @@ export class TmuxConnection {
 
     if (block.isError) {
       const message = block.lines.join('\n').trim();
+      this.handleCaptureErrorFallback(resolvedKind);
       if (message) {
+        if (this.isRecoverableTargetMissingError(message)) {
+          this.recoverFromTargetMissingError(message);
+          return;
+        }
         this.onError(new Error(message));
       }
       return;
@@ -724,6 +729,49 @@ export class TmuxConnection {
     }
 
     this.emitSnapshotIfReady();
+  }
+
+  private handleCaptureErrorFallback(
+    kind:
+      | 'noop'
+      | 'snapshot-session'
+      | 'snapshot-windows'
+      | 'snapshot-panes'
+      | 'capture-pane'
+      | 'capture-pane-mode'
+  ): void {
+    if (kind === 'capture-pane') {
+      this.handleCapturePaneOutput([]);
+      return;
+    }
+
+    if (kind === 'capture-pane-mode') {
+      this.handleCapturePaneModeOutput([]);
+    }
+  }
+
+  private isRecoverableTargetMissingError(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("can't find window") ||
+      normalized.includes("can't find pane") ||
+      normalized.includes('no such window') ||
+      normalized.includes('no such pane')
+    );
+  }
+
+  private recoverFromTargetMissingError(message: string): void {
+    const normalized = message.toLowerCase();
+
+    if (normalized.includes('window')) {
+      this.activeWindowId = null;
+    }
+
+    if (normalized.includes('pane')) {
+      this.activePaneId = null;
+    }
+
+    this.requestSnapshot();
   }
 
   private parseSnapshotSession(lines: string[]): void {

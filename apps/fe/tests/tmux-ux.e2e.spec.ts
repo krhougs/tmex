@@ -276,9 +276,19 @@ test.describe('输入模式切换', () => {
     const deviceId = await addLocalDevice(page, deviceName);
     await connectDevice(page, deviceId);
 
+    const shortcutStrip = page.getByTestId('terminal-shortcuts-strip');
+    const shortcutRow = page.getByTestId('editor-shortcuts-row');
+    await expect(shortcutStrip).toBeVisible();
+    await expect(shortcutRow).toBeVisible();
+    await expect(page.getByTestId('editor-shortcut-ctrl-c')).toBeVisible();
+
+    await expect(shortcutRow).toHaveCSS('overflow-x', 'auto');
+    await expect(shortcutRow).toHaveCSS('flex-wrap', 'nowrap');
+    await expect(page.getByTestId('editor-shortcut-ctrl-c')).toHaveCSS('user-select', 'none');
+
     await page.getByTestId('terminal-input-mode-toggle').click();
 
-    const shortcutRow = page.getByTestId('editor-shortcuts-row');
+    await expect(shortcutStrip).toBeVisible();
     await expect(shortcutRow).toBeVisible();
     await expect(page.getByTestId('editor-shortcut-ctrl-c')).toBeVisible();
     await expect(page.getByTestId('editor-shortcut-esc')).toBeVisible();
