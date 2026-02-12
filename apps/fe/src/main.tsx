@@ -62,6 +62,18 @@ createRoot(rootElement).render(
         richColors
         position="top-right"
         closeButton
+        offset={{
+          top: 'calc(16px + var(--tmex-safe-area-top))',
+          right: '16px',
+          bottom: '16px',
+          left: '16px',
+        }}
+        mobileOffset={{
+          top: 'calc(12px + var(--tmex-safe-area-top))',
+          right: '12px',
+          bottom: '12px',
+          left: '12px',
+        }}
         toastOptions={{
           duration: 6000,
         }}

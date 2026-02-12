@@ -33,6 +33,11 @@ export const I18N_RESOURCES = {
         default: 'Default',
         optional: 'Optional',
         required: 'Required',
+        pwaInstallTitle: 'Install as app',
+        pwaInstallHintIOSSafari:
+          'iOS Safari does not show an automatic install prompt. Tap Share, then "Add to Home Screen".',
+        pwaInstallHintIOSChrome:
+          'iOS Chrome does not show an automatic install prompt. Tap Share, then "Add to Home Screen".',
       },
 
       // ==================== Navigation ====================
@@ -362,6 +367,11 @@ export const I18N_RESOURCES = {
         default: '默认',
         optional: '可选',
         required: '必填',
+        pwaInstallTitle: '安装为应用',
+        pwaInstallHintIOSSafari:
+          'iOS Safari 不会自动弹出安装提示。请点击“分享”，再选择“添加到主屏幕”。',
+        pwaInstallHintIOSChrome:
+          'iOS Chrome 不会自动弹出安装提示。请点击“分享”，再选择“添加到主屏幕”。',
       },
 
       // ==================== Navigation ====================

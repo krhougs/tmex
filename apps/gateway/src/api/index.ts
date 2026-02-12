@@ -204,6 +204,10 @@ export function handleApiRequest(
     return handleDeleteWebhook(path.split('/')[3]);
   }
 
+  if (path === '/api/manifest.webmanifest' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleGetManifest(req.method);
+  }
+
   if (path === '/healthz' && req.method === 'GET') {
     return json({ status: 'ok', restarting: runtimeController.isRestarting() });
   }
@@ -527,6 +531,41 @@ async function handleCreateWebhook(req: Request): Promise<Response> {
 async function handleDeleteWebhook(id: string): Promise<Response> {
   deleteWebhookEndpoint(id);
   return json({ success: true });
+}
+
+async function handleGetManifest(method: 'GET' | 'HEAD'): Promise<Response> {
+  const settings = getSiteSettings();
+
+  const manifest = {
+    id: '/',
+    name: settings.siteName,
+    short_name: settings.siteName,
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#0d1117',
+    theme_color: '#0d1117',
+    icons: [
+      {
+        src: '/tmex.png',
+        sizes: '768x768',
+        type: 'image/png',
+        purpose: 'any maskable',
+      },
+    ],
+  };
+
+  return manifestJson(manifest, method);
+}
+
+function manifestJson(data: unknown, method: 'GET' | 'HEAD'): Response {
+  return new Response(method === 'HEAD' ? null : JSON.stringify(data), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/manifest+json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
 
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {

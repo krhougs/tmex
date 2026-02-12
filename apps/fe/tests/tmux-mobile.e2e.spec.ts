@@ -57,6 +57,8 @@ test.describe('移动端布局', () => {
     const header = page.getByTestId('mobile-topbar');
     const headerBox = await header.boundingBox();
     expect(headerBox).toBeTruthy();
+    await expect(header).toHaveClass(/tmex-mobile-topbar/);
+    await expect(header.locator('..')).toHaveClass(/tmex-mobile-topbar-spacer/);
 
     await expect(page.getByTestId('mobile-sidebar-open')).toBeVisible();
 

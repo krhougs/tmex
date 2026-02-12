@@ -370,5 +370,99 @@ test.describe('iOS Meta', () => {
       return meta?.getAttribute('content') ?? '';
     });
     expect(statusBarStyle).toBe('black-translucent');
+
+    const manifestHref = await page.evaluate(() => {
+      const link = document.querySelector('link[rel=\"manifest\"]');
+      return link?.getAttribute('href') ?? '';
+    });
+    expect(manifestHref).toContain('/api/manifest.webmanifest');
+
+    const appleTouchIconHref = await page.evaluate(() => {
+      const link = document.querySelector('link[rel=\"apple-touch-icon\"]');
+      return link?.getAttribute('href') ?? '';
+    });
+    expect(appleTouchIconHref).toContain('/tmex.png');
+
+    const standaloneDataAttr = await page.evaluate(() => {
+      return document.documentElement.dataset.tmexStandalone ?? '';
+    });
+    expect(standaloneDataAttr).toBe('0');
+
+    const safeAreaTopVar = await page.evaluate(() => {
+      return getComputedStyle(document.documentElement).getPropertyValue('--tmex-safe-area-top').trim();
+    });
+    expect(safeAreaTopVar).toBe('0px');
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent('tmex:sonner', {
+          detail: {
+            title: 'safe-area toast probe',
+          },
+        })
+      );
+    });
+    await page.waitForSelector('[data-sonner-toaster]', { state: 'attached' });
+
+    const toasterOffsets = await page.evaluate(() => {
+      const toaster = document.querySelector('[data-sonner-toaster]') as HTMLElement | null;
+      return toaster?.getAttribute('style') ?? '';
+    });
+    expect(toasterOffsets).toContain('--offset-top: calc(16px + var(--tmex-safe-area-top))');
+    expect(toasterOffsets).toContain('--mobile-offset-top: calc(12px + var(--tmex-safe-area-top))');
+  });
+
+  test('manifest 名称应跟随站点设置动态变化', async ({ request }) => {
+    const originalRes = await request.get('/api/settings/site');
+    expect(originalRes.ok()).toBeTruthy();
+    const originalJson = (await originalRes.json()) as {
+      settings: {
+        siteName: string;
+        siteUrl: string;
+        bellThrottleSeconds: number;
+        enableBrowserBellToast: boolean;
+        enableTelegramBellPush: boolean;
+        sshReconnectMaxRetries: number;
+        sshReconnectDelaySeconds: number;
+        language: 'en_US' | 'zh_CN';
+      };
+    };
+
+    const originalSettings = originalJson.settings;
+    const tempSiteName = `tmex-e2e-manifest-${RUN_ID}`;
+
+    try {
+      const patchRes = await request.patch('/api/settings/site', {
+        data: { siteName: tempSiteName },
+      });
+      expect(patchRes.ok()).toBeTruthy();
+
+      const manifestRes = await request.get('/api/manifest.webmanifest');
+      expect(manifestRes.ok()).toBeTruthy();
+      expect((manifestRes.headers()['content-type'] ?? '').toLowerCase()).toContain(
+        'application/manifest+json'
+      );
+
+      const manifest = (await manifestRes.json()) as {
+        name: string;
+        short_name: string;
+      };
+      expect(manifest.name).toBe(tempSiteName);
+      expect(manifest.short_name).toBe(tempSiteName);
+    } finally {
+      const restoreRes = await request.patch('/api/settings/site', {
+        data: {
+          siteName: originalSettings.siteName,
+          siteUrl: originalSettings.siteUrl,
+          bellThrottleSeconds: originalSettings.bellThrottleSeconds,
+          enableBrowserBellToast: originalSettings.enableBrowserBellToast,
+          enableTelegramBellPush: originalSettings.enableTelegramBellPush,
+          sshReconnectMaxRetries: originalSettings.sshReconnectMaxRetries,
+          sshReconnectDelaySeconds: originalSettings.sshReconnectDelaySeconds,
+          language: originalSettings.language,
+        },
+      });
+      expect(restoreRes.ok()).toBeTruthy();
+    }
   });
 });

@@ -222,29 +222,31 @@ export function Sidebar({ onClose }: SidebarProps) {
       `}
     >
       {/* 头部 */}
-      <div className="flex items-center justify-between px-3 h-11 border-b border-[var(--color-border)] flex-shrink-0">
-        {!sidebarCollapsed && (
-          <span className="font-semibold text-base text-[var(--color-text)] truncate">
-            {siteName}
-          </span>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          data-testid="sidebar-collapse-toggle"
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
-          className={`
-            p-1.5 h-8 w-8
-            ${sidebarCollapsed ? 'mx-auto' : ''}
-          `}
-        >
-          {sidebarCollapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
+      <div className="tmex-mobile-topbar border-b border-[var(--color-border)] flex-shrink-0">
+        <div className="h-11 flex items-center justify-between">
+          {!sidebarCollapsed && (
+            <span className="font-semibold text-base text-[var(--color-text)] truncate">
+              {siteName}
+            </span>
           )}
-        </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="sidebar-collapse-toggle"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
+            className={`
+              p-1.5 h-8 w-8
+              ${sidebarCollapsed ? 'mx-auto' : ''}
+            `}
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* 设备列表 */}
@@ -296,7 +298,7 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* 底部 */}
       {!sidebarCollapsed && (
-        <div className="p-3 border-t border-[var(--color-border)] flex-shrink-0">
+        <div className="p-3 tmex-sidebar-bottom-safe-md border-t border-[var(--color-border)] flex-shrink-0">
           <div className="flex flex-col gap-2">
             <Button variant="default" className="w-full justify-start" asChild>
               <Link data-testid="sidebar-manage-devices" to="/devices" onClick={onClose}>
@@ -317,7 +319,7 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* 折叠状态下的快捷按钮 */}
       {sidebarCollapsed && (
-        <div className="p-2 border-t border-[var(--color-border)] flex-shrink-0 flex flex-col gap-2">
+        <div className="p-2 tmex-sidebar-bottom-safe-sm border-t border-[var(--color-border)] flex-shrink-0 flex flex-col gap-2">
           <Button
             variant="ghost"
             size="sm"

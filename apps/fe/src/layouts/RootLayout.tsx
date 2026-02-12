@@ -23,6 +23,33 @@ declare global {
   }
 }
 
+function isIOSMobileBrowser(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent;
+  const isIOSDevice = /iPad|iPhone|iPod/.test(userAgent);
+  const isTouchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return isIOSDevice || isTouchMac;
+}
+
+function isStandaloneDisplayMode(): boolean {
+  const standaloneByNavigator =
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const standaloneByMedia =
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(display-mode: standalone)').matches === true;
+  return standaloneByNavigator || standaloneByMedia;
+}
+
+function isIOSChromeBrowser(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /\bCriOS\b/i.test(navigator.userAgent);
+}
+
 export function RootLayout() {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -135,6 +162,85 @@ export function RootLayout() {
   }, [siteSettings?.siteName]);
 
   useEffect(() => {
+    if (!isIOSMobileBrowser()) {
+      return;
+    }
+    if (isStandaloneDisplayMode()) {
+      return;
+    }
+
+    const key = 'tmex:pwa:ios-install-hint-dismissed';
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem(key) === '1';
+    } catch {
+      dismissed = false;
+    }
+    if (dismissed) {
+      return;
+    }
+    try {
+      localStorage.setItem(key, '1');
+    } catch {
+      // ignore storage errors (e.g. private mode)
+    }
+
+    const description = isIOSChromeBrowser()
+      ? t('common.pwaInstallHintIOSChrome')
+      : t('common.pwaInstallHintIOSSafari');
+
+    toast.custom(
+      (toastId) => (
+        <div className="w-full max-w-[420px] rounded-md bg-[var(--color-bg-secondary)] border border-[var(--color-border)] px-3 py-2 text-left">
+          <div className="text-sm font-medium">{t('common.pwaInstallTitle')}</div>
+          <div className="mt-1 text-xs text-[var(--color-text-secondary)]">{description}</div>
+          <button
+            type="button"
+            className="mt-2 text-xs text-[var(--color-accent)]"
+            onClick={() => {
+              toast.dismiss(toastId);
+            }}
+          >
+            {t('common.close')}
+          </button>
+        </div>
+      ),
+      { duration: 12_000 }
+    );
+  }, [t]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const updateStandaloneDataAttr = () => {
+      root.dataset.tmexStandalone = isStandaloneDisplayMode() ? '1' : '0';
+    };
+
+    updateStandaloneDataAttr();
+
+    const standaloneMedia = window.matchMedia?.('(display-mode: standalone)');
+    const legacyMedia = standaloneMedia as
+      | (MediaQueryList & {
+        addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+        removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+      })
+      | undefined;
+
+    if (standaloneMedia?.addEventListener) {
+      standaloneMedia.addEventListener('change', updateStandaloneDataAttr);
+    } else {
+      legacyMedia?.addListener?.(updateStandaloneDataAttr);
+    }
+
+    return () => {
+      if (standaloneMedia?.removeEventListener) {
+        standaloneMedia.removeEventListener('change', updateStandaloneDataAttr);
+      } else {
+        legacyMedia?.removeListener?.(updateStandaloneDataAttr);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const listener = (event: Event) => {
       const custom = event as CustomEvent<{
         title: string;
@@ -198,7 +304,7 @@ export function RootLayout() {
         setSidebarOpen(false);
       }
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -285,14 +391,28 @@ export function RootLayout() {
   useEffect(() => {
     const HEIGHT_DELTA_THRESHOLD_PX = 2;
     const OFFSET_DELTA_THRESHOLD_PX = 1;
+    const IOS_STANDALONE_KEYBOARD_THRESHOLD_PX = 80;
     let frameId: number | null = null;
     let shouldSyncHeightInNextFrame = false;
     let lastAppliedHeight: number | null = null;
     let lastAppliedOffsetTop: number | null = null;
 
     const applyViewportVars = (syncHeight: boolean) => {
+      const layoutHeight = window.innerHeight;
+      const viewport = window.visualViewport;
+      const rawOffsetTop = viewport?.offsetTop ?? 0;
+
       if (syncHeight) {
-        const rawHeight = window.visualViewport?.height ?? window.innerHeight;
+        const visualHeight = viewport?.height ?? layoutHeight;
+        let rawHeight = visualHeight;
+
+        if (viewport && isStandaloneDisplayMode()) {
+          const gap = layoutHeight - (visualHeight + rawOffsetTop);
+          if (gap >= 0 && gap <= IOS_STANDALONE_KEYBOARD_THRESHOLD_PX) {
+            rawHeight = layoutHeight - rawOffsetTop;
+          }
+        }
+
         if (!Number.isFinite(rawHeight) || rawHeight <= 0) {
           return;
         }
@@ -307,7 +427,6 @@ export function RootLayout() {
         }
       }
 
-      const rawOffsetTop = window.visualViewport?.offsetTop ?? 0;
       if (!Number.isFinite(rawOffsetTop)) {
         return;
       }
@@ -360,8 +479,7 @@ export function RootLayout() {
   return (
     <div
       ref={rootRef}
-      className="flex w-screen overflow-hidden bg-[var(--color-bg)]"
-      style={{ height: 'calc(var(--tmex-viewport-height) + var(--tmex-viewport-offset-top))' }}
+      className="flex h-[100vh] w-screen overflow-hidden bg-[var(--color-bg)]"
     >
       {/* 移动端遮罩 */}
       {isMobile && sidebarOpen && (
@@ -375,80 +493,88 @@ export function RootLayout() {
       )}
 
       {/* 侧边栏 */}
-      <div 
-        className={`${isMobile ? 'fixed left-0 top-0 bottom-0 z-[100] transform -translate-x-full transition-transform duration-200' : ''} 
+      <div
+        className={`${isMobile ? 'fixed left-0 top-0 bottom-0 z-[100] transform -translate-x-full transition-transform duration-200' : ''}
           ${isMobile && sidebarOpen ? 'translate-x-0' : ''}`}
       >
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </div>
 
       {/* 主内容区 */}
-      <div className={`flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden ${isMobile ? 'pt-11' : ''}`}>
+      <div
+        className={`flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden ${isMobile ? 'tmex-mobile-topbar-spacer' : ''
+          }`}
+      >
         {/* 顶部栏（移动端固定单行） */}
         {isMobile && (
-          <header data-testid="mobile-topbar" className="fixed top-0 left-0 right-0 z-[120] h-11 flex items-center justify-between px-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2">
-            <button
-              type="button"
-              data-testid="mobile-sidebar-open"
-              onClick={() => setSidebarOpen(true)}
-              className="h-7 w-7 inline-flex items-center justify-center -ml-1 rounded hover:bg-[var(--color-bg-tertiary)]"
-              aria-label={t('nav.openSidebar')}
-              title={t('nav.openSidebar')}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
+          <header
+            data-testid="mobile-topbar"
+            className="tmex-mobile-topbar fixed top-0 left-0 right-0 z-[120] bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)]"
+          >
+            <div className="h-11 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                data-testid="mobile-sidebar-open"
+                onClick={() => setSidebarOpen(true)}
+                className="h-7 w-7 inline-flex items-center justify-center -ml-1 rounded hover:bg-[var(--color-bg-tertiary)]"
+                aria-label={t('nav.openSidebar')}
+                title={t('nav.openSidebar')}
               >
-                <path d="M3 5h14v2H3V5zm0 4h14v2H3V9zm0 4h14v2H3v-2z" />
-              </svg>
-            </button>
-            <span
-              data-testid="mobile-topbar-title"
-              className="font-medium text-sm truncate text-center flex-1"
-              title={mobileTerminalLabel ?? siteSettings?.siteName ?? 'tmex'}
-            >
-              {mobileTerminalLabel ?? siteSettings?.siteName ?? 'tmex'}
-            </span>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M3 5h14v2H3V5zm0 4h14v2H3V9zm0 4h14v2H3v-2z" />
+                </svg>
+              </button>
 
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                type="button"
-                data-testid="terminal-input-mode-toggle"
-                onClick={handleToggleInputMode}
-                className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
-                title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
-                disabled={!isTerminalRoute}
+              <span
+                data-testid="mobile-topbar-title"
+                className="font-medium text-sm truncate text-center flex-1"
+                title={mobileTerminalLabel ?? siteSettings?.siteName ?? 'tmex'}
               >
-                {inputMode === 'direct' ? (
-                  <Keyboard className="h-4 w-4" />
-                ) : (
-                  <Smartphone className="h-4 w-4" />
-                )}
-              </button>
-              <button
-                type="button"
-                data-testid="terminal-jump-latest"
-                onClick={handleJumpToLatest}
-                className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                aria-label={t('nav.jumpToLatest')}
-                title={t('nav.jumpToLatest')}
-                disabled={!canInteractWithPane}
-              >
-                <ArrowDownToLine className="h-4 w-4" />
-              </button>
+                {mobileTerminalLabel ?? siteSettings?.siteName ?? 'tmex'}
+              </span>
+
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  type="button"
+                  data-testid="terminal-input-mode-toggle"
+                  onClick={handleToggleInputMode}
+                  className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
+                  aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+                  title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+                  disabled={!isTerminalRoute}
+                >
+                  {inputMode === 'direct' ? (
+                    <Keyboard className="h-4 w-4" />
+                  ) : (
+                    <Smartphone className="h-4 w-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  data-testid="terminal-jump-latest"
+                  onClick={handleJumpToLatest}
+                  className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)]"
+                  aria-label={t('nav.jumpToLatest')}
+                  title={t('nav.jumpToLatest')}
+                  disabled={!canInteractWithPane}
+                >
+                  <ArrowDownToLine className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </header>
         )}
 
         {/* 内容 */}
         <main
-          className={`flex-1 min-w-0 min-h-0 ${isScrollableContentRoute ? 'overflow-y-auto' : 'overflow-hidden'} ${
-            isMobile && isTerminalRoute ? 'overscroll-none' : ''
-          }`}
+          className={`flex-1 min-w-0 min-h-0 ${isScrollableContentRoute ? 'overflow-y-auto' : 'overflow-hidden'} ${isMobile && isTerminalRoute ? 'overscroll-none' : ''
+            }`}
         >
           <Outlet />
         </main>
