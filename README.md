@@ -1,20 +1,22 @@
-# tmex
+<p align="center">
+  <img src="apps/fe/tmex.png" width="160" height="160" alt="tmex logo" />
+</p>
 
+<h1 align="center">tmex</h1>
 针对 CJK 输入和移动端操作专项优化的 Vibe Coding 监工神器 ~~，你的睡眠质量毁灭者~~。
 
 A Vibe Coding supervisor optimized for CJK input and mobile operation ~~, and a destroyer of your sleep quality~~.
 
-### **无缝兼容所有 Coding Agent CLI，交互通知开箱即用。零学习成本，有 tmux 就行。**
-
-### **Works with every Coding Agent CLI, interaction notifications included. Zero learning curve — just tmux.**
+```bash
+# Quick Start
+npx tmex-cli init
+```
 
 ---
 
-### 快速开始/Quick Start
+### **无缝兼容所有 Coding Agent CLI，交互通知开箱即用。零学习成本，有 tmux 就行。**
 
-```
-npx tmex-cli init
-```
+### **Works with every Coding Agent CLI, interaction notifications included. Zero learning curve — just tmux.**
 
 ## 特性 / Features
 

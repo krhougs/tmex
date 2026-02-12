@@ -283,21 +283,77 @@ export function RootLayout() {
   }, [isMobile, isTerminalRoute]);
 
   useEffect(() => {
-    const setViewportHeightVar = () => {
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      document.documentElement.style.setProperty('--tmex-viewport-height', `${Math.round(viewportHeight)}px`);
+    const HEIGHT_DELTA_THRESHOLD_PX = 2;
+    const OFFSET_DELTA_THRESHOLD_PX = 1;
+    let frameId: number | null = null;
+    let shouldSyncHeightInNextFrame = false;
+    let lastAppliedHeight: number | null = null;
+    let lastAppliedOffsetTop: number | null = null;
+
+    const applyViewportVars = (syncHeight: boolean) => {
+      if (syncHeight) {
+        const rawHeight = window.visualViewport?.height ?? window.innerHeight;
+        if (!Number.isFinite(rawHeight) || rawHeight <= 0) {
+          return;
+        }
+
+        const nextHeight = Math.round(rawHeight);
+        if (
+          lastAppliedHeight === null ||
+          Math.abs(nextHeight - lastAppliedHeight) >= HEIGHT_DELTA_THRESHOLD_PX
+        ) {
+          lastAppliedHeight = nextHeight;
+          document.documentElement.style.setProperty('--tmex-viewport-height', `${nextHeight}px`);
+        }
+      }
+
+      const rawOffsetTop = window.visualViewport?.offsetTop ?? 0;
+      if (!Number.isFinite(rawOffsetTop)) {
+        return;
+      }
+
+      const nextOffsetTop = Math.max(0, Math.round(rawOffsetTop));
+      if (
+        lastAppliedOffsetTop !== null &&
+        Math.abs(nextOffsetTop - lastAppliedOffsetTop) < OFFSET_DELTA_THRESHOLD_PX
+      ) {
+        return;
+      }
+
+      lastAppliedOffsetTop = nextOffsetTop;
+      document.documentElement.style.setProperty('--tmex-viewport-offset-top', `${nextOffsetTop}px`);
     };
 
-    setViewportHeightVar();
+    const scheduleViewportVarSync = (syncHeight: boolean) => {
+      shouldSyncHeightInNextFrame ||= syncHeight;
+      if (frameId !== null) {
+        return;
+      }
 
-    window.addEventListener('resize', setViewportHeightVar);
-    window.visualViewport?.addEventListener('resize', setViewportHeightVar);
-    window.visualViewport?.addEventListener('scroll', setViewportHeightVar);
+      frameId = window.requestAnimationFrame(() => {
+        const shouldSyncHeight = shouldSyncHeightInNextFrame;
+        shouldSyncHeightInNextFrame = false;
+        frameId = null;
+        applyViewportVars(shouldSyncHeight);
+      });
+    };
+
+    applyViewportVars(true);
+
+    const handleResizeSync = () => scheduleViewportVarSync(true);
+    const handleOffsetSync = () => scheduleViewportVarSync(false);
+
+    window.addEventListener('resize', handleResizeSync);
+    window.visualViewport?.addEventListener('resize', handleResizeSync);
+    window.visualViewport?.addEventListener('scroll', handleOffsetSync);
 
     return () => {
-      window.removeEventListener('resize', setViewportHeightVar);
-      window.visualViewport?.removeEventListener('resize', setViewportHeightVar);
-      window.visualViewport?.removeEventListener('scroll', setViewportHeightVar);
+      window.removeEventListener('resize', handleResizeSync);
+      window.visualViewport?.removeEventListener('resize', handleResizeSync);
+      window.visualViewport?.removeEventListener('scroll', handleOffsetSync);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
     };
   }, []);
 
@@ -305,7 +361,7 @@ export function RootLayout() {
     <div
       ref={rootRef}
       className="flex w-screen overflow-hidden bg-[var(--color-bg)]"
-      style={{ height: 'var(--tmex-viewport-height)' }}
+      style={{ height: 'calc(var(--tmex-viewport-height) + var(--tmex-viewport-offset-top))' }}
     >
       {/* 移动端遮罩 */}
       {isMobile && sidebarOpen && (

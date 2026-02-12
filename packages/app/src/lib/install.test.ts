@@ -24,7 +24,10 @@ describe('writeRunScript', () => {
     const script = await readFile(installLayout.runScriptPath, 'utf8');
     expect(script).toContain('#!/usr/bin/env bash');
     expect(script).toContain('SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"');
-    expect(script).toContain(`source "${installLayout.envPath}"`);
+    expect(script).toContain('while IFS= read -r line || [[ -n "$line" ]]; do');
+    expect(script).toContain('export "$line"');
+    expect(script).toContain(`done < "${installLayout.envPath}"`);
+    expect(script).not.toContain('source ');
     expect(script).toContain('export PATH="${HOME}/.bun/bin:${PATH:-}"');
     expect(script).toContain('export TMEX_FE_DIST_DIR=');
     expect(script).toContain('export TMEX_MIGRATIONS_DIR=');

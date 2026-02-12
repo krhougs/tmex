@@ -125,4 +125,83 @@ test.describe('移动端布局', () => {
     await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
     await page.keyboard.press('Enter');
   });
+
+  test('折叠 Sidebar 底部按钮在 visualViewport scroll 风暴下应保持稳定', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_sidebar_jitter_${RUN_ID}`);
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    await openDevices(page);
+    const deviceId = await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceId);
+
+    const collapseButton = page.getByTestId('sidebar-collapse-toggle').first();
+    await collapseButton.click();
+    await expect(page.getByTestId(`device-icon-${deviceId}`)).toBeVisible();
+
+    const manageButton = page.getByTestId('sidebar-manage-devices');
+    await expect(manageButton).toBeVisible();
+    const beforeBox = await manageButton.boundingBox();
+    expect(beforeBox).toBeTruthy();
+
+    await page.evaluate(() => {
+      const proto = CSSStyleDeclaration.prototype as CSSStyleDeclaration & {
+        __tmexOriginalSetProperty?: CSSStyleDeclaration['setProperty'];
+      };
+
+      if (!proto.__tmexOriginalSetProperty) {
+        proto.__tmexOriginalSetProperty = proto.setProperty;
+      }
+
+      let viewportWriteCount = 0;
+      const originalSetProperty = proto.__tmexOriginalSetProperty;
+
+      proto.setProperty = function (
+        propertyName: string,
+        value: string | null,
+        priority?: string
+      ): void {
+        if (propertyName === '--tmex-viewport-height') {
+          viewportWriteCount += 1;
+        }
+        originalSetProperty.call(this, propertyName, value, priority);
+      };
+
+      (window as Window & { __tmexViewportWriteCount?: () => number }).__tmexViewportWriteCount = () =>
+        viewportWriteCount;
+      (window as Window & { __tmexRestoreViewportPatch?: () => void }).__tmexRestoreViewportPatch = () => {
+        proto.setProperty = originalSetProperty;
+      };
+    });
+
+    await page.evaluate(() => {
+      if (!window.visualViewport) {
+        return;
+      }
+
+      for (let i = 0; i < 40; i += 1) {
+        window.visualViewport.dispatchEvent(new Event('scroll'));
+      }
+    });
+
+    await page.waitForTimeout(100);
+    const viewportWriteCount = await page.evaluate(
+      () =>
+        (window as Window & { __tmexViewportWriteCount?: () => number }).__tmexViewportWriteCount?.() ?? 0
+    );
+    expect(viewportWriteCount).toBeLessThanOrEqual(1);
+
+    const afterBox = await manageButton.boundingBox();
+    expect(afterBox).toBeTruthy();
+    expect(Math.abs((afterBox?.y ?? 0) - (beforeBox?.y ?? 0))).toBeLessThanOrEqual(1);
+
+    await page.evaluate(() => {
+      (window as Window & { __tmexRestoreViewportPatch?: () => void }).__tmexRestoreViewportPatch?.();
+    });
+
+    await page.locator('.xterm').click();
+    await page.waitForTimeout(500);
+    await page.keyboard.type(`tmux kill-session -t ${deviceName} || true`);
+    await page.keyboard.press('Enter');
+  });
 });

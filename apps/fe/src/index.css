@@ -16,6 +16,7 @@
   --color-danger: #da3633;
   --color-bell: #f85149;
   --tmex-viewport-height: 100dvh;
+  --tmex-viewport-offset-top: 0px;
 }
 
 * {
@@ -132,20 +133,24 @@ body.tmex-terminal-mobile-gesture-guard .xterm .xterm-viewport::-webkit-scrollba
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
   padding: 6px 8px;
+  min-height: 44px;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
 }
 
 .terminal-shortcuts-strip .shortcut-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
   flex-wrap: nowrap;
-  scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
+  min-width: max-content;
+  padding-right: 2px;
+  scrollbar-width: none;
 }
 
 .terminal-shortcuts-strip .shortcut-row button {
@@ -162,6 +167,13 @@ body.tmex-terminal-mobile-gesture-guard .xterm .xterm-viewport::-webkit-scrollba
   border-top: 1px solid var(--color-border);
   padding: 8px 12px;
   flex-shrink: 0;
+}
+
+.editor-mode-input-docked {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 130;
 }
 
 .editor-mode-input textarea {
@@ -216,6 +228,11 @@ body.tmex-terminal-mobile-gesture-guard .xterm .xterm-viewport::-webkit-scrollba
 @media (max-width: 768px) {
   .editor-mode-input {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .editor-mode-input-docked {
+    bottom: 0;
+    max-width: 100vw;
   }
 
   .editor-mode-input .actions {

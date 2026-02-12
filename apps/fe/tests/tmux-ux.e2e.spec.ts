@@ -282,7 +282,7 @@ test.describe('输入模式切换', () => {
     await expect(shortcutRow).toBeVisible();
     await expect(page.getByTestId('editor-shortcut-ctrl-c')).toBeVisible();
 
-    await expect(shortcutRow).toHaveCSS('overflow-x', 'auto');
+    await expect(shortcutStrip).toHaveCSS('overflow-x', 'auto');
     await expect(shortcutRow).toHaveCSS('flex-wrap', 'nowrap');
     await expect(page.getByTestId('editor-shortcut-ctrl-c')).toHaveCSS('user-select', 'none');
 
@@ -310,5 +310,65 @@ test.describe('输入模式切换', () => {
     await page.waitForTimeout(200);
 
     await cleanupSession(page, deviceName);
+  });
+
+  test('切换输入模式后终端应自动滚动到最新', async ({ page }) => {
+    const deviceName = sanitizeSessionName(`e2e_editor_scroll_latest_${RUN_ID}`);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openDevices(page);
+    const deviceId = await addLocalDevice(page, deviceName);
+    await connectDevice(page, deviceId);
+
+    await page.locator('.xterm').click();
+    await page.waitForTimeout(500);
+    await page.keyboard.type('for i in $(seq 1 120); do echo e2e_scroll_$i; done');
+    await page.keyboard.press('Enter');
+
+    const viewport = page.locator('.xterm-viewport').first();
+    await expect(viewport).toBeVisible();
+
+    await page.waitForTimeout(800);
+    await viewport.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+
+    await page.getByTestId('terminal-input-mode-toggle').click();
+
+    await page.waitForTimeout(200);
+    const scrollInfo = await viewport.evaluate((el) => ({
+      scrollTop: el.scrollTop,
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+    }));
+
+    expect(Math.abs(scrollInfo.scrollHeight - scrollInfo.clientHeight - scrollInfo.scrollTop)).toBeLessThanOrEqual(8);
+
+    await cleanupSession(page, deviceName);
+  });
+});
+
+test.describe('iOS Meta', () => {
+  test('应包含 PWA 全屏与 viewport-fit meta', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+
+    const viewportContent = await page.evaluate(() => {
+      const meta = document.querySelector('meta[name=\"viewport\"]');
+      return meta?.getAttribute('content') ?? '';
+    });
+    expect(viewportContent).toContain('viewport-fit=cover');
+
+    const appleCapable = await page.evaluate(() => {
+      const meta = document.querySelector('meta[name=\"apple-mobile-web-app-capable\"]');
+      return meta?.getAttribute('content') ?? '';
+    });
+    expect(appleCapable).toBe('yes');
+
+    const statusBarStyle = await page.evaluate(() => {
+      const meta = document.querySelector('meta[name=\"apple-mobile-web-app-status-bar-style\"]');
+      return meta?.getAttribute('content') ?? '';
+    });
+    expect(statusBarStyle).toBe('black-translucent');
   });
 });

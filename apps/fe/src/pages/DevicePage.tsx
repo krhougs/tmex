@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { Terminal } from 'xterm';
@@ -32,6 +32,17 @@ function hasTouchCapability(): boolean {
   }
 
   return window.matchMedia?.('(any-pointer: coarse)').matches ?? false;
+}
+
+function isIOSMobileBrowser(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent;
+  const isIOSDevice = /iPad|iPhone|iPod/.test(userAgent);
+  const isTouchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return isIOSDevice || isTouchMac;
 }
 
 function normalizeHistoryForXterm(data: string): string {
@@ -104,6 +115,7 @@ export function DevicePage() {
   const { deviceId, windowId, paneId } = useParams();
   const navigate = useNavigate();
   const terminalRef = useRef<HTMLDivElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const autoSelected = useRef(false);
@@ -126,6 +138,7 @@ export function DevicePage() {
   const invalidToastTimer = useRef<number | null>(null);
   const latestInvalidSelectionKey = useRef<string | null>(null);
   const lastShownInvalidSelectionKey = useRef<string | null>(null);
+  const iosAddressBarCollapseTried = useRef(false);
 
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
@@ -155,9 +168,12 @@ export function DevicePage() {
 
   const [isMobile, setIsMobile] = useState(false);
   const [editorText, setEditorText] = useState('');
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [keyboardInsetBottom, setKeyboardInsetBottom] = useState(0);
+  const [editorDockHeight, setEditorDockHeight] = useState(0);
   const inputMode = useUIStore((state) => state.inputMode);
   const editorSendWithEnter = useUIStore((state) => state.editorSendWithEnter);
   const setEditorSendWithEnter = useUIStore((state) => state.setEditorSendWithEnter);
@@ -167,6 +183,8 @@ export function DevicePage() {
   const paneEditorDraft = useUIStore((state) =>
     draftKey ? (state.editorDrafts[draftKey] ?? '') : ''
   );
+  const isIOSBrowser = useMemo(() => isIOSMobileBrowser(), []);
+  const shouldDockEditor = isMobile && inputMode === 'editor' && isIOSBrowser && isEditorFocused;
 
   const windows = snapshot?.session?.windows;
 
@@ -469,6 +487,97 @@ export function DevicePage() {
   }, []);
 
   useEffect(() => {
+    if (!isMobile || !isIOSBrowser || iosAddressBarCollapseTried.current) {
+      return;
+    }
+
+    iosAddressBarCollapseTried.current = true;
+    const collapseAddressBar = () => {
+      window.scrollTo(0, 1);
+    };
+
+    const rafId = window.requestAnimationFrame(collapseAddressBar);
+    const timerA = window.setTimeout(collapseAddressBar, 120);
+    const timerB = window.setTimeout(collapseAddressBar, 420);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timerA);
+      window.clearTimeout(timerB);
+    };
+  }, [isIOSBrowser, isMobile]);
+
+  useEffect(() => {
+    if (inputMode !== 'editor') {
+      setIsEditorFocused(false);
+    }
+  }, [inputMode]);
+
+  useEffect(() => {
+    if (!(isMobile && isIOSBrowser && inputMode === 'editor' && isEditorFocused)) {
+      setKeyboardInsetBottom(0);
+      return;
+    }
+
+    let frameId: number | null = null;
+    const updateKeyboardInset = () => {
+      const viewport = window.visualViewport;
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const offsetTop = viewport?.offsetTop ?? 0;
+      const nextInset = Math.max(0, Math.round(window.innerHeight - viewportHeight - offsetTop));
+      setKeyboardInsetBottom(nextInset);
+    };
+
+    const scheduleUpdate = () => {
+      if (frameId !== null) {
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updateKeyboardInset();
+      });
+    };
+
+    updateKeyboardInset();
+
+    window.visualViewport?.addEventListener('resize', scheduleUpdate);
+    window.visualViewport?.addEventListener('scroll', scheduleUpdate);
+    window.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+      window.visualViewport?.removeEventListener('resize', scheduleUpdate);
+      window.visualViewport?.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [inputMode, isEditorFocused, isIOSBrowser, isMobile]);
+
+  useEffect(() => {
+    if (!shouldDockEditor) {
+      setEditorDockHeight(0);
+      return;
+    }
+
+    const editorContainer = editorContainerRef.current;
+    if (!editorContainer) {
+      return;
+    }
+
+    const updateEditorHeight = () => {
+      setEditorDockHeight(Math.ceil(editorContainer.getBoundingClientRect().height));
+    };
+
+    updateEditorHeight();
+    const observer = new ResizeObserver(updateEditorHeight);
+    observer.observe(editorContainer);
+
+    return () => observer.disconnect();
+  }, [shouldDockEditor]);
+
+  useEffect(() => {
     if (!terminalRef.current) return;
     if (terminal.current) return;
 
@@ -746,6 +855,25 @@ export function DevicePage() {
   }, [paneEditorDraft]);
 
   useEffect(() => {
+    const term = terminal.current;
+    if (!term || !isTerminalReady.current) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      term.scrollToBottom();
+    });
+    const timerId = window.setTimeout(() => {
+      term.scrollToBottom();
+    }, 120);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timerId);
+    };
+  }, [inputMode]);
+
+  useEffect(() => {
     if (!canInteractWithPane) return;
 
     const handleWindowResize = () => {
@@ -903,6 +1031,29 @@ export function DevicePage() {
     sendInput,
   ]);
 
+  const handleEditorFocus = useCallback(
+    (event: FocusEvent<HTMLTextAreaElement>) => {
+      setIsEditorFocused(true);
+
+      if (!(isMobile && isIOSBrowser)) {
+        return;
+      }
+
+      const target = event.currentTarget;
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+      window.setTimeout(() => {
+        window.scrollTo(0, 1);
+      }, 60);
+    },
+    [isIOSBrowser, isMobile]
+  );
+
+  const handleEditorBlur = useCallback(() => {
+    setIsEditorFocused(false);
+  }, []);
+
   if (!deviceId) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -984,7 +1135,10 @@ export function DevicePage() {
       </div>
 
       <div
-        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' ? 'pb-2' : ''}`}
+        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${
+          isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-2' : ''
+        }`}
+        style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
       >
         <div ref={terminalRef} className="w-full h-full min-w-0 min-h-0" />
 
@@ -1007,7 +1161,11 @@ export function DevicePage() {
       </div>
 
       {inputMode === 'editor' && (
-        <div className="editor-mode-input">
+        <div
+          ref={editorContainerRef}
+          className={`editor-mode-input ${shouldDockEditor ? 'editor-mode-input-docked' : ''}`}
+          style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
+        >
           <textarea
             data-testid="editor-input"
             value={editorText}
@@ -1024,6 +1182,8 @@ export function DevicePage() {
               removeEditorDraft(draftKey);
             }}
             placeholder={t('terminal.inputPlaceholder')}
+            onFocus={handleEditorFocus}
+            onBlur={handleEditorBlur}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
           />
