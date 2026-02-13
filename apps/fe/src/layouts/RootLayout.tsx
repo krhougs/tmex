@@ -381,6 +381,23 @@ export function RootLayout() {
         return;
       }
 
+      // 白名单检查：如果目标在白名单元素内，不拦截 touchmove
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        // 检查是否在 .terminal-shortcuts-strip 或 .editor-mode-input 内
+        if (target.closest('.terminal-shortcuts-strip, .editor-mode-input')) {
+          return;
+        }
+        // 检查是否是按钮/链接/输入框或其祖先
+        if (
+          target.closest(
+            'button, a, input, textarea, [role="button"], [data-slot="button"]'
+          )
+        ) {
+          return;
+        }
+      }
+
       const scrollContainer = findScrollContainer(event.target);
       const containerAtTop = !scrollContainer || scrollContainer.scrollTop <= 0;
       if (containerAtTop) {
@@ -584,6 +601,8 @@ export function RootLayout() {
           <Outlet />
         </main>
       </div>
+
+      {isMobile && isTerminalRoute && <div className="tmex-safe-area-bottom-fill-terminal" />}
     </div>
   );
 }

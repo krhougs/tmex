@@ -39,7 +39,7 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 
-  --tmex-terminal-surface: oklch(0.19 0.025 262);
+  --tmex-terminal-surface: #f8fafc;
   --tmex-terminal-surface-border: oklch(0.32 0.035 262);
   --tmex-terminal-shortcut-surface: oklch(0.95 0.01 255);
   --tmex-terminal-shortcut-border: oklch(0.9 0.015 255);
@@ -51,6 +51,7 @@
   --tmex-safe-area-top: 0px;
   --tmex-safe-area-left: 0px;
   --tmex-safe-area-right: 0px;
+  --tmex-safe-area-bottom: 0px;
 }
 
 .dark {
@@ -86,7 +87,7 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 
-  --tmex-terminal-surface: oklch(0.19 0.025 262);
+  --tmex-terminal-surface: #0b1020;
   --tmex-terminal-surface-border: oklch(0.42 0.045 262);
   --tmex-terminal-shortcut-surface: oklch(0.22 0.018 262);
   --tmex-terminal-shortcut-border: oklch(0.36 0.03 262);
@@ -158,6 +159,7 @@ html[data-tmex-standalone="1"] {
   --tmex-safe-area-top: env(safe-area-inset-top);
   --tmex-safe-area-left: env(safe-area-inset-left);
   --tmex-safe-area-right: env(safe-area-inset-right);
+  --tmex-safe-area-bottom: env(safe-area-inset-bottom);
 }
 
 html,
@@ -297,4 +299,27 @@ body.tmex-terminal-mobile-gesture-guard .xterm .xterm-viewport::-webkit-scrollba
   left: 0;
   right: 0;
   z-index: 130;
+}
+
+.tmex-safe-area-bottom-fill-terminal {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--tmex-safe-area-bottom);
+  background: var(--tmex-terminal-surface);
+  pointer-events: none;
+  z-index: 10;
+}
+
+@media (any-pointer: coarse) {
+  .tmex-safe-area-bottom-fill-terminal {
+    display: block;
+  }
+}
+
+@media (any-pointer: fine) {
+  .tmex-safe-area-bottom-fill-terminal {
+    display: none;
+  }
 }
