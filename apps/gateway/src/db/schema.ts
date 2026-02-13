@@ -22,7 +22,6 @@ export const siteSettings = sqliteTable(
   },
   (table) => [
     check('site_settings_singleton_check', sql`${table.id} = 1`),
-    check('site_settings_language_check', sql`${table.language} in ('en_US', 'zh_CN')`),
   ]
 );
 

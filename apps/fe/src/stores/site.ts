@@ -1,5 +1,6 @@
 import { DEFAULT_LOCALE, type SiteSettings } from '@tmex/shared';
 import { create } from 'zustand';
+import i18n from '../i18n';
 
 interface SiteState {
   settings: SiteSettings | null;
@@ -43,10 +44,12 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     try {
       const settings = await fetchSiteSettingsFromApi();
       set({ settings, loading: false });
+      void i18n.changeLanguage(settings.language);
       return settings;
     } catch (err) {
       console.error('[site] failed to fetch settings:', err);
       set({ settings: DEFAULT_SETTINGS, loading: false });
+      void i18n.changeLanguage(DEFAULT_SETTINGS.language);
       return DEFAULT_SETTINGS;
     }
   },
@@ -56,6 +59,7 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     try {
       const settings = await fetchSiteSettingsFromApi();
       set({ settings, loading: false });
+      void i18n.changeLanguage(settings.language);
       return settings;
     } catch (err) {
       console.error('[site] failed to refresh settings:', err);

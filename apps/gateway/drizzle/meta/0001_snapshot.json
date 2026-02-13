@@ -261,10 +261,6 @@
         "site_settings_singleton_check": {
           "name": "site_settings_singleton_check",
           "value": "\"site_settings\".\"id\" = 1"
-        },
-        "site_settings_language_check": {
-          "name": "site_settings_language_check",
-          "value": "\"site_settings\".\"language\" in ('en_US', 'zh_CN')"
         }
       }
     },

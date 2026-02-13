@@ -2,13 +2,20 @@
 
 // ==================== i18n ====================
 
-export type LocaleCode = 'en_US' | 'zh_CN';
+import type { LocaleCode as _LocaleCode } from './i18n/resources';
 
-export const DEFAULT_LOCALE: LocaleCode = 'en_US';
+// Types
+export type { LocaleInfo, Manifest, TranslationKey } from './i18n/types';
+export type LocaleCode = _LocaleCode;
 
-export function toBCP47(locale: LocaleCode): string {
-  return locale.replace('_', '-');
-}
+// Runtime values (generated from manifest)
+export {
+  I18N_RESOURCES,
+  I18N_MANIFEST,
+  DEFAULT_LOCALE,
+  AVAILABLE_LOCALES as SUPPORTED_LOCALES,
+  toBCP47,
+} from './i18n/resources';
 
 // ==================== Device ====================
 
@@ -366,6 +373,4 @@ export interface RestartGatewayResponse {
   message: string;
 }
 
-// ==================== i18n Resources ====================
 
-export { I18N_RESOURCES } from './i18n/resources.js';

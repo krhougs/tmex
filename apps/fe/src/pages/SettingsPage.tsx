@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   EventType,
+  LocaleCode,
   SiteSettings,
   TelegramBotChat,
   TelegramBotWithStats,
   UpdateSiteSettingsRequest,
   WebhookEndpoint,
 } from '@tmex/shared';
-import { toBCP47 as toBCP47Locale } from '@tmex/shared';
+import { I18N_MANIFEST, toBCP47 as toBCP47Locale } from '@tmex/shared';
 import { Loader2, RefreshCcw, RotateCcw, Save, Send, Shield, Trash2, Webhook } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,7 +65,7 @@ export default function SettingsPage() {
   // Site settings state
   const [siteName, setSiteName] = useState('tmex');
   const [siteUrl, setSiteUrl] = useState(window.location.origin);
-  const [language, setLanguage] = useState<'en_US' | 'zh_CN'>('en_US');
+  const [language, setLanguage] = useState<LocaleCode>('en_US');
 
   // Notifications state
   const [bellThrottleSeconds, setBellThrottleSeconds] = useState(6);
@@ -167,6 +169,7 @@ export default function SettingsPage() {
       ]);
       toast.success(t('settings.settingsSaved'));
       if (settingsQuery.data?.settings?.language !== language) {
+        void i18n.changeLanguage(language);
         setShowRefreshNotice(true);
       }
     },
@@ -287,28 +290,11 @@ export default function SettingsPage() {
     []
   );
 
-  const handleRefresh = () => {
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['site-settings'] }),
-      queryClient.invalidateQueries({ queryKey: ['telegram-bots'] }),
-      queryClient.invalidateQueries({ queryKey: ['webhooks'] }),
-    ]);
-  };
-
   return (
     <div
       className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:gap-4 sm:p-5"
       data-testid="settings-page"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">{t('nav.settings')}</h1>
-        <Button variant="ghost" onClick={handleRefresh}>
-          <RefreshCcw className="h-4 w-4" />
-          {t('common.refresh')}
-        </Button>
-      </div>
-
       <Tabs defaultValue="site" className="w-full">
         <TabsList variant="line" className="w-full justify-start gap-4">
           <TabsTrigger value="site" data-testid="settings-tab-site">{t('settings.siteTab') || '站点'}</TabsTrigger>
@@ -358,7 +344,7 @@ export default function SettingsPage() {
                   value={language}
                   onValueChange={(nextValue) => {
                     if (!nextValue) return;
-                    setLanguage(nextValue as 'en_US' | 'zh_CN');
+                    setLanguage(nextValue as LocaleCode);
                   }}
                 >
                   <SelectTrigger
@@ -366,11 +352,16 @@ export default function SettingsPage() {
                     data-testid="settings-language-select"
                     className="w-full min-h-10"
                   >
-                    <SelectValue placeholder={t('settings.language')} />
+                    <SelectValue placeholder={t('settings.language')}>
+                      {I18N_MANIFEST.locales.find((l) => l.code === language)?.nativeName ?? language}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent className="max-h-[var(--tmex-viewport-height)]">
-                    <SelectItem value="en_US">{t('settings.language_en_US')}</SelectItem>
-                    <SelectItem value="zh_CN">{t('settings.language_zh_CN')}</SelectItem>
+                    {I18N_MANIFEST.locales.map((locale) => (
+                      <SelectItem key={locale.code} value={locale.code}>
+                        {locale.nativeName}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {showRefreshNotice && (

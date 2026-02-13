@@ -1,10 +1,8 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
-import { NavLink } from "./nav-link";
-
+import { useTranslation } from "react-i18next";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
@@ -13,6 +11,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem
 } from "@/components/ui/sidebar";
+import { NavLink } from "./nav-link";
 
 export function NavMain({
   items
@@ -28,16 +27,18 @@ export function NavMain({
     }[];
   }[];
 }) {
+  const { t } = useTranslation();
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Platform</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => (
           <Collapsible key={item.title} defaultOpen={item.isActive} render={<SidebarMenuItem />}>
-            <SidebarMenuButton tooltip={item.title} render={<NavLink to={item.url} />}>
-              <item.icon />
-              <span>{item.title}</span>
-            </SidebarMenuButton>
+            <NavLink to={item.url}>
+              <SidebarMenuButton tooltip={t(item.title)}>
+                <item.icon />
+                <span>{t(item.title)}</span>
+              </SidebarMenuButton>
+            </NavLink>
             {item.items?.length ? (
               <>
                 <CollapsibleTrigger render={<SidebarMenuAction className="data-[state=open]:rotate-90" />}>
@@ -48,9 +49,11 @@ export function NavMain({
                   <SidebarMenuSub>
                     {item.items?.map((subItem) => (
                       <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton render={<NavLink to={subItem.url} />}>
-                          <span>{subItem.title}</span>
-                        </SidebarMenuSubButton>
+                        <NavLink to={subItem.url}>
+                          <SidebarMenuSubButton>
+                            <span>{t(subItem.title)}</span>
+                          </SidebarMenuSubButton>
+                        </NavLink>
                       </SidebarMenuSubItem>
                     ))}
                   </SidebarMenuSub>

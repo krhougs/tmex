@@ -4,7 +4,8 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "bash ./scripts/dev-supervisor.sh",
-    "build": "bun run --filter '*' build",
+    "build": "bun run build:i18n && bun run --filter '*' build",
+    "build:i18n": "bun run --filter @tmex/shared build:i18n",
     "build:tmex": "bun run --filter tmex-cli build",
     "build:tmex:resources": "bun run --filter tmex-cli bundle:resources",
     "build:tmex:runtime": "bun run --filter tmex-cli build:runtime",

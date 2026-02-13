@@ -5,6 +5,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "build:i18n": "tsx scripts/build-i18n.ts"
+  },
   "devDependencies": {
     "typescript": "^5.7.3"
   }

@@ -11,7 +11,7 @@ import type {
   UpdateTelegramBotRequest,
   WebhookEndpoint,
 } from '@tmex/shared';
-import { toBCP47 } from '@tmex/shared';
+import { SUPPORTED_LOCALES, toBCP47 } from '@tmex/shared';
 import type { Server } from 'bun';
 import { v4 as uuidv4 } from 'uuid';
 import { runtimeController } from '../control/runtime';
@@ -115,7 +115,7 @@ function normalizeSiteSettingsInput(
 
   if (body.language !== undefined) {
     const value = body.language.trim();
-    if (value !== 'en_US' && value !== 'zh_CN') {
+    if (!(SUPPORTED_LOCALES as readonly string[]).includes(value)) {
       throw new Error(t('apiError.languageInvalid'));
     }
     updates.language = value as LocaleCode;

@@ -9,12 +9,11 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
 
 const navMainItems = [
   {
-    title: "Devices",
+    title: 'nav.manageDevices',
     url: "/devices",
     icon: Monitor,
   },
@@ -28,11 +27,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarTitle />
       </SidebarHeader>
       <SidebarContent className="flex flex-col">
-        <NavMain items={navMainItems} />
-        <SidebarSeparator />
         <SideBarDeviceList />
       </SidebarContent>
       <SidebarFooter>
+        <NavMain items={navMainItems} />
         <div className="h-[var(--tmex-safe-area-bottom)]" />
       </SidebarFooter>
     </Sidebar>

@@ -1,0 +1,26 @@
+{
+  "locales": [
+    {
+      "code": "en_US",
+      "name": "English",
+      "nativeName": "English",
+      "flag": "🇺🇸",
+      "isDefault": true
+    },
+    {
+      "code": "zh_CN",
+      "name": "简体中文",
+      "nativeName": "简体中文",
+      "flag": "🇨🇳",
+      "isDefault": false
+    },
+    {
+      "code": "ja_JP",
+      "name": "日本語",
+      "nativeName": "日本語",
+      "flag": "🇯🇵",
+      "isDefault": false
+    }
+  ],
+  "defaultLocale": "en_US"
+}

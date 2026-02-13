@@ -213,19 +213,6 @@ export default function DevicesPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-4 sm:p-5" data-testid="devices-page">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t('device.title')}</h1>
-          <p className="text-sm text-muted-foreground">
-            {t('device.typeLocal')} / SSH · {devices.length}
-          </p>
-        </div>
-        <Button variant="default" data-testid="devices-add" onClick={() => setShowAddModal(true)}>
-          <Plus className="h-4 w-4" />
-          {t('device.addDevice')}
-        </Button>
-      </header>
-
       {isLoading ? (
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">{t('common.loading')}</CardContent>

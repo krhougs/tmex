@@ -34,8 +34,7 @@ CREATE TABLE `site_settings` (
 	`ssh_reconnect_delay_seconds` integer NOT NULL,
 	`language` text DEFAULT 'en_US' NOT NULL,
 	`updated_at` text NOT NULL,
-	CONSTRAINT "site_settings_singleton_check" CHECK("site_settings"."id" = 1),
-	CONSTRAINT "site_settings_language_check" CHECK("site_settings"."language" in ('en_US', 'zh_CN'))
+	CONSTRAINT "site_settings_singleton_check" CHECK("site_settings"."id" = 1)
 );
 --> statement-breakpoint
 CREATE TABLE `telegram_bot_chats` (

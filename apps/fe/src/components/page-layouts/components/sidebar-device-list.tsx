@@ -8,7 +8,7 @@ import { matchPath, useLocation, useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useSidebar } from '@/components/ui/sidebar';
+import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { useSiteStore } from '../../../stores/site';
 import { useTmuxStore } from '../../../stores/tmux';
@@ -66,8 +66,8 @@ export function SideBarDeviceList() {
   }, [connectDevice, disconnectDevice, selectedDeviceId]);
 
   const handleDeviceClick = useCallback((deviceId: string) => handleNavigate(`/devices/${deviceId}`), [handleNavigate]);
-  
-  const navigateToPane = useCallback((deviceId: string, windowId: string, paneId: string) => 
+
+  const navigateToPane = useCallback((deviceId: string, windowId: string, paneId: string) =>
     handleNavigate(`/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`), [handleNavigate]);
 
   const handleWindowClick = useCallback((deviceId: string, windowId: string, panes: TmuxPane[]) => {
@@ -84,23 +84,26 @@ export function SideBarDeviceList() {
   }, [selectedDeviceId, expandedDevices, connectDevice, paneMatch?.params.deviceId]);
 
   const devices = devicesData?.devices ?? [];
-  const sortedDevices = useMemo(() => [...devices].sort((a, b) => 
+  const sortedDevices = useMemo(() => [...devices].sort((a, b) =>
     a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })), [devices, language]);
 
   return (
-    <ScrollArea className="flex-1">
-      <div className="space-y-1 p-2">
-        {sortedDevices.map((device) => (
-          <DeviceItem key={device.id} device={device} isExpanded={expandedDevices.has(device.id)}
-            isSelected={device.id === selectedDeviceId} selectedWindowId={selectedWindowId} selectedPaneId={selectedPaneId}
-            windows={snapshots[device.id]?.session?.windows ?? null} isConnected={deviceConnected[device.id] ?? false}
-            onToggle={() => toggleDevice(device.id)} onSelect={() => handleDeviceClick(device.id)}
-            onCreateWindow={() => createWindow(device.id)} onCloseWindow={closeWindow} onClosePane={closePane}
-            onPaneClick={navigateToPane} onWindowClick={handleWindowClick} />
-        ))}
-        {sortedDevices.length === 0 && <div className="text-center text-sm text-muted-foreground py-4">{t('sidebar.noDevices')}</div>}
-      </div>
-    </ScrollArea>
+    <SidebarGroup>
+      <SidebarGroupLabel>{t('device.devices')}</SidebarGroupLabel>
+      <ScrollArea className="flex-1">
+        <div className="space-y-1 p-2">
+          {sortedDevices.map((device) => (
+            <DeviceItem key={device.id} device={device} isExpanded={expandedDevices.has(device.id)}
+              isSelected={device.id === selectedDeviceId} selectedWindowId={selectedWindowId} selectedPaneId={selectedPaneId}
+              windows={snapshots[device.id]?.session?.windows ?? null} isConnected={deviceConnected[device.id] ?? false}
+              onToggle={() => toggleDevice(device.id)} onSelect={() => handleDeviceClick(device.id)}
+              onCreateWindow={() => createWindow(device.id)} onCloseWindow={closeWindow} onClosePane={closePane}
+              onPaneClick={navigateToPane} onWindowClick={handleWindowClick} />
+          ))}
+          {sortedDevices.length === 0 && <div className="text-center text-sm text-muted-foreground py-4">{t('sidebar.noDevices')}</div>}
+        </div>
+      </ScrollArea>
+    </SidebarGroup>
   );
 }
 

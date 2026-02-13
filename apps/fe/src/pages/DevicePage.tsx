@@ -1110,10 +1110,6 @@ export default function DevicePage() {
     };
   }, []);
 
-  const handleJumpToLatest = useCallback(() => {
-    terminal.current?.scrollToBottom();
-  }, []);
-
   const handleSendShortcut = useCallback(
     (payload: string) => {
       if (!deviceId || !resolvedPaneId || !canInteractWithPane) {
@@ -1228,55 +1224,6 @@ export default function DevicePage() {
   const showConnecting = !deviceConnected && !deviceError;
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
-      {!isMobile && (
-        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-card/90 px-3 backdrop-blur supports-backdrop-filter:bg-card/75">
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-            <span
-              data-testid="terminal-topbar-title"
-              className="truncate text-sm font-medium tracking-tight"
-              title={terminalTopbarLabel ?? siteName}
-            >
-              {terminalTopbarLabel ?? siteName}
-            </span>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              data-testid="terminal-jump-latest"
-              className="text-xs"
-              onClick={handleJumpToLatest}
-              title={t('nav.jumpToLatest')}
-              disabled={!canInteractWithPane}
-            >
-              <ArrowDownToLine className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">{t('nav.jumpToLatest')}</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="terminal-input-mode-toggle"
-              className="text-xs"
-              onClick={() =>
-                useUIStore.setState({ inputMode: inputMode === 'direct' ? 'editor' : 'direct' })
-              }
-            >
-              {inputMode === 'direct' ? (
-                <>
-                  <Keyboard className="h-3.5 w-3.5" /> {t('nav.switchToEditor')}
-                </>
-              ) : (
-                <>
-                  <Smartphone className="h-3.5 w-3.5" /> {t('nav.switchToDirect')}
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-      )}
-
       <div className="terminal-shortcuts-strip border-b border-border bg-card/65" data-testid="terminal-shortcuts-strip">
         <div className="shortcut-row" data-testid="editor-shortcuts-row">
           {EDITOR_SHORTCUTS.map((shortcut) => (
