@@ -280,9 +280,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     <aside
       data-testid="sidebar"
       className={cn(
-        'flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200',
+        'tmex-sidebar-safe-cover flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200',
         effectiveCollapsed ? 'w-16' : 'w-72'
       )}
+      style={{ paddingBottom: 'var(--tmex-safe-area-bottom)' }}
     >
       <div className="tmex-mobile-topbar border-b border-sidebar-border flex-shrink-0">
         <div className="h-11 flex items-center gap-2">

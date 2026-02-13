@@ -76,7 +76,8 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
   await page.goto('/settings');
   await expect(page.getByTestId('settings-page')).toBeVisible();
 
-  // Theme toggle should flip the root class.
+  // Site tab: Theme toggle should flip the root class.
+  await page.getByTestId('settings-tab-site').click();
   const html = page.locator('html');
   const themeToggle = page.getByTestId('settings-theme-toggle');
   await themeToggle.click();
@@ -84,7 +85,8 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
   await themeToggle.click();
   await expect(html).toHaveClass(/\bdark\b/);
 
-  // Create a Telegram bot (uses server persistence).
+  // Telegram tab: Create and delete Telegram bot.
+  await page.getByTestId('settings-tab-telegram').click();
   await page.locator('#new-bot-name').fill(botName);
   await page.locator('#new-bot-token').fill('dummy-token');
   await page.getByTestId('telegram-add-bot').click();
@@ -95,7 +97,8 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
   await botCard.locator(`[data-testid^="telegram-bot-delete-"]`).click();
   await expect(botCard).toHaveCount(0);
 
-  // Create + delete webhook (real backend).
+  // Webhooks tab: Create and delete webhook.
+  await page.getByTestId('settings-tab-webhooks').click();
   await page.getByTestId('webhook-url-input').fill(webhookUrl);
   await page.getByTestId('webhook-secret-input').fill(webhookSecret);
   await page.getByTestId('webhook-add').click();
@@ -107,7 +110,8 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
   await webhookItem.getByTestId('webhook-delete').click();
   await expect(webhookItem).toHaveCount(0);
 
-  // Change language and verify refresh notice, then reset language to keep later tests stable.
+  // Site tab: Change language and verify refresh notice, then reset language to keep later tests stable.
+  await page.getByTestId('settings-tab-site').click();
   await page.getByTestId('settings-language-select').click();
   await page.locator('[data-slot="select-content"]').getByText('简体中文').click();
   await page.getByTestId('settings-save').click();

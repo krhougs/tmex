@@ -311,10 +311,10 @@ export function SettingsPage() {
 
       <Tabs defaultValue="site" className="w-full">
         <TabsList variant="line" className="w-full justify-start gap-4">
-          <TabsTrigger value="site">{t('settings.siteTab') || '站点'}</TabsTrigger>
-          <TabsTrigger value="notifications">{t('settings.notificationsTab') || '通知'}</TabsTrigger>
-          <TabsTrigger value="telegram">{t('telegram.title')}</TabsTrigger>
-          <TabsTrigger value="webhooks">{t('webhook.title')}</TabsTrigger>
+          <TabsTrigger value="site" data-testid="settings-tab-site">{t('settings.siteTab') || '站点'}</TabsTrigger>
+          <TabsTrigger value="notifications" data-testid="settings-tab-notifications">{t('settings.notificationsTab') || '通知'}</TabsTrigger>
+          <TabsTrigger value="telegram" data-testid="settings-tab-telegram">{t('telegram.title')}</TabsTrigger>
+          <TabsTrigger value="webhooks" data-testid="settings-tab-webhooks">{t('webhook.title')}</TabsTrigger>
         </TabsList>
 
         {/* Site Tab */}
