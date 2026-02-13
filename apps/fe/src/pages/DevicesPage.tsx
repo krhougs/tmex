@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateDeviceRequest, Device, UpdateDeviceRequest } from '@tmex/shared';
 import { Globe, Monitor, MoreHorizontal, Pencil, Plus, Trash2, Zap } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -169,12 +169,19 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
   }
 }
 
-export function DevicesPage() {
+export default function DevicesPage() {
   const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<Device | null>(null);
   const queryClient = useQueryClient();
+
+  // Listen for open add device event from AppHeader
+  useEffect(() => {
+    const handleOpenAddDevice = () => setShowAddModal(true);
+    window.addEventListener('tmex:open-add-device', handleOpenAddDevice);
+    return () => window.removeEventListener('tmex:open-add-device', handleOpenAddDevice);
+  }, []);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['devices'],
@@ -749,5 +756,32 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Page title component
+export function PageTitle() {
+  const { t } = useTranslation();
+  return <>{t('sidebar.manageDevices')}</>;
+}
+
+// Page actions component
+export function PageActions() {
+  const { t } = useTranslation();
+  
+  const handleAdd = () => {
+    window.dispatchEvent(new CustomEvent('tmex:open-add-device'));
+  };
+  
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={handleAdd}
+      aria-label={t('sidebar.addDevice')}
+      title={t('sidebar.addDevice')}
+    >
+      <Plus className="h-4 w-4" />
+    </Button>
   );
 }

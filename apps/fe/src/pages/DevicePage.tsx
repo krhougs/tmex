@@ -141,7 +141,7 @@ const EDITOR_SHORTCUTS: EditorShortcut[] = [
   { key: 'enter', label: 'ENTER', payload: '\r' },
 ];
 
-export function DevicePage() {
+export default function DevicePage() {
   const { t } = useTranslation();
   const { deviceId, windowId, paneId } = useParams();
   const navigate = useNavigate();
@@ -310,6 +310,8 @@ export function DevicePage() {
       deviceName,
     });
   }, [currentDevice?.name, deviceId, selectedPane, selectedWindow]);
+
+
 
   const reportPaneSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
@@ -1430,5 +1432,85 @@ export function DevicePage() {
       )}
 
     </div>
+  );
+}
+
+// Page title component - shows terminal label
+export function PageTitle() {
+  const { deviceId, windowId, paneId } = useParams();
+  const resolvedPaneId = paneId ? decodePaneIdFromUrlParam(paneId) : undefined;
+  const snapshots = useTmuxStore((state) => state.snapshots);
+  const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
+  
+  const snapshot = deviceId ? snapshots[deviceId] : undefined;
+  const selectedWindow = useMemo(() => {
+    if (!windowId || !snapshot?.session?.windows) return undefined;
+    return snapshot.session.windows.find((w) => w.id === windowId);
+  }, [windowId, snapshot]);
+  
+  const selectedPane = useMemo(() => {
+    if (!resolvedPaneId || !selectedWindow) return undefined;
+    return selectedWindow.panes.find((p) => p.id === resolvedPaneId);
+  }, [resolvedPaneId, selectedWindow]);
+  
+  const title = useMemo(() => {
+    if (selectedWindow && selectedPane) {
+      return buildTerminalLabel({
+        paneIdx: selectedPane.index,
+        windowIdx: selectedWindow.index,
+        paneTitle: selectedPane.title,
+        windowName: selectedWindow.name,
+        deviceName: siteName,
+      });
+    }
+    return deviceId ?? '';
+  }, [selectedWindow, selectedPane, siteName, deviceId]);
+  
+  return <>{title}</>;
+}
+
+// Page actions component - shows input mode toggle and jump to latest
+export function PageActions() {
+  const { t } = useTranslation();
+  const { deviceId, paneId } = useParams();
+  const resolvedPaneId = paneId ? decodePaneIdFromUrlParam(paneId) : undefined;
+  const inputMode = useUIStore((state) => state.inputMode);
+  const setInputMode = useUIStore((state) => state.setInputMode);
+  const deviceConnected = useTmuxStore((state) => deviceId ? state.deviceConnected?.[deviceId] ?? false : false);
+  
+  const canInteract = Boolean(resolvedPaneId && deviceConnected);
+  
+  const handleToggleInputMode = () => {
+    const newMode = inputMode === 'direct' ? 'editor' : 'direct';
+    setInputMode(newMode);
+  };
+  
+  const handleJumpToLatest = () => {
+    window.dispatchEvent(new CustomEvent('tmex:jump-to-latest'));
+  };
+  
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={handleToggleInputMode}
+        disabled={!canInteract}
+        aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+        title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+      >
+        {inputMode === 'direct' ? <Keyboard className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={handleJumpToLatest}
+        disabled={!canInteract}
+        aria-label={t('nav.jumpToLatest')}
+        title={t('nav.jumpToLatest')}
+      >
+        <ArrowDownToLine className="h-4 w-4" />
+      </Button>
+    </>
   );
 }

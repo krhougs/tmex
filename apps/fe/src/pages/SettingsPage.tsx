@@ -53,7 +53,7 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
   }
 }
 
-export function SettingsPage() {
+export default function SettingsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { refreshSettings } = useSiteStore();
@@ -1136,5 +1136,34 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
         )}
       </div>
     </div>
+  );
+}
+// Page title component
+export function PageTitle() {
+  const { t } = useTranslation();
+  return <>{t('sidebar.settings')}</>;
+}
+
+// Page actions component
+export function PageActions() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['site-settings'] });
+    queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
+    queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+  };
+  
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={handleRefresh}
+      aria-label={t('common.refresh')}
+      title={t('common.refresh')}
+    >
+      <RefreshCcw className="h-4 w-4" />
+    </Button>
   );
 }
