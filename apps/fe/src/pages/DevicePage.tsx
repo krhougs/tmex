@@ -7,7 +7,7 @@ import { Unicode11Addon } from 'xterm-addon-unicode11';
 import 'xterm/css/xterm.css';
 import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
-import { ArrowDownToLine, Keyboard, Send, Smartphone, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, Keyboard, Loader2, Send, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -147,6 +147,7 @@ export function DevicePage() {
   const navigate = useNavigate();
   const terminalRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
+  const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const autoSelected = useRef(false);
@@ -205,6 +206,7 @@ export function DevicePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [keyboardInsetBottom, setKeyboardInsetBottom] = useState(0);
   const [editorDockHeight, setEditorDockHeight] = useState(0);
+  const [isSending, setIsSending] = useState(false);
   const inputMode = useUIStore((state) => state.inputMode);
   const uiTheme = useUIStore((state) => state.theme);
   const editorSendWithEnter = useUIStore((state) => state.editorSendWithEnter);
@@ -624,7 +626,7 @@ export function DevicePage() {
         const term = new Terminal({
           fontFamily:
             '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Sarasa Mono SC", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace',
-          fontSize: 14,
+          fontSize: 13,
           convertEol: true,
           ...(touchOptimizedScroll
             ? {
@@ -941,10 +943,15 @@ export function DevicePage() {
 
   useEffect(() => {
     const container = terminalRef.current;
-    if (!container || !canInteractWithPane) return;
+    if (!container) return;
 
     const observer = new ResizeObserver(() => {
-      scheduleResize('resize');
+      // 始终执行 fit，确保 PC 端终端铺满
+      fitAddon.current?.fit();
+      // 只有可交互时才上报尺寸到后端
+      if (canInteractWithPane) {
+        scheduleResize('resize');
+      }
     });
 
     observer.observe(container);
@@ -1036,8 +1043,15 @@ export function DevicePage() {
   );
 
   const handleEditorSend = useCallback(() => {
-    if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
+    if (!canInteractWithPane) {
+      toast.error(t('wsError.checkGateway'));
+      return;
+    }
+    if (!deviceId || !resolvedPaneId) return;
     if (!editorText.trim()) return;
+
+    setIsSending(true);
+    window.setTimeout(() => setIsSending(false), 150);
 
     const payload = editorSendWithEnter ? `${editorText}\r` : editorText;
     sendInput(deviceId, resolvedPaneId, payload, false);
@@ -1056,11 +1070,19 @@ export function DevicePage() {
     removeEditorDraft,
     resolvedPaneId,
     sendInput,
+    t,
   ]);
 
   const handleEditorSendLineByLine = useCallback(() => {
-    if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
+    if (!canInteractWithPane) {
+      toast.error(t('wsError.checkGateway'));
+      return;
+    }
+    if (!deviceId || !resolvedPaneId) return;
     if (!editorText.trim()) return;
+
+    setIsSending(true);
+    window.setTimeout(() => setIsSending(false), 150);
 
     const lines = editorText.split(/\r?\n/);
     for (const line of lines) {
@@ -1084,6 +1106,7 @@ export function DevicePage() {
     removeEditorDraft,
     resolvedPaneId,
     sendInput,
+    t,
   ]);
 
   const handleEditorFocus = useCallback(
@@ -1182,7 +1205,13 @@ export function DevicePage() {
               title={shortcut.label}
               aria-label={shortcut.label}
               data-testid={`editor-shortcut-${shortcut.key}`}
-              onClick={() => handleSendShortcut(shortcut.payload)}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => {
+                handleSendShortcut(shortcut.payload);
+                if (isMobile && inputMode === 'editor') {
+                  editorTextareaRef.current?.focus({ preventScroll: true });
+                }
+              }}
               disabled={!canInteractWithPane}
             >
               {shortcut.label}
@@ -1227,6 +1256,7 @@ export function DevicePage() {
         style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
       >
         <textarea
+          ref={editorTextareaRef}
           data-testid="editor-input"
           className="min-h-[88px] max-h-[28vh] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus:border-ring"
           value={editorText}
@@ -1266,10 +1296,14 @@ export function DevicePage() {
                 variant="outline"
                 size="sm"
                 data-testid="editor-clear"
+                onPointerDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setEditorText('');
                   if (draftKey) {
                     removeEditorDraft(draftKey);
+                  }
+                  if (isMobile && inputMode === 'editor') {
+                    editorTextareaRef.current?.focus({ preventScroll: true });
                   }
                 }}
                 title={t('terminal.clear')}
@@ -1281,20 +1315,32 @@ export function DevicePage() {
                 variant="secondary"
                 size="sm"
                 data-testid="editor-send-line-by-line"
-                onClick={handleEditorSendLineByLine}
-                disabled={!canInteractWithPane}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  handleEditorSendLineByLine();
+                  if (isMobile && inputMode === 'editor') {
+                    editorTextareaRef.current?.focus({ preventScroll: true });
+                  }
+                }}
+                disabled={!canInteractWithPane || isSending}
               >
-                <Send className="h-4 w-4" />
+                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {t('terminal.editorSendLineByLine')}
               </Button>
               <Button
                 variant="default"
                 size="sm"
                 data-testid="editor-send"
-                onClick={handleEditorSend}
-                disabled={!canInteractWithPane}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  handleEditorSend();
+                  if (isMobile && inputMode === 'editor') {
+                    editorTextareaRef.current?.focus({ preventScroll: true });
+                  }
+                }}
+                disabled={!canInteractWithPane || isSending}
               >
-                <Send className="h-4 w-4" />
+                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {t('common.send')}
               </Button>
             </div>
