@@ -19,8 +19,10 @@ import {
   Input,
   Select,
   SelectOption,
+  Switch,
 } from '../components/ui';
 import { useSiteStore } from '../stores/site';
+import { useUIStore } from '../stores/ui';
 
 interface TelegramBotsResponse {
   bots: TelegramBotWithStats[];
@@ -47,6 +49,8 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { refreshSettings } = useSiteStore();
+  const theme = useUIStore((state) => state.theme);
+  const setTheme = useUIStore((state) => state.setTheme);
 
   const [siteName, setSiteName] = useState('tmex');
   const [siteUrl, setSiteUrl] = useState(window.location.origin);
@@ -188,7 +192,10 @@ export function SettingsPage() {
   const bots = botsQuery.data?.bots ?? [];
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6" data-testid="settings-page">
+    <div
+      className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-6 sm:p-6"
+      data-testid="settings-page"
+    >
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t('nav.settings')}</h1>
         <Button
@@ -249,7 +256,7 @@ export function SettingsPage() {
             </Select>
             {showRefreshNotice && (
               <p
-                className="text-xs text-[var(--color-accent)] mt-1"
+                className="mt-1 text-xs text-primary"
                 data-testid="settings-refresh-notice"
               >
                 {t('settings.refreshToApply')}
@@ -257,34 +264,37 @@ export function SettingsPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label
-              className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none"
-              htmlFor="enable-browser-bell-toast"
-            >
-              <input
-                id="enable-browser-bell-toast"
-                data-testid="settings-enable-browser-bell-toast"
-                type="checkbox"
-                checked={enableBrowserBellToast}
-                onChange={(event) => setEnableBrowserBellToast(event.target.checked)}
-              />
-              <span>{t('settings.enableBrowserBellToast')}</span>
-            </label>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">{t('settings.theme')}</div>
+              <div className="text-xs text-muted-foreground">
+                {theme === 'dark' ? t('settings.themeDark') : t('settings.themeLight')}
+              </div>
+            </div>
+            <Switch
+              checked={theme === 'dark'}
+              onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+            />
+          </div>
 
-            <label
-              className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none"
-              htmlFor="enable-telegram-bell-push"
-            >
-              <input
-                id="enable-telegram-bell-push"
-                data-testid="settings-enable-telegram-bell-push"
-                type="checkbox"
-                checked={enableTelegramBellPush}
-                onChange={(event) => setEnableTelegramBellPush(event.target.checked)}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+              <div className="min-w-0 text-sm font-medium">{t('settings.enableBrowserBellToast')}</div>
+              <Switch
+                checked={enableBrowserBellToast}
+                onCheckedChange={(checked) => setEnableBrowserBellToast(Boolean(checked))}
+                data-testid="settings-enable-browser-bell-toast"
               />
-              <span>{t('settings.enableTelegramBellPush')}</span>
-            </label>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+              <div className="min-w-0 text-sm font-medium">{t('settings.enableTelegramBellPush')}</div>
+              <Switch
+                checked={enableTelegramBellPush}
+                onCheckedChange={(checked) => setEnableTelegramBellPush(Boolean(checked))}
+                data-testid="settings-enable-telegram-bell-push"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -411,13 +421,13 @@ export function SettingsPage() {
 
           <div className="space-y-3">
             {botsQuery.isLoading && (
-              <div className="text-sm text-[var(--color-text-secondary)]">
+              <div className="text-sm text-muted-foreground">
                 {t('common.loading')}
               </div>
             )}
 
             {!botsQuery.isLoading && bots.length === 0 && (
-              <div className="text-sm text-[var(--color-text-secondary)]">
+              <div className="text-sm text-muted-foreground">
                 {t('telegram.addBot')}
               </div>
             )}
@@ -601,11 +611,11 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
   });
 
   return (
-    <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 space-y-3">
+    <div className="space-y-3 rounded-md border border-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="font-medium">{bot.name}</div>
-          <div className="text-xs text-[var(--color-text-secondary)]">
+          <div className="text-xs text-muted-foreground">
             {bot.authorizedCount} / {bot.pendingCount}
           </div>
         </div>
@@ -638,24 +648,19 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           />
         </div>
         <div className="md:col-span-2">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
-            {t('common.enabled')}
-          </label>
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-sm">
+            <span className="font-medium">{t('common.enabled')}</span>
+            <Switch checked={enabled} onCheckedChange={(checked) => setEnabled(Boolean(checked))} />
+          </div>
         </div>
         <div className="md:col-span-3">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-sm">
+            <span className="font-medium">{t('telegram.allowAuthRequests')}</span>
+            <Switch
               checked={allowAuthRequests}
-              onChange={(event) => setAllowAuthRequests(event.target.checked)}
+              onCheckedChange={(checked) => setAllowAuthRequests(Boolean(checked))}
             />
-            {t('telegram.allowAuthRequests')}
-          </label>
+          </div>
         </div>
       </div>
 
@@ -671,15 +676,13 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
       </div>
 
       {expanded && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-[var(--color-border)]">
+        <div className="grid grid-cols-1 gap-4 border-t border-border pt-2 lg:grid-cols-2">
           <div className="space-y-2">
             <h3 className="text-sm font-semibold flex items-center gap-1">
               <Shield className="h-4 w-4" />
               {t('telegram.pendingChats')}
             </h3>
-            {groupedChats.pending.length === 0 && (
-              <div className="text-xs text-[var(--color-text-secondary)]">-</div>
-            )}
+            {groupedChats.pending.length === 0 && <div className="text-xs text-muted-foreground">-</div>}
             {groupedChats.pending.map((chat) => (
               <ChatRow
                 key={`${chat.botId}-${chat.chatId}`}
@@ -696,9 +699,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
               <Shield className="h-4 w-4" />
               {t('telegram.chats')}
             </h3>
-            {groupedChats.authorized.length === 0 && (
-              <div className="text-xs text-[var(--color-text-secondary)]">-</div>
-            )}
+            {groupedChats.authorized.length === 0 && <div className="text-xs text-muted-foreground">-</div>}
             {groupedChats.authorized.map((chat) => (
               <ChatRow
                 key={`${chat.botId}-${chat.chatId}`}
@@ -711,7 +712,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           </div>
 
           {chatsQuery.isLoading && (
-            <div className="lg:col-span-2 text-xs text-[var(--color-text-secondary)]">
+            <div className="lg:col-span-2 text-xs text-muted-foreground">
               {t('common.loading')}
             </div>
           )}
@@ -733,14 +734,14 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
   const { t } = useTranslation();
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
   return (
-    <div className="rounded border border-[var(--color-border)] p-3 bg-[var(--color-bg)] space-y-2">
+    <div className="space-y-2 rounded border border-border bg-background p-3">
       <div className="text-sm font-medium truncate" title={chat.displayName}>
         {chat.displayName}
       </div>
-      <div className="text-xs text-[var(--color-text-secondary)]">
+      <div className="text-xs text-muted-foreground">
         {t('telegram.chatId')}：{chat.chatId}
       </div>
-      <div className="text-xs text-[var(--color-text-secondary)]">
+      <div className="text-xs text-muted-foreground">
         {new Date(chat.appliedAt).toLocaleString(toBCP47Locale(language))}
       </div>
 

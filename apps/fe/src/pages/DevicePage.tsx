@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Send, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '../components/ui';
+import { Button, Switch } from '../components/ui';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
@@ -1056,58 +1056,61 @@ export function DevicePage() {
 
   if (!deviceId) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-[var(--color-text-secondary)]">{t('device.noDevices')}</div>
+      <div className="flex h-full items-center justify-center p-4">
+        <div className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+          {t('device.noDevices')}
+        </div>
       </div>
     );
   }
 
   const showConnecting = !deviceConnected && !deviceError;
+  const inputModeToggleLabel = inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect');
 
   return (
-    <div className="flex flex-col h-full bg-[var(--color-bg)]" data-testid="device-page">
+    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
       {!isMobile && (
-        <div className="h-11 flex items-center justify-between px-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] gap-2 flex-shrink-0">
-          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-card/90 px-3 backdrop-blur supports-backdrop-filter:bg-card/75">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
             <span
               data-testid="terminal-topbar-title"
-              className="text-sm font-medium truncate"
+              className="truncate text-sm font-medium tracking-tight"
               title={terminalTopbarLabel ?? siteName}
             >
               {terminalTopbarLabel ?? siteName}
             </span>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex shrink-0 items-center gap-1.5">
             <Button
               variant="ghost"
               size="sm"
               data-testid="terminal-jump-latest"
-              className="px-2 py-1 text-xs"
+              className="text-xs"
               onClick={handleJumpToLatest}
               title={t('nav.jumpToLatest')}
               disabled={!canInteractWithPane}
             >
-              <ArrowDownToLine className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">{t('nav.jumpToLatest')}</span>
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              <span className="hidden md:inline">{t('nav.jumpToLatest')}</span>
             </Button>
 
             <Button
               variant="default"
               size="sm"
               data-testid="terminal-input-mode-toggle"
-              className="px-2 py-1 text-xs"
+              className="text-xs"
               onClick={() =>
                 useUIStore.setState({ inputMode: inputMode === 'direct' ? 'editor' : 'direct' })
               }
             >
               {inputMode === 'direct' ? (
                 <>
-                  <Keyboard className="h-3 w-3 mr-1" /> {t('nav.switchToEditor')}
+                  <Keyboard className="h-3.5 w-3.5" /> {t('nav.switchToEditor')}
                 </>
               ) : (
                 <>
-                  <Smartphone className="h-3 w-3 mr-1" /> {t('nav.switchToDirect')}
+                  <Smartphone className="h-3.5 w-3.5" /> {t('nav.switchToDirect')}
                 </>
               )}
             </Button>
@@ -1115,13 +1118,14 @@ export function DevicePage() {
         </div>
       )}
 
-      <div className="terminal-shortcuts-strip" data-testid="terminal-shortcuts-strip">
+      <div className="terminal-shortcuts-strip border-b border-border bg-card/65" data-testid="terminal-shortcuts-strip">
         <div className="shortcut-row" data-testid="editor-shortcuts-row">
           {EDITOR_SHORTCUTS.map((shortcut) => (
             <Button
               key={shortcut.key}
               variant="default"
               size="sm"
+              className="h-7 min-w-9 px-2 text-[10px] font-medium tracking-wide"
               title={shortcut.label}
               aria-label={shortcut.label}
               data-testid={`editor-shortcut-${shortcut.key}`}
@@ -1140,19 +1144,16 @@ export function DevicePage() {
         }`}
         style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
       >
-        <div ref={terminalRef} className="w-full h-full min-w-0 min-h-0" />
+        <div ref={terminalRef} className="h-full min-h-0 min-w-0 w-full bg-[#0d1117]" />
 
         {(isLoading || showConnecting) && (
           <div
-            className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/80 backdrop-blur-sm"
+            className="absolute inset-0 flex items-center justify-center bg-background/85 backdrop-blur-sm"
             data-testid="terminal-status-overlay"
           >
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
-              <span
-                className="text-[var(--color-text-secondary)]"
-                data-testid="terminal-status-text"
-              >
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card/90 px-4 py-3 shadow-sm">
+              <div className="h-7 w-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <span className="text-xs text-muted-foreground" data-testid="terminal-status-text">
                 {isLoading ? t('terminal.initializing') : t('terminal.connecting')}
               </span>
             </div>
@@ -1163,11 +1164,14 @@ export function DevicePage() {
       {inputMode === 'editor' && (
         <div
           ref={editorContainerRef}
-          className={`editor-mode-input ${shouldDockEditor ? 'editor-mode-input-docked' : ''}`}
+          className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${
+            shouldDockEditor ? 'editor-mode-input-docked' : ''
+          }`}
           style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
         >
           <textarea
             data-testid="editor-input"
+            className="min-h-[88px] max-h-[28vh] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus:border-ring"
             value={editorText}
             onChange={(e) => {
               const nextText = e.target.value;
@@ -1187,16 +1191,16 @@ export function DevicePage() {
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
           />
-          <div className="actions">
-            <div className="send-row" data-testid="editor-send-row">
-              <label className="send-with-enter-toggle" data-testid="editor-send-with-enter-toggle">
-                <input
-                  type="checkbox"
+          <div className="actions mt-2">
+            <div className="send-row flex flex-wrap items-center justify-end gap-2" data-testid="editor-send-row">
+              <div className="send-with-enter-toggle mr-auto flex items-center gap-2 text-xs text-muted-foreground" data-testid="editor-send-with-enter-toggle">
+                <Switch
+                  size="sm"
                   checked={editorSendWithEnter}
-                  onChange={(event) => setEditorSendWithEnter(event.target.checked)}
+                  onCheckedChange={(checked) => setEditorSendWithEnter(Boolean(checked))}
                 />
                 <span>{t('terminal.editorSendWithEnter')}</span>
-              </label>
+              </div>
               <Button
                 variant="default"
                 size="sm"
@@ -1209,7 +1213,7 @@ export function DevicePage() {
                 }}
                 title={t('terminal.clear')}
               >
-                <Trash2 className="h-4 w-4 mr-1" />
+                <Trash2 className="h-4 w-4" />
                 {t('terminal.clear')}
               </Button>
               <Button
@@ -1219,7 +1223,7 @@ export function DevicePage() {
                 onClick={handleEditorSendLineByLine}
                 disabled={!canInteractWithPane}
               >
-                <Send className="h-4 w-4 mr-1" />
+                <Send className="h-4 w-4" />
                 {t('terminal.editorSendLineByLine')}
               </Button>
               <Button
@@ -1229,7 +1233,7 @@ export function DevicePage() {
                 onClick={handleEditorSend}
                 disabled={!canInteractWithPane}
               >
-                <Send className="h-4 w-4 mr-1" />
+                <Send className="h-4 w-4" />
                 {t('common.send')}
               </Button>
             </div>
@@ -1241,6 +1245,7 @@ export function DevicePage() {
         <input
           type="text"
           className="sr-only"
+          aria-label={inputModeToggleLabel}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={(e) => {
             setIsComposing(false);

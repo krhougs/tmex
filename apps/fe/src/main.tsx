@@ -10,6 +10,25 @@ import { SettingsPage } from './pages/SettingsPage';
 import './i18n';
 import './index.css';
 
+function applyInitialTheme(): void {
+  try {
+    const raw = localStorage.getItem('tmex-ui');
+    if (!raw) {
+      document.documentElement.classList.add('dark');
+      return;
+    }
+
+    const parsed = JSON.parse(raw) as { state?: { theme?: unknown } } | null;
+    const theme = parsed?.state?.theme;
+    const isDark = theme === 'dark' || theme === undefined;
+    document.documentElement.classList.toggle('dark', isDark);
+  } catch {
+    document.documentElement.classList.add('dark');
+  }
+}
+
+applyInitialTheme();
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

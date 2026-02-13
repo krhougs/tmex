@@ -5,11 +5,13 @@ interface UIState {
   sidebarCollapsed: boolean;
   inputMode: 'direct' | 'editor';
   editorSendWithEnter: boolean;
+  theme: 'light' | 'dark';
   editorHistory: string[];
   editorDrafts: Record<string, string>;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setInputMode: (mode: 'direct' | 'editor') => void;
   setEditorSendWithEnter: (enabled: boolean) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
   addEditorHistory: (text: string) => void;
   setEditorDraft: (draftKey: string, text: string) => void;
   removeEditorDraft: (draftKey: string) => void;
@@ -21,12 +23,14 @@ export const useUIStore = create<UIState>()(
       sidebarCollapsed: false,
       inputMode: 'direct',
       editorSendWithEnter: true,
+      theme: 'dark',
       editorHistory: [],
       editorDrafts: {},
 
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       setInputMode: (mode) => set({ inputMode: mode }),
       setEditorSendWithEnter: (enabled) => set({ editorSendWithEnter: enabled }),
+      setTheme: (theme) => set({ theme }),
 
       addEditorHistory: (text) =>
         set((state) => ({
@@ -57,6 +61,7 @@ export const useUIStore = create<UIState>()(
         sidebarCollapsed: state.sidebarCollapsed,
         inputMode: state.inputMode,
         editorSendWithEnter: state.editorSendWithEnter,
+        theme: state.theme,
         editorHistory: state.editorHistory,
         editorDrafts: state.editorDrafts,
       }),

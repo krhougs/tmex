@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
+import { toBCP47 } from '@tmex/shared';
 import {
   ChevronDown,
   ChevronLeft,
@@ -14,21 +15,22 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, matchPath, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { toBCP47 } from '@tmex/shared';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
-import { Button } from './ui';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-// ==================== Sidebar 主组件 ====================
-
-export function Sidebar({ onClose }: SidebarProps) {
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { t } = useTranslation();
   const location = useLocation();
   const paneMatch = matchPath('/devices/:deviceId/windows/:windowId/panes/:paneId', location.pathname);
@@ -36,12 +38,13 @@ export function Sidebar({ onClose }: SidebarProps) {
   const selectedDeviceId = paneMatch?.params.deviceId ?? deviceMatch?.params.deviceId;
   const selectedWindowId = paneMatch?.params.windowId;
   const selectedPaneId = decodePaneIdFromUrlParam(paneMatch?.params.paneId);
-  
+
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
-  const [pendingWindowSelection, setPendingWindowSelection] = useState<Record<string, { windowId: string; requestedAt: number }>>({});
+  const [pendingWindowSelection, setPendingWindowSelection] = useState<
+    Record<string, { windowId: string; requestedAt: number }>
+  >({});
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const snapshots = useTmuxStore((state) => state.snapshots);
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
@@ -53,8 +56,7 @@ export function Sidebar({ onClose }: SidebarProps) {
   const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
 
-  // 获取设备列表
-  const { data: devicesData } = useQuery({
+  const { data: devicesData, isError: isDevicesError } = useQuery({
     queryKey: ['devices'],
     queryFn: async () => {
       const res = await fetch('/api/devices');
@@ -65,36 +67,17 @@ export function Sidebar({ onClose }: SidebarProps) {
   });
 
   useEffect(() => {
-    if (devicesData) {
+    if (!isDevicesError) {
       return;
     }
     toast.error(t('common.error'));
-  }, [devicesData, t]);
+  }, [isDevicesError, t]);
 
-  // 删除设备
-  const deleteDevice = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/devices/${id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Failed to delete device');
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['devices'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  // 切换设备展开/折叠
   const toggleDevice = useCallback(
     (deviceId: string) => {
       setExpandedDevices((prev) => {
         const next = new Set(prev);
         if (next.has(deviceId)) {
-          // 折叠时如果当前设备未选中，则断开连接
           next.delete(deviceId);
           if (deviceId !== selectedDeviceId) {
             disconnectDevice(deviceId, 'sidebar');
@@ -109,54 +92,71 @@ export function Sidebar({ onClose }: SidebarProps) {
     [connectDevice, disconnectDevice, selectedDeviceId]
   );
 
-  // 点击设备名称 - 导航到设备页
-  const handleDeviceClick = useCallback((deviceId: string) => {
-    navigate(`/devices/${deviceId}`);
-    onClose();
-  }, [navigate, onClose]);
+  const handleDeviceClick = useCallback(
+    (deviceId: string) => {
+      navigate(`/devices/${deviceId}`);
+      onClose();
+    },
+    [navigate, onClose]
+  );
 
-  const navigateToPane = useCallback((deviceId: string, windowId: string, paneId: string) => {
-    navigate(`/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`);
-    onClose();
-  }, [navigate, onClose]);
+  const navigateToPane = useCallback(
+    (deviceId: string, windowId: string, paneId: string) => {
+      navigate(`/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`);
+      onClose();
+    },
+    [navigate, onClose]
+  );
 
-  // 点击pane - 导航到pane页
-  const handlePaneClick = useCallback((deviceId: string, windowId: string, paneId: string) => {
-    navigateToPane(deviceId, windowId, paneId);
-  }, [navigateToPane]);
+  const handlePaneClick = useCallback(
+    (deviceId: string, windowId: string, paneId: string) => {
+      navigateToPane(deviceId, windowId, paneId);
+    },
+    [navigateToPane]
+  );
 
-  const handleWindowClick = useCallback((deviceId: string, windowId: string, panes: TmuxPane[]) => {
-    const targetPane = panes.find((pane) => pane.active) ?? panes[0];
-    if (targetPane) {
-      navigateToPane(deviceId, windowId, targetPane.id);
-      return;
-    }
+  const handleWindowClick = useCallback(
+    (deviceId: string, windowId: string, panes: TmuxPane[]) => {
+      const targetPane = panes.find((pane) => pane.active) ?? panes[0];
+      if (targetPane) {
+        navigateToPane(deviceId, windowId, targetPane.id);
+        return;
+      }
 
-    setPendingWindowSelection((prev) => ({
-      ...prev,
-      [deviceId]: { windowId, requestedAt: Date.now() },
-    }));
-    selectWindow(deviceId, windowId);
-  }, [navigateToPane, selectWindow]);
+      setPendingWindowSelection((prev) => ({
+        ...prev,
+        [deviceId]: { windowId, requestedAt: Date.now() },
+      }));
+      selectWindow(deviceId, windowId);
+    },
+    [navigateToPane, selectWindow]
+  );
 
-  // 创建新窗口
-  const handleCreateWindow = useCallback((deviceId: string) => {
-    createWindow(deviceId);
-  }, [createWindow]);
+  const handleCreateWindow = useCallback(
+    (deviceId: string) => {
+      createWindow(deviceId);
+    },
+    [createWindow]
+  );
 
-  const handleCloseWindow = useCallback((deviceId: string, windowId: string) => {
-    closeWindow(deviceId, windowId);
-  }, [closeWindow]);
-
-  const handleClosePane = useCallback((deviceId: string, windowId: string, paneId: string, paneCount: number) => {
-    if (paneCount <= 1) {
+  const handleCloseWindow = useCallback(
+    (deviceId: string, windowId: string) => {
       closeWindow(deviceId, windowId);
-      return;
-    }
-    closePane(deviceId, paneId);
-  }, [closePane, closeWindow]);
+    },
+    [closeWindow]
+  );
 
-  // 自动展开当前选中的设备
+  const handleClosePane = useCallback(
+    (deviceId: string, windowId: string, paneId: string, paneCount: number) => {
+      if (paneCount <= 1) {
+        closeWindow(deviceId, windowId);
+        return;
+      }
+      closePane(deviceId, paneId);
+    },
+    [closePane, closeWindow]
+  );
+
   useEffect(() => {
     if (selectedDeviceId && !expandedDevices.has(selectedDeviceId)) {
       setExpandedDevices((prev) => new Set(prev).add(selectedDeviceId));
@@ -202,7 +202,6 @@ export function Sidebar({ onClose }: SidebarProps) {
 
   const devices = devicesData?.devices ?? [];
 
-  // 按设备名称排序
   const sortedDevices = useMemo(() => {
     return [...devices].sort((a, b) => {
       return a.name.localeCompare(b.name, toBCP47(language), {
@@ -212,144 +211,145 @@ export function Sidebar({ onClose }: SidebarProps) {
     });
   }, [devices, language]);
 
+  const effectiveCollapsed = sidebarCollapsed && !isOpen;
+
   return (
     <aside
       data-testid="sidebar"
-      className={`
-        h-full flex-shrink-0 bg-[var(--color-bg-secondary)] border-r border-[var(--color-border)] 
-        flex flex-col transition-all duration-200 ease-in-out
-        ${sidebarCollapsed ? 'w-14' : 'w-64'}
-      `}
+      className={cn(
+        'flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200',
+        effectiveCollapsed ? 'w-16' : 'w-72'
+      )}
     >
-      {/* 头部 */}
-      <div className="tmex-mobile-topbar border-b border-[var(--color-border)] flex-shrink-0">
-        <div className="h-11 flex items-center justify-between">
-          {!sidebarCollapsed && (
-            <span className="font-semibold text-base text-[var(--color-text)] truncate">
+      <div className="tmex-mobile-topbar border-b border-sidebar-border flex-shrink-0">
+        <div className="h-11 flex items-center gap-2">
+          {!effectiveCollapsed && (
+            <span className="line-clamp-1 flex-1 truncate text-sm font-semibold tracking-tight" title={siteName}>
               {siteName}
             </span>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="sidebar-collapse-toggle"
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
-            className={`
-              p-1.5 h-8 w-8
-              ${sidebarCollapsed ? 'mx-auto' : ''}
-            `}
-          >
-            {sidebarCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </Button>
+          {isOpen ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              data-testid="mobile-sidebar-close"
+              onClick={onClose}
+              aria-label={t('nav.closeSidebar')}
+              title={t('nav.closeSidebar')}
+              className="ml-auto"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              data-testid="sidebar-collapse-toggle"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
+              className={effectiveCollapsed ? 'mx-auto' : 'ml-auto'}
+            >
+              {effectiveCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* 设备列表 */}
-      <div className="flex-1 overflow-y-auto py-2 min-h-0">
-        {sortedDevices.map((device) => (
-          <DeviceTreeItem
-            key={device.id}
-            device={device}
-            isExpanded={expandedDevices.has(device.id)}
-            isSelected={device.id === selectedDeviceId}
-            selectedWindowId={selectedWindowId}
-            selectedPaneId={selectedPaneId}
-            windows={snapshots[device.id]?.session?.windows ?? null}
-            isConnected={deviceConnected[device.id] ?? false}
-            onToggle={() => toggleDevice(device.id)}
-            onSelect={() => handleDeviceClick(device.id)}
-            onDelete={() => deleteDevice.mutate(device.id)}
-            onCreateWindow={() => handleCreateWindow(device.id)}
-            onCloseWindow={handleCloseWindow}
-            onClosePane={handleClosePane}
-            collapsed={sidebarCollapsed}
-            onPaneClick={handlePaneClick}
-            onWindowClick={handleWindowClick}
-          />
-        ))}
+      <ScrollArea className="flex-1">
+        <div className="space-y-1 p-2">
+          {sortedDevices.map((device) => (
+            <DeviceTreeItem
+              key={device.id}
+              device={device}
+              isExpanded={expandedDevices.has(device.id)}
+              isSelected={device.id === selectedDeviceId}
+              selectedWindowId={selectedWindowId}
+              selectedPaneId={selectedPaneId}
+              windows={snapshots[device.id]?.session?.windows ?? null}
+              isConnected={deviceConnected[device.id] ?? false}
+              onToggle={() => toggleDevice(device.id)}
+              onSelect={() => handleDeviceClick(device.id)}
+              onCreateWindow={() => handleCreateWindow(device.id)}
+              onCloseWindow={handleCloseWindow}
+              onClosePane={handleClosePane}
+              collapsed={effectiveCollapsed}
+              onPaneClick={handlePaneClick}
+              onWindowClick={handleWindowClick}
+            />
+          ))}
 
-        {sortedDevices.length === 0 && !sidebarCollapsed && (
-          <div className="px-4 py-8 text-center text-[var(--color-text-secondary)] text-sm">
-            <div className="mb-2">{t('sidebar.noDevices')}</div>
-            <div className="space-y-1">
-              <Link
-                to="/devices"
-                className="block text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] hover:underline transition-colors"
-                onClick={onClose}
-              >
-                {t('sidebar.addDevice')}
-              </Link>
-              <Link
-                to="/settings"
-                className="block text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:underline transition-colors"
-                onClick={onClose}
-              >
-                {t('sidebar.openSettings')}
-              </Link>
+          {sortedDevices.length === 0 && !effectiveCollapsed && (
+            <div className="rounded-lg border border-dashed border-sidebar-border bg-sidebar-accent/30 px-3 py-4 text-center">
+              <div className="mb-1 text-sm text-sidebar-foreground">{t('sidebar.noDevices')}</div>
+              <div className="space-y-1 text-xs">
+                <Link
+                  to="/devices"
+                  className="block text-primary hover:underline"
+                  onClick={onClose}
+                >
+                  {t('sidebar.addDevice')}
+                </Link>
+                <Link
+                  to="/settings"
+                  className="block text-muted-foreground hover:text-foreground hover:underline"
+                  onClick={onClose}
+                >
+                  {t('sidebar.openSettings')}
+                </Link>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* 底部 */}
-      {!sidebarCollapsed && (
-        <div className="p-3 tmex-sidebar-bottom-safe-md border-t border-[var(--color-border)] flex-shrink-0">
-          <div className="flex flex-col gap-2">
-            <Button variant="default" className="w-full justify-start" asChild>
-              <Link data-testid="sidebar-manage-devices" to="/devices" onClick={onClose}>
-                <Monitor className="h-4 w-4 mr-2 flex-shrink-0" />
-                {t('sidebar.manageDevices')}
-              </Link>
-            </Button>
-
-            <Button variant="default" className="w-full justify-start" asChild>
-              <Link data-testid="sidebar-settings" to="/settings" onClick={onClose}>
-                <Settings className="h-4 w-4 mr-2 flex-shrink-0" />
-                {t('sidebar.settings')}
-              </Link>
-            </Button>
-          </div>
+          )}
         </div>
-      )}
+      </ScrollArea>
 
-      {/* 折叠状态下的快捷按钮 */}
-      {sidebarCollapsed && (
-        <div className="p-2 tmex-sidebar-bottom-safe-sm border-t border-[var(--color-border)] flex-shrink-0 flex flex-col gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full h-8 px-2 justify-start"
-            asChild
+      <Separator className="bg-sidebar-border" />
+
+      {!effectiveCollapsed ? (
+        <div className="space-y-2 px-3 py-3 tmex-sidebar-bottom-safe-md">
+          <Link
+            data-testid="sidebar-manage-devices"
+            to="/devices"
+            onClick={onClose}
+            className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start')}
+          >
+            <Monitor className="h-4 w-4" />
+            {t('sidebar.manageDevices')}
+          </Link>
+          <Link
+            data-testid="sidebar-settings"
+            to="/settings"
+            onClick={onClose}
+            className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start')}
+          >
+            <Settings className="h-4 w-4" />
+            {t('sidebar.settings')}
+          </Link>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2 px-2 py-2 tmex-sidebar-bottom-safe-sm">
+          <Link
+            data-testid="sidebar-manage-devices"
+            to="/devices"
+            onClick={onClose}
             title={t('sidebar.manageDevices')}
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
           >
-            <Link data-testid="sidebar-manage-devices" to="/devices" onClick={onClose}>
-              <Monitor className="h-4 w-4" />
-            </Link>
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full h-8 px-2 justify-start"
-            asChild
+            <Monitor className="h-4 w-4" />
+          </Link>
+          <Link
+            data-testid="sidebar-settings"
+            to="/settings"
+            onClick={onClose}
             title={t('sidebar.settings')}
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
           >
-            <Link data-testid="sidebar-settings" to="/settings" onClick={onClose}>
-              <Settings className="h-4 w-4" />
-            </Link>
-          </Button>
+            <Settings className="h-4 w-4" />
+          </Link>
         </div>
       )}
     </aside>
   );
 }
-
-// ==================== DeviceTreeItem 子组件 ====================
 
 interface DeviceTreeItemProps {
   device: Device;
@@ -361,7 +361,6 @@ interface DeviceTreeItemProps {
   isConnected: boolean;
   onToggle: () => void;
   onSelect: () => void;
-  onDelete: () => void;
   onCreateWindow: () => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
@@ -389,6 +388,7 @@ function DeviceTreeItem({
 }: DeviceTreeItemProps) {
   const { t } = useTranslation();
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
+
   const hasSelectedPaneInDevice = isSelected && Boolean(selectedPaneId);
   const selectedWindow = hasSelectedPaneInDevice
     ? windows?.find((window) => window.id === selectedWindowId)
@@ -397,140 +397,94 @@ function DeviceTreeItem({
     ? selectedWindow?.panes.find((pane) => pane.id === selectedPaneId)
     : undefined;
   const isDeviceTreeSelected = hasSelectedPaneInDevice && Boolean(selectedPaneInWindow);
-  
-  // 折叠状态 - 只显示图标
+
   if (collapsed) {
     return (
-      <div className="px-2 py-1">
-        <button
-            type="button"
-            onClick={onSelect}
+      <div className="flex justify-center">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onSelect}
           title={device.name}
           data-testid={`device-icon-${device.id}`}
           data-active={isSelected}
-          className={`
-            w-full h-9 rounded-md flex items-center justify-center
-            transition-all duration-150 ease-in-out
-            ${isSelected 
-              ? 'bg-[rgba(88,166,255,0.15)] text-[var(--color-text)] shadow-sm' 
-              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
-            }
-            ${isConnected && !isSelected ? 'border-l-2 border-[var(--color-success)]' : ''}
-          `}
+          className={cn(
+            'relative',
+            isSelected && 'bg-sidebar-accent text-sidebar-accent-foreground',
+            isConnected && !isSelected && 'after:absolute after:right-1 after:top-1 after:h-1.5 after:w-1.5 after:rounded-full after:bg-emerald-500'
+          )}
         >
-          <DeviceIcon className="h-4 w-4 flex-shrink-0" />
-        </button>
+          <DeviceIcon className="h-4 w-4" />
+        </Button>
       </div>
     );
   }
 
-  // 展开状态
   return (
-    <div className="select-none group">
-      {/* 设备项 */}
+    <div className="rounded-lg border border-transparent bg-sidebar/60">
       <div
         data-testid={`device-item-${device.id}`}
         data-active={isSelected}
-        className={`
-          mx-2 mb-1 rounded-md overflow-hidden
-          ${isDeviceTreeSelected
-            ? 'bg-[rgba(88,166,255,0.15)] text-[var(--color-text)]'
-            : isSelected
-              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text)]'
-              : 'text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
-          }
-          ${isSelected && !isDeviceTreeSelected ? 'border-l-2 border-[var(--color-accent)]' : ''}
-          transition-colors duration-150
-        `}
+        className={cn(
+          'rounded-lg border px-1.5 py-1 shadow-xs transition-colors',
+          isDeviceTreeSelected && 'border-primary/50 bg-primary/10',
+          !isDeviceTreeSelected && isSelected && 'border-sidebar-border bg-sidebar-accent/60',
+          !isSelected && 'border-transparent hover:border-sidebar-border hover:bg-sidebar-accent/35'
+        )}
       >
-        <div className="flex items-center px-2 py-2">
-          {/* 展开/折叠按钮 */}
+        <div className="flex items-center gap-1">
           <button
             type="button"
             data-testid={`device-expand-${device.id}`}
             onClick={onToggle}
-            className={`
-              p-1 rounded mr-1 flex-shrink-0
-              text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]
-              transition-colors duration-150
-            `}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
             title={isExpanded ? t('common.collapse') : t('common.expand')}
           >
-            {isExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           </button>
 
-          {/* 设备图标 */}
-          <span className={`
-            mr-2 flex-shrink-0
-            ${isSelected ? 'text-[var(--color-text)]' : 'text-[var(--color-text-secondary)]'}
-          `}>
-            <DeviceIcon className="h-4 w-4" />
-          </span>
-
-          {/* 设备名称 - 可点击导航 */}
           <button
             type="button"
             data-testid={`device-select-${device.id}`}
             onClick={onSelect}
-            className="flex-1 min-w-0 text-left font-medium truncate"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
             title={device.name}
           >
-            {device.name}
+            <DeviceIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="truncate text-sm font-medium">{device.name}</span>
           </button>
 
-          {/* 连接状态指示器 */}
-          {isConnected && (
-            <span 
-              className={`
-                ml-1.5 w-2 h-2 rounded-full flex-shrink-0
-                ${isSelected ? 'bg-[var(--color-success)]' : 'bg-[var(--color-success)]'}
-              `}
-              title={t('device.connected')}
-            />
-          )}
+          {isConnected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title={t('device.connected')} />}
 
-          {/* 新建窗口按钮 */}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             data-testid={`window-create-${device.id}`}
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={(event) => {
+              event.stopPropagation();
               onCreateWindow();
             }}
-            className={`
-              ml-1 p-1 rounded flex-shrink-0
-              transition-colors duration-150
-              ${isSelected 
-                ? 'text-[var(--color-text)] hover:bg-[var(--color-bg)]/40' 
-                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]'
-              }
-            `}
             title={t('sidebar.newWindow')}
             aria-label={`${device.name} ${t('sidebar.newWindow')}`}
           >
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* 展开的窗口列表 */}
       {isExpanded && (
-        <div className="ml-4 mr-2 mb-2">
+        <div className="ml-3 mt-1 space-y-1 border-l border-sidebar-border/70 pl-2">
           {!windows && (
-            <div className="px-3 py-2 text-sm text-[var(--color-text-secondary)] flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-[var(--color-accent)] rounded-full animate-pulse" />
+            <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
               {t('terminal.connecting')}
             </div>
           )}
 
           {windows && windows.length === 0 && (
-            <div className="px-3 py-2 text-sm text-[var(--color-text-secondary)]">
-              -
-            </div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">-</div>
           )}
 
           {windows?.map((window) => (
@@ -554,8 +508,6 @@ function DeviceTreeItem({
   );
 }
 
-// ==================== WindowTreeItem 子组件 ====================
-
 interface WindowTreeItemProps {
   device: Device;
   window: TmuxWindow;
@@ -569,12 +521,12 @@ interface WindowTreeItemProps {
   onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
 }
 
-function WindowTreeItem({ 
-  device, 
-  window, 
-  isSelected, 
+function WindowTreeItem({
+  device,
+  window,
+  isSelected,
   isDeviceTreeSelected,
-  selectedPaneId, 
+  selectedPaneId,
   parentSelected,
   onPaneClick,
   onWindowClick,
@@ -584,7 +536,6 @@ function WindowTreeItem({
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(isSelected);
 
-  // 当选中状态变化时，自动展开
   useEffect(() => {
     if (isSelected) {
       setIsExpanded(true);
@@ -600,8 +551,7 @@ function WindowTreeItem({
   const isWindowTreeSelected = isDeviceTreeSelected && Boolean(selectedPaneInWindow);
 
   return (
-    <div className="select-none">
-      {/* 窗口项 */}
+    <div className="space-y-1">
       <div
         data-testid={`window-item-${window.id}`}
         data-active={isSelected}
@@ -614,108 +564,59 @@ function WindowTreeItem({
             handleWindowClick();
           }
         }}
-        className={`
-          rounded-md mb-0.5
-          ${isWindowTreeSelected
-            ? 'bg-[rgba(88,166,255,0.3)] text-[var(--color-text)] border-l-2 border-[var(--color-accent)]'
-            : isSelected
-              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text)] border-l-2 border-[var(--color-accent)]'
-              : 'text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
-          }
-          ${!isSelected && parentSelected ? 'ml-2' : ''}
-          transition-colors duration-150
-        `}
+        className={cn(
+          'rounded-md border border-transparent px-1 py-1 transition-colors',
+          isWindowTreeSelected && 'border-primary/45 bg-primary/15',
+          !isWindowTreeSelected && isSelected && 'border-sidebar-border bg-sidebar-accent/55',
+          !isSelected && 'hover:border-sidebar-border hover:bg-sidebar-accent/35',
+          !isSelected && parentSelected && 'ml-1'
+        )}
       >
-        <div className="flex items-center px-2 py-1.5">
-          {/* Pane展开按钮（只有多pane时显示） */}
+        <div className="flex items-center gap-1">
           {hasMultiplePanes ? (
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 setIsExpanded(!isExpanded);
               }}
-              className={`
-                p-0.5 rounded mr-1 flex-shrink-0
-                ${isSelected 
-                  ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]' 
-                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]'
-                }
-                transition-colors duration-150
-              `}
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
             >
-              {isExpanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
+              {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             </button>
           ) : (
-            <span className="w-5 flex-shrink-0" />
+            <span className="inline-block h-5 w-5 shrink-0" />
           )}
 
-          {/* 窗口索引 */}
-          <span className={`
-            text-xs mr-1.5 flex-shrink-0 min-w-[1.25rem]
-            ${isSelected 
-              ? 'text-[var(--color-text-secondary)]' 
-              : 'text-[var(--color-text-muted)]'
-            }
-          `}>
-            {window.index}:
-          </span>
+          <Badge variant="outline" className="h-5 rounded-sm px-1 text-[10px]">
+            {window.index}
+          </Badge>
 
-          {/* 窗口名称 */}
-          <span
-            className="flex-1 min-w-0 text-left text-sm truncate"
-            title={window.name}
-          >
+          <span className="line-clamp-1 flex-1 truncate text-xs font-medium" title={window.name}>
             {window.name}
           </span>
 
-          {/* 当前窗口指示器 */}
-          {window.active && (
-            <span 
-              className={`
-                ml-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0
-                ${isSelected 
-                  ? 'bg-[var(--color-success)]' 
-                  : 'bg-[var(--color-success)]'
-                }
-              `}
-              title={t('sidebar.currentWindow')}
-            />
-          )}
+          {window.active && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title={t('sidebar.currentWindow')} />}
 
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             data-testid={`window-close-${window.id}`}
             onClick={(event) => {
               event.stopPropagation();
               onCloseWindow(device.id, window.id);
             }}
-            className={`
-              ml-1 p-1 rounded flex-shrink-0
-              ${isSelected
-                ? 'text-[var(--color-text)] hover:bg-[var(--color-bg)]/40'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)]'
-              }
-              transition-colors duration-150
-            `}
             title={t('sidebar.closeWindow')}
             aria-label={`${t('sidebar.closeWindow')} ${window.name}`}
           >
             <X className="h-3 w-3" />
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Pane列表 */}
       {(isExpanded || !hasMultiplePanes) && (
-        <div className={`
-          ${!isSelected && parentSelected ? 'ml-4' : 'ml-3'}
-          border-l border-[var(--color-border)] pl-2
-        `}>
+        <div className={cn('space-y-1 border-l border-sidebar-border/60 pl-2', !isSelected && parentSelected && 'ml-2')}>
           {window.panes.map((pane) => (
             <PaneTreeItem
               key={pane.id}
@@ -736,8 +637,6 @@ function WindowTreeItem({
   );
 }
 
-// ==================== PaneTreeItem 子组件 ====================
-
 interface PaneTreeItemProps {
   deviceId: string;
   windowId: string;
@@ -750,11 +649,11 @@ interface PaneTreeItemProps {
   onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
 }
 
-function PaneTreeItem({ 
-  deviceId, 
-  windowId, 
-  pane, 
-  isSelected, 
+function PaneTreeItem({
+  deviceId,
+  windowId,
+  pane,
+  isSelected,
   isWindowTreeSelected,
   parentWindowSelected,
   paneCount,
@@ -762,78 +661,46 @@ function PaneTreeItem({
   onClosePane,
 }: PaneTreeItemProps) {
   const { t } = useTranslation();
+
   return (
     <div
       data-testid={`pane-item-${pane.id}`}
       data-active={isSelected}
-      className={`
-        w-full flex items-center px-2 py-1 rounded-md text-left text-sm
-        ${isSelected 
-          ? 'bg-[rgba(88,166,255,0.9)] text-[var(--color-bg)] border-l-2 border-[var(--color-accent)]' 
-          : isWindowTreeSelected
-            ? 'text-[var(--color-text)] bg-[rgba(88,166,255,0.15)] hover:bg-[rgba(88,166,255,0.2)]'
-          : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
-        }
-        ${!isSelected && parentWindowSelected ? 'ml-2' : ''}
-        transition-colors duration-150 mb-0.5
-      `}
+      className={cn(
+        'flex items-center gap-1 rounded-md border border-transparent px-1 py-1 text-xs transition-colors',
+        isSelected && 'border-primary/65 bg-primary text-primary-foreground',
+        !isSelected && isWindowTreeSelected && 'bg-primary/10 text-foreground',
+        !isSelected && !isWindowTreeSelected && 'text-muted-foreground hover:bg-sidebar-accent/45 hover:text-foreground',
+        !isSelected && parentWindowSelected && 'ml-1'
+      )}
     >
       <button
         type="button"
         onClick={() => onClick(deviceId, windowId, pane.id)}
         title={`Pane ${pane.index}${pane.active ? ' (active)' : ''}`}
-        className="flex items-center flex-1 min-w-0"
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        {/* Pane指示符 */}
-        <span className={`
-          mr-1.5 text-xs flex-shrink-0
-          ${isSelected ? 'text-[var(--color-bg)]' : 'text-[var(--color-text-muted)]'}
-        `}>
-          ›
+        <span className={cn('text-[10px]', isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+          ▸
         </span>
-
-        {/* Pane索引 */}
-        <span className="truncate flex-1 text-left">
-          Pane {pane.index}
-        </span>
-
-        {/* 当前pane指示器 */}
-        {pane.active && (
-          <span 
-            className={`
-              ml-1.5 w-1 h-1 rounded-full flex-shrink-0
-              ${isSelected 
-                ? 'bg-[var(--color-bg)]/80' 
-                : 'bg-[var(--color-success)]'
-              }
-            `}
-            title={t('sidebar.currentPane')}
-          />
-        )}
+        <span className="truncate">Pane {pane.index}</span>
+        {pane.active && <span className={cn('h-1 w-1 rounded-full', isSelected ? 'bg-primary-foreground/80' : 'bg-emerald-500')} title={t('sidebar.currentPane')} />}
       </button>
 
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         data-testid={`pane-close-${pane.id}`}
         onClick={(event) => {
           event.stopPropagation();
           onClosePane(deviceId, windowId, pane.id, paneCount);
         }}
-        className={`
-          ml-1 p-1 rounded flex-shrink-0
-          ${isSelected
-            ? 'text-[var(--color-bg)] hover:bg-[var(--color-bg)]/20'
-            : isWindowTreeSelected
-              ? 'text-[var(--color-text)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)]/40'
-            : 'text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)]'
-          }
-          transition-colors duration-150
-        `}
         title={t('sidebar.closePane')}
         aria-label={`${t('sidebar.closePane')} ${pane.index}`}
       >
         <X className="h-3 w-3" />
-      </button>
+      </Button>
     </div>
   );
 }
