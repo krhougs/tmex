@@ -218,6 +218,21 @@ export const I18N_RESOURCES = {
         botNotRunning: 'Bot is not running or unavailable',
       },
 
+      // ==================== Webhook ====================
+      webhook: {
+        title: 'Webhooks',
+        url: 'Webhook URL',
+        secret: 'Secret',
+        secretPlaceholder: 'Used to sign payloads (HMAC-SHA256)',
+        enabled: 'Enabled',
+        eventMask: 'Events',
+        add: 'Add Webhook',
+        empty: 'No webhooks yet.',
+        createFailed: 'Failed to create webhook',
+        deleteFailed: 'Failed to delete webhook',
+        loadFailed: 'Failed to load webhooks',
+      },
+
       // ==================== SSH Errors ====================
       sshError: {
         sshConfigRefNotSupported:
@@ -553,6 +568,21 @@ export const I18N_RESOURCES = {
         approveMessageTemplate: '✅ 已通过 tmex 授权。\nBot：{{botName}}\n时间：{{time}}',
         botNotFound: 'Bot 未启动或不可用',
         botNotRunning: 'Bot 未启动或不可用',
+      },
+
+      // ==================== Webhook ====================
+      webhook: {
+        title: 'Webhooks',
+        url: 'Webhook 地址',
+        secret: '密钥',
+        secretPlaceholder: '用于签名（HMAC-SHA256）',
+        enabled: '启用',
+        eventMask: '事件',
+        add: '添加 Webhook',
+        empty: '暂无 Webhook。',
+        createFailed: '创建 Webhook 失败',
+        deleteFailed: '删除 Webhook 失败',
+        loadFailed: '加载 Webhook 失败',
       },
 
       // ==================== SSH Errors ====================

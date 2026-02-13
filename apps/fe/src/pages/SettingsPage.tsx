@@ -1,26 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  EventType,
   SiteSettings,
   TelegramBotChat,
   TelegramBotWithStats,
   UpdateSiteSettingsRequest,
+  WebhookEndpoint,
 } from '@tmex/shared';
 import { toBCP47 as toBCP47Locale } from '@tmex/shared';
-import { Loader2, RefreshCcw, RotateCcw, Save, Send, Shield, Trash2 } from 'lucide-react';
+import { Loader2, RefreshCcw, RotateCcw, Save, Send, Shield, Trash2, Webhook } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Input,
   Select,
-  SelectOption,
-  Switch,
-} from '../components/ui';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useSiteStore } from '../stores/site';
 import { useUIStore } from '../stores/ui';
 
@@ -30,6 +33,10 @@ interface TelegramBotsResponse {
 
 interface TelegramChatsResponse {
   chats: TelegramBotChat[];
+}
+
+interface WebhooksResponse {
+  webhooks: WebhookEndpoint[];
 }
 
 interface SiteSettingsResponse {
@@ -66,6 +73,13 @@ export function SettingsPage() {
   const [newBotToken, setNewBotToken] = useState('');
   const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
 
+  const [newWebhookUrl, setNewWebhookUrl] = useState('');
+  const [newWebhookSecret, setNewWebhookSecret] = useState('');
+  const [newWebhookEnabled, setNewWebhookEnabled] = useState(true);
+  const [newWebhookEvents, setNewWebhookEvents] = useState<Set<EventType>>(
+    () => new Set(['terminal_bell'])
+  );
+
   const settingsQuery = useQuery({
     queryKey: ['site-settings'],
     queryFn: async () => {
@@ -85,6 +99,17 @@ export function SettingsPage() {
         throw new Error(await parseApiError(res, t('telegram.loadBotsFailed')));
       }
       return (await res.json()) as TelegramBotsResponse;
+    },
+  });
+
+  const webhooksQuery = useQuery({
+    queryKey: ['webhooks'],
+    queryFn: async () => {
+      const res = await fetch('/api/webhooks');
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, t('webhook.loadFailed')));
+      }
+      return (await res.json()) as WebhooksResponse;
     },
   });
 
@@ -189,15 +214,80 @@ export function SettingsPage() {
     },
   });
 
+  const createWebhookMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        enabled: newWebhookEnabled,
+        url: newWebhookUrl.trim(),
+        secret: newWebhookSecret.trim(),
+        eventMask: Array.from(newWebhookEvents),
+      };
+
+      const res = await fetch('/api/webhooks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, t('webhook.createFailed')));
+      }
+    },
+    onSuccess: async () => {
+      setNewWebhookUrl('');
+      setNewWebhookSecret('');
+      setNewWebhookEnabled(true);
+      setNewWebhookEvents(new Set(['terminal_bell']));
+      await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+      toast.success(t('common.success'));
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    },
+  });
+
+  const deleteWebhookMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/webhooks/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, t('webhook.deleteFailed')));
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+      toast.success(t('common.success'));
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    },
+  });
+
   const bots = botsQuery.data?.bots ?? [];
+  const webhooks = webhooksQuery.data?.webhooks ?? [];
+
+  const webhookEventTypes: EventType[] = useMemo(
+    () => [
+      'terminal_bell',
+      'tmux_window_close',
+      'tmux_pane_close',
+      'device_tmux_missing',
+      'device_disconnect',
+      'session_created',
+      'session_closed',
+    ],
+    []
+  );
 
   return (
     <div
-      className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-6 sm:p-6"
+      className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-4 sm:p-5"
       data-testid="settings-page"
     >
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t('nav.settings')}</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t('nav.settings')}</h1>
         <Button
           variant="ghost"
           onClick={() => {
@@ -246,13 +336,23 @@ export function SettingsPage() {
               {t('settings.language')}
             </label>
             <Select
-              id="language-select"
-              data-testid="settings-language-select"
               value={language}
-              onChange={(e) => setLanguage(e.target.value as 'en_US' | 'zh_CN')}
+              onValueChange={(nextValue) => {
+                if (!nextValue) return;
+                setLanguage(nextValue as 'en_US' | 'zh_CN');
+              }}
             >
-              <SelectOption value="en_US">{t('settings.language_en_US')}</SelectOption>
-              <SelectOption value="zh_CN">{t('settings.language_zh_CN')}</SelectOption>
+              <SelectTrigger
+                id="language-select"
+                data-testid="settings-language-select"
+                className="w-full"
+              >
+                <SelectValue placeholder={t('settings.language')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en_US">{t('settings.language_en_US')}</SelectItem>
+                <SelectItem value="zh_CN">{t('settings.language_zh_CN')}</SelectItem>
+              </SelectContent>
             </Select>
             {showRefreshNotice && (
               <p
@@ -272,6 +372,7 @@ export function SettingsPage() {
               </div>
             </div>
             <Switch
+              data-testid="settings-theme-toggle"
               checked={theme === 'dark'}
               onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
             />
@@ -349,7 +450,7 @@ export function SettingsPage() {
 
           <div className="flex items-center justify-end gap-2">
             <Button
-              variant="danger"
+              variant="destructive"
               data-testid="settings-restart"
               onClick={() => restartMutation.mutate()}
               disabled={restartMutation.isPending}
@@ -359,7 +460,7 @@ export function SettingsPage() {
             </Button>
 
             <Button
-              variant="primary"
+              variant="default"
               data-testid="settings-save"
               onClick={() => saveSiteMutation.mutate()}
               disabled={saveSiteMutation.isPending}
@@ -404,8 +505,9 @@ export function SettingsPage() {
 
             <div className="md:col-span-2">
               <Button
-                variant="primary"
+                variant="default"
                 className="w-full"
+                data-testid="telegram-add-bot"
                 onClick={() => createBotMutation.mutate()}
                 disabled={createBotMutation.isPending || !newBotName.trim() || !newBotToken.trim()}
               >
@@ -441,6 +543,171 @@ export function SettingsPage() {
                   setExpandedBotId((prev) => (prev === bot.id ? null : bot.id));
                 }}
               />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="webhooks-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Webhook className="h-4 w-4 text-muted-foreground" />
+            {t('webhook.title')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-6">
+              <label className="block text-sm font-medium mb-1.5" htmlFor="new-webhook-url">
+                {t('webhook.url')}
+              </label>
+              <Input
+                id="new-webhook-url"
+                data-testid="webhook-url-input"
+                value={newWebhookUrl}
+                onChange={(event) => setNewWebhookUrl(event.target.value)}
+                placeholder="https://example.com/tmex/webhook"
+              />
+            </div>
+
+            <div className="md:col-span-4">
+              <label className="block text-sm font-medium mb-1.5" htmlFor="new-webhook-secret">
+                {t('webhook.secret')}
+              </label>
+              <Input
+                id="new-webhook-secret"
+                data-testid="webhook-secret-input"
+                type="password"
+                value={newWebhookSecret}
+                onChange={(event) => setNewWebhookSecret(event.target.value)}
+                placeholder={t('webhook.secretPlaceholder')}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <Button
+                variant="default"
+                className="w-full"
+                data-testid="webhook-add"
+                onClick={() => createWebhookMutation.mutate()}
+                disabled={
+                  createWebhookMutation.isPending ||
+                  !newWebhookUrl.trim() ||
+                  !newWebhookSecret.trim()
+                }
+              >
+                {createWebhookMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {t('webhook.add')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+              <div className="min-w-0 text-sm font-medium">{t('webhook.enabled')}</div>
+              <Switch
+                size="sm"
+                data-testid="webhook-enabled-toggle"
+                checked={newWebhookEnabled}
+                onCheckedChange={(checked) => setNewWebhookEnabled(Boolean(checked))}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+              <div className="min-w-0 text-sm font-medium">{t('webhook.eventMask')}</div>
+              <Badge variant="secondary" data-testid="webhook-selected-count">
+                {newWebhookEvents.size}
+              </Badge>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {webhookEventTypes.map((eventType) => (
+              <div
+                key={eventType}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2"
+              >
+                <div className="min-w-0 text-sm font-medium">
+                  {t(`notification.eventType.${eventType}`)}
+                </div>
+                <Switch
+                  size="sm"
+                  data-testid={`webhook-event-${eventType}`}
+                  checked={newWebhookEvents.has(eventType)}
+                  onCheckedChange={(checked) => {
+                    setNewWebhookEvents((prev) => {
+                      const next = new Set(prev);
+                      if (checked) {
+                        next.add(eventType);
+                      } else {
+                        next.delete(eventType);
+                      }
+                      return next;
+                    });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3" data-testid="webhook-list">
+            {webhooksQuery.isLoading && (
+              <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+            )}
+
+            {!webhooksQuery.isLoading && webhooks.length === 0 && (
+              <div className="text-sm text-muted-foreground">{t('webhook.empty')}</div>
+            )}
+
+            {webhooks.map((endpoint) => (
+              <div
+                key={endpoint.id}
+                data-testid="webhook-item"
+                data-webhook-url={endpoint.url}
+                className="space-y-2 rounded-md border border-border bg-card p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="min-w-0 truncate font-medium" title={endpoint.url}>
+                        {endpoint.url}
+                      </div>
+                      <Badge variant={endpoint.enabled ? 'secondary' : 'outline'}>
+                        {endpoint.enabled ? t('common.enabled') : t('common.disabled')}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {endpoint.eventMask.length === 0 ? (
+                        <Badge variant="outline">{t('common.none')}</Badge>
+                      ) : (
+                        endpoint.eventMask.map((eventType) => (
+                          <Badge key={`${endpoint.id}-${eventType}`} variant="outline">
+                            {t(`notification.eventType.${eventType}`)}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {new Date(endpoint.createdAt).toLocaleString(toBCP47Locale(language))}
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    data-testid="webhook-delete"
+                    onClick={() => deleteWebhookMutation.mutate(endpoint.id)}
+                    disabled={deleteWebhookMutation.isPending}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t('common.delete')}
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
         </CardContent>
@@ -611,7 +878,11 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
   });
 
   return (
-    <div className="space-y-3 rounded-md border border-border bg-card p-4">
+    <div
+      className="space-y-3 rounded-md border border-border bg-card p-4"
+      data-testid={`telegram-bot-card-${bot.id}`}
+      data-bot-name={bot.name}
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="font-medium">{bot.name}</div>
@@ -619,7 +890,11 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
             {bot.authorizedCount} / {bot.pendingCount}
           </div>
         </div>
-        <Button variant="ghost" onClick={onToggleExpand}>
+        <Button
+          variant="ghost"
+          data-testid={`telegram-bot-toggle-${bot.id}`}
+          onClick={onToggleExpand}
+        >
           {expanded ? t('common.collapse') : t('common.expand')}
         </Button>
       </div>
@@ -665,11 +940,19 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
       </div>
 
       <div className="flex items-center justify-end gap-2">
-        <Button variant="danger" onClick={() => deleteBotMutation.mutate()}>
+        <Button
+          variant="destructive"
+          data-testid={`telegram-bot-delete-${bot.id}`}
+          onClick={() => deleteBotMutation.mutate()}
+        >
           <Trash2 className="h-4 w-4" />
           {t('telegram.deleteBot')}
         </Button>
-        <Button variant="primary" onClick={() => patchBotMutation.mutate()}>
+        <Button
+          variant="default"
+          data-testid={`telegram-bot-save-${bot.id}`}
+          onClick={() => patchBotMutation.mutate()}
+        >
           <Save className="h-4 w-4" />
           {t('common.save')}
         </Button>
@@ -748,20 +1031,20 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
       <div className="flex items-center justify-end gap-2">
         {pending ? (
           <>
-            <Button variant="default" size="sm" onClick={onDelete}>
+            <Button variant="outline" size="sm" onClick={onDelete}>
               {t('telegram.reject')}
             </Button>
-            <Button variant="primary" size="sm" onClick={onApprove}>
+            <Button variant="default" size="sm" onClick={onApprove}>
               {t('telegram.authorize')}
             </Button>
           </>
         ) : (
           <>
-            <Button variant="default" size="sm" onClick={onTest}>
+            <Button variant="secondary" size="sm" onClick={onTest}>
               <Send className="h-3.5 w-3.5" />
               {t('telegram.sendTestMessage')}
             </Button>
-            <Button variant="danger" size="sm" onClick={onDelete}>
+            <Button variant="destructive" size="sm" onClick={onDelete}>
               {t('common.delete')}
             </Button>
           </>

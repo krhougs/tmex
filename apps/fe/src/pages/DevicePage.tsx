@@ -9,7 +9,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Send, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Switch } from '../components/ui';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
@@ -21,6 +22,36 @@ interface EditorShortcut {
   label: string;
   payload: string;
 }
+
+const XTERM_THEME_DARK = {
+  background: '#0b1020',
+  foreground: '#e7e9ee',
+  cursor: '#e7e9ee',
+  selectionBackground: 'rgba(79, 70, 229, 0.35)',
+  black: '#0b1020',
+  red: '#ff6b6b',
+  green: '#2bd576',
+  yellow: '#ffd166',
+  blue: '#4f46e5',
+  magenta: '#a855f7',
+  cyan: '#22d3ee',
+  white: '#e7e9ee',
+};
+
+const XTERM_THEME_LIGHT = {
+  background: '#f8fafc',
+  foreground: '#0f172a',
+  cursor: '#0f172a',
+  selectionBackground: 'rgba(79, 70, 229, 0.22)',
+  black: '#0f172a',
+  red: '#b91c1c',
+  green: '#15803d',
+  yellow: '#a16207',
+  blue: '#4338ca',
+  magenta: '#7e22ce',
+  cyan: '#0e7490',
+  white: '#0f172a',
+};
 
 function hasTouchCapability(): boolean {
   if (typeof window === 'undefined') {
@@ -169,12 +200,13 @@ export function DevicePage() {
   const [isMobile, setIsMobile] = useState(false);
   const [editorText, setEditorText] = useState('');
   const [isEditorFocused, setIsEditorFocused] = useState(false);
-  const [isComposing, setIsComposing] = useState(false);
+  const isComposingRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [keyboardInsetBottom, setKeyboardInsetBottom] = useState(0);
   const [editorDockHeight, setEditorDockHeight] = useState(0);
   const inputMode = useUIStore((state) => state.inputMode);
+  const uiTheme = useUIStore((state) => state.theme);
   const editorSendWithEnter = useUIStore((state) => state.editorSendWithEnter);
   const setEditorSendWithEnter = useUIStore((state) => state.setEditorSendWithEnter);
   const addEditorHistory = useUIStore((state) => state.addEditorHistory);
@@ -187,6 +219,7 @@ export function DevicePage() {
   const shouldDockEditor = isMobile && inputMode === 'editor' && isIOSBrowser && isEditorFocused;
 
   const windows = snapshot?.session?.windows;
+  const terminalTheme = uiTheme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
 
   const { data: devicesData } = useQuery({
     queryKey: ['devices'],
@@ -582,6 +615,8 @@ export function DevicePage() {
     if (terminal.current) return;
 
     const container = terminalRef.current;
+    let cleanupComposition: (() => void) | undefined;
+    let observer: ResizeObserver | null = null;
 
     const initTerminal = () => {
       try {
@@ -600,20 +635,7 @@ export function DevicePage() {
           fastScrollModifier: 'ctrl',
           fastScrollSensitivity: 1,
           letterSpacing: 0,
-          theme: {
-            background: '#0d1117',
-            foreground: '#c9d1d9',
-            cursor: '#c9d1d9',
-            selectionBackground: '#264f78',
-            black: '#484f58',
-            red: '#ff7b72',
-            green: '#3fb950',
-            yellow: '#d29922',
-            blue: '#58a6ff',
-            magenta: '#bc8cff',
-            cyan: '#39c5cf',
-            white: '#b1bac4',
-          },
+          theme: terminalTheme,
           cursorBlink: true,
           allowProposedApi: true,
           scrollback: 10000,
@@ -627,6 +649,19 @@ export function DevicePage() {
           term.unicode.activeVersion = '11';
         }
         term.open(container);
+
+        const textarea = term.textarea;
+        const handleCompositionStart = () => {
+          isComposingRef.current = true;
+        };
+        const handleCompositionEnd = () => {
+          isComposingRef.current = false;
+        };
+
+        if (textarea) {
+          textarea.addEventListener('compositionstart', handleCompositionStart);
+          textarea.addEventListener('compositionend', handleCompositionEnd);
+        }
 
         requestAnimationFrame(() => {
           fit.fit();
@@ -643,6 +678,13 @@ export function DevicePage() {
         terminal.current = term;
         fitAddon.current = fit;
         setIsLoading(false);
+
+        return () => {
+          if (textarea) {
+            textarea.removeEventListener('compositionstart', handleCompositionStart);
+            textarea.removeEventListener('compositionend', handleCompositionEnd);
+          }
+        };
       } catch (err) {
         console.error('[DevicePage] Failed to initialize terminal:', err);
         setLoadError(t('terminal.initFailed'));
@@ -652,23 +694,25 @@ export function DevicePage() {
 
     const rect = container.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
-      initTerminal();
+      cleanupComposition = initTerminal();
     } else {
-      const observer = new ResizeObserver((entries) => {
+      const sizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
           const { width, height } = entry.contentRect;
           if (width > 0 && height > 0 && !terminal.current) {
-            initTerminal();
-            observer.disconnect();
+            cleanupComposition = initTerminal();
+            sizeObserver.disconnect();
             break;
           }
         }
       });
-      observer.observe(container);
-      return () => observer.disconnect();
+      observer = sizeObserver;
+      sizeObserver.observe(container);
     }
 
     return () => {
+      observer?.disconnect();
+      cleanupComposition?.();
       if (terminal.current) {
         try {
           terminal.current.dispose();
@@ -679,8 +723,21 @@ export function DevicePage() {
       }
       fitAddon.current = null;
       isTerminalReady.current = false;
+      isComposingRef.current = false;
     };
-  }, [applyHistoryIfAllowed, t]);
+  }, [applyHistoryIfAllowed, t, terminalTheme]);
+
+  useEffect(() => {
+    const term = terminal.current;
+    if (!term) return;
+    term.options.theme = { ...terminalTheme };
+  }, [terminalTheme]);
+
+  useEffect(() => {
+    const term = terminal.current;
+    if (!term) return;
+    term.options.disableStdin = inputMode === 'editor';
+  }, [inputMode]);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -825,14 +882,12 @@ export function DevicePage() {
 
     const disposableData = term.onData((data) => {
       if (!canInteractWithPane) return;
-      if (!isComposing) {
-        sendInput(deviceId, resolvedPaneId, data, false);
-      }
+      sendInput(deviceId, resolvedPaneId, data, isComposingRef.current);
     });
 
     term.attachCustomKeyEventHandler((domEvent) => {
       if (!canInteractWithPane) return true;
-      if (inputMode !== 'direct' || isComposing) return true;
+      if (inputMode !== 'direct' || isComposingRef.current) return true;
       if (domEvent.type !== 'keydown') return true;
 
       if (domEvent.shiftKey && domEvent.key === 'Enter') {
@@ -848,7 +903,7 @@ export function DevicePage() {
       disposableData.dispose();
       term.attachCustomKeyEventHandler(() => true);
     };
-  }, [canInteractWithPane, deviceId, inputMode, isComposing, resolvedPaneId, sendInput]);
+  }, [canInteractWithPane, deviceId, inputMode, resolvedPaneId, sendInput]);
 
   useEffect(() => {
     setEditorText(paneEditorDraft);
@@ -1065,8 +1120,6 @@ export function DevicePage() {
   }
 
   const showConnecting = !deviceConnected && !deviceError;
-  const inputModeToggleLabel = inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect');
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
       {!isMobile && (
@@ -1096,7 +1149,7 @@ export function DevicePage() {
             </Button>
 
             <Button
-              variant="default"
+              variant="outline"
               size="sm"
               data-testid="terminal-input-mode-toggle"
               className="text-xs"
@@ -1123,9 +1176,9 @@ export function DevicePage() {
           {EDITOR_SHORTCUTS.map((shortcut) => (
             <Button
               key={shortcut.key}
-              variant="default"
+              variant="outline"
               size="sm"
-              className="h-7 min-w-9 px-2 text-[10px] font-medium tracking-wide"
+              className="h-7 min-w-9 px-2 text-[10px] font-medium tracking-wide [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
               title={shortcut.label}
               aria-label={shortcut.label}
               data-testid={`editor-shortcut-${shortcut.key}`}
@@ -1144,7 +1197,11 @@ export function DevicePage() {
         }`}
         style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
       >
-        <div ref={terminalRef} className="h-full min-h-0 min-w-0 w-full bg-[#0d1117]" />
+        <div
+          ref={terminalRef}
+          className="h-full min-h-0 min-w-0 w-full"
+          style={{ backgroundColor: terminalTheme.background }}
+        />
 
         {(isLoading || showConnecting) && (
           <div
@@ -1167,30 +1224,34 @@ export function DevicePage() {
           className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${
             shouldDockEditor ? 'editor-mode-input-docked' : ''
           }`}
-          style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
-        >
-          <textarea
-            data-testid="editor-input"
-            className="min-h-[88px] max-h-[28vh] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus:border-ring"
-            value={editorText}
-            onChange={(e) => {
-              const nextText = e.target.value;
-              setEditorText(nextText);
-              if (!draftKey) {
-                return;
-              }
-              if (nextText) {
-                setEditorDraft(draftKey, nextText);
-                return;
-              }
-              removeEditorDraft(draftKey);
-            }}
-            placeholder={t('terminal.inputPlaceholder')}
-            onFocus={handleEditorFocus}
-            onBlur={handleEditorBlur}
-            onCompositionStart={() => setIsComposing(true)}
-            onCompositionEnd={() => setIsComposing(false)}
-          />
+        style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
+      >
+        <textarea
+          data-testid="editor-input"
+          className="min-h-[88px] max-h-[28vh] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus:border-ring"
+          value={editorText}
+          onChange={(e) => {
+            const nextText = e.target.value;
+            setEditorText(nextText);
+            if (!draftKey) {
+              return;
+            }
+            if (nextText) {
+              setEditorDraft(draftKey, nextText);
+              return;
+            }
+            removeEditorDraft(draftKey);
+          }}
+          placeholder={t('terminal.inputPlaceholder')}
+          onFocus={handleEditorFocus}
+          onBlur={handleEditorBlur}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            isComposingRef.current = false;
+          }}
+        />
           <div className="actions mt-2">
             <div className="send-row flex flex-wrap items-center justify-end gap-2" data-testid="editor-send-row">
               <div className="send-with-enter-toggle mr-auto flex items-center gap-2 text-xs text-muted-foreground" data-testid="editor-send-with-enter-toggle">
@@ -1202,7 +1263,7 @@ export function DevicePage() {
                 <span>{t('terminal.editorSendWithEnter')}</span>
               </div>
               <Button
-                variant="default"
+                variant="outline"
                 size="sm"
                 data-testid="editor-clear"
                 onClick={() => {
@@ -1217,7 +1278,7 @@ export function DevicePage() {
                 {t('terminal.clear')}
               </Button>
               <Button
-                variant="default"
+                variant="secondary"
                 size="sm"
                 data-testid="editor-send-line-by-line"
                 onClick={handleEditorSendLineByLine}
@@ -1227,7 +1288,7 @@ export function DevicePage() {
                 {t('terminal.editorSendLineByLine')}
               </Button>
               <Button
-                variant="primary"
+                variant="default"
                 size="sm"
                 data-testid="editor-send"
                 onClick={handleEditorSend}
@@ -1241,20 +1302,6 @@ export function DevicePage() {
         </div>
       )}
 
-      {isMobile && inputMode === 'direct' && (
-        <input
-          type="text"
-          className="sr-only"
-          aria-label={inputModeToggleLabel}
-          onCompositionStart={() => setIsComposing(true)}
-          onCompositionEnd={(e) => {
-            setIsComposing(false);
-            if (!deviceId || !resolvedPaneId || !canInteractWithPane) return;
-            sendInput(deviceId, resolvedPaneId, (e.target as HTMLInputElement).value, false);
-            (e.target as HTMLInputElement).value = '';
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -543,8 +543,8 @@ async function handleGetManifest(method: 'GET' | 'HEAD'): Promise<Response> {
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    background_color: '#0d1117',
-    theme_color: '#0d1117',
+    background_color: '#0b1020',
+    theme_color: '#0b1020',
     icons: [
       {
         src: '/tmex.png',

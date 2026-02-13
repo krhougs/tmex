@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
 import {
@@ -9,6 +9,7 @@ import {
   Monitor,
   Plus,
   Settings,
+  Trash2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,6 +20,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
@@ -28,6 +40,15 @@ import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+async function parseApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const payload = (await res.json()) as { error?: string };
+    return payload.error ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
@@ -41,10 +62,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
+  const [deleteCandidate, setDeleteCandidate] = useState<Device | null>(null);
   const [pendingWindowSelection, setPendingWindowSelection] = useState<
     Record<string, { windowId: string; requestedAt: number }>
   >({});
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const snapshots = useTmuxStore((state) => state.snapshots);
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
@@ -64,6 +87,46 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       return res.json() as Promise<{ devices: Device[] }>;
     },
     throwOnError: false,
+  });
+
+  const deleteDeviceMutation = useMutation({
+    mutationFn: async (device: Device) => {
+      const res = await fetch(`/api/devices/${device.id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, t('device.deleteFailed')));
+      }
+    },
+    onSuccess: async (_, device) => {
+      setDeleteCandidate(null);
+      setExpandedDevices((prev) => {
+        const next = new Set(prev);
+        next.delete(device.id);
+        return next;
+      });
+      setPendingWindowSelection((prev) => {
+        if (!(device.id in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[device.id];
+        return next;
+      });
+      disconnectDevice(device.id, 'sidebar');
+      disconnectDevice(device.id, 'page');
+
+      await queryClient.invalidateQueries({ queryKey: ['devices'] });
+      toast.success(t('device.deleteSuccess'));
+
+      if (selectedDeviceId === device.id) {
+        navigate('/devices');
+        onClose();
+      }
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('device.deleteFailed'));
+    },
   });
 
   useEffect(() => {
@@ -272,6 +335,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               onCreateWindow={() => handleCreateWindow(device.id)}
               onCloseWindow={handleCloseWindow}
               onClosePane={handleClosePane}
+              onRequestDelete={() => setDeleteCandidate(device)}
               collapsed={effectiveCollapsed}
               onPaneClick={handlePaneClick}
               onWindowClick={handleWindowClick}
@@ -347,6 +411,33 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           </Link>
         </div>
       )}
+
+      <AlertDialog open={deleteCandidate !== null} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <Trash2 className="h-5 w-5 text-muted-foreground" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>{t('device.deleteConfirm')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteCandidate?.name ?? ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!deleteCandidate || deleteDeviceMutation.isPending}
+              onClick={() => {
+                if (!deleteCandidate) return;
+                deleteDeviceMutation.mutate(deleteCandidate);
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   );
 }
@@ -364,6 +455,7 @@ interface DeviceTreeItemProps {
   onCreateWindow: () => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
+  onRequestDelete: () => void;
   collapsed: boolean;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
@@ -380,6 +472,7 @@ function DeviceTreeItem({
   onCreateWindow,
   onCloseWindow,
   onClosePane,
+  onRequestDelete,
   collapsed,
   windows,
   isConnected,
@@ -427,7 +520,7 @@ function DeviceTreeItem({
         data-testid={`device-item-${device.id}`}
         data-active={isSelected}
         className={cn(
-          'rounded-lg border px-1.5 py-1 shadow-xs transition-colors',
+          'group rounded-lg border px-1.5 py-1 shadow-xs transition-colors',
           isDeviceTreeSelected && 'border-primary/50 bg-primary/10',
           !isDeviceTreeSelected && isSelected && 'border-sidebar-border bg-sidebar-accent/60',
           !isSelected && 'border-transparent hover:border-sidebar-border hover:bg-sidebar-accent/35'
@@ -438,7 +531,7 @@ function DeviceTreeItem({
             type="button"
             data-testid={`device-expand-${device.id}`}
             onClick={onToggle}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:w-9"
             title={isExpanded ? t('common.collapse') : t('common.expand')}
           >
             {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -468,8 +561,25 @@ function DeviceTreeItem({
             }}
             title={t('sidebar.newWindow')}
             aria-label={`${device.name} ${t('sidebar.newWindow')}`}
+            className="[@media(any-pointer:coarse)]:size-10"
           >
             <Plus className="h-3.5 w-3.5" />
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            data-testid={`device-delete-${device.id}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRequestDelete();
+            }}
+            title={t('common.delete')}
+            aria-label={`${device.name} ${t('common.delete')}`}
+            className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 [@media(any-pointer:coarse)]:opacity-100 [@media(any-pointer:coarse)]:size-10"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
@@ -580,7 +690,7 @@ function WindowTreeItem({
                 event.stopPropagation();
                 setIsExpanded(!isExpanded);
               }}
-              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground [@media(any-pointer:coarse)]:h-8 [@media(any-pointer:coarse)]:w-8"
             >
               {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             </button>
@@ -609,6 +719,7 @@ function WindowTreeItem({
             }}
             title={t('sidebar.closeWindow')}
             aria-label={`${t('sidebar.closeWindow')} ${window.name}`}
+            className="[@media(any-pointer:coarse)]:size-10"
           >
             <X className="h-3 w-3" />
           </Button>
@@ -698,6 +809,7 @@ function PaneTreeItem({
         }}
         title={t('sidebar.closePane')}
         aria-label={`${t('sidebar.closePane')} ${pane.index}`}
+        className="[@media(any-pointer:coarse)]:size-10"
       >
         <X className="h-3 w-3" />
       </Button>

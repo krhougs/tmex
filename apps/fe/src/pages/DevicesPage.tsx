@@ -1,32 +1,49 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateDeviceRequest, Device, UpdateDeviceRequest } from '@tmex/shared';
-import { Globe, Monitor, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Globe, Monitor, MoreHorizontal, Pencil, Plus, Trash2, Zap } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Dialog,
-  DialogBody,
-  DialogCloseButton,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Input,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import {
   Select,
-  SelectOption,
-  Separator,
-  Textarea,
-} from '../components/ui';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
 
 type DeviceFormValues = {
   name: string;
@@ -156,6 +173,7 @@ export function DevicesPage() {
   const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<Device | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
@@ -187,7 +205,7 @@ export function DevicesPage() {
   const devices = data?.devices ?? [];
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-6" data-testid="devices-page">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-4 sm:p-5" data-testid="devices-page">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t('device.title')}</h1>
@@ -195,7 +213,7 @@ export function DevicesPage() {
             {t('device.typeLocal')} / SSH · {devices.length}
           </p>
         </div>
-        <Button variant="primary" data-testid="devices-add" onClick={() => setShowAddModal(true)}>
+        <Button variant="default" data-testid="devices-add" onClick={() => setShowAddModal(true)}>
           <Plus className="h-4 w-4" />
           {t('device.addDevice')}
         </Button>
@@ -219,7 +237,7 @@ export function DevicesPage() {
               <h2 className="text-lg font-medium">{t('device.noDevices')}</h2>
               <p className="text-sm text-muted-foreground">{t('device.addDevice')}</p>
             </div>
-            <Button variant="primary" data-testid="devices-add-empty" onClick={() => setShowAddModal(true)}>
+            <Button variant="default" data-testid="devices-add-empty" onClick={() => setShowAddModal(true)}>
               <Plus className="h-4 w-4" />
               {t('device.addDevice')}
             </Button>
@@ -232,7 +250,7 @@ export function DevicesPage() {
               key={device.id}
               device={device}
               onEdit={() => setEditingDevice(device)}
-              onDelete={() => deleteDevice.mutate(device.id)}
+              onDelete={() => setDeleteCandidate(device)}
             />
           ))}
         </div>
@@ -242,6 +260,32 @@ export function DevicesPage() {
       {editingDevice && (
         <DeviceDialog mode="edit" device={editingDevice} onClose={() => setEditingDevice(null)} />
       )}
+
+      <AlertDialog open={deleteCandidate !== null} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <Trash2 className="h-5 w-5 text-muted-foreground" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>{t('device.deleteConfirm')}</AlertDialogTitle>
+            <AlertDialogDescription>{deleteCandidate?.name ?? ''}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!deleteCandidate || deleteDevice.isPending}
+              onClick={() => {
+                if (!deleteCandidate) return;
+                deleteDevice.mutate(deleteCandidate.id);
+                setDeleteCandidate(null);
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -262,6 +306,34 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
       ? t('device.typeLocal')
       : `${device.username ?? '-'}@${device.host ?? '-'}:${device.port ?? 22}`;
 
+  const testConnection = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/devices/${device.id}/test-connection`, {
+        method: 'POST',
+      });
+
+      let payload: unknown = null;
+      try {
+        payload = (await res.json()) as unknown;
+      } catch {
+        payload = null;
+      }
+
+      if (!res.ok) {
+        const err = payload as { error?: string } | null;
+        throw new Error(err?.error ?? t('common.error'));
+      }
+
+      return payload as { success?: boolean; tmuxAvailable?: boolean; message?: string };
+    },
+    onSuccess: (payload) => {
+      toast.success(payload.message ?? t('common.success'));
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    },
+  });
+
   return (
     <Card data-testid="device-card" data-device-id={device.id} data-device-name={device.name} className="overflow-hidden">
       <CardHeader className="space-y-3 pb-3">
@@ -279,12 +351,49 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
-            <Button variant="default" size="sm" onClick={onEdit} title={t('device.editDevice')}>
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="danger" size="sm" onClick={onDelete} title={t('common.delete')}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    data-testid={`device-card-actions-${device.id}`}
+                    aria-label={t('common.edit')}
+                    title={t('common.edit')}
+                  />
+                }
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  data-testid={`device-card-edit-${device.id}`}
+                  onClick={onEdit}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t('common.edit')}
+                </DropdownMenuItem>
+                {device.type === 'ssh' && (
+                  <DropdownMenuItem
+                    data-testid={`device-card-test-${device.id}`}
+                    onClick={() => testConnection.mutate()}
+                    disabled={testConnection.isPending}
+                  >
+                    <Zap className="h-4 w-4" />
+                    {t('common.test')}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  data-testid={`device-card-delete-${device.id}`}
+                  variant="destructive"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -299,7 +408,8 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
         <div className="flex items-center justify-end">
           <Link
             to={`/devices/${device.id}`}
-            className="text-xs font-medium text-primary transition-colors hover:text-primary/80 hover:underline"
+            data-testid={`device-card-connect-${device.id}`}
+            className={buttonVariants({ variant: 'default', size: 'sm' })}
           >
             {t('device.connect')}
           </Link>
@@ -405,18 +515,17 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const privateKeyPassphraseInputId = `${mode}-device-private-key-passphrase`;
 
   return (
-    <Dialog open={true} onOpenChange={(open) => !open && onClose()} data-testid="device-dialog">
-      <DialogContent className="w-full max-w-2xl">
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent data-testid="device-dialog" className="w-full max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditMode ? t('device.editDevice') : t('device.addDevice')}</DialogTitle>
           <DialogDescription>
             {isEditMode ? t('device.editDevice') : t('device.addDevice')}
           </DialogDescription>
-          <DialogCloseButton />
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>
-          <DialogBody className="max-h-[min(70vh,720px)] overflow-y-auto pr-1 space-y-4">
+          <div className="max-h-[min(70vh,720px)] space-y-4 overflow-y-auto pr-1">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <label className="block text-sm font-medium" htmlFor={deviceNameInputId}>
@@ -438,11 +547,10 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                   {t('device.type')}
                 </label>
                 <Select
-                  id={deviceTypeSelectId}
-                  data-testid="device-type-select"
                   value={formData.type}
-                  onChange={(e) => {
-                    const nextType = e.target.value as 'local' | 'ssh';
+                  onValueChange={(nextValue) => {
+                    if (!nextValue) return;
+                    const nextType = nextValue as 'local' | 'ssh';
                     setFormData((d) => ({
                       ...d,
                       type: nextType,
@@ -456,8 +564,17 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                   }}
                   disabled={isEditMode}
                 >
-                  <SelectOption value="local">{t('device.typeLocal')}</SelectOption>
-                  <SelectOption value="ssh">SSH {t('device.type')}</SelectOption>
+                  <SelectTrigger
+                    id={deviceTypeSelectId}
+                    data-testid="device-type-select"
+                    className="w-full"
+                  >
+                    <SelectValue placeholder={t('device.type')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">{t('device.typeLocal')}</SelectItem>
+                    <SelectItem value="ssh">SSH {t('device.type')}</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
 
@@ -546,19 +663,24 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                       {t('device.authMode')}
                     </label>
                     <Select
-                      id={authModeSelectId}
                       value={formData.authMode}
-                      onChange={(e) =>
+                      onValueChange={(nextValue) => {
+                        if (!nextValue) return;
                         setFormData((d) => ({
                           ...d,
-                          authMode: e.target.value as CreateDeviceRequest['authMode'],
-                        }))
-                      }
+                          authMode: nextValue as CreateDeviceRequest['authMode'],
+                        }));
+                      }}
                     >
-                      <SelectOption value="password">{t('device.authPassword')}</SelectOption>
-                      <SelectOption value="key">{t('device.authKey')}</SelectOption>
-                      <SelectOption value="agent">{t('device.authAgent')}</SelectOption>
-                      <SelectOption value="configRef">SSH Config</SelectOption>
+                      <SelectTrigger id={authModeSelectId} className="w-full">
+                        <SelectValue placeholder={t('device.authMode')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="password">{t('device.authPassword')}</SelectItem>
+                        <SelectItem value="key">{t('device.authKey')}</SelectItem>
+                        <SelectItem value="agent">{t('device.authAgent')}</SelectItem>
+                        <SelectItem value="configRef">SSH Config</SelectItem>
+                      </SelectContent>
                     </Select>
                   </div>
 
@@ -608,15 +730,15 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                 </div>
               </>
             )}
-          </DialogBody>
+          </div>
 
-          <DialogFooter className="px-4 pb-4">
-            <Button type="button" variant="default" className="flex-1" onClick={onClose}>
+          <DialogFooter>
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               {t('common.cancel')}
             </Button>
             <Button
               type="submit"
-              variant="primary"
+              variant="default"
               className="flex-1"
               data-testid="device-dialog-save"
               disabled={isSubmitting}

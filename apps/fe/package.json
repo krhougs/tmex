@@ -6,13 +6,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "echo \"@tmex/fe: no tests currently\"",
-    "test:e2e": "echo \"@tmex/fe: e2e disabled\"",
-    "test:ui": "echo \"@tmex/fe: e2e ui disabled\""
+    "test": "bun run test:e2e",
+    "test:e2e": "bun run scripts/run-e2e.ts",
+    "test:ui": "bun run scripts/run-e2e.ts --ui"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
-    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/geist": "^5.2.8",
     "@tanstack/react-query": "^5.66.0",
     "@tmex/shared": "workspace:*",
     "class-variance-authority": "^0.7.1",
@@ -33,6 +33,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",

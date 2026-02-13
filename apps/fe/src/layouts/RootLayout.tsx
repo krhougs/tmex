@@ -490,7 +490,7 @@ export function RootLayout() {
   return (
     <div
       ref={rootRef}
-      className="tmex-shell flex h-[var(--tmex-viewport-height)] max-h-[var(--tmex-viewport-height)] w-screen overflow-hidden bg-background"
+      className="tmex-shell flex h-[var(--tmex-viewport-height)] max-h-[var(--tmex-viewport-height)] w-screen overflow-hidden bg-gradient-to-br from-primary/8 via-background to-background dark:from-primary/14"
     >
       {!isMobile && (
         <div className="hidden h-full shrink-0 md:flex">
