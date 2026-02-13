@@ -2,7 +2,7 @@ import i18next from 'i18next';
 import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import { ArrowDownToLine, Keyboard, Menu, Smartphone } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -127,7 +127,6 @@ export function RootLayout() {
       matchedDeviceConnected &&
       matchedSelectedPane?.paneId === matchedPaneId
   );
-  const rootRef = useRef<HTMLDivElement | null>(null);
 
   const handleToggleInputMode = () => {
     setInputMode(inputMode === 'direct' ? 'editor' : 'direct');
@@ -333,88 +332,6 @@ export function RootLayout() {
   }, [isMobile, isTerminalRoute]);
 
   useEffect(() => {
-    if (!(isMobile && isTerminalRoute)) {
-      return;
-    }
-
-    const root = rootRef.current;
-    if (!root) {
-      return;
-    }
-
-    let startY = 0;
-
-    const findScrollContainer = (node: EventTarget | null): HTMLElement | null => {
-      if (!(node instanceof HTMLElement)) {
-        return null;
-      }
-
-      let current: HTMLElement | null = node;
-      while (current && current !== root) {
-        const style = window.getComputedStyle(current);
-        const scrollable = /(auto|scroll)/.test(style.overflowY);
-        if (scrollable && current.scrollHeight > current.clientHeight) {
-          return current;
-        }
-        current = current.parentElement;
-      }
-
-      return null;
-    };
-
-    const handleTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        return;
-      }
-      startY = event.touches[0]?.clientY ?? 0;
-    };
-
-    const handleTouchMove = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        return;
-      }
-
-      const currentY = event.touches[0]?.clientY ?? 0;
-      const deltaY = currentY - startY;
-
-      if (deltaY <= 0) {
-        return;
-      }
-
-      // 白名单检查：如果目标在白名单元素内，不拦截 touchmove
-      const target = event.target as HTMLElement | null;
-      if (target) {
-        // 检查是否在 .terminal-shortcuts-strip 或 .editor-mode-input 内
-        if (target.closest('.terminal-shortcuts-strip, .editor-mode-input')) {
-          return;
-        }
-        // 检查是否是按钮/链接/输入框或其祖先
-        if (
-          target.closest(
-            'button, a, input, textarea, [role="button"], [data-slot="button"]'
-          )
-        ) {
-          return;
-        }
-      }
-
-      const scrollContainer = findScrollContainer(event.target);
-      const containerAtTop = !scrollContainer || scrollContainer.scrollTop <= 0;
-      if (containerAtTop) {
-        event.preventDefault();
-      }
-    };
-
-    root.addEventListener('touchstart', handleTouchStart, { passive: true });
-    root.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-    return () => {
-      root.removeEventListener('touchstart', handleTouchStart);
-      root.removeEventListener('touchmove', handleTouchMove);
-    };
-  }, [isMobile, isTerminalRoute]);
-
-  useEffect(() => {
     const HEIGHT_DELTA_THRESHOLD_PX = 2;
     const OFFSET_DELTA_THRESHOLD_PX = 1;
     const IOS_STANDALONE_KEYBOARD_THRESHOLD_PX = 80;
@@ -506,7 +423,6 @@ export function RootLayout() {
 
   return (
     <div
-      ref={rootRef}
       className="tmex-shell flex h-[var(--tmex-viewport-height)] max-h-[var(--tmex-viewport-height)] w-screen overflow-hidden bg-gradient-to-br from-primary/8 via-background to-background dark:from-primary/14"
     >
       {!isMobile && (
