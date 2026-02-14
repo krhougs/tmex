@@ -63,7 +63,7 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="h-screen overflow-hidden">
+      <SidebarInset className="h-dvh overflow-hidden">
         <div className="h-[var(--tmex-safe-area-top)]"></div>
         <header className="sticky top-0 z-10 flex h-12 md:h-16 shrink-0 items-center justify-between gap-2 bg-background/95 backdrop-blur-sm">
           <div className="flex items-center gap-2 px-4">

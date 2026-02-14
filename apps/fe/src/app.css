@@ -3,7 +3,7 @@ html {
 }
 
 body {
-  height: 100dvh;
+  height: 100vh;
   overflow: hidden;
   overscroll-behavior: none;
   scrollbar-width: none;
