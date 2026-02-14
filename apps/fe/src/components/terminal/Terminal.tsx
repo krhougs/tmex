@@ -77,6 +77,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const canWriteRef = useRef(deviceConnected && !isSelectionInvalid);
     const liveOutputEndedWithCR = useRef(false);
     const lastXtermInstanceRef = useRef<typeof instance>(null);
+    const fitAddonRef = useRef<FitAddon | null>(null);
 
     useEffect(() => {
       currentDeviceIdRef.current = deviceId;
@@ -99,6 +100,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       isSelectionInvalid,
       onResize,
       onSync,
+      getContainerRect: () => {
+        const el = containerRef.current;
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      },
     });
 
     useEffect(() => {
@@ -189,6 +196,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
     useEffect(() => {
       if (!instance) {
+        fitAddonRef.current = null;
         setFitAddon(null);
         setTerminal(null);
         return;
@@ -196,6 +204,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       const fitAddon = new FitAddon();
       instance.loadAddon(fitAddon);
+      fitAddonRef.current = fitAddon;
       setFitAddon(fitAddon);
       setTerminal(instance);
 
@@ -205,6 +214,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         try {
           fitAddon.dispose();
         } finally {
+          fitAddonRef.current = null;
           setFitAddon(null);
           setTerminal(null);
         }
@@ -214,11 +224,24 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
+      let rafId: number | null = null;
       const ro = new ResizeObserver(() => {
-        scheduleResize('resize');
+        // 使用 requestAnimationFrame 确保在布局完成后执行
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          scheduleResize('resize');
+        });
       });
       ro.observe(el);
-      return () => ro.disconnect();
+      return () => {
+        ro.disconnect();
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+      };
     }, [scheduleResize]);
 
     useEffect(() => {
@@ -266,6 +289,43 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         },
         runPostSelectResize: () => runPostSelectResize(),
         scheduleResize: (kind, options) => scheduleResize(kind, options),
+        calculateSizeFromContainer: () => {
+          const container = containerRef.current;
+          const term = instance;
+          const fitAddon = fitAddonRef.current;
+          if (!container || !term) return null;
+
+          const rect = container.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return null;
+
+          const core = (term as any)._core;
+
+          // 宽度：信任 fitAddon
+          let cols: number;
+          if (fitAddon) {
+            try {
+              const dims = fitAddon.proposeDimensions();
+              if (dims) {
+                cols = Math.max(2, dims.cols);
+              } else {
+                const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
+                cols = Math.max(2, Math.floor(rect.width / cellWidth));
+              }
+            } catch {
+              const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
+              cols = Math.max(2, Math.floor(rect.width / cellWidth));
+            }
+          } else {
+            const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
+            cols = Math.max(2, Math.floor(rect.width / cellWidth));
+          }
+
+          // 高度：永远信任容器
+          const cellHeight = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
+          const rows = Math.max(2, Math.floor(rect.height / cellHeight));
+
+          return { cols, rows };
+        },
       }),
       [instance, runPostSelectResize, scheduleResize]
     );

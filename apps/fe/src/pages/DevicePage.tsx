@@ -425,7 +425,7 @@ export default function DevicePage() {
       return;
     }
 
-    const size = terminalRef.current?.getSize() ?? undefined;
+    const size = terminalRef.current?.calculateSizeFromContainer() ?? undefined;
     recordSelectRequest(windowId, resolvedPaneId);
     selectPane(deviceId, windowId, resolvedPaneId, size);
   }, [deviceConnected, deviceId, isLoading, resolvedPaneId, selectPane, windowId]);
@@ -490,7 +490,7 @@ export default function DevicePage() {
     lastHandledActiveRef.current = { ...activePaneFromEvent };
 
     // Send selectPane to gateway first
-    const size = terminalRef.current?.getSize() ?? undefined;
+    const size = terminalRef.current?.calculateSizeFromContainer() ?? undefined;
     recordSelectRequest(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
     selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId, size);
 
@@ -555,7 +555,7 @@ export default function DevicePage() {
     }
 
     // Send selectPane and navigate
-    const size = terminalRef.current?.getSize() ?? undefined;
+    const size = terminalRef.current?.calculateSizeFromContainer() ?? undefined;
     recordSelectRequest(currentActive.windowId, currentActive.paneId);
     selectPane(deviceId, currentActive.windowId, currentActive.paneId, size);
     navigate(
@@ -796,29 +796,30 @@ export default function DevicePage() {
       </div>
 
       <div
-        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${
-          isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-2' : ''
-        }`}
+        className={`flex-1  relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-2' : ''
+          }`}
         style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
       >
         <div
-          ref={terminalContainerRef}
-          className="h-full min-h-0 min-w-0 w-full relative"
+
+          className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex"
           style={{ backgroundColor: terminalTheme.background }}
         >
+
           {deviceConnected && resolvedPaneId ? (
-            <TerminalComponent
-              key={`${deviceId}:${resolvedPaneId}`}
-              ref={terminalRef}
-              deviceId={deviceId}
-              paneId={resolvedPaneId}
-              theme={uiTheme}
-              inputMode={inputMode}
-              deviceConnected={deviceConnected}
-              isSelectionInvalid={isSelectionInvalid}
-              onResize={handleResize}
-              onSync={handleSync}
-            />
+            <div ref={terminalContainerRef} className="flex-1 w-full">
+              <TerminalComponent
+                key={`${deviceId}:${resolvedPaneId}`}
+                ref={terminalRef}
+                deviceId={deviceId}
+                paneId={resolvedPaneId}
+                theme={uiTheme}
+                inputMode={inputMode}
+                deviceConnected={deviceConnected}
+                isSelectionInvalid={isSelectionInvalid}
+                onResize={handleResize}
+                onSync={handleSync}
+              /></div>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="max-w-sm space-y-4">
@@ -871,9 +872,8 @@ export default function DevicePage() {
       {inputMode === 'editor' && (
         <div
           ref={editorContainerRef}
-          className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${
-            shouldDockEditor ? 'editor-mode-input-docked' : ''
-          }`}
+          className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${shouldDockEditor ? 'editor-mode-input-docked' : ''
+            }`}
           style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
         >
           <textarea

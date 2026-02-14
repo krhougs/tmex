@@ -9,6 +9,8 @@ interface UseTerminalResizeOptions {
   isSelectionInvalid: boolean;
   onResize: (cols: number, rows: number) => void;
   onSync: (cols: number, rows: number) => void;
+  /** 获取容器尺寸的回调函数，用于 fitAddon 失败时的回退计算 */
+  getContainerRect?: () => { width: number; height: number } | null;
 }
 
 export function useTerminalResize({
@@ -18,6 +20,7 @@ export function useTerminalResize({
   isSelectionInvalid,
   onResize,
   onSync,
+  getContainerRect,
 }: UseTerminalResizeOptions) {
   const resizeRaf = useRef<number | null>(null);
   const resizeTimer = useRef<number | null>(null);
@@ -43,7 +46,12 @@ export function useTerminalResize({
 
   const reportSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
-      if (!deviceId || !paneId || !deviceConnected || isSelectionInvalid) {
+      // sync 操作即使在 isSelectionInvalid 时也应该执行，因为尺寸同步是基础功能
+      // isSelectionInvalid 主要影响用户输入，不应该阻止终端尺寸同步
+      if (!deviceId || !paneId || !deviceConnected) {
+        return false;
+      }
+      if (isSelectionInvalid && kind !== 'sync') {
         return false;
       }
 
@@ -53,16 +61,38 @@ export function useTerminalResize({
 
       const term = terminalRef.current;
       const fitAddon = fitAddonRef.current;
-      if (!term || !fitAddon || !term.element) return false;
-
-      try {
-        fitAddon.fit();
-      } catch (e) {
-        // FitAddon may fail if terminal is not fully ready
+      if (!term || !fitAddon || !term.element) {
         return false;
       }
-      const cols = Math.max(2, term.cols);
-      const rows = Math.max(2, term.rows);
+
+      // 宽度信任 fitAddon，高度信任容器
+      let cols: number;
+      let rows: number;
+
+      // 先调用 fitAddon.fit() 计算宽度
+      try {
+        fitAddon.fit();
+        cols = Math.max(2, term.cols);
+      } catch {
+        // fitAddon 失败时使用容器宽度和字符宽度计算
+        const core = (term as any)._core;
+        const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
+        const rect = getContainerRect?.();
+        if (!rect || rect.width === 0) {
+          return false;
+        }
+        cols = Math.max(2, Math.floor(rect.width / cellWidth));
+      }
+
+      // 高度永远使用容器尺寸
+      const containerRect = getContainerRect?.();
+      if (!containerRect || containerRect.height === 0) {
+        return false;
+      }
+      const core = (term as any)._core;
+      const cellHeight = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
+      rows = Math.max(2, Math.floor(containerRect.height / cellHeight));
+      // Debug: console.log('[resize] success:', { kind, cols, rows, force });
       const lastSize = lastReportedSize.current;
 
       if (!force && lastSize && lastSize.cols === cols && lastSize.rows === rows) {
@@ -112,7 +142,7 @@ export function useTerminalResize({
       resizeTimer.current = window.setTimeout(() => {
         resizeTimer.current = null;
         run();
-      }, 80);
+      }, 150);
     },
     [reportSize]
   );
@@ -141,6 +171,53 @@ export function useTerminalResize({
         });
     }
   }, [clearPostSelectResizeTimers, scheduleResize]);
+
+  // 浏览器窗口 resize 处理 - 共享 scheduleResize 的防抖
+  useEffect(() => {
+    let rafId: number | null = null;
+    const handleWindowResize = () => {
+      // 使用 RAF 确保在布局完成后执行，并与 ResizeObserver 协调
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        scheduleResize('resize');
+      });
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => {
+      window.removeEventListener('resize', handleWindowResize);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [scheduleResize]);
+
+  // 重新获得焦点时触发 resize sync - 共享 scheduleResize 的防抖
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // 使用 sync 类型，因为重新获得焦点时需要同步到远程 pty
+        // 不使用 immediate，共享同一个防抖延时
+        scheduleResize('sync', { force: true });
+      }
+    };
+
+    const handleWindowFocus = () => {
+      // 不使用 immediate，共享同一个防抖延时
+      scheduleResize('sync', { force: true });
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [scheduleResize]);
 
   // 清理
   useEffect(() => {
