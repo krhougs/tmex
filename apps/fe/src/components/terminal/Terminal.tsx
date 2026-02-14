@@ -1,13 +1,8 @@
 import { forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { useXTerm } from 'react-xtermjs';
-import { FitAddon } from 'xterm-addon-fit';
-import { Unicode11Addon } from 'xterm-addon-unicode11';
-import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalProps, TerminalRef } from './types';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT, XTERM_FONT_FAMILY } from './theme';
-import { useTerminalResize } from './useTerminalResize';
-import { useMobileTouch } from './useMobileTouch';
 import { useTmuxStore } from '@/stores/tmux';
 
 // 工具函数
@@ -79,7 +74,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     },
     ref
   ) => {
-    // Use stable options
     const { instance, ref: xtermRef } = useXTerm({
       options: TERMINAL_OPTIONS,
     });
@@ -92,106 +86,17 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const historyAppliedRef = useRef(false);
     const liveOutputEndedWithCR = useRef(false);
     const isTerminalReadyRef = useRef(false);
-    const initialResizeDoneRef = useRef(false);
-    const fitAddonRef = useRef<FitAddon | null>(null);
+    const lastReportedSize = useRef<{ cols: number; rows: number } | null>(null);
 
     const subscribeBinary = useTmuxStore((state) => state.subscribeBinary);
     const subscribeHistory = useTmuxStore((state) => state.subscribeHistory);
     const sendInput = useTmuxStore((state) => state.sendInput);
     const socketReady = useTmuxStore((state) => state.socketReady);
 
-    const {
-      scheduleResize,
-      runPostSelectResize,
-      setFitAddon,
-      setTerminal,
-    } = useTerminalResize({
-      deviceId,
-      paneId,
-      deviceConnected,
-      isSelectionInvalid,
-      onResize,
-      onSync,
-    });
-
-    // 移动端触摸处理
-    useMobileTouch(containerRef);
-
-    // 初始化 addons 和 terminal
-    useEffect(() => {
-      if (!instance) return;
-
-      const fit = new FitAddon();
-      const unicode11 = new Unicode11Addon();
-
-      // Load FitAddon first
-      instance.loadAddon(fit);
-      instance.loadAddon(unicode11);
-
-      // Try to load WebGL addon - but don't fail if it doesn't work
-      // Note: WebGL addon may conflict with FitAddon in some cases
-      let webgl: WebglAddon | null = null;
-      try {
-        webgl = new WebglAddon();
-        instance.loadAddon(webgl);
-        console.log('[xterm] WebGL renderer enabled');
-      } catch (e) {
-        console.log('[xterm] WebGL not supported, using default renderer');
-      }
-
-      if (instance.unicode.versions.includes('11')) {
-        instance.unicode.activeVersion = '11';
-      }
-
-      fitAddonRef.current = fit;
-      setFitAddon(fit);
-      setTerminal(instance);
-
-      // 初始 fit - 延迟确保 terminal 已附加到 DOM
-      const initTimer = window.setTimeout(() => {
-        try {
-          // Check if terminal element is ready
-          if (fitAddonRef.current && instance.element && instance.element.parentElement) {
-            fitAddonRef.current.fit();
-            console.log('[Terminal] Initial fit done, cols:', instance.cols, 'rows:', instance.rows);
-          } else {
-            console.warn('[Terminal] Terminal element not ready for initial fit');
-          }
-        } catch (e) {
-          console.warn('[Terminal] FitAddon initial fit failed:', e);
-        }
-        isTerminalReadyRef.current = true;
-      }, 100);
-
-      return () => {
-        window.clearTimeout(initTimer);
-        // Dispose addons in reverse order
-        try {
-          webgl?.dispose();
-        } catch (e) {
-          // ignore
-        }
-        fitAddonRef.current = null;
-        setFitAddon(null);
-        setTerminal(null);
-        isTerminalReadyRef.current = false;
-        initialResizeDoneRef.current = false;
-      };
-    }, [instance, setFitAddon, setTerminal]);
-
     // 主题更新
     useEffect(() => {
       if (!instance) return;
       instance.options.theme = xtermTheme;
-      const core = (instance as unknown as {
-        _core?: {
-          renderer?: { clearTextureAtlas?: () => void };
-          viewport?: { refresh: () => void };
-        };
-      })._core;
-      core?.renderer?.clearTextureAtlas?.();
-      core?.viewport?.refresh?.();
-      instance.refresh(0, instance.rows - 1);
     }, [instance, xtermTheme]);
 
     // input mode 切换
@@ -205,7 +110,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       historyBufferRef.current = [];
       historyAppliedRef.current = false;
       liveOutputEndedWithCR.current = false;
-      initialResizeDoneRef.current = false;
+      lastReportedSize.current = null;
       if (instance) {
         instance.reset();
       }
@@ -214,12 +119,13 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     // 订阅 binary 数据
     useEffect(() => {
       if (!deviceId || !paneId) return;
+      isTerminalReadyRef.current = true;
 
       return subscribeBinary(deviceId, (output) => {
         const normalized = normalizeLiveOutputForXterm(output, liveOutputEndedWithCR.current);
         liveOutputEndedWithCR.current = normalized.endedWithCR;
 
-        if (!isTerminalReadyRef.current || !instance) {
+        if (!instance) {
           historyBufferRef.current.push(normalized.normalized.slice());
           return;
         }
@@ -241,7 +147,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         if (historyAppliedRef.current) return;
 
         const term = instance;
-        if (!isTerminalReadyRef.current || !term) {
+        if (!term) {
           return;
         }
 
@@ -282,45 +188,36 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       };
     }, [instance, deviceId, paneId, deviceConnected, isSelectionInvalid, inputMode, sendInput]);
 
-    // 容器 resize 监听
+    // Resize handling - report size when connected
     useEffect(() => {
-      const container = containerRef.current;
-      if (!container) return;
-
-      const observer = new ResizeObserver(() => {
-        try {
-          if (fitAddonRef.current && instance?.element) {
-            fitAddonRef.current.fit();
-          }
-        } catch (e) {
-          // Ignore fit errors during resize
+      if (!deviceConnected || !instance || isSelectionInvalid) return;
+      
+      const reportSize = () => {
+        const cols = instance.cols;
+        const rows = instance.rows;
+        const lastSize = lastReportedSize.current;
+        
+        if (lastSize && lastSize.cols === cols && lastSize.rows === rows) {
+          return;
         }
-        if (deviceConnected && !isSelectionInvalid) {
-          scheduleResize('resize');
-        }
-      });
+        
+        lastReportedSize.current = { cols, rows };
+        onSync(cols, rows);
+      };
 
-      observer.observe(container);
-      return () => observer.disconnect();
-    }, [deviceConnected, isSelectionInvalid, scheduleResize, instance]);
+      // Report initial size
+      reportSize();
 
-    // window resize
-    useEffect(() => {
-      if (!deviceConnected || isSelectionInvalid) return;
-
-      const handleResize = () => scheduleResize('resize');
+      // Report on window resize
+      const handleResize = () => {
+        // xterm.js handles its own resize, just report new size
+        reportSize();
+        onResize(instance.cols, instance.rows);
+      };
+      
       window.addEventListener('resize', handleResize);
       return () => window.removeEventListener('resize', handleResize);
-    }, [deviceConnected, isSelectionInvalid, scheduleResize]);
-
-    // pane 选择后的 resize - 只在 paneId 变化时触发一次
-    useEffect(() => {
-      if (!deviceConnected || !paneId || isSelectionInvalid) return;
-      if (initialResizeDoneRef.current) return;
-      
-      initialResizeDoneRef.current = true;
-      runPostSelectResize();
-    }, [deviceConnected, paneId, isSelectionInvalid, runPostSelectResize]);
+    }, [deviceConnected, instance, isSelectionInvalid, onResize, onSync]);
 
     // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
@@ -330,14 +227,14 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         historyBufferRef.current = [];
         historyAppliedRef.current = false;
         liveOutputEndedWithCR.current = false;
-        initialResizeDoneRef.current = false;
+        lastReportedSize.current = null;
       },
       scrollToBottom: () => instance?.scrollToBottom(),
       resize: (cols, rows) => instance?.resize(cols, rows),
       getTerminal: () => instance ?? null,
-      runPostSelectResize,
-      scheduleResize,
-    }), [instance, runPostSelectResize, scheduleResize]);
+      runPostSelectResize: () => {},
+      scheduleResize: () => {},
+    }), [instance]);
 
     return (
       <div
