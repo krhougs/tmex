@@ -23,7 +23,7 @@ import {
   Smartphone,
   Trash2,
 } from 'lucide-react';
-import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FocusEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -68,9 +68,58 @@ const EDITOR_SHORTCUTS: EditorShortcut[] = [
   { key: "'", label: "'", payload: "'" },
   { key: '"', label: '"', payload: '"' },
   { key: '`', label: '`', payload: '`' },
-
-
 ];
+
+// ShortcutsBar 组件 - 使用 memo 避免不必要的重绘
+interface ShortcutsBarProps {
+  onSend: (payload: string) => void;
+  onFocusEditor?: () => void;
+  disabled: boolean;
+  isMobile: boolean;
+  inputMode: 'direct' | 'editor';
+}
+
+const ShortcutsBar = memo(function ShortcutsBar({
+  onSend,
+  onFocusEditor,
+  disabled,
+  isMobile,
+  inputMode,
+}: ShortcutsBarProps) {
+  return (
+    <div
+      className="terminal-shortcuts-strip my-2 bg-muted rounded-xl"
+      data-testid="terminal-shortcuts-strip"
+    >
+      <div
+        className="shortcut-row flex items-center gap-1.5 p-2 overflow-x-auto scrollbar-thin"
+        data-testid="editor-shortcuts-row"
+      >
+        {EDITOR_SHORTCUTS.map((shortcut) => (
+          <Button
+            key={shortcut.key}
+            variant="secondary"
+            size="sm"
+            className="h-7 min-w-9 px-2.5 rounded-full text-[11px] font-medium tracking-wide shrink-0 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
+            title={shortcut.label}
+            aria-label={shortcut.label}
+            data-testid={`editor-shortcut-${shortcut.key}`}
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onSend(shortcut.payload);
+              if (isMobile && inputMode === 'editor') {
+                onFocusEditor?.();
+              }
+            }}
+            disabled={disabled}
+          >
+            {shortcut.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+});
 
 export default function DevicePage() {
   const { t } = useTranslation();
@@ -763,40 +812,10 @@ export default function DevicePage() {
 
   const showConnecting = !deviceConnected && !deviceError;
 
-  // 快捷键栏组件
-  const ShortcutsBar = () => (
-    <div
-      className="terminal-shortcuts-strip my-2 bg-muted rounded-xl"
-      data-testid="terminal-shortcuts-strip"
-    >
-      <div
-        className="shortcut-row flex items-center gap-1.5 p-2 overflow-x-auto scrollbar-thin"
-        data-testid="editor-shortcuts-row"
-      >
-        {EDITOR_SHORTCUTS.map((shortcut) => (
-          <Button
-            key={shortcut.key}
-            variant="secondary"
-            size="sm"
-            className="h-7 min-w-9 px-2.5 rounded-xl text-[11px] font-medium tracking-wide shrink-0 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
-            title={shortcut.label}
-            aria-label={shortcut.label}
-            data-testid={`editor-shortcut-${shortcut.key}`}
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => {
-              handleSendShortcut(shortcut.payload);
-              if (isMobile && inputMode === 'editor') {
-                editorTextareaRef.current?.focus({ preventScroll: true });
-              }
-            }}
-            disabled={!canInteractWithPane}
-          >
-            {shortcut.label}
-          </Button>
-        ))}
-      </div>
-    </div>
-  );
+  // 聚焦编辑器回调
+  const handleFocusEditor = useCallback(() => {
+    editorTextareaRef.current?.focus({ preventScroll: true });
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
@@ -880,7 +899,12 @@ export default function DevicePage() {
       {/* 快捷键栏：PC端和移动端 direct 模式都在终端下方 */}
       {inputMode === 'direct' && (
         <div className="">
-          <ShortcutsBar />
+          <ShortcutsBar
+            onSend={handleSendShortcut}
+            disabled={!canInteractWithPane}
+            isMobile={isMobile}
+            inputMode={inputMode}
+          />
         </div>
       )}
 
@@ -892,7 +916,15 @@ export default function DevicePage() {
           style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
         >
           {/* 移动端 editor 模式：快捷键栏在编辑器上方 */}
-          {isMobile && <ShortcutsBar />}
+          {isMobile && (
+            <ShortcutsBar
+              onSend={handleSendShortcut}
+              onFocusEditor={handleFocusEditor}
+              disabled={!canInteractWithPane}
+              isMobile={isMobile}
+              inputMode={inputMode}
+            />
+          )}
           <textarea
             ref={editorTextareaRef}
             data-testid="editor-input"
