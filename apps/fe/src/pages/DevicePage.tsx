@@ -51,27 +51,25 @@ function isIOSMobileBrowser(): boolean {
 }
 
 const EDITOR_SHORTCUTS: EditorShortcut[] = [
+  { key: 'enter', label: 'ENTER', payload: '\r' },
   { key: 'ctrl-c', label: 'CTRL-C', payload: '\u0003' },
   { key: 'ctrl-d', label: 'CTRL-D', payload: '\u0004' },
-  { key: 'home', label: 'HOME', payload: '\u001b[H' },
-  { key: 'end', label: 'END', payload: '\u001b[F' },
-  { key: 'page-up', label: 'PAGE-UP', payload: '\u001b[5;2~' },
-  { key: 'page-down', label: 'PAGE-DOWN', payload: '\u001b[6;2~' },
-  { key: 'tab', label: 'TAB', payload: '\u0009' },
-  { key: 'esc', label: 'ESC', payload: '\u001b' },
+  { key: 'up', label: '↑', payload: '\u001b[A' },
+  { key: 'down', label: '↓', payload: '\u001b[B' },
+  { key: 'left', label: '←', payload: '\u001b[D' },
+  { key: 'right', label: '→', payload: '\u001b[C' },
   { key: 'shift-enter', label: 'SHIFT+ENTER', payload: '\x1b[13;2u' },
+  { key: 'tab', label: 'TAB', payload: '\u0009' },
+  { key: 'backspace', label: 'BACKSPACE', payload: '\u0008' },
+  { key: 'esc', label: 'ESC', payload: '\u001b' },
+  { key: 'delete', label: 'DELETE', payload: '\u007f' },
   { key: ':', label: ':', payload: ':' },
   { key: '/', label: '/', payload: '/' },
   { key: "'", label: "'", payload: "'" },
   { key: '"', label: '"', payload: '"' },
   { key: '`', label: '`', payload: '`' },
-  { key: 'backspace', label: 'BACKSPACE', payload: '\u0008' },
-  { key: 'delete', label: 'DELETE', payload: '\u007f' },
-  { key: 'up', label: '↑', payload: '\u001b[A' },
-  { key: 'down', label: '↓', payload: '\u001b[B' },
-  { key: 'left', label: '←', payload: '\u001b[D' },
-  { key: 'right', label: '→', payload: '\u001b[C' },
-  { key: 'enter', label: 'ENTER', payload: '\r' },
+
+
 ];
 
 export default function DevicePage() {
@@ -764,41 +762,52 @@ export default function DevicePage() {
   }
 
   const showConnecting = !deviceConnected && !deviceError;
+
+  // 快捷键栏组件
+  const ShortcutsBar = () => (
+    <div
+      className="terminal-shortcuts-strip my-2 bg-muted rounded-xl"
+      data-testid="terminal-shortcuts-strip"
+    >
+      <div
+        className="shortcut-row flex items-center gap-1.5 p-2 overflow-x-auto scrollbar-thin"
+        data-testid="editor-shortcuts-row"
+      >
+        {EDITOR_SHORTCUTS.map((shortcut) => (
+          <Button
+            key={shortcut.key}
+            variant="secondary"
+            size="sm"
+            className="h-7 min-w-9 px-2.5 rounded-xl text-[11px] font-medium tracking-wide shrink-0 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
+            title={shortcut.label}
+            aria-label={shortcut.label}
+            data-testid={`editor-shortcut-${shortcut.key}`}
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              handleSendShortcut(shortcut.payload);
+              if (isMobile && inputMode === 'editor') {
+                editorTextareaRef.current?.focus({ preventScroll: true });
+              }
+            }}
+            disabled={!canInteractWithPane}
+          >
+            {shortcut.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
       <div
-        className="terminal-shortcuts-strip border-b border-border bg-card/65"
-        data-testid="terminal-shortcuts-strip"
-      >
-        <div className="shortcut-row" data-testid="editor-shortcuts-row">
-          {EDITOR_SHORTCUTS.map((shortcut) => (
-            <Button
-              key={shortcut.key}
-              variant="outline"
-              size="sm"
-              className="h-7 min-w-9 px-2 text-[10px] font-medium tracking-wide [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
-              title={shortcut.label}
-              aria-label={shortcut.label}
-              data-testid={`editor-shortcut-${shortcut.key}`}
-              onPointerDown={(e) => e.preventDefault()}
-              onClick={() => {
-                handleSendShortcut(shortcut.payload);
-                if (isMobile && inputMode === 'editor') {
-                  editorTextareaRef.current?.focus({ preventScroll: true });
-                }
-              }}
-              disabled={!canInteractWithPane}
-            >
-              {shortcut.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div
-        className={`flex-1  relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-2' : ''
+        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-1' : ''
           }`}
-        style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
+        style={{
+          paddingBottom: shouldDockEditor
+            ? `${editorDockHeight + 60}px`
+            : undefined
+        }}
       >
         <div
           className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
@@ -868,13 +877,22 @@ export default function DevicePage() {
         )}
       </div>
 
+      {/* 快捷键栏：PC端和移动端 direct 模式都在终端下方 */}
+      {inputMode === 'direct' && (
+        <div className="">
+          <ShortcutsBar />
+        </div>
+      )}
+
       {inputMode === 'editor' && (
         <div
           ref={editorContainerRef}
-          className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${shouldDockEditor ? 'editor-mode-input-docked' : ''
+          className={`editor-mode-input bg-card/85 backdrop-blur-sm ${shouldDockEditor ? 'fixed left-0 right-0 z-50' : ''
             }`}
           style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
         >
+          {/* 移动端 editor 模式：快捷键栏在编辑器上方 */}
+          {isMobile && <ShortcutsBar />}
           <textarea
             ref={editorTextareaRef}
             data-testid="editor-input"
