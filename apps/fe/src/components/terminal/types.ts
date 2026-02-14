@@ -8,8 +8,8 @@ export interface TerminalProps {
   deviceConnected: boolean;
   isSelectionInvalid: boolean;
   onData?: (data: string) => void;
-  onResize?: (cols: number, rows: number) => void;
-  onSync?: (cols: number, rows: number) => void;
+  onResize: (cols: number, rows: number) => void;
+  onSync: (cols: number, rows: number) => void;
   onReady?: (terminal: XTermTerminal) => void;
 }
 

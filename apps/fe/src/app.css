@@ -2,6 +2,10 @@ html {
   overscroll-behavior: none;
 }
 
+* {
+  text-autospace: no-autospace;
+}
+
 body {
   height: 100vh;
   overflow: hidden;

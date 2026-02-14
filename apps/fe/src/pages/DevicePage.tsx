@@ -89,7 +89,7 @@ export default function DevicePage() {
     deviceId ? state.deviceErrors?.[deviceId] : undefined
   );
   const deviceConnected = useTmuxStore((state) =>
-    deviceId ? state.deviceConnected?.[deviceId] : false
+    deviceId ? (state.deviceConnected?.[deviceId] ?? false) : false
   );
   const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
 

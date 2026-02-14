@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useEffect, useCallback } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { useXTerm } from 'react-xtermjs';
 import { FitAddon } from 'xterm-addon-fit';
 import { Unicode11Addon } from 'xterm-addon-unicode11';
@@ -73,8 +73,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         convertEol: true,
         scrollSensitivity: 2,
         smoothScrollDuration: 120,
-        fastScrollModifier: 'ctrl',
-        fastScrollSensitivity: 1,
+      
         letterSpacing: 0,
         cursorBlink: true,
         allowProposedApi: true,
@@ -101,6 +100,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       scheduleResize,
       runPostSelectResize,
       setFitAddon,
+      setTerminal,
     } = useTerminalResize({
       deviceId,
       paneId,
@@ -137,6 +137,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       fitAddonRef.current = fit;
       setFitAddon(fit);
+      setTerminal(instance);
 
       // 初始 fit
       requestAnimationFrame(() => {
@@ -147,6 +148,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       return () => {
         fitAddonRef.current = null;
         setFitAddon(null);
+        setTerminal(null);
         isTerminalReadyRef.current = false;
       };
     }, [instance, setFitAddon]);

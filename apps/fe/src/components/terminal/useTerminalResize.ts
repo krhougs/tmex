@@ -1,4 +1,5 @@
 import { useCallback, useRef, useEffect } from 'react';
+import type { Terminal as XTermTerminal } from '@xterm/xterm';
 import type { FitAddon } from 'xterm-addon-fit';
 
 interface UseTerminalResizeOptions {
@@ -25,6 +26,7 @@ export function useTerminalResize({
   const suppressLocalResizeUntil = useRef(0);
   const postSelectResizeTimers = useRef<number[]>([]);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const terminalRef = useRef<XTermTerminal | null>(null);
 
   const reportSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
@@ -36,14 +38,13 @@ export function useTerminalResize({
         return false;
       }
 
-      const term = fitAddonRef.current;
-      if (!term) return false;
+      const term = terminalRef.current;
+      const fitAddon = fitAddonRef.current;
+      if (!term || !fitAddon) return false;
 
-      term.fit();
-
-      const terminal = term.terminal;
-      const cols = Math.max(2, terminal.cols);
-      const rows = Math.max(2, terminal.rows);
+      fitAddon.fit();
+      const cols = Math.max(2, term.cols);
+      const rows = Math.max(2, term.rows);
       const lastSize = lastReportedSize.current;
 
       if (!force && lastSize && lastSize.cols === cols && lastSize.rows === rows) {
@@ -141,6 +142,9 @@ export function useTerminalResize({
     clearPostSelectResizeTimers,
     setFitAddon: (addon: FitAddon | null) => {
       fitAddonRef.current = addon;
+    },
+    setTerminal: (terminal: XTermTerminal | null) => {
+      terminalRef.current = terminal;
     },
     lastReportedSize,
     pendingLocalSize,
