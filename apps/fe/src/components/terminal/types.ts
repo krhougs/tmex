@@ -10,7 +10,6 @@ export interface TerminalProps {
   onData?: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
   onSync: (cols: number, rows: number) => void;
-  onReady?: (terminal: XTermTerminal) => void;
 }
 
 export interface TerminalRef {

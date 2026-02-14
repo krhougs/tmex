@@ -101,7 +101,8 @@ export default function DevicePage() {
   const [editorText, setEditorText] = useState('');
   const [isEditorFocused, setIsEditorFocused] = useState(false);
   const isComposingRef = useRef(false);
-  const [isLoading, setIsLoading] = useState(true);
+  // Loading state - false when connected and has pane
+  const isLoading = !deviceConnected || !resolvedPaneId;
   const [keyboardInsetBottom, setKeyboardInsetBottom] = useState(0);
   const [editorDockHeight, setEditorDockHeight] = useState(0);
   const [isSending, setIsSending] = useState(false);
@@ -193,11 +194,6 @@ export default function DevicePage() {
     if (!deviceId || !resolvedPaneId) return;
     useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
   }, [deviceId, resolvedPaneId]);
-
-  // Handle terminal ready
-  const handleTerminalReady = useCallback(() => {
-    setIsLoading(false);
-  }, []);
 
   // Mobile detection
   useEffect(() => {
@@ -562,20 +558,17 @@ export default function DevicePage() {
           className="h-full min-h-0 min-w-0 w-full"
           style={{ backgroundColor: terminalTheme.background }}
         >
-          {resolvedPaneId && (
-            <TerminalComponent
-              ref={terminalRef}
-              deviceId={deviceId}
-              paneId={resolvedPaneId}
-              theme={uiTheme}
-              inputMode={inputMode}
-              deviceConnected={deviceConnected}
-              isSelectionInvalid={isSelectionInvalid}
-              onResize={handleResize}
-              onSync={handleSync}
-              onReady={handleTerminalReady}
-            />
-          )}
+          <TerminalComponent
+            ref={terminalRef}
+            deviceId={deviceId}
+            paneId={resolvedPaneId ?? ''}
+            theme={uiTheme}
+            inputMode={inputMode}
+            deviceConnected={deviceConnected}
+            isSelectionInvalid={isSelectionInvalid}
+            onResize={handleResize}
+            onSync={handleSync}
+          />
         </div>
 
         {(isLoading || showConnecting) && (
