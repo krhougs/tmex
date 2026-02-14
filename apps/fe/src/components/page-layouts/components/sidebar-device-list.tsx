@@ -1,3 +1,8 @@
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
+import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
@@ -5,11 +10,6 @@ import { Globe, Monitor, Plus, Power, PowerOff } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
-import { cn } from '@/lib/utils';
 import { useSiteStore } from '../../../stores/site';
 import { useTmuxStore } from '../../../stores/tmux';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../../../utils/tmuxUrl';
@@ -21,7 +21,10 @@ export function SideBarDeviceList() {
   const { isMobile, setOpenMobile } = useSidebar();
 
   // Get selected window/pane from URL
-  const paneMatch = matchPath('/devices/:deviceId/windows/:windowId/panes/:paneId', location.pathname);
+  const paneMatch = matchPath(
+    '/devices/:deviceId/windows/:windowId/panes/:paneId',
+    location.pathname
+  );
   const selectedDeviceId = paneMatch?.params.deviceId;
   const selectedWindowId = paneMatch?.params.windowId;
   const selectedPaneId = decodePaneIdFromUrlParam(paneMatch?.params.paneId);
@@ -30,6 +33,7 @@ export function SideBarDeviceList() {
   const connectedDevices = useTmuxStore((state) => state.connectedDevices);
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
+  const selectWindow = useTmuxStore((state) => state.selectWindow);
   const closeWindow = useTmuxStore((state) => state.closeWindow);
   const closePane = useTmuxStore((state) => state.closePane);
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
@@ -44,53 +48,69 @@ export function SideBarDeviceList() {
     throwOnError: false,
   });
 
-  const handleNavigate = useCallback((to: string) => {
-    navigate(to);
-    if (isMobile) setOpenMobile(false);
-  }, [navigate, isMobile, setOpenMobile]);
+  const handleNavigate = useCallback(
+    (to: string) => {
+      navigate(to);
+      if (isMobile) setOpenMobile(false);
+    },
+    [navigate, isMobile, setOpenMobile]
+  );
 
-  const navigateToPane = useCallback((deviceId: string, windowId: string, paneId: string) =>
-    handleNavigate(`/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`),
+  const navigateToPane = useCallback(
+    (deviceId: string, windowId: string, paneId: string) => {
+      handleNavigate(
+        `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`
+      );
+    },
     [handleNavigate]
   );
 
-  const handleWindowClick = useCallback((deviceId: string, windowId: string, panes: TmuxPane[]) => {
-    // Click window = select its first/active pane and navigate
-    const targetPane = panes.find((p) => p.active) ?? panes[0];
-    if (targetPane) {
-      const url = `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPane.id)}`;
-      console.log('[Sidebar] Navigating to window:', windowId, 'pane:', targetPane.id, 'url:', url);
-      handleNavigate(url);
-    }
-  }, [handleNavigate]);
+  const handleWindowClick = useCallback(
+    (deviceId: string, windowId: string, _panes: TmuxPane[]) => {
+      // Click window = send selectWindow to tmux and let it handle pane selection
+      console.log('[Sidebar] Selecting window:', windowId);
+      selectWindow(deviceId, windowId);
+      // The pane-active event will trigger URL update via DevicePage effect
+    },
+    [selectWindow]
+  );
 
-  const handleConnectToggle = useCallback((deviceId: string, isConnected: boolean) => {
-    if (isConnected) {
-      // If disconnecting the currently selected device, navigate to fallback
-      if (deviceId === selectedDeviceId) {
+  const handleConnectToggle = useCallback(
+    (deviceId: string, isConnected: boolean) => {
+      if (isConnected) {
+        // If disconnecting the currently selected device, navigate to fallback
+        if (deviceId === selectedDeviceId) {
+          handleNavigate('/devices');
+        }
+        disconnectDevice(deviceId, 'sidebar');
+      } else {
+        connectDevice(deviceId, 'sidebar');
+      }
+    },
+    [connectDevice, disconnectDevice, selectedDeviceId, handleNavigate]
+  );
+
+  const handleCloseWindow = useCallback(
+    (deviceId: string, windowId: string) => {
+      // If closing the currently selected window, navigate to fallback
+      if (deviceId === selectedDeviceId && windowId === selectedWindowId) {
         handleNavigate('/devices');
       }
-      disconnectDevice(deviceId, 'sidebar');
-    } else {
-      connectDevice(deviceId, 'sidebar');
-    }
-  }, [connectDevice, disconnectDevice, selectedDeviceId, handleNavigate]);
-
-  const handleCloseWindow = useCallback((deviceId: string, windowId: string) => {
-    // If closing the currently selected window, navigate to fallback
-    if (deviceId === selectedDeviceId && windowId === selectedWindowId) {
-      handleNavigate('/devices');
-    }
-    closeWindow(deviceId, windowId);
-  }, [closeWindow, selectedDeviceId, selectedWindowId, handleNavigate]);
+      closeWindow(deviceId, windowId);
+    },
+    [closeWindow, selectedDeviceId, selectedWindowId, handleNavigate]
+  );
 
   const handleCreateWindow = useCallback((deviceId: string) => {
     useTmuxStore.getState().createWindow(deviceId);
   }, []);
 
   const devices = devicesData?.devices ?? [];
-  const sortedDevices = useMemo(() =>
-    [...devices].sort((a, b) => a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })),
+  const sortedDevices = useMemo(
+    () =>
+      [...devices].sort((a, b) =>
+        a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })
+      ),
     [devices, language]
   );
 
@@ -107,7 +127,9 @@ export function SideBarDeviceList() {
               isConnected={connectedDevices.has(device.id)}
               selectedWindowId={selectedWindowId}
               selectedPaneId={selectedPaneId}
-              onConnectToggle={() => handleConnectToggle(device.id, connectedDevices.has(device.id))}
+              onConnectToggle={() =>
+                handleConnectToggle(device.id, connectedDevices.has(device.id))
+              }
               onCreateWindow={handleCreateWindow}
               onCloseWindow={handleCloseWindow}
               onClosePane={closePane}
@@ -157,10 +179,12 @@ function DeviceSection({
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
 
   return (
-    <div className={cn(
-      "rounded-lg border overflow-hidden",
-      isConnected ? "bg-card/50" : "bg-muted/20"
-    )}>
+    <div
+      className={cn(
+        'rounded-lg border overflow-hidden',
+        isConnected ? 'bg-card/50' : 'bg-muted/20'
+      )}
+    >
       {/* Device Header - Not selectable, just shows status and controls */}
       <div className="px-3 py-2 bg-muted/30 border-b">
         <div className="flex items-center gap-2">
@@ -168,10 +192,12 @@ function DeviceSection({
           <span className="flex-1 truncate text-sm font-medium">{device.name}</span>
 
           {/* Connection Status */}
-          <div className={cn(
-            "h-2 w-2 rounded-full shrink-0",
-            isConnected ? "bg-emerald-500" : "bg-gray-400"
-          )} />
+          <div
+            className={cn(
+              'h-2 w-2 rounded-full shrink-0',
+              isConnected ? 'bg-emerald-500' : 'bg-gray-400'
+            )}
+          />
 
           {/* Connect/Disconnect Button */}
           <Button
@@ -220,6 +246,7 @@ function DeviceSection({
 
           {/* New Window Button */}
           <button
+            type="button"
             onClick={() => onCreateWindow(device.id)}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/30 border border-dashed border-border/50 hover:border-border"
           >
@@ -264,42 +291,44 @@ function WindowItem({
       {/* Window Header - Clickable */}
       <div className="group relative">
         <button
+          type="button"
           onClick={() => onWindowClick(deviceId, window.id, window.panes)}
           className={cn(
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors pr-7",
+            'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors pr-7',
             isPaneSelected
-              ? "bg-primary/15 text-primary border border-primary/30"
-              : "hover:bg-accent/50 text-foreground border border-transparent"
+              ? 'bg-primary/15 text-primary border border-primary/30'
+              : 'hover:bg-accent/50 text-foreground border border-transparent'
           )}
         >
           <Badge
-            variant={isPaneSelected ? "default" : "outline"}
+            variant={isPaneSelected ? 'default' : 'outline'}
             className="h-5 text-[10px] px-1.5 shrink-0"
           >
             {window.index}
           </Badge>
 
-          <span className="flex-1 truncate text-xs font-medium">
-            {window.name}
-          </span>
+          <span className="flex-1 truncate text-xs font-medium">{window.name}</span>
 
           {window.active && (
-            <span className={cn(
-              "h-1.5 w-1.5 rounded-full shrink-0",
-              isPaneSelected ? "bg-primary" : "bg-emerald-500"
-            )} />
+            <span
+              className={cn(
+                'h-1.5 w-1.5 rounded-full shrink-0',
+                isPaneSelected ? 'bg-foreground/80' : 'bg-foreground/50'
+              )}
+            />
           )}
         </button>
 
         {/* Close Window Button - positioned absolutely */}
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onCloseWindow(deviceId, window.id);
           }}
           className={cn(
-            "absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity",
-            isPaneSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            'absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
+            isPaneSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           )}
           title="Close window"
         >
@@ -316,39 +345,41 @@ function WindowItem({
             return (
               <div key={pane.id} className="group relative">
                 <button
+                  type="button"
                   onClick={() => onPaneClick(deviceId, window.id, pane.id)}
                   className={cn(
-                    "w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition-colors pr-7",
+                    'w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition-colors pr-7',
                     isPaneActive
-                      ? "bg-primary/10 text-primary border border-primary/20"
-                      : "hover:bg-accent/30 text-muted-foreground border border-transparent"
+                      ? 'bg-primary/10 text-primary border border-primary/20'
+                      : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
                   )}
                 >
-                  <span className="text-[10px] font-mono opacity-60 w-4">
-                    {pane.index}
-                  </span>
+                  <span className="text-[10px] font-mono opacity-60 w-4">{pane.index}</span>
 
                   <span className="flex-1 truncate text-xs">
                     {pane.title || `Pane ${pane.index}`}
                   </span>
 
                   {pane.active && (
-                    <span className={cn(
-                      "h-1 w-1 rounded-full shrink-0",
-                      isPaneActive ? "bg-primary" : "bg-emerald-500"
-                    )} />
+                    <span
+                      className={cn(
+                        'h-1 w-1 rounded-full shrink-0',
+                        isPaneActive ? 'bg-foreground/80' : 'bg-foreground/50'
+                      )}
+                    />
                   )}
                 </button>
 
                 {/* Close Pane Button */}
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onClosePane(deviceId, window.id, pane.id, window.panes.length);
                   }}
                   className={cn(
-                    "absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity",
-                    isPaneActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    'absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
+                    isPaneActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                   )}
                   title="Close pane"
                 >

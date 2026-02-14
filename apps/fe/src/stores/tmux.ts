@@ -38,6 +38,7 @@ interface TmuxState {
   deviceConnected: Record<string, boolean | undefined>;
   deviceErrors: Record<string, DeviceError | undefined>;
   selectedPanes: Record<string, { windowId: string; paneId: string } | undefined>;
+  activePaneFromEvent: Record<string, { windowId: string; paneId: string } | undefined>;
   connectionRefs: Record<string, Partial<Record<ConnectionRef, true>> | undefined>;
   lastConnectRequest: { deviceId: string; ref: ConnectionRef; at: number } | null;
 
@@ -220,10 +221,7 @@ function ensureSocket(
 
           setState((prev) => {
             const previousError = prev.deviceErrors[payload.deviceId];
-            if (
-              previousError?.message === summary &&
-              previousError?.type === payload.errorType
-            ) {
+            if (previousError?.message === summary && previousError?.type === payload.errorType) {
               return {};
             }
 
@@ -292,6 +290,18 @@ function ensureSocket(
             })
           );
         }
+
+        if (payload.type === 'pane-active') {
+          const data = payload.data as { windowId: string; paneId: string } | undefined;
+          if (data?.windowId && data?.paneId) {
+            setState((prev) => ({
+              activePaneFromEvent: {
+                ...prev.activePaneFromEvent,
+                [payload.deviceId]: { windowId: data.windowId, paneId: data.paneId },
+              },
+            }));
+          }
+        }
         return;
       }
     }
@@ -329,6 +339,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   deviceConnected: {},
   deviceErrors: {},
   selectedPanes: {},
+  activePaneFromEvent: {},
   connectionRefs: {},
   lastConnectRequest: null,
 

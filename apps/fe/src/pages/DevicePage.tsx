@@ -1,11 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
-import type { Device } from '@tmex/shared';
-import { ArrowDownToLine, Keyboard, Loader2, RefreshCw, Send, Smartphone, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
+import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,9 +10,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
-import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
+import { useQuery } from '@tanstack/react-query';
+import type { Device } from '@tmex/shared';
+import {
+  ArrowDownToLine,
+  Keyboard,
+  Loader2,
+  RefreshCw,
+  Send,
+  Smartphone,
+  Trash2,
+} from 'lucide-react';
+import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router';
+import { toast } from 'sonner';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
@@ -76,6 +84,8 @@ export default function DevicePage() {
   const terminalRef = useRef<TerminalRef>(null);
   const autoSelected = useRef(false);
   const iosAddressBarCollapseTried = useRef(false);
+  // Track user-initiated navigation to prevent auto-redirect overwriting it
+  const userInitiatedSelectionRef = useRef<{ windowId: string; paneId: string } | null>(null);
 
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
@@ -184,16 +194,22 @@ export default function DevicePage() {
   }, [currentDevice?.name, deviceId, selectedPane, selectedWindow]);
 
   // Handle resize from terminal - use store directly to avoid unstable callback deps
-  const handleResize = useCallback((cols: number, rows: number) => {
-    if (!deviceId || !resolvedPaneId) return;
-    useTmuxStore.getState().resizePane(deviceId, resolvedPaneId, cols, rows);
-  }, [deviceId, resolvedPaneId]);
+  const handleResize = useCallback(
+    (cols: number, rows: number) => {
+      if (!deviceId || !resolvedPaneId) return;
+      useTmuxStore.getState().resizePane(deviceId, resolvedPaneId, cols, rows);
+    },
+    [deviceId, resolvedPaneId]
+  );
 
   // Handle sync from terminal
-  const handleSync = useCallback((cols: number, rows: number) => {
-    if (!deviceId || !resolvedPaneId) return;
-    useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
-  }, [deviceId, resolvedPaneId]);
+  const handleSync = useCallback(
+    (cols: number, rows: number) => {
+      if (!deviceId || !resolvedPaneId) return;
+      useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
+    },
+    [deviceId, resolvedPaneId]
+  );
 
   // Mobile detection
   useEffect(() => {
@@ -326,13 +342,43 @@ export default function DevicePage() {
     if (!deviceConnected) return;
     if (!windowId) return;
 
-    console.log('[DevicePage] Window change effect:', { windowId, resolvedPaneId, windowsCount: windows?.length });
+    console.log('[DevicePage] Window change effect:', {
+      deviceId,
+      windowId,
+      resolvedPaneId,
+      windowsCount: windows?.length,
+      windows: windows?.map((w) => ({
+        id: w.id,
+        name: w.name,
+        active: w.active,
+        paneCount: w.panes.length,
+      })),
+      userInitiated: userInitiatedSelectionRef.current,
+    });
+
+    // If snapshot not yet arrived, don't navigate (loading state)
+    if (!windows) {
+      console.log('[DevicePage] Snapshot not yet arrived, waiting');
+      return;
+    }
 
     // If no windows left (all closed), navigate to fallback
-    if (!windows || windows.length === 0) {
+    if (windows.length === 0) {
       console.log('[DevicePage] No windows left, navigating to fallback');
       navigate('/devices', { replace: true });
       return;
+    }
+
+    // Check if this is a user-initiated selection that hasn't been reflected in snapshot yet
+    const userInitiated = userInitiatedSelectionRef.current;
+    if (userInitiated && userInitiated.windowId === windowId) {
+      // User just clicked this window, wait for snapshot to update
+      console.log('[DevicePage] User-initiated selection detected, skipping auto-redirect');
+      // Clear the ref after a short delay to allow future corrections
+      const timeout = setTimeout(() => {
+        userInitiatedSelectionRef.current = null;
+      }, 500);
+      return () => clearTimeout(timeout);
     }
 
     // Find the target window
@@ -413,8 +459,124 @@ export default function DevicePage() {
     if (!deviceId || !windowId || !resolvedPaneId) return;
     if (isLoading || !socketReady || !deviceConnected || isSelectionInvalid) return;
 
+    // Short-circuit: if already selected, don't send again
+    const currentSelected = useTmuxStore.getState().selectedPanes[deviceId];
+    if (
+      currentSelected &&
+      currentSelected.windowId === windowId &&
+      currentSelected.paneId === resolvedPaneId
+    ) {
+      return;
+    }
+
     selectPane(deviceId, windowId, resolvedPaneId);
-  }, [deviceConnected, deviceId, isLoading, isSelectionInvalid, resolvedPaneId, selectPane, socketReady, windowId]);
+  }, [
+    deviceConnected,
+    deviceId,
+    isLoading,
+    isSelectionInvalid,
+    resolvedPaneId,
+    selectPane,
+    socketReady,
+    windowId,
+  ]);
+
+  // Subscribe to activePaneFromEvent for this device
+  const activePaneFromEvent = useTmuxStore((state) =>
+    deviceId ? state.activePaneFromEvent[deviceId] : undefined
+  );
+
+  // Follow active pane from event/tmux pane-active
+  const lastHandledActiveRef = useRef<{ windowId: string; paneId: string } | null>(null);
+  useEffect(() => {
+    if (!deviceId) return;
+    if (!deviceConnected) return;
+    if (!windowId || !resolvedPaneId) return;
+    if (!activePaneFromEvent) return;
+
+    // Ignore if already at the right place
+    if (
+      activePaneFromEvent.windowId === windowId &&
+      activePaneFromEvent.paneId === resolvedPaneId
+    ) {
+      return;
+    }
+
+    // Avoid duplicate handling
+    if (
+      lastHandledActiveRef.current &&
+      lastHandledActiveRef.current.windowId === activePaneFromEvent.windowId &&
+      lastHandledActiveRef.current.paneId === activePaneFromEvent.paneId
+    ) {
+      return;
+    }
+
+    lastHandledActiveRef.current = { ...activePaneFromEvent };
+
+    console.log('[DevicePage] Following pane-active event:', activePaneFromEvent);
+
+    // Send selectPane to gateway first
+    selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId);
+
+    // Navigate to new URL
+    navigate(
+      `/devices/${deviceId}/windows/${activePaneFromEvent.windowId}/panes/${encodePaneIdForUrl(activePaneFromEvent.paneId)}`,
+      { replace: true }
+    );
+  }, [
+    deviceId,
+    deviceConnected,
+    windowId,
+    resolvedPaneId,
+    activePaneFromEvent,
+    selectPane,
+    navigate,
+  ]);
+
+  // Fallback: follow active from snapshot (for environments without pane-active event)
+  const lastSnapshotActiveRef = useRef<{ windowId: string; paneId: string } | null>(null);
+  useEffect(() => {
+    if (!deviceId) return;
+    if (!deviceConnected) return;
+    if (!windows || windows.length === 0) return;
+
+    // Skip if user just manually selected a different window/pane
+    if (userInitiatedSelectionRef.current) {
+      return;
+    }
+
+    const activeWindow = windows.find((w) => w.active);
+    if (!activeWindow) return;
+
+    const activePane = activeWindow.panes.find((p) => p.active);
+    if (!activePane) return;
+
+    const currentActive = { windowId: activeWindow.id, paneId: activePane.id };
+
+    // Only follow when active actually changes
+    if (
+      lastSnapshotActiveRef.current &&
+      lastSnapshotActiveRef.current.windowId === currentActive.windowId &&
+      lastSnapshotActiveRef.current.paneId === currentActive.paneId
+    ) {
+      return;
+    }
+
+    // Update ref
+    lastSnapshotActiveRef.current = { ...currentActive };
+
+    // If current URL matches, no need to navigate
+    if (windowId === currentActive.windowId && resolvedPaneId === currentActive.paneId) {
+      return;
+    }
+
+    // Send selectPane and navigate
+    selectPane(deviceId, currentActive.windowId, currentActive.paneId);
+    navigate(
+      `/devices/${deviceId}/windows/${currentActive.windowId}/panes/${encodePaneIdForUrl(currentActive.paneId)}`,
+      { replace: true }
+    );
+  }, [deviceId, deviceConnected, windows, windowId, resolvedPaneId, selectPane, navigate]);
 
   // Sync pane size from remote
   useEffect(() => {
@@ -477,6 +639,25 @@ export default function DevicePage() {
       window.removeEventListener('tmex:jump-to-latest', handler as EventListener);
     };
   }, []);
+
+  // Listen for user-initiated selection from sidebar
+  useEffect(() => {
+    const handler = (
+      event: CustomEvent<{ deviceId: string; windowId: string; paneId: string }>
+    ) => {
+      const { deviceId: eventDeviceId, windowId, paneId } = event.detail;
+      // Only track if it's for the current device
+      if (eventDeviceId === deviceId) {
+        userInitiatedSelectionRef.current = { windowId, paneId };
+        console.log('[DevicePage] User-initiated selection tracked:', { windowId, paneId });
+      }
+    };
+
+    window.addEventListener('tmex:user-initiated-selection', handler as EventListener);
+    return () => {
+      window.removeEventListener('tmex:user-initiated-selection', handler as EventListener);
+    };
+  }, [deviceId]);
 
   // Sync editor draft
   useEffect(() => {
@@ -599,7 +780,10 @@ export default function DevicePage() {
   const showConnecting = !deviceConnected && !deviceError;
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
-      <div className="terminal-shortcuts-strip border-b border-border bg-card/65" data-testid="terminal-shortcuts-strip">
+      <div
+        className="terminal-shortcuts-strip border-b border-border bg-card/65"
+        data-testid="terminal-shortcuts-strip"
+      >
         <div className="shortcut-row" data-testid="editor-shortcuts-row">
           {EDITOR_SHORTCUTS.map((shortcut) => (
             <Button
@@ -626,8 +810,9 @@ export default function DevicePage() {
       </div>
 
       <div
-        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-2' : ''
-          }`}
+        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${
+          isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-2' : ''
+        }`}
         style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
       >
         <div
@@ -656,9 +841,7 @@ export default function DevicePage() {
                       <span className="text-2xl text-muted-foreground">🔌</span>
                     </div>
                     <h3 className="text-lg font-medium">{t('device.disconnected')}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {t('device.connectToStart')}
-                    </p>
+                    <p className="text-sm text-muted-foreground">{t('device.connectToStart')}</p>
                   </>
                 ) : !windowId ? (
                   <>
@@ -701,8 +884,9 @@ export default function DevicePage() {
       {inputMode === 'editor' && (
         <div
           ref={editorContainerRef}
-          className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${shouldDockEditor ? 'editor-mode-input-docked' : ''
-            }`}
+          className={`editor-mode-input border-t border-border/70 bg-card/85 backdrop-blur-sm ${
+            shouldDockEditor ? 'editor-mode-input-docked' : ''
+          }`}
           style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
         >
           <textarea
@@ -733,8 +917,14 @@ export default function DevicePage() {
             }}
           />
           <div className="actions mt-2">
-            <div className="send-row flex flex-wrap items-center justify-end gap-2" data-testid="editor-send-row">
-              <div className="send-with-enter-toggle mr-auto flex items-center gap-2 text-xs text-muted-foreground" data-testid="editor-send-with-enter-toggle">
+            <div
+              className="send-row flex flex-wrap items-center justify-end gap-2"
+              data-testid="editor-send-row"
+            >
+              <div
+                className="send-with-enter-toggle mr-auto flex items-center gap-2 text-xs text-muted-foreground"
+                data-testid="editor-send-with-enter-toggle"
+              >
                 <Switch
                   size="sm"
                   checked={editorSendWithEnter}
@@ -774,7 +964,11 @@ export default function DevicePage() {
                 }}
                 disabled={!canInteractWithPane || isSending}
               >
-                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {isSending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
                 {t('terminal.editorSendLineByLine')}
               </Button>
               <Button
@@ -790,14 +984,17 @@ export default function DevicePage() {
                 }}
                 disabled={!canInteractWithPane || isSending}
               >
-                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {isSending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
                 {t('common.send')}
               </Button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
@@ -843,7 +1040,9 @@ export function PageActions() {
   const resolvedPaneId = paneId ? decodePaneIdFromUrlParam(paneId) : undefined;
   const inputMode = useUIStore((state) => state.inputMode);
   const setInputMode = useUIStore((state) => state.setInputMode);
-  const deviceConnected = useTmuxStore((state) => deviceId ? state.deviceConnected?.[deviceId] ?? false : false);
+  const deviceConnected = useTmuxStore((state) =>
+    deviceId ? (state.deviceConnected?.[deviceId] ?? false) : false
+  );
 
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
 
@@ -885,7 +1084,11 @@ export function PageActions() {
         aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
         title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
       >
-        {inputMode === 'direct' ? <Keyboard className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+        {inputMode === 'direct' ? (
+          <Keyboard className="h-4 w-4" />
+        ) : (
+          <Smartphone className="h-4 w-4" />
+        )}
       </Button>
       <Button
         variant="ghost"
