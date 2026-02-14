@@ -84,6 +84,7 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
             {Page ? <Page /> : null}
           </div>
         </div>
+        <div className="h-[var(--tmex-safe-area-bottom)]"></div>
       </SidebarInset>
     </SidebarProvider>
   );
