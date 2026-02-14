@@ -320,6 +320,43 @@ export default function DevicePage() {
     }
   }, [deviceConnected]);
 
+  // Handle external window change (from other clients)
+  useEffect(() => {
+    if (!deviceId) return;
+    if (!deviceConnected) return;
+    if (!windows || windows.length === 0) return;
+    if (!windowId || !resolvedPaneId) return;
+
+    // Check if current window still exists
+    const currentWindow = windows.find((w) => w.id === windowId);
+    if (!currentWindow) {
+      // Current window was closed externally, navigate to active window
+      const activeWindow = windows.find((w) => w.active) ?? windows[0];
+      const activePane = activeWindow.panes.find((p) => p.active) ?? activeWindow.panes[0];
+      if (activePane) {
+        navigate(
+          `/devices/${deviceId}/windows/${activeWindow.id}/panes/${encodePaneIdForUrl(activePane.id)}`,
+          { replace: true }
+        );
+      }
+      return;
+    }
+
+    // Check if current pane still exists in current window
+    const currentPane = currentWindow.panes.find((p) => p.id === resolvedPaneId);
+    if (!currentPane) {
+      // Current pane was closed externally, navigate to active pane in same window
+      const activePane = currentWindow.panes.find((p) => p.active) ?? currentWindow.panes[0];
+      if (activePane) {
+        navigate(
+          `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(activePane.id)}`,
+          { replace: true }
+        );
+      }
+      return;
+    }
+  }, [deviceId, deviceConnected, windows, windowId, resolvedPaneId, navigate]);
+
   // Auto-select pane when window changes or on initial load
   useEffect(() => {
     if (!deviceId) return;

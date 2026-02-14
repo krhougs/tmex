@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
-import { Globe, Monitor, Power, PowerOff } from 'lucide-react';
+import { Globe, Monitor, Plus, Power, PowerOff } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
@@ -74,6 +74,18 @@ export function SideBarDeviceList() {
     }
   }, [connectDevice, disconnectDevice, selectedDeviceId, handleNavigate]);
 
+  const handleCloseWindow = useCallback((deviceId: string, windowId: string) => {
+    // If closing the currently selected window, navigate to fallback
+    if (deviceId === selectedDeviceId && windowId === selectedWindowId) {
+      handleNavigate('/devices');
+    }
+    closeWindow(deviceId, windowId);
+  }, [closeWindow, selectedDeviceId, selectedWindowId, handleNavigate]);
+
+  const handleCreateWindow = useCallback((deviceId: string) => {
+    useTmuxStore.getState().createWindow(deviceId);
+  }, []);
+
   const devices = devicesData?.devices ?? [];
   const sortedDevices = useMemo(() =>
     [...devices].sort((a, b) => a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })),
@@ -94,7 +106,8 @@ export function SideBarDeviceList() {
               selectedWindowId={selectedWindowId}
               selectedPaneId={selectedPaneId}
               onConnectToggle={() => handleConnectToggle(device.id, connectedDevices.has(device.id))}
-              onCloseWindow={closeWindow}
+              onCreateWindow={handleCreateWindow}
+              onCloseWindow={handleCloseWindow}
               onClosePane={closePane}
               onPaneClick={navigateToPane}
               onWindowClick={handleWindowClick}
@@ -118,6 +131,7 @@ interface DeviceSectionProps {
   selectedWindowId?: string;
   selectedPaneId?: string;
   onConnectToggle: () => void;
+  onCreateWindow: (deviceId: string) => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
@@ -131,6 +145,7 @@ function DeviceSection({
   selectedWindowId,
   selectedPaneId,
   onConnectToggle,
+  onCreateWindow,
   onCloseWindow,
   onClosePane,
   onPaneClick,
@@ -200,6 +215,15 @@ function DeviceSection({
               onClosePane={onClosePane}
             />
           ))}
+
+          {/* New Window Button */}
+          <button
+            onClick={() => onCreateWindow(device.id)}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/30 border border-dashed border-border/50 hover:border-border"
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" />
+            <span className="text-xs">{t('window.new')}</span>
+          </button>
         </div>
       )}
     </div>
