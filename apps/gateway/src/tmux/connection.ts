@@ -4,7 +4,17 @@ import { Client } from 'ssh2';
 import { decryptWithContext } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { resolveSshAgentSocket, resolveSshUsername } from './ssh-auth';
-import { TmuxControlParser, type TmuxEvent, type TmuxOutputBlock } from './parser';
+import { TmuxControlParser, type TmuxEvent, type TmuxOutputBlock, type TmuxOutputBlockBegin } from './parser';
+
+const BELL_DEDUP_WINDOW_MS = 200;
+
+type PendingCommandKind =
+  | 'noop'
+  | 'snapshot-session'
+  | 'snapshot-windows'
+  | 'snapshot-panes'
+  | 'capture-pane'
+  | 'capture-pane-mode';
 
 export interface TmuxConnectionOptions {
   deviceId: string;
@@ -44,14 +54,8 @@ export class TmuxConnection {
 
   private lastExitReason: string | null = null;
 
-  private pendingCommandKinds: Array<
-    | 'noop'
-    | 'snapshot-session'
-    | 'snapshot-windows'
-    | 'snapshot-panes'
-    | 'capture-pane'
-    | 'capture-pane-mode'
-  > = [];
+  private pendingCommandKinds: PendingCommandKind[] = [];
+  private commandKindsByNo = new Map<number, PendingCommandKind>();
   private pendingCapturePaneRequests: Array<{ paneId: string; mode: 'normal' | 'alternate' }> = [];
   private pendingCapturePaneModeRequests: string[] = [];
   private snapshotSession: Pick<TmuxSession, 'id' | 'name'> | null = null;
@@ -68,6 +72,9 @@ export class TmuxConnection {
     }
   >();
   private resizeSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private bellControlEventSeen = false;
+  private bellDedup = new Map<string, number>();
 
   constructor(options: TmuxConnectionOptions) {
     this.deviceId = options.deviceId;
@@ -87,6 +94,7 @@ export class TmuxConnection {
       onEvent: (event) => this.handleTmuxEvent(event),
       onTerminalOutput: (paneId, data) => this.emitTerminalOutput(paneId, data),
       onPaneTitle: (paneId, title) => this.handlePaneTitleUpdate(paneId, title),
+      onOutputBlockBegin: (meta) => this.handleOutputBlockBegin(meta),
       onOutputBlock: (block) => this.handleOutputBlock(block),
       onNonControlOutput: (line) => this.handleNonControlOutput(line),
       onReady: () => this.markReady(),
@@ -455,15 +463,65 @@ export class TmuxConnection {
     });
   }
 
+  private shouldPassBellDedup(key: string): boolean {
+    const now = Date.now();
+    const previous = this.bellDedup.get(key) ?? 0;
+    if (now - previous < BELL_DEDUP_WINDOW_MS) {
+      return false;
+    }
+    this.bellDedup.set(key, now);
+    return true;
+  }
+
   private handleTmuxEvent(event: TmuxEvent): void {
-    // 可以在这里添加统一的事件处理逻辑
+    if (event.type === 'pane-active') {
+      const data = (event.data as Record<string, unknown> | undefined) ?? {};
+      const windowId = typeof data.windowId === 'string' && data.windowId ? data.windowId : null;
+      const paneId = typeof data.paneId === 'string' && data.paneId ? data.paneId : null;
+      if (windowId) this.activeWindowId = windowId;
+      if (paneId) this.activePaneId = paneId;
+    }
+
+    if (event.type === 'bell') {
+      this.bellControlEventSeen = true;
+      const data = (event.data as Record<string, unknown> | undefined) ?? {};
+      const resolvedPaneId =
+        (typeof data.paneId === 'string' && data.paneId ? data.paneId : null) ??
+        this.activePaneId ??
+        undefined;
+      const windowId = typeof data.windowId === 'string' && data.windowId ? data.windowId : undefined;
+      const key = resolvedPaneId ?? windowId ?? '-';
+      if (!this.shouldPassBellDedup(key)) {
+        return;
+      }
+
+      if (resolvedPaneId && !data.paneId) {
+        this.onEvent({
+          ...event,
+          data: {
+            ...data,
+            paneId: resolvedPaneId,
+          },
+        });
+        return;
+      }
+    }
+
     this.onEvent(event);
   }
 
   private emitBellEventIfNeeded(paneId: string, data: Uint8Array): void {
+    if (this.bellControlEventSeen) {
+      return;
+    }
+
     for (const byte of data) {
       if (byte !== 0x07) {
         continue;
+      }
+
+      if (!this.shouldPassBellDedup(paneId)) {
+        break;
       }
 
       this.onEvent({
@@ -709,10 +767,16 @@ export class TmuxConnection {
     );
   }
 
+  private handleOutputBlockBegin(meta: TmuxOutputBlockBegin): void {
+    const kind = this.pendingCommandKinds.shift() ?? 'noop';
+    this.commandKindsByNo.set(meta.commandNo, kind);
+  }
+
   private handleOutputBlock(block: TmuxOutputBlock): void {
     this.markReady();
-    const kind = this.pendingCommandKinds.shift();
-    console.log('[tmux] handleOutputBlock kind:', kind, 'lines:', block.lines.length);
+    const kind = this.commandKindsByNo.get(block.commandNo);
+    this.commandKindsByNo.delete(block.commandNo);
+    console.log('[tmux] handleOutputBlock commandNo:', block.commandNo, 'kind:', kind, 'lines:', block.lines.length);
     const resolvedKind = kind ?? 'noop';
 
     if (block.isError) {
@@ -879,13 +943,7 @@ export class TmuxConnection {
 
   private sendCommand(
     cmd: string,
-    kind:
-      | 'noop'
-      | 'snapshot-session'
-      | 'snapshot-windows'
-      | 'snapshot-panes'
-      | 'capture-pane'
-      | 'capture-pane-mode' = 'noop'
+    kind: PendingCommandKind = 'noop'
   ): void {
     this.pendingCommandKinds.push(kind);
     if (this.terminal) {
@@ -1008,6 +1066,7 @@ export class TmuxConnection {
     this.parser.flush();
 
     this.pendingCommandKinds = [];
+    this.commandKindsByNo.clear();
     this.pendingCapturePaneRequests = [];
     this.pendingCapturePaneModeRequests = [];
 
@@ -1025,6 +1084,8 @@ export class TmuxConnection {
     this.lastExitReason = null;
     this.activePaneId = null;
     this.activeWindowId = null;
+    this.bellControlEventSeen = false;
+    this.bellDedup.clear();
 
     if (this.resizeSnapshotTimer) {
       clearTimeout(this.resizeSnapshotTimer);

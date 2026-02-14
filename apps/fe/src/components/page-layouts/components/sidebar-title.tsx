@@ -1,12 +1,14 @@
 import { useEffect } from "react";
-import { Moon, Settings, Sun } from "lucide-react";
+import { Moon, Settings, Sun, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useSidebar } from "@/components/ui/sidebar";
 import { useSiteStore } from "../../../stores/site";
 import { useUIStore } from "../../../stores/ui";
 import { NavLink } from "./nav-link";
 
 export function SidebarTitle() {
   const { t } = useTranslation();
+  const { isMobile, setOpenMobile } = useSidebar();
   const siteName = useSiteStore((state) => state.settings?.siteName);
   
   // Fetch settings on mount if not loaded
@@ -59,6 +61,18 @@ export function SidebarTitle() {
       >
         <Settings className="h-4 w-4" />
       </NavLink>
+      {isMobile && (
+        <button
+          type="button"
+          data-testid="mobile-sidebar-close"
+          onClick={() => setOpenMobile(false)}
+          className="inline-flex h-8 w-8 mr-[-8px] shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          aria-label={t('nav.closeSidebar')}
+          title={t('nav.closeSidebar')}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

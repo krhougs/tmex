@@ -155,16 +155,20 @@ export function useTerminalResize({
     };
   }, [clearPostSelectResizeTimers]);
 
+  const setFitAddon = useCallback((addon: FitAddon | null) => {
+    fitAddonRef.current = addon;
+  }, []);
+
+  const setTerminal = useCallback((terminal: XTermTerminal | null) => {
+    terminalRef.current = terminal;
+  }, []);
+
   return {
     scheduleResize,
     runPostSelectResize,
     clearPostSelectResizeTimers,
-    setFitAddon: (addon: FitAddon | null) => {
-      fitAddonRef.current = addon;
-    },
-    setTerminal: (terminal: XTermTerminal | null) => {
-      terminalRef.current = terminal;
-    },
+    setFitAddon,
+    setTerminal,
     lastReportedSize,
     pendingLocalSize,
     suppressLocalResizeUntil,

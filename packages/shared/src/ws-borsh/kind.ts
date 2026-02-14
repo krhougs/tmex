@@ -1,0 +1,112 @@
+// WebSocket Borsh 协议 Kind 常量定义
+// 参考: docs/ws-protocol/2026021402-ws-borsh-v1-spec.md
+
+// ========== 会话/协商 (0x0001-0x00FF) ==========
+export const KIND_HELLO_C2S = 0x0001;
+export const KIND_HELLO_S2C = 0x0002;
+export const KIND_PING = 0x0003;
+export const KIND_PONG = 0x0004;
+export const KIND_ERROR = 0x0005;
+
+// ========== 设备连接 (0x0100-0x01FF) ==========
+export const KIND_DEVICE_CONNECT = 0x0101;
+export const KIND_DEVICE_CONNECTED = 0x0102;
+export const KIND_DEVICE_DISCONNECT = 0x0103;
+export const KIND_DEVICE_DISCONNECTED = 0x0104;
+export const KIND_DEVICE_EVENT = 0x0105;
+
+// ========== tmux 控制 (0x0200-0x02FF) ==========
+export const KIND_TMUX_SELECT = 0x0201;
+export const KIND_TMUX_SELECT_WINDOW = 0x0202;
+export const KIND_TMUX_CREATE_WINDOW = 0x0203;
+export const KIND_TMUX_CLOSE_WINDOW = 0x0204;
+export const KIND_TMUX_CLOSE_PANE = 0x0205;
+export const KIND_TMUX_RENAME_WINDOW = 0x0206;
+export const KIND_TMUX_EVENT = 0x0207;
+export const KIND_STATE_SNAPSHOT = 0x0208;
+export const KIND_STATE_SNAPSHOT_DIFF = 0x0209;
+
+// ========== 终端数据 (0x0300-0x03FF) ==========
+export const KIND_TERM_INPUT = 0x0301;
+export const KIND_TERM_PASTE = 0x0302;
+export const KIND_TERM_RESIZE = 0x0303;
+export const KIND_TERM_SYNC_SIZE = 0x0304;
+export const KIND_TERM_OUTPUT = 0x0305;
+export const KIND_TERM_HISTORY = 0x0306;
+
+// ========== 切换屏障 (0x0400-0x04FF) ==========
+export const KIND_SWITCH_ACK = 0x0401;
+export const KIND_LIVE_RESUME = 0x0402;
+
+// ========== 分片 (0x0500-0x05FF) ==========
+export const KIND_CHUNK = 0x0501;
+
+// ========== Kind 有效性检查 ==========
+const VALID_KINDS = new Set<number>([
+  KIND_HELLO_C2S,
+  KIND_HELLO_S2C,
+  KIND_PING,
+  KIND_PONG,
+  KIND_ERROR,
+  KIND_DEVICE_CONNECT,
+  KIND_DEVICE_CONNECTED,
+  KIND_DEVICE_DISCONNECT,
+  KIND_DEVICE_DISCONNECTED,
+  KIND_DEVICE_EVENT,
+  KIND_TMUX_SELECT,
+  KIND_TMUX_SELECT_WINDOW,
+  KIND_TMUX_CREATE_WINDOW,
+  KIND_TMUX_CLOSE_WINDOW,
+  KIND_TMUX_CLOSE_PANE,
+  KIND_TMUX_RENAME_WINDOW,
+  KIND_TMUX_EVENT,
+  KIND_STATE_SNAPSHOT,
+  KIND_STATE_SNAPSHOT_DIFF,
+  KIND_TERM_INPUT,
+  KIND_TERM_PASTE,
+  KIND_TERM_RESIZE,
+  KIND_TERM_SYNC_SIZE,
+  KIND_TERM_OUTPUT,
+  KIND_TERM_HISTORY,
+  KIND_SWITCH_ACK,
+  KIND_LIVE_RESUME,
+  KIND_CHUNK,
+]);
+
+export function isValidKind(kind: number): boolean {
+  return VALID_KINDS.has(kind);
+}
+
+export function kindToString(kind: number): string {
+  const kindMap: Record<number, string> = {
+    [KIND_HELLO_C2S]: 'HELLO_C2S',
+    [KIND_HELLO_S2C]: 'HELLO_S2C',
+    [KIND_PING]: 'PING',
+    [KIND_PONG]: 'PONG',
+    [KIND_ERROR]: 'ERROR',
+    [KIND_DEVICE_CONNECT]: 'DEVICE_CONNECT',
+    [KIND_DEVICE_CONNECTED]: 'DEVICE_CONNECTED',
+    [KIND_DEVICE_DISCONNECT]: 'DEVICE_DISCONNECT',
+    [KIND_DEVICE_DISCONNECTED]: 'DEVICE_DISCONNECTED',
+    [KIND_DEVICE_EVENT]: 'DEVICE_EVENT',
+    [KIND_TMUX_SELECT]: 'TMUX_SELECT',
+    [KIND_TMUX_SELECT_WINDOW]: 'TMUX_SELECT_WINDOW',
+    [KIND_TMUX_CREATE_WINDOW]: 'TMUX_CREATE_WINDOW',
+    [KIND_TMUX_CLOSE_WINDOW]: 'TMUX_CLOSE_WINDOW',
+    [KIND_TMUX_CLOSE_PANE]: 'TMUX_CLOSE_PANE',
+    [KIND_TMUX_RENAME_WINDOW]: 'TMUX_RENAME_WINDOW',
+    [KIND_TMUX_EVENT]: 'TMUX_EVENT',
+    [KIND_STATE_SNAPSHOT]: 'STATE_SNAPSHOT',
+    [KIND_STATE_SNAPSHOT_DIFF]: 'STATE_SNAPSHOT_DIFF',
+    [KIND_TERM_INPUT]: 'TERM_INPUT',
+    [KIND_TERM_PASTE]: 'TERM_PASTE',
+    [KIND_TERM_RESIZE]: 'TERM_RESIZE',
+    [KIND_TERM_SYNC_SIZE]: 'TERM_SYNC_SIZE',
+    [KIND_TERM_OUTPUT]: 'TERM_OUTPUT',
+    [KIND_TERM_HISTORY]: 'TERM_HISTORY',
+    [KIND_SWITCH_ACK]: 'SWITCH_ACK',
+    [KIND_LIVE_RESUME]: 'LIVE_RESUME',
+    [KIND_CHUNK]: 'CHUNK',
+  };
+  return kindMap[kind] ?? `UNKNOWN(0x${kind.toString(16).padStart(4, '0')})`;
+}

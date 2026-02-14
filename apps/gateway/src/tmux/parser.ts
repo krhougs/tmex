@@ -32,10 +32,17 @@ export interface TmuxOutputBlock {
   isError: boolean;
 }
 
+export interface TmuxOutputBlockBegin {
+  time: number;
+  commandNo: number;
+  flags: number;
+}
+
 export interface TmuxControlParserOptions {
   onEvent: (event: TmuxEvent) => void;
   onTerminalOutput: (paneId: string, data: Uint8Array) => void;
   onPaneTitle?: (paneId: string, title: string) => void;
+  onOutputBlockBegin?: (meta: TmuxOutputBlockBegin) => void;
   onOutputBlock?: (block: TmuxOutputBlock) => void;
   onNonControlOutput?: (line: string) => void;
   onExit?: (reason: string | null) => void;
@@ -109,6 +116,7 @@ export class TmuxControlParser {
   private onEvent: (event: TmuxEvent) => void;
   private onTerminalOutput: (paneId: string, data: Uint8Array) => void;
   private onPaneTitle?: (paneId: string, title: string) => void;
+  private onOutputBlockBegin?: (meta: TmuxOutputBlockBegin) => void;
   private onOutputBlock?: (block: TmuxOutputBlock) => void;
   private onNonControlOutput?: (line: string) => void;
   private onExit?: (reason: string | null) => void;
@@ -127,6 +135,7 @@ export class TmuxControlParser {
     this.onEvent = options.onEvent;
     this.onTerminalOutput = options.onTerminalOutput;
     this.onPaneTitle = options.onPaneTitle;
+    this.onOutputBlockBegin = options.onOutputBlockBegin;
     this.onOutputBlock = options.onOutputBlock;
     this.onNonControlOutput = options.onNonControlOutput;
     this.onExit = options.onExit;
@@ -209,6 +218,7 @@ export class TmuxControlParser {
     this.inOutputBlock = true;
     this.outputBlockMeta = meta;
     this.outputBlockLines = [];
+    this.onOutputBlockBegin?.(meta);
   }
 
   private finishOutputBlock(line: string): void {
@@ -515,6 +525,17 @@ export class TmuxControlParser {
         break;
 
       case '%bell':
+        // tmux control mode 可能发出 %bell 通知（部分版本/配置下存在）。
+        // 兼容解析：优先 windowId，其次 paneId（如果提供）。
+        {
+          const parts = this.parseArgs(args);
+          const windowId = parts[0] ?? args;
+          const paneId = parts[1];
+          const data: Record<string, unknown> = {};
+          if (windowId) data.windowId = windowId;
+          if (paneId) data.paneId = paneId;
+          this.onEvent({ type: 'bell', data });
+        }
         break;
 
       case '%pause':

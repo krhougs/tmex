@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import { ensureSiteSettingsInitialized } from '../db';
 import { runMigrations } from '../db/migrate';
 import { WebSocketServer } from './index';
+import { createBorshClientState } from './borsh/codec-borsh';
+import { sessionStateStore } from './borsh/session-state';
 
 function createMockWs() {
   return {
@@ -150,5 +152,35 @@ describe('WebSocketServer bell extension', () => {
         paneUrl: 'http://127.0.0.1:8085/devices/device-a/windows/%401/panes/%251',
       },
     });
+  });
+
+  test('throttles bell events per client', async () => {
+    const server = new WebSocketServer() as any;
+    server.scheduleSnapshot = () => {};
+
+    const ws = {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+
+    sessionStateStore.create(ws);
+
+    server.connections.set('device-a', {
+      connection: {},
+      clients: new Set([ws]),
+      lastSnapshot: null,
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
+
+    await server.broadcastTmuxEvent('device-a', { type: 'bell', data: { paneId: '%1' } });
+    await server.broadcastTmuxEvent('device-a', { type: 'bell', data: { paneId: '%1' } });
+
+    expect(ws.sent).toHaveLength(1);
   });
 });

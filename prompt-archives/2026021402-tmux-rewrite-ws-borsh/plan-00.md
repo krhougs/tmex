@@ -17,29 +17,35 @@
 - 状态机设计：`docs/ws-protocol/2026021403-ws-state-machines.md`
 - 切换屏障设计：`docs/terminal/2026021404-terminal-switch-barrier-design.md`
 - Shared 协议实现：`packages/shared/src/ws-borsh/`
-- Gateway 新协议接入（双栈）：`apps/gateway/src/ws/`（新增 borsh codec + session state）
+- Gateway 新协议接入（完全重写，弃用旧代码）：`apps/gateway/src/ws/`（新增 borsh codec + session state）
 - FE 新协议接入：`apps/fe/src/ws-borsh/`（新增 borsh client + 状态机）
 
 ## 目标与验收标准（对齐 6 点）
 
 1. window/pane 状态同步与切换正常：
+
 - 外部切换（iTerm2/其他 tmux 客户端/快捷键）会自动跟随到对应 window/pane。
 - 网页内手动切换稳定，输出与订阅不丢失。
 
-2. pty 尺寸变化正确：
+1. pty 尺寸变化正确：
+
 - 初始化、切换、resize 以“浏览器终端视口”为源，Gateway 同步 tmux client/pty，SSH 与本地一致。
 
-3. 复杂控制字符与鼠标：
+1. 复杂控制字符与鼠标：
+
 - Vim/Neovim 的鼠标序列（SGR/VT200 等）在链路上不被破坏，能正常工作。
 
-4. 历史与实时输出合并：
+1. 历史与实时输出合并：
+
 - 切换后严格按屏障顺序：`SWITCH_ACK -> (HISTORY) -> LIVE_RESUME`。
 - history 必先于 live 显示，期间 live 缓冲，保证顺序确定。
 
-5. bell：
+1. bell：
+
 - 不重复、频控一致（Gateway 统一）、上下文尽量准确。
 
-6. 终端特殊字符与事件：
+1. 终端特殊字符与事件：
+
 - title/OSC 等不被误处理；关键路径可回归测试覆盖。
 
 ## WS 协议（tmex-ws-borsh-v1）设计摘要
@@ -84,12 +90,13 @@
 
 ### Gateway
 
-- `apps/gateway/src/ws/index.ts`：按 magic=TX 分流新旧协议（迁移期双栈）
+- `apps/gateway/src/ws/index.ts`：完全重写，弃用旧代码
 - `apps/gateway/src/ws/codec-borsh.ts`：borsh 编解码与发送工具
 - `apps/gateway/src/ws/session-state.ts`：连接/设备/select 状态机存储
 - `apps/gateway/src/ws/switch-barrier.ts`：SELECT 屏障实现（ACK/HISTORY/RESUME + 缓冲）
 
 tmux 控制层：
+
 - 按需重写 parser/dispatcher，减少 FIFO 假设，确保命令回复绑定稳定。
 - bell 来源统一（%bell + 0x07 去重），频控在 Gateway。
 
@@ -105,31 +112,32 @@ tmux 控制层：
 ## 实施步骤（严格顺序，可回滚）
 
 ### Phase 0：归档（已完成）
+
 - plan 与文档先入库，确保后续实现遵循“先存档再干活”。
 
 ### Phase 1：落地 shared 协议实现（不动业务）
+
 - 在 `@tmex/shared` 增加 `ws-borsh` 模块与单测。
 - 只保证 codec 正确、分片正确、wire/domain 转换正确。
 
 ### Phase 2：Gateway 双栈接入（最小 kind 集）
+
 - Gateway 支持 `HELLO/ERROR/PING/PONG`、`DEVICE_CONNECT`、`STATE_SNAPSHOT`、`TERM_OUTPUT`（新协议）。
-- 旧客户端继续走旧协议。
 
 ### Phase 3：FE 新协议接入（功能等价）
+
 - 新增 borsh client，能连上、展示 snapshot、输出正常。
-- feature flag 灰度启用，保持可回滚。
 
 ### Phase 4：切换屏障上线（关键）
+
 - 上线 `TMUX_SELECT + SWITCH_ACK + TERM_HISTORY + LIVE_RESUME`。
 - Gateway per-client 缓冲，FE 按 token 合并，移除旧 ref 拼接竞态。
 
 ### Phase 5：resize、bell、事件统一
+
 - resize 完整链路统一。
 - bell 去重与频控统一在 Gateway。
 - TMUX_EVENT 子 schema 完整化。
-
-### Phase 6：下线旧协议
-- 全量稳定后移除 JSON/旧 output framing。
 
 ## 测试计划
 

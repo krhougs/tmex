@@ -1,32 +1,18 @@
-import type {
-  DeviceConnectPayload,
-  EventDevicePayload,
-  EventTmuxPayload,
-  StateSnapshotPayload,
-  TermInputPayload,
-  TermPastePayload,
-  TermResizePayload,
-  TmuxSelectPayload,
-  TmuxSelectWindowPayload,
-  WsMessage,
-} from '@tmex/shared';
+import type { EventDevicePayload, StateSnapshotPayload, TmuxEventType } from '@tmex/shared';
+import { wsBorsh } from '@tmex/shared';
 import type { Server, ServerWebSocket } from 'bun';
 import { getSiteSettings } from '../db';
-import { TmuxConnection } from '../tmux/connection';
-import { resolveBellContext } from '../tmux/bell-context';
-import { classifySshError } from './error-classify';
-import type { TmuxEvent } from '../tmux/parser';
 import { t } from '../i18n';
-
-interface TermSyncSizePayload {
-  deviceId: string;
-  paneId: string;
-  cols: number;
-  rows: number;
-}
+import { resolveBellContext } from '../tmux/bell-context';
+import { TmuxConnection } from '../tmux/connection';
+import type { TmuxEvent } from '../tmux/parser';
+import { classifySshError } from './error-classify';
+import { createBorshClientState, type BorshClientState } from './borsh/codec-borsh';
+import { sessionStateStore } from './borsh/session-state';
+import { switchBarrier } from './borsh/switch-barrier';
 
 interface ClientState {
-  selectedPanes: Record<string, string | null>;
+  borshState: BorshClientState;
 }
 
 interface DeviceConnectionEntry {
@@ -40,8 +26,8 @@ interface DeviceConnectionEntry {
 }
 
 export class WebSocketServer {
-  private connections = new Map<string, DeviceConnectionEntry>();
-  private pendingConnectionEntries = new Map<string, Promise<DeviceConnectionEntry | null>>();
+  connections = new Map<string, DeviceConnectionEntry>();
+  pendingConnectionEntries = new Map<string, Promise<DeviceConnectionEntry | null>>();
 
   private clearSnapshotTimer(entry: DeviceConnectionEntry): void {
     if (!entry.snapshotTimer) return;
@@ -66,7 +52,7 @@ export class WebSocketServer {
     if (!entry) return;
 
     const hasSelectedPaneClient = Array.from(entry.clients).some((client) =>
-      Boolean(client.data.selectedPanes[deviceId])
+      Boolean(client.data.borshState.selectedPanes[deviceId])
     );
 
     if (!hasSelectedPaneClient) {
@@ -117,8 +103,8 @@ export class WebSocketServer {
 
     const success = (server as any).upgrade(req, {
       data: {
-        selectedPanes: {},
-      },
+        borshState: createBorshClientState(),
+      } satisfies ClientState,
     });
 
     return success ? undefined : new Response('Upgrade failed', { status: 500 });
@@ -126,28 +112,76 @@ export class WebSocketServer {
 
   handleOpen(ws: ServerWebSocket<ClientState>): void {
     console.log('[ws] client connected');
-    ws.send(JSON.stringify({ type: 'connected', payload: {} }));
+    sessionStateStore.create(ws);
   }
 
   handleMessage(ws: ServerWebSocket<ClientState>, message: string | Buffer): void {
-    try {
-      const data = JSON.parse(message.toString()) as WsMessage<unknown>;
-      this.handleWsMessage(ws, data);
-    } catch (err) {
-      console.error('[ws] failed to parse message:', err);
-      ws.send(JSON.stringify({ type: 'error', payload: { message: 'Invalid message format' } }));
+    if (typeof message === 'string') {
+      return;
     }
+
+    const data = new Uint8Array(message);
+
+    if (!wsBorsh.checkMagic(data)) {
+      this.sendError(ws, null, wsBorsh.ERROR_INVALID_FRAME, 'Missing magic bytes', false);
+      return;
+    }
+
+    let envelope: wsBorsh.Envelope;
+    try {
+      envelope = wsBorsh.decodeEnvelope(data);
+    } catch (err) {
+      const e = err instanceof wsBorsh.WsBorshError ? err : null;
+      this.sendError(
+        ws,
+        null,
+        e?.code ?? wsBorsh.ERROR_INVALID_FRAME,
+        e?.message ?? 'Invalid envelope',
+        e?.retryable ?? false
+      );
+      return;
+    }
+
+    const clientState = ws.data.borshState;
+
+    // CHUNK 重组
+    if (envelope.kind === wsBorsh.KIND_CHUNK) {
+      try {
+        const chunk = wsBorsh.decodeChunk(envelope.payload);
+        const reassembled = clientState.chunkReassembler.addChunk(chunk);
+        if (!reassembled) {
+          return;
+        }
+        void this.handleBorshMessage(ws, reassembled.kind, reassembled.seq, reassembled.payload);
+        return;
+      } catch (err) {
+        const e = err instanceof wsBorsh.WsBorshError ? err : null;
+        this.sendError(
+          ws,
+          null,
+          e?.code ?? wsBorsh.ERROR_INVALID_FRAME,
+          e?.message ?? 'Invalid chunk',
+          e?.retryable ?? false
+        );
+        return;
+      }
+    }
+
+    void this.handleBorshMessage(ws, envelope.kind, envelope.seq, envelope.payload);
   }
 
   handleClose(ws: ServerWebSocket<ClientState>): void {
     console.log('[ws] client disconnected');
+
+    switchBarrier.cleanupClient(ws);
+    sessionStateStore.cleanup(ws);
 
     const toDelete: string[] = [];
 
     for (const [deviceId, entry] of this.connections) {
       if (!entry.clients.has(ws)) continue;
       entry.clients.delete(ws);
-      delete ws.data.selectedPanes[deviceId];
+      delete ws.data.borshState.selectedPanes[deviceId];
 
       if (entry.clients.size === 0) {
         console.log(`[ws] no more clients for device ${deviceId}, disconnecting`);
@@ -175,6 +209,206 @@ export class WebSocketServer {
       this.connections.delete(deviceId);
     }
     this.pendingConnectionEntries.clear();
+  }
+
+  private async handleBorshMessage(
+    ws: ServerWebSocket<ClientState>,
+    kind: number,
+    refSeq: number,
+    payload: Uint8Array
+  ): Promise<void> {
+    const state = ws.data.borshState;
+
+    if (kind !== wsBorsh.KIND_HELLO_C2S && !state.negotiated) {
+      this.sendError(ws, refSeq, wsBorsh.ERROR_INVALID_FRAME, 'HELLO required', false);
+      return;
+    }
+
+    if (kind === wsBorsh.KIND_HELLO_C2S) {
+      this.handleHello(ws, refSeq, payload);
+      return;
+    }
+
+    if (kind === wsBorsh.KIND_PING) {
+      this.handlePing(ws, refSeq, payload);
+      return;
+    }
+
+    switch (kind) {
+      case wsBorsh.KIND_DEVICE_CONNECT: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.DeviceConnectSchema, payload);
+        await this.handleDeviceConnect(ws, decoded.deviceId);
+        return;
+      }
+
+      case wsBorsh.KIND_DEVICE_DISCONNECT: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.DeviceDisconnectSchema, payload);
+        this.handleDeviceDisconnect(ws, decoded.deviceId);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_SELECT: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxSelectSchema, payload);
+        this.handleTmuxSelect(ws, decoded);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_SELECT_WINDOW: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxSelectWindowSchema, payload);
+        this.handleTmuxSelectWindow(decoded.deviceId, decoded.windowId);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_CREATE_WINDOW: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
+        this.handleCreateWindow(decoded.deviceId, decoded.name ?? undefined);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_CLOSE_WINDOW: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCloseWindowSchema, payload);
+        this.handleCloseWindow(decoded.deviceId, decoded.windowId);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_CLOSE_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxClosePaneSchema, payload);
+        this.handleClosePane(decoded.deviceId, decoded.paneId);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_RENAME_WINDOW: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxRenameWindowSchema, payload);
+        this.handleRenameWindow(decoded.deviceId, decoded.windowId, decoded.name);
+        return;
+      }
+
+      case wsBorsh.KIND_TERM_INPUT: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermInputSchema, payload);
+        if (decoded.isComposing) return;
+        const text = new TextDecoder().decode(decoded.data);
+        this.handleTermInput(decoded.deviceId, decoded.paneId, text);
+        return;
+      }
+
+      case wsBorsh.KIND_TERM_PASTE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermPasteSchema, payload);
+        const text = new TextDecoder().decode(decoded.data);
+        this.handleTermPaste(decoded.deviceId, decoded.paneId, text);
+        return;
+      }
+
+      case wsBorsh.KIND_TERM_RESIZE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermResizeSchema, payload);
+        this.handleTermResize(decoded.deviceId, decoded.paneId, decoded.cols, decoded.rows);
+        return;
+      }
+
+      case wsBorsh.KIND_TERM_SYNC_SIZE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermSyncSizeSchema, payload);
+        this.handleTermResize(decoded.deviceId, decoded.paneId, decoded.cols, decoded.rows);
+        return;
+      }
+
+      default:
+        this.sendError(ws, refSeq, wsBorsh.ERROR_UNKNOWN_KIND, `Unknown kind: ${kind}`, false);
+    }
+  }
+
+  private handleHello(ws: ServerWebSocket<ClientState>, refSeq: number, payload: Uint8Array): void {
+    let hello: wsBorsh.b.infer<typeof wsBorsh.schema.HelloC2SSchema>;
+    try {
+      hello = wsBorsh.decodePayload(wsBorsh.schema.HelloC2SSchema, payload);
+    } catch (err) {
+      const e = err instanceof wsBorsh.WsBorshError ? err : null;
+      this.sendError(
+        ws,
+        refSeq,
+        e?.code ?? wsBorsh.ERROR_PAYLOAD_DECODE_FAILED,
+        e?.message ?? 'HELLO payload decode failed',
+        e?.retryable ?? false
+      );
+      return;
+    }
+
+    const serverMaxFrameBytes = wsBorsh.DEFAULT_MAX_FRAME_BYTES;
+    const effectiveMaxFrameBytes = Math.min(hello.maxFrameBytes, serverMaxFrameBytes);
+
+    ws.data.borshState.negotiated = true;
+    ws.data.borshState.maxFrameBytes = effectiveMaxFrameBytes;
+
+    const helloS2C: wsBorsh.b.infer<typeof wsBorsh.schema.HelloS2CSchema> = {
+      serverImpl: 'tmex-gateway',
+      serverVersion: '0.1.0',
+      selectedVersion: wsBorsh.CURRENT_VERSION,
+      maxFrameBytes: serverMaxFrameBytes,
+      heartbeatIntervalMs: 15000,
+      capabilities: ['tmex-ws-borsh-v1'],
+    };
+
+    const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.HelloS2CSchema, helloS2C);
+    this.sendEnvelope(ws, wsBorsh.KIND_HELLO_S2C, payloadBytes);
+  }
+
+  private handlePing(ws: ServerWebSocket<ClientState>, refSeq: number, payload: Uint8Array): void {
+    try {
+      const ping = wsBorsh.decodePayload(wsBorsh.schema.PingPongSchema, payload);
+      const pongPayload = wsBorsh.encodePayload(wsBorsh.schema.PingPongSchema, {
+        nonce: ping.nonce,
+        timeMs: ping.timeMs,
+      });
+      this.sendEnvelope(ws, wsBorsh.KIND_PONG, pongPayload);
+    } catch (err) {
+      const e = err instanceof wsBorsh.WsBorshError ? err : null;
+      this.sendError(
+        ws,
+        refSeq,
+        e?.code ?? wsBorsh.ERROR_PAYLOAD_DECODE_FAILED,
+        e?.message ?? 'PING payload decode failed',
+        e?.retryable ?? false
+      );
+    }
+  }
+
+  private sendEnvelope(ws: ServerWebSocket<ClientState>, kind: number, payload: Uint8Array): void {
+    const seq = ws.data.borshState.seqGen();
+    const data = wsBorsh.encodeEnvelope(kind, payload, seq);
+    ws.send(data);
+  }
+
+  private sendChunked(ws: ServerWebSocket<ClientState>, kind: number, payload: Uint8Array): void {
+    const state = ws.data.borshState;
+
+    const originalSeq = state.seqGen();
+    const chunked = wsBorsh.splitPayloadIntoChunks(payload, kind, originalSeq, {
+      maxFrameBytes: state.maxFrameBytes,
+      chunkStreamId: wsBorsh.generateChunkStreamId(),
+    });
+
+    if (chunked.totalChunks === 0) {
+      ws.send(wsBorsh.encodeEnvelope(kind, payload, originalSeq));
+      return;
+    }
+
+    for (const chunk of chunked.chunks) {
+      ws.send(wsBorsh.encodeChunk(chunk, state.seqGen()));
+    }
+  }
+
+  private sendError(
+    ws: ServerWebSocket<ClientState>,
+    refSeq: number | null,
+    code: number,
+    message: string,
+    retryable: boolean
+  ): void {
+    const payload = wsBorsh.encodePayload(wsBorsh.schema.ErrorSchema, {
+      refSeq,
+      code,
+      message,
+      retryable,
+    });
+    this.sendEnvelope(ws, wsBorsh.KIND_ERROR, payload);
   }
 
   private async getOrCreateConnectionEntry(
@@ -209,113 +443,140 @@ export class WebSocketServer {
     return creationPromise;
   }
 
-  private async handleWsMessage(
-    ws: ServerWebSocket<ClientState>,
-    msg: WsMessage<unknown>
-  ): Promise<void> {
-    const { type, payload } = msg;
-
-    switch (type) {
-      case 'device/connect': {
-        const { deviceId } = payload as DeviceConnectPayload;
-        await this.handleDeviceConnect(ws, deviceId);
-        break;
-      }
-
-      case 'device/disconnect': {
-        const { deviceId } = payload as DeviceConnectPayload;
-        this.handleDeviceDisconnect(ws, deviceId);
-        break;
-      }
-
-      case 'tmux/select': {
-        const data = payload as TmuxSelectPayload;
-        this.handleTmuxSelect(ws, data);
-        break;
-      }
-
-      case 'tmux/select-window': {
-        const data = payload as TmuxSelectWindowPayload;
-        this.handleTmuxSelectWindow(data);
-        break;
-      }
-
-      case 'term/input': {
-        const data = payload as TermInputPayload;
-        this.handleTermInput(data);
-        break;
-      }
-
-      case 'term/resize': {
-        const data = payload as TermResizePayload;
-        this.handleTermResize(data);
-        break;
-      }
-
-      case 'term/sync-size': {
-        const data = payload as TermSyncSizePayload;
-        this.handleTermSyncSize(data);
-        break;
-      }
-
-      case 'term/paste': {
-        const data = payload as TermPastePayload;
-        this.handleTermPaste(data);
-        break;
-      }
-
-      case 'tmux/create-window': {
-        const data = payload as { deviceId: string; name?: string };
-        this.handleCreateWindow(data);
-        break;
-      }
-
-      case 'tmux/close-window': {
-        const data = payload as { deviceId: string; windowId: string };
-        this.handleCloseWindow(data);
-        break;
-      }
-
-      case 'tmux/close-pane': {
-        const data = payload as { deviceId: string; paneId: string };
-        this.handleClosePane(data);
-        break;
-      }
-
-      default:
-        console.log('[ws] unknown message type:', type);
-    }
-  }
-
-  private async handleDeviceConnect(
-    ws: ServerWebSocket<ClientState>,
-    deviceId: string
-  ): Promise<void> {
+  private async handleDeviceConnect(ws: ServerWebSocket<ClientState>, deviceId: string): Promise<void> {
     const entry = await this.getOrCreateConnectionEntry(deviceId, ws);
-    if (!entry) {
-      return;
-    }
+    if (!entry) return;
 
     entry.clients.add(ws);
-    ws.data.selectedPanes[deviceId] ??= null;
+    ws.data.borshState.selectedPanes[deviceId] ??= null;
 
-    ws.send(
-      JSON.stringify({
-        type: 'device/connected',
-        payload: { deviceId },
-      })
-    );
+    const connectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceConnectedSchema, { deviceId });
+    this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_CONNECTED, connectedPayload);
 
     if (entry.lastSnapshot) {
-      ws.send(
-        JSON.stringify({
-          type: 'state/snapshot',
-          payload: entry.lastSnapshot,
-        })
-      );
+      const snapshotBytes = wsBorsh.encodeStateSnapshot(entry.lastSnapshot);
+      this.sendChunked(ws, wsBorsh.KIND_STATE_SNAPSHOT, snapshotBytes);
     } else {
       entry.connection.requestSnapshot();
     }
+  }
+
+  private handleDeviceDisconnect(ws: ServerWebSocket<ClientState>, deviceId: string): void {
+    const entry = this.connections.get(deviceId);
+    if (entry) {
+      entry.clients.delete(ws);
+      this.refreshSnapshotPolling(deviceId);
+
+      if (entry.clients.size === 0) {
+        this.clearSnapshotTimer(entry);
+        this.clearSnapshotPollTimer(entry);
+        this.clearReconnectTimer(entry);
+        entry.connection.disconnect();
+        this.connections.delete(deviceId);
+      }
+    }
+
+    delete ws.data.borshState.selectedPanes[deviceId];
+
+    const disconnectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceDisconnectedSchema, { deviceId });
+    this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_DISCONNECTED, disconnectedPayload);
+  }
+
+  private handleTmuxSelect(
+    ws: ServerWebSocket<ClientState>,
+    data: wsBorsh.b.infer<typeof wsBorsh.schema.TmuxSelectSchema>
+  ): void {
+    const deviceId = data.deviceId;
+    const paneId = data.paneId ?? undefined;
+
+    if (paneId) {
+      ws.data.borshState.selectedPanes[deviceId] = paneId;
+      this.refreshSnapshotPolling(deviceId);
+    }
+
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+
+    const windowId = data.windowId ?? undefined;
+    if (!windowId || !paneId) return;
+
+    const started = switchBarrier.startTransaction(ws as any, {
+      deviceId,
+      windowId,
+      paneId,
+      selectToken: data.selectToken,
+      wantHistory: data.wantHistory,
+      cols: data.cols ?? null,
+      rows: data.rows ?? null,
+    });
+
+    if (!started) {
+      this.sendError(ws, null, wsBorsh.ERROR_SELECT_CONFLICT, 'Failed to start select transaction', false);
+      return;
+    }
+
+    switchBarrier.sendSwitchAck(ws as any, deviceId);
+
+    entry.connection.selectPane(windowId, paneId);
+
+    const cols = data.cols ?? null;
+    const rows = data.rows ?? null;
+    if (cols !== null && rows !== null) {
+      entry.connection.resizePane(paneId, cols, rows);
+    }
+  }
+
+  private handleTmuxSelectWindow(deviceId: string, windowId: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.selectWindow(windowId);
+  }
+
+  private handleTermInput(deviceId: string, paneId: string, data: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.sendInput(paneId, data);
+  }
+
+  private handleTermResize(deviceId: string, paneId: string, cols: number, rows: number): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.resizePane(paneId, cols, rows);
+  }
+
+  private handleTermPaste(deviceId: string, paneId: string, data: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+
+    const chunkSize = 1024;
+    for (let i = 0; i < data.length; i += chunkSize) {
+      const chunk = data.slice(i, i + chunkSize);
+      entry.connection.sendInput(paneId, chunk);
+    }
+  }
+
+  private handleCreateWindow(deviceId: string, name?: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.createWindow(name);
+  }
+
+  private handleCloseWindow(deviceId: string, windowId: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.closeWindow(windowId);
+  }
+
+  private handleClosePane(deviceId: string, paneId: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.closePane(paneId);
+  }
+
+  private handleRenameWindow(deviceId: string, windowId: string, name: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.connection.renameWindow(windowId, name);
   }
 
   private async createDeviceConnectionEntry(
@@ -349,128 +610,21 @@ export class WebSocketServer {
       };
     } catch (err) {
       const errorInfo = classifySshError(err instanceof Error ? err : new Error(String(err)));
-      const settings = getSiteSettings();
       ws.send(
-        JSON.stringify({
-          type: 'event/device',
-          payload: {
+        wsBorsh.encodeEnvelope(
+          wsBorsh.KIND_DEVICE_EVENT,
+          wsBorsh.encodeDeviceEventPayload({
             deviceId,
             type: 'error',
             errorType: errorInfo.type,
             message: t(errorInfo.messageKey, { ...errorInfo.messageParams }),
             rawMessage: err instanceof Error ? err.message : String(err),
-          },
-        })
+          }),
+          ws.data.borshState.seqGen()
+        )
       );
       return null;
     }
-  }
-
-  private handleDeviceDisconnect(ws: ServerWebSocket<ClientState>, deviceId: string): void {
-    const entry = this.connections.get(deviceId);
-    if (entry) {
-      entry.clients.delete(ws);
-      this.refreshSnapshotPolling(deviceId);
-
-      if (entry.clients.size === 0) {
-        this.clearSnapshotTimer(entry);
-        this.clearSnapshotPollTimer(entry);
-        this.clearReconnectTimer(entry);
-        entry.connection.disconnect();
-        this.connections.delete(deviceId);
-      }
-    }
-
-    delete ws.data.selectedPanes[deviceId];
-
-    ws.send(
-      JSON.stringify({
-        type: 'device/disconnected',
-        payload: { deviceId },
-      })
-    );
-  }
-
-  private handleTmuxSelectWindow(data: TmuxSelectWindowPayload): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    entry.connection.selectWindow(data.windowId);
-  }
-
-  private handleTmuxSelect(ws: ServerWebSocket<ClientState>, data: TmuxSelectPayload): void {
-    if (data.paneId !== undefined) {
-      ws.data.selectedPanes[data.deviceId] = data.paneId;
-      this.refreshSnapshotPolling(data.deviceId);
-    }
-
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) {
-      return;
-    }
-
-    if (data.windowId && data.paneId) {
-      entry.connection.selectPane(data.windowId, data.paneId);
-    }
-  }
-
-  private handleTermInput(data: TermInputPayload): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    if (data.isComposing) {
-      return;
-    }
-
-    entry.connection.sendInput(data.paneId, data.data);
-  }
-
-  private handleTermResize(data: TermResizePayload): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    entry.connection.resizePane(data.paneId, data.cols, data.rows);
-  }
-
-  private handleTermSyncSize(data: TermSyncSizePayload): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    entry.connection.resizePane(data.paneId, data.cols, data.rows);
-  }
-
-  private handleTermPaste(data: TermPastePayload): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    const chunkSize = 1024;
-    const text = data.data;
-
-    for (let i = 0; i < text.length; i += chunkSize) {
-      const chunk = text.slice(i, i + chunkSize);
-      entry.connection.sendInput(data.paneId, chunk);
-    }
-  }
-
-  private handleCreateWindow(data: { deviceId: string; name?: string }): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    entry.connection.createWindow(data.name);
-  }
-
-  private handleCloseWindow(data: { deviceId: string; windowId: string }): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    entry.connection.closeWindow(data.windowId);
-  }
-
-  private handleClosePane(data: { deviceId: string; paneId: string }): void {
-    const entry = this.connections.get(data.deviceId);
-    if (!entry) return;
-
-    entry.connection.closePane(data.paneId);
   }
 
   private async broadcastTmuxEvent(deviceId: string, event: TmuxEvent): Promise<void> {
@@ -481,17 +635,28 @@ export class WebSocketServer {
 
     const extendedEvent = await this.extendTmuxEvent(deviceId, event);
 
-    const message = JSON.stringify({
-      type: 'event/tmux',
-      payload: {
-        deviceId,
-        type: extendedEvent.type,
-        data: extendedEvent.data,
-      },
+    const payloadBytes = wsBorsh.encodeTmuxEventPayload({
+      deviceId,
+      type: extendedEvent.type,
+      data: extendedEvent.data,
     });
 
+    if (extendedEvent.type === 'bell') {
+      const settings = getSiteSettings();
+      const data = (extendedEvent.data ?? {}) as Record<string, unknown>;
+      const paneId = typeof data.paneId === 'string' && data.paneId ? data.paneId : '-';
+
+      for (const client of entry.clients) {
+        if (!sessionStateStore.shouldAllowBell(client, deviceId, paneId, settings.bellThrottleSeconds)) {
+          continue;
+        }
+        this.sendEnvelope(client, wsBorsh.KIND_TMUX_EVENT, payloadBytes);
+      }
+      return;
+    }
+
     for (const client of entry.clients) {
-      client.send(message);
+      this.sendEnvelope(client, wsBorsh.KIND_TMUX_EVENT, payloadBytes);
     }
   }
 
@@ -520,14 +685,10 @@ export class WebSocketServer {
     if (!entry) return;
 
     entry.lastSnapshot = payload;
-
-    const message = JSON.stringify({
-      type: 'state/snapshot',
-      payload,
-    });
+    const payloadBytes = wsBorsh.encodeStateSnapshot(payload);
 
     for (const client of entry.clients) {
-      client.send(message);
+      this.sendChunked(client, wsBorsh.KIND_STATE_SNAPSHOT, payloadBytes);
     }
   }
 
@@ -535,51 +696,37 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
-    const deviceIdBytes = new TextEncoder().encode(deviceId);
-    const paneIdBytes = new TextEncoder().encode(paneId);
-    const headerSize = 1 + 2 + deviceIdBytes.length + 2 + paneIdBytes.length;
-    const message = new Uint8Array(headerSize + data.length);
-    message[0] = 0x01;
-    message[1] = (deviceIdBytes.length >> 8) & 0xff;
-    message[2] = deviceIdBytes.length & 0xff;
-    message.set(deviceIdBytes, 3);
-
-    const paneLenOffset = 3 + deviceIdBytes.length;
-    message[paneLenOffset] = (paneIdBytes.length >> 8) & 0xff;
-    message[paneLenOffset + 1] = paneIdBytes.length & 0xff;
-
-    const paneOffset = paneLenOffset + 2;
-    message.set(paneIdBytes, paneOffset);
-    message.set(data, paneOffset + paneIdBytes.length);
-
     for (const client of entry.clients) {
-      if (client.data.selectedPanes[deviceId] !== paneId) {
+      if (client.data.borshState.selectedPanes[deviceId] !== paneId) {
         continue;
       }
-      client.send(message);
+
+      if (switchBarrier.shouldBufferOutput(client, deviceId)) {
+        switchBarrier.bufferOutput(client, deviceId, data);
+        continue;
+      }
+
+      const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.TermOutputSchema, {
+        deviceId,
+        paneId,
+        encoding: 1,
+        data,
+      });
+      this.sendChunked(client, wsBorsh.KIND_TERM_OUTPUT, payloadBytes);
     }
   }
 
   private broadcastTerminalHistory(deviceId: string, paneId: string, data: string): void {
     const entry = this.connections.get(deviceId);
-    if (!entry) {
-      return;
-    }
+    if (!entry) return;
 
-    const message = JSON.stringify({
-      type: 'term/history',
-      payload: {
-        deviceId,
-        paneId,
-        data,
-      },
-    });
+    const historyBytes = new TextEncoder().encode(data);
 
     for (const client of entry.clients) {
-      if (client.data.selectedPanes[deviceId] !== paneId) {
+      if (client.data.borshState.selectedPanes[deviceId] !== paneId) {
         continue;
       }
-      client.send(message);
+      switchBarrier.sendTermHistory(client as any, deviceId, paneId, historyBytes);
     }
   }
 
@@ -588,21 +735,25 @@ export class WebSocketServer {
     if (!entry) return;
 
     const errorInfo = classifySshError(err);
-    const settings = getSiteSettings();
 
-    const message = JSON.stringify({
-      type: 'event/device',
-      payload: {
-        deviceId,
-        type: 'error',
-        errorType: errorInfo.type,
-        message: t(errorInfo.messageKey, { ...errorInfo.messageParams }),
-        rawMessage: err.message,
-      },
+    const payloadBytes = wsBorsh.encodeDeviceEventPayload({
+      deviceId,
+      type: 'error',
+      errorType: errorInfo.type,
+      message: t(errorInfo.messageKey, { ...errorInfo.messageParams }),
+      rawMessage: err.message,
     });
 
     for (const client of entry.clients) {
-      client.send(message);
+      this.sendEnvelope(client, wsBorsh.KIND_DEVICE_EVENT, payloadBytes);
+    }
+  }
+
+  private broadcastDeviceEvent(entry: DeviceConnectionEntry, payload: EventDevicePayload): void {
+    const payloadBytes = wsBorsh.encodeDeviceEventPayload(payload);
+
+    for (const client of entry.clients) {
+      this.sendEnvelope(client, wsBorsh.KIND_DEVICE_EVENT, payloadBytes);
     }
   }
 
@@ -621,7 +772,6 @@ export class WebSocketServer {
       entry.reconnectAttempts += 1;
       const delay = Math.max(1, sshReconnectDelaySeconds) * 1000;
 
-      const settings = getSiteSettings();
       const notifying: EventDevicePayload = {
         deviceId,
         type: 'error',
@@ -684,21 +834,10 @@ export class WebSocketServer {
     this.broadcastDeviceEvent(entry, disconnected);
 
     for (const client of entry.clients) {
-      delete client.data.selectedPanes[deviceId];
+      delete client.data.borshState.selectedPanes[deviceId];
     }
 
     this.clearReconnectTimer(entry);
     this.connections.delete(deviceId);
-  }
-
-  private broadcastDeviceEvent(entry: DeviceConnectionEntry, payload: EventDevicePayload): void {
-    const message = JSON.stringify({
-      type: 'event/device',
-      payload,
-    });
-
-    for (const client of entry.clients) {
-      client.send(message);
-    }
   }
 }

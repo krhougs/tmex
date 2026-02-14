@@ -764,6 +764,7 @@ export function PageActions() {
     <Button
       variant="ghost"
       size="icon-sm"
+      data-testid="devices-add"
       onClick={handleAdd}
       aria-label={t('sidebar.addDevice')}
       title={t('sidebar.addDevice')}

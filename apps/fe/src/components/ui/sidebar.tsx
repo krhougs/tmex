@@ -185,6 +185,7 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
+          data-testid="mobile-sidebar-sheet"
           className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
           style={
             {
@@ -197,7 +198,13 @@ function Sidebar({
             <SheetTitle>Sidebar</SheetTitle>
             <SheetDescription>Displays the mobile sidebar.</SheetDescription>
           </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
+          <div
+            className="flex h-full w-full flex-col"
+            data-testid="sidebar"
+            style={{ paddingBottom: "var(--tmex-safe-area-bottom)" }}
+          >
+            {children}
+          </div>
         </SheetContent>
       </Sheet>
     )
@@ -240,7 +247,9 @@ function Sidebar({
         <div
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
+          data-testid="sidebar"
           className="bg-sidebar group-data-[variant=floating]:ring-sidebar-border group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:shadow-sm group-data-[variant=floating]:ring-1 flex size-full flex-col"
+          style={{ paddingBottom: "var(--tmex-safe-area-bottom)" }}
         >
 
           {children}

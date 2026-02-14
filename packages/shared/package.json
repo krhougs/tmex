@@ -6,7 +6,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build:i18n": "bun scripts/build-i18n.ts"
+    "build:i18n": "bun scripts/build-i18n.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@zorsh/zorsh": "0.4.0"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

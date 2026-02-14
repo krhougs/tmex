@@ -90,7 +90,6 @@ export default function DevicePage() {
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
   const selectPane = useTmuxStore((state) => state.selectPane);
-  const socketReady = useTmuxStore((state) => state.socketReady);
 
   const snapshot = useTmuxStore((state) => (deviceId ? state.snapshots[deviceId] : undefined));
   const deviceError = useTmuxStore((state) =>
@@ -342,29 +341,13 @@ export default function DevicePage() {
     if (!deviceConnected) return;
     if (!windowId) return;
 
-    console.log('[DevicePage] Window change effect:', {
-      deviceId,
-      windowId,
-      resolvedPaneId,
-      windowsCount: windows?.length,
-      windows: windows?.map((w) => ({
-        id: w.id,
-        name: w.name,
-        active: w.active,
-        paneCount: w.panes.length,
-      })),
-      userInitiated: userInitiatedSelectionRef.current,
-    });
-
     // If snapshot not yet arrived, don't navigate (loading state)
     if (!windows) {
-      console.log('[DevicePage] Snapshot not yet arrived, waiting');
       return;
     }
 
     // If no windows left (all closed), navigate to fallback
     if (windows.length === 0) {
-      console.log('[DevicePage] No windows left, navigating to fallback');
       navigate('/devices', { replace: true });
       return;
     }
@@ -373,7 +356,6 @@ export default function DevicePage() {
     const userInitiated = userInitiatedSelectionRef.current;
     if (userInitiated && userInitiated.windowId === windowId) {
       // User just clicked this window, wait for snapshot to update
-      console.log('[DevicePage] User-initiated selection detected, skipping auto-redirect');
       // Clear the ref after a short delay to allow future corrections
       const timeout = setTimeout(() => {
         userInitiatedSelectionRef.current = null;
@@ -384,7 +366,6 @@ export default function DevicePage() {
     // Find the target window
     const targetWindow = windows.find((w) => w.id === windowId);
     if (!targetWindow) {
-      console.log('[DevicePage] Target window not found:', windowId);
       // Window doesn't exist, navigate to active window
       const activeWindow = windows.find((w) => w.active) ?? windows[0];
       if (activeWindow) {
@@ -403,7 +384,6 @@ export default function DevicePage() {
 
     // If no paneId in URL, select the active pane in this window
     if (!resolvedPaneId) {
-      console.log('[DevicePage] No paneId, selecting active pane in window:', windowId);
       const targetPane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
       if (targetPane) {
         navigate(
@@ -417,7 +397,6 @@ export default function DevicePage() {
     // Check if current pane exists in the window
     const currentPane = targetWindow.panes.find((p) => p.id === resolvedPaneId);
     if (!currentPane) {
-      console.log('[DevicePage] Current pane not found, navigating to active pane');
       // Pane was closed, navigate to active pane in same window
       const activePane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
       if (activePane) {
@@ -428,8 +407,6 @@ export default function DevicePage() {
       }
       return;
     }
-
-    console.log('[DevicePage] Window/pane valid, no navigation needed');
   }, [deviceId, deviceConnected, windows, windowId, resolvedPaneId, navigate]);
 
   // Auto-select pane on initial load only
@@ -457,7 +434,8 @@ export default function DevicePage() {
   // Select pane when ready
   useEffect(() => {
     if (!deviceId || !windowId || !resolvedPaneId) return;
-    if (isLoading || !socketReady || !deviceConnected || isSelectionInvalid) return;
+    // Allow sending TMUX_SELECT before WS is READY: borsh client will queue messages and flush on READY.
+    if (isLoading || !deviceConnected || isSelectionInvalid) return;
 
     // Short-circuit: if already selected, don't send again
     const currentSelected = useTmuxStore.getState().selectedPanes[deviceId];
@@ -469,7 +447,9 @@ export default function DevicePage() {
       return;
     }
 
-    selectPane(deviceId, windowId, resolvedPaneId);
+    const size = terminalRef.current?.getSize() ?? undefined;
+    recordSelectRequest(windowId, resolvedPaneId);
+    selectPane(deviceId, windowId, resolvedPaneId, size);
   }, [
     deviceConnected,
     deviceId,
@@ -477,9 +457,20 @@ export default function DevicePage() {
     isSelectionInvalid,
     resolvedPaneId,
     selectPane,
-    socketReady,
     windowId,
   ]);
+
+  const recentSelectRequestsRef = useRef<Array<{ windowId: string; paneId: string; at: number }>>(
+    []
+  );
+  const recordSelectRequest = useCallback((windowId: string, paneId: string) => {
+    const now = Date.now();
+    const next = [
+      ...recentSelectRequestsRef.current.filter((r) => now - r.at < 2000),
+      { windowId, paneId, at: now },
+    ];
+    recentSelectRequestsRef.current = next.slice(-8);
+  }, []);
 
   // Subscribe to activePaneFromEvent for this device
   const activePaneFromEvent = useTmuxStore((state) =>
@@ -493,6 +484,21 @@ export default function DevicePage() {
     if (!deviceConnected) return;
     if (!windowId || !resolvedPaneId) return;
     if (!activePaneFromEvent) return;
+
+    // Ignore pane-active events that are likely confirmations (or stale echoes) of our own recent selects.
+    // Without this, rapid user navigation can cause us to "follow back" to an older pane-active event.
+    {
+      const now = Date.now();
+      const isRecentRequested = recentSelectRequestsRef.current.some(
+        (r) =>
+          r.windowId === activePaneFromEvent.windowId &&
+          r.paneId === activePaneFromEvent.paneId &&
+          now - r.at < 1200
+      );
+      if (isRecentRequested) {
+        return;
+      }
+    }
 
     // Ignore if already at the right place
     if (
@@ -513,10 +519,10 @@ export default function DevicePage() {
 
     lastHandledActiveRef.current = { ...activePaneFromEvent };
 
-    console.log('[DevicePage] Following pane-active event:', activePaneFromEvent);
-
     // Send selectPane to gateway first
-    selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId);
+    const size = terminalRef.current?.getSize() ?? undefined;
+    recordSelectRequest(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
+    selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId, size);
 
     // Navigate to new URL
     navigate(
@@ -542,6 +548,13 @@ export default function DevicePage() {
 
     // Skip if user just manually selected a different window/pane
     if (userInitiatedSelectionRef.current) {
+      return;
+    }
+
+    // Avoid snapshot-driven "bounce back" shortly after we send TMUX_SELECT.
+    const recentRequests = recentSelectRequestsRef.current;
+    const lastRequest = recentRequests.length > 0 ? recentRequests[recentRequests.length - 1] : null;
+    if (lastRequest && Date.now() - lastRequest.at < 1200) {
       return;
     }
 
@@ -571,7 +584,9 @@ export default function DevicePage() {
     }
 
     // Send selectPane and navigate
-    selectPane(deviceId, currentActive.windowId, currentActive.paneId);
+    const size = terminalRef.current?.getSize() ?? undefined;
+    recordSelectRequest(currentActive.windowId, currentActive.paneId);
+    selectPane(deviceId, currentActive.windowId, currentActive.paneId, size);
     navigate(
       `/devices/${deviceId}/windows/${currentActive.windowId}/panes/${encodePaneIdForUrl(currentActive.paneId)}`,
       { replace: true }
@@ -649,7 +664,6 @@ export default function DevicePage() {
       // Only track if it's for the current device
       if (eventDeviceId === deviceId) {
         userInitiatedSelectionRef.current = { windowId, paneId };
-        console.log('[DevicePage] User-initiated selection tracked:', { windowId, paneId });
       }
     };
 
@@ -1081,6 +1095,7 @@ export function PageActions() {
         size="icon-sm"
         onClick={handleToggleInputMode}
         disabled={!canInteract}
+        data-testid="terminal-input-mode-toggle"
         aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
         title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
       >

@@ -26,8 +26,8 @@ function buildPaneUrl(event: WebhookEvent): string | null {
 
   const base = trimTrailingSlash(event.site.url);
   const deviceId = encodeURIComponent(event.device.id);
-  const windowId = event.tmux.windowId;
-  const paneId = event.tmux.paneId;
+  const windowId = encodeURIComponent(event.tmux.windowId);
+  const paneId = encodeURIComponent(event.tmux.paneId);
   return `${base}/devices/${deviceId}/windows/${windowId}/panes/${paneId}`;
 }
 

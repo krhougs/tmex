@@ -65,9 +65,12 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
       <AppSidebar />
       <SidebarInset className="h-dvh overflow-hidden">
         <div className="h-[var(--tmex-safe-area-top)]"></div>
-        <header className="sticky top-0 z-10 flex h-12 md:h-16 shrink-0 items-center justify-between gap-2 bg-background/95 backdrop-blur-sm">
+        <header
+          className="sticky top-0 z-10 flex h-12 md:h-16 shrink-0 items-center justify-between gap-2 bg-background/95 backdrop-blur-sm"
+          data-testid="mobile-topbar"
+        >
           <div className="flex items-center gap-2 px-4">
-            <SidebarTrigger className="-ml-1" />
+            <SidebarTrigger className="-ml-1" data-testid="mobile-sidebar-open" />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
             <span className="truncate text-sm font-semibold">
               {PageTitle ? <PageTitle {...params} /> : ''}

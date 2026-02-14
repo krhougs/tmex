@@ -122,6 +122,9 @@ export interface WsMessage<T = unknown> {
   timestamp: string;
 }
 
+export { b } from './ws-borsh';
+export * as wsBorsh from './ws-borsh';
+
 export interface DeviceConnectPayload {
   deviceId: string;
 }
@@ -372,5 +375,4 @@ export interface RestartGatewayResponse {
   success: boolean;
   message: string;
 }
-
 

@@ -1,34 +1,31 @@
-import type {
-  EventDevicePayload,
-  EventTmuxPayload,
-  StateSnapshotPayload,
-  TermHistoryPayload,
-  WsMessage,
-} from '@tmex/shared';
+import type { EventDevicePayload, EventTmuxPayload, StateSnapshotPayload } from '@tmex/shared';
+import { wsBorsh } from '@tmex/shared';
 import { create } from 'zustand';
+import { getBorshClient } from '@/ws-borsh';
+import {
+  buildDeviceConnect,
+  buildDeviceDisconnect,
+  buildTermInput,
+  buildTermPaste,
+  buildTermResize,
+  buildTermSyncSize,
+  buildTmuxClosePane,
+  buildTmuxCloseWindow,
+  buildTmuxCreateWindow,
+  buildTmuxSelect,
+  buildTmuxSelectWindow,
+  generateSelectToken,
+} from '@/ws-borsh';
+import { getSelectStateMachine } from '@/ws-borsh';
 import { useSiteStore } from './site';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
 
 type ConnectionRef = 'sidebar' | 'page';
 
-type HistoryHandler = (data: string) => void;
-
 interface DeviceError {
   message: string;
   type?: string;
-}
-
-interface PendingBinarySubscriber {
-  deviceId: string;
-  handler: (data: Uint8Array) => void;
-}
-
-interface HistorySubscriber {
-  deviceId: string;
-  paneId: string;
-  handler: HistoryHandler;
-  subscribedAt: number;
 }
 
 interface TmuxState {
@@ -46,7 +43,12 @@ interface TmuxState {
   connectDevice: (deviceId: string, ref?: ConnectionRef) => void;
   disconnectDevice: (deviceId: string, ref?: ConnectionRef) => void;
   clearDeviceError: (deviceId: string) => void;
-  selectPane: (deviceId: string, windowId: string, paneId: string) => void;
+  selectPane: (
+    deviceId: string,
+    windowId: string,
+    paneId: string,
+    size?: { cols?: number; rows?: number }
+  ) => void;
   selectWindow: (deviceId: string, windowId: string) => void;
   sendInput: (deviceId: string, paneId: string, data: string, isComposing?: boolean) => void;
   resizePane: (deviceId: string, paneId: string, cols: number, rows: number) => void;
@@ -55,23 +57,12 @@ interface TmuxState {
   createWindow: (deviceId: string, name?: string) => void;
   closeWindow: (deviceId: string, windowId: string) => void;
   closePane: (deviceId: string, paneId: string) => void;
-
-  subscribeBinary: (deviceId: string, handler: (output: Uint8Array) => void) => () => void;
-  subscribeHistory: (deviceId: string, paneId: string, handler: HistoryHandler) => () => void;
 }
 
-let wsSingleton: WebSocket | null = null;
-const binarySubscribers: PendingBinarySubscriber[] = [];
-const historySubscribers: HistorySubscriber[] = [];
-
-// 待发送的消息队列
-const pendingMessages: Array<Omit<WsMessage<unknown>, 'timestamp'>> = [];
-const MAX_PENDING_MESSAGES = 100;
 const CONNECT_DEDUP_WINDOW_MS = 500;
 const lastConnectSentAt = new Map<string, number>();
-const isLocalDevRuntime =
-  typeof window !== 'undefined' &&
-  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+const lastReportedTerminalSizes = new Map<string, { cols: number; rows: number; at: number }>();
 
 function shouldSkipDuplicateConnect(deviceId: string): boolean {
   const now = Date.now();
@@ -83,243 +74,139 @@ function shouldSkipDuplicateConnect(deviceId: string): boolean {
   return false;
 }
 
-function extractTerminalOutput(
-  frame: Uint8Array
-): { deviceId: string; paneId: string; output: Uint8Array } | null {
-  if (frame.length < 4) return null;
-  if (frame[0] !== 0x01) return null;
-  const deviceIdLen = (frame[1] << 8) | frame[2];
-  if (frame.length < 3 + deviceIdLen + 2) return null;
-  const deviceId = new TextDecoder().decode(frame.slice(3, 3 + deviceIdLen));
-  const paneLenOffset = 3 + deviceIdLen;
-  const paneIdLen = (frame[paneLenOffset] << 8) | frame[paneLenOffset + 1];
-  const paneOffset = paneLenOffset + 2;
-  if (frame.length < paneOffset + paneIdLen) return null;
-  const paneId = new TextDecoder().decode(frame.slice(paneOffset, paneOffset + paneIdLen));
-  const output = frame.slice(paneOffset + paneIdLen);
-  return { deviceId, paneId, output };
-}
+let initialized = false;
 
-function flushPendingMessages(): Set<string> {
-  const connectedDeviceIds = new Set<string>();
-  if (!wsSingleton || wsSingleton.readyState !== WebSocket.OPEN) return connectedDeviceIds;
-  while (pendingMessages.length > 0) {
-    const msg = pendingMessages.shift();
-    if (msg) {
-      if (msg.type === 'device/connect') {
-        const payload = msg.payload as { deviceId?: string };
-        if (payload?.deviceId) {
-          connectedDeviceIds.add(payload.deviceId);
-        }
-      }
-      wsSingleton.send(JSON.stringify({ ...msg, timestamp: new Date().toISOString() }));
-    }
+function normalizeTerminalSize(
+  cols: number | undefined,
+  rows: number | undefined
+): { cols: number; rows: number } | null {
+  if (typeof cols !== 'number' || typeof rows !== 'number') {
+    return null;
   }
 
-  return connectedDeviceIds;
+  const safeCols = Math.max(2, Math.floor(cols));
+  const safeRows = Math.max(2, Math.floor(rows));
+  return { cols: safeCols, rows: safeRows };
 }
 
-function sendJson(message: Omit<WsMessage<unknown>, 'timestamp'>): void {
-  if (!wsSingleton || wsSingleton.readyState !== WebSocket.OPEN) {
-    // 如果 socket 未就绪，将消息加入队列（限制队列大小）
-    if (pendingMessages.length < MAX_PENDING_MESSAGES) {
-      pendingMessages.push(message);
-    }
-    return;
-  }
-  wsSingleton.send(JSON.stringify({ ...message, timestamp: new Date().toISOString() }));
-}
-
-function ensureSocket(
+function setupClientHandlers(
   setState: (partial: Partial<TmuxState> | ((prev: TmuxState) => Partial<TmuxState>)) => void,
   getState: () => TmuxState
 ): void {
-  if (
-    wsSingleton &&
-    (wsSingleton.readyState === WebSocket.OPEN || wsSingleton.readyState === WebSocket.CONNECTING)
-  ) {
-    return;
-  }
+  if (initialized) return;
+  initialized = true;
 
-  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
-  wsSingleton = new WebSocket(wsUrl);
+  const client = getBorshClient();
 
-  wsSingleton.onopen = () => {
-    setState({ socketReady: true });
+  const maybeReselectCurrentPane = (deviceId: string): void => {
+    const current = getState().selectedPanes[deviceId];
+    if (!current) return;
 
-    // 先发送队列中的消息，避免与重连逻辑重复触发 connect
-    const alreadyConnected = flushPendingMessages();
-
-    // 重新连接所有已连接的设备
-    for (const deviceId of getState().connectedDevices) {
-      if (alreadyConnected.has(deviceId)) {
-        continue;
-      }
-      if (shouldSkipDuplicateConnect(deviceId)) {
-        continue;
-      }
-      sendJson({ type: 'device/connect', payload: { deviceId } });
+    const sm = getSelectStateMachine();
+    if (sm.getTransaction(deviceId)) {
+      return;
     }
+
+    getState().selectPane(deviceId, current.windowId, current.paneId);
   };
 
-  wsSingleton.onmessage = async (event) => {
-    if (event.data instanceof Blob) {
-      const buffer = await event.data.arrayBuffer();
-      const data = new Uint8Array(buffer);
-      const decoded = extractTerminalOutput(data);
-      if (!decoded) {
+  client.onStateChange((state) => {
+    setState({ socketReady: state === 'READY' });
+  });
+
+  client.onMessage((msg) => {
+    const sm = getSelectStateMachine();
+
+    switch (msg.kind) {
+      case wsBorsh.KIND_DEVICE_CONNECTED: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.DeviceConnectedSchema, msg.payload);
+        setState((prev) => ({
+          deviceConnected: { ...prev.deviceConnected, [decoded.deviceId]: true },
+          deviceErrors: { ...prev.deviceErrors, [decoded.deviceId]: undefined },
+        }));
+        maybeReselectCurrentPane(decoded.deviceId);
         return;
       }
-      const selectedPanes = getState().selectedPanes;
-      for (const sub of binarySubscribers) {
-        if (decoded.deviceId !== sub.deviceId) {
-          continue;
-        }
-        const selected = selectedPanes[sub.deviceId];
-        if (!selected) {
-          continue;
-        }
-        if (decoded.paneId !== selected.paneId) {
-          continue;
-        }
-        sub.handler(decoded.output);
-      }
-      return;
-    }
 
-    let msg: WsMessage<unknown> | null = null;
-    try {
-      msg = JSON.parse(event.data) as WsMessage<unknown>;
-    } catch {
-      return;
-    }
-
-    if (!msg) return;
-
-    switch (msg.type) {
-      case 'device/connected': {
-        const deviceId = (msg.payload as { deviceId: string }).deviceId;
+      case wsBorsh.KIND_DEVICE_DISCONNECTED: {
+        const decoded = wsBorsh.decodePayload(
+          wsBorsh.schema.DeviceDisconnectedSchema,
+          msg.payload
+        );
+        sm.cleanup(decoded.deviceId);
         setState((prev) => ({
-          deviceConnected: { ...prev.deviceConnected, [deviceId]: true },
-          deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
+          deviceConnected: { ...prev.deviceConnected, [decoded.deviceId]: false },
         }));
         return;
       }
 
-      case 'device/disconnected': {
-        const deviceId = (msg.payload as { deviceId: string }).deviceId;
-        setState((prev) => ({
-          deviceConnected: { ...prev.deviceConnected, [deviceId]: false },
-        }));
-        return;
-      }
-
-      case 'event/device': {
-        const payload = msg.payload as EventDevicePayload;
-        if (payload.type === 'error') {
-          const summary = payload.message ?? 'Device Error';
-
-          setState((prev) => {
-            const previousError = prev.deviceErrors[payload.deviceId];
-            if (previousError?.message === summary && previousError?.type === payload.errorType) {
-              return {};
-            }
-
-            return {
-              deviceErrors: {
-                ...prev.deviceErrors,
-                [payload.deviceId]: { message: summary, type: payload.errorType },
-              },
-            };
-          });
-
-          return;
-        }
-
-        if (payload.type === 'disconnected') {
-          setState((prev) => ({
-            deviceConnected: { ...prev.deviceConnected, [payload.deviceId]: false },
-          }));
-          return;
+      case wsBorsh.KIND_DEVICE_EVENT: {
+        const payload = wsBorsh.decodeDeviceEventPayload(msg.payload);
+        handleDeviceEvent(setState, payload);
+        if (payload.type === 'reconnected') {
+          maybeReselectCurrentPane(payload.deviceId);
         }
         return;
       }
 
-      case 'state/snapshot': {
-        const payload = msg.payload as StateSnapshotPayload;
+      case wsBorsh.KIND_STATE_SNAPSHOT: {
+        const payload = wsBorsh.decodeStateSnapshot(msg.payload);
         setState((prev) => ({
           snapshots: { ...prev.snapshots, [payload.deviceId]: payload },
         }));
         return;
       }
 
-      case 'term/history': {
-        const payload = msg.payload as TermHistoryPayload;
-        for (const sub of historySubscribers) {
-          if (sub.deviceId === payload.deviceId && sub.paneId === payload.paneId) {
-            sub.handler(payload.data);
-          }
-        }
+      case wsBorsh.KIND_TMUX_EVENT: {
+        const payload = wsBorsh.decodeTmuxEventPayload(msg.payload);
+        handleTmuxEvent(setState, payload);
         return;
       }
 
-      case 'event/tmux': {
-        const payload = msg.payload as EventTmuxPayload;
-        if (payload.type === 'bell') {
-          const settings = useSiteStore.getState().settings;
-          if (settings?.enableBrowserBellToast === false) {
-            return;
-          }
+      case wsBorsh.KIND_SWITCH_ACK: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.SwitchAckSchema, msg.payload);
+        sm.dispatch({ type: 'SWITCH_ACK', deviceId: decoded.deviceId, selectToken: decoded.selectToken });
+        return;
+      }
 
-          const data = (payload.data ?? {}) as Record<string, unknown>;
-          const title = 'Terminal Bell';
-          const description = [
-            typeof data.windowIndex === 'number' ? `Window ${data.windowIndex}` : undefined,
-            typeof data.paneIndex === 'number' ? `Pane ${data.paneIndex}` : undefined,
-          ]
-            .filter(Boolean)
-            .join(' · ');
+      case wsBorsh.KIND_TERM_HISTORY: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermHistorySchema, msg.payload);
+        const text = new TextDecoder().decode(decoded.data);
+        sm.dispatch({
+          type: 'HISTORY',
+          deviceId: decoded.deviceId,
+          selectToken: decoded.selectToken,
+          data: text,
+        });
+        return;
+      }
 
-          window.dispatchEvent(
-            new CustomEvent('tmex:sonner', {
-              detail: {
-                title,
-                description: description || 'Received tmux bell',
-                paneUrl: typeof data.paneUrl === 'string' ? data.paneUrl : undefined,
-              },
-            })
-          );
-        }
+      case wsBorsh.KIND_LIVE_RESUME: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.LiveResumeSchema, msg.payload);
+        sm.dispatch({ type: 'LIVE_RESUME', deviceId: decoded.deviceId, selectToken: decoded.selectToken });
+        return;
+      }
 
-        if (payload.type === 'pane-active') {
-          const data = payload.data as { windowId: string; paneId: string } | undefined;
-          if (data?.windowId && data?.paneId) {
-            setState((prev) => ({
-              activePaneFromEvent: {
-                ...prev.activePaneFromEvent,
-                [payload.deviceId]: { windowId: data.windowId, paneId: data.paneId },
-              },
-            }));
-          }
-        }
+      case wsBorsh.KIND_TERM_OUTPUT: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermOutputSchema, msg.payload);
+        sm.dispatch({
+          type: 'OUTPUT',
+          deviceId: decoded.deviceId,
+          paneId: decoded.paneId,
+          data: decoded.data,
+        });
+        return;
+      }
+
+      case wsBorsh.KIND_ERROR: {
+        // 连接级错误不一定需要 toast；保留给上层需要时再做
         return;
       }
     }
-  };
+  });
 
-  wsSingleton.onclose = () => {
-    setState((prev) => {
-      const nextConnected: Record<string, boolean | undefined> = { ...prev.deviceConnected };
-      for (const deviceId of prev.connectedDevices) {
-        nextConnected[deviceId] = false;
-      }
-      return { socketReady: false, deviceConnected: nextConnected };
-    });
-    wsSingleton = null;
-  };
-
-  wsSingleton.onerror = (error) => {
-    console.error('[tmux] WebSocket error:', error);
+  client.onError((error) => {
+    console.error('[tmux] borsh ws error:', error);
     setState({ socketReady: false });
     window.dispatchEvent(
       new CustomEvent('tmex:sonner', {
@@ -329,7 +216,101 @@ function ensureSocket(
         },
       })
     );
-  };
+  });
+
+  // 首次 READY 后补发 connect（避免重连后丢失连接）
+  client.onStateChange((state) => {
+    if (state !== 'READY') return;
+    const connectedDevices = getState().connectedDevices;
+    for (const deviceId of connectedDevices) {
+      if (shouldSkipDuplicateConnect(deviceId)) continue;
+      const msg = buildDeviceConnect(deviceId);
+      client.send(msg.kind, msg.payload);
+    }
+  });
+}
+
+function handleDeviceEvent(
+  setState: (partial: Partial<TmuxState> | ((prev: TmuxState) => Partial<TmuxState>)) => void,
+  payload: EventDevicePayload
+): void {
+  if (payload.type === 'error') {
+    const summary = payload.message ?? 'Device Error';
+
+    setState((prev) => {
+      const previousError = prev.deviceErrors[payload.deviceId];
+      if (previousError?.message === summary && previousError?.type === payload.errorType) {
+        return {};
+      }
+
+      return {
+        deviceErrors: {
+          ...prev.deviceErrors,
+          [payload.deviceId]: { message: summary, type: payload.errorType },
+        },
+      };
+    });
+
+    return;
+  }
+
+  if (payload.type === 'disconnected') {
+    getSelectStateMachine().cleanup(payload.deviceId);
+    setState((prev) => ({
+      deviceConnected: { ...prev.deviceConnected, [payload.deviceId]: false },
+    }));
+    return;
+  }
+
+  if (payload.type === 'reconnected') {
+    setState((prev) => ({
+      deviceConnected: { ...prev.deviceConnected, [payload.deviceId]: true },
+      deviceErrors: { ...prev.deviceErrors, [payload.deviceId]: undefined },
+    }));
+  }
+}
+
+function handleTmuxEvent(
+  setState: (partial: Partial<TmuxState> | ((prev: TmuxState) => Partial<TmuxState>)) => void,
+  payload: EventTmuxPayload
+): void {
+  if (payload.type === 'bell') {
+    const settings = useSiteStore.getState().settings;
+    if (settings?.enableBrowserBellToast === false) {
+      return;
+    }
+
+    const data = (payload.data ?? {}) as Record<string, unknown>;
+    const title = 'Terminal Bell';
+    const description = [
+      typeof data.windowIndex === 'number' ? `Window ${data.windowIndex}` : undefined,
+      typeof data.paneIndex === 'number' ? `Pane ${data.paneIndex}` : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    window.dispatchEvent(
+      new CustomEvent('tmex:sonner', {
+        detail: {
+          title,
+          description: description || 'Received tmux bell',
+          paneUrl: typeof data.paneUrl === 'string' ? data.paneUrl : undefined,
+        },
+      })
+    );
+  }
+
+  if (payload.type === 'pane-active') {
+    const data = payload.data as { windowId: string; paneId: string } | undefined;
+    if (data?.windowId && data?.paneId) {
+      setState((prev) => ({
+        activePaneFromEvent: {
+          ...prev.activePaneFromEvent,
+          [payload.deviceId]: { windowId: data.windowId, paneId: data.paneId },
+        },
+      }));
+    }
+  }
 }
 
 export const useTmuxStore = create<TmuxState>((set, get) => ({
@@ -343,151 +324,164 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   connectionRefs: {},
   lastConnectRequest: null,
 
-  ensureSocketConnected: () => {
-    ensureSocket(set, get);
+  ensureSocketConnected() {
+    setupClientHandlers(set, get);
+    getBorshClient().connect();
   },
 
-  connectDevice: (deviceId, ref = 'page') => {
-    const current = get();
-    const existingRefs = current.connectionRefs[deviceId] ?? {};
-    if (existingRefs[ref]) {
-      ensureSocket(set, get);
-      return;
-    }
+  connectDevice(deviceId, ref = 'page') {
+    if (!deviceId) return;
 
-    const isFirstReference = Object.keys(existingRefs).length === 0;
-    const nextRefs: Partial<Record<ConnectionRef, true>> = { ...existingRefs, [ref]: true };
-    const nextConnectionRefs = { ...current.connectionRefs, [deviceId]: nextRefs };
-    const nextConnected = new Set(current.connectedDevices);
-    nextConnected.add(deviceId);
+    set((prev) => {
+      const nextRefs = { ...prev.connectionRefs };
+      nextRefs[deviceId] = { ...(nextRefs[deviceId] ?? {}), [ref]: true };
 
-    set((prev) => ({
-      connectionRefs: nextConnectionRefs,
-      connectedDevices: nextConnected,
-      deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
-      lastConnectRequest: { deviceId, ref, at: Date.now() },
-    }));
+      const nextConnected = new Set(prev.connectedDevices);
+      nextConnected.add(deviceId);
 
-    if (isLocalDevRuntime) {
-      console.log('[tmux] connectDevice', {
-        deviceId,
-        ref,
-        isFirstReference,
-      });
-    }
+      return {
+        connectionRefs: nextRefs,
+        connectedDevices: nextConnected,
+        lastConnectRequest: { deviceId, ref, at: Date.now() },
+      };
+    });
 
-    ensureSocket(set, get);
-    if (isFirstReference) {
-      if (shouldSkipDuplicateConnect(deviceId)) {
-        return;
+    get().ensureSocketConnected();
+
+    if (shouldSkipDuplicateConnect(deviceId)) return;
+    const msg = buildDeviceConnect(deviceId);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  disconnectDevice(deviceId, ref = 'page') {
+    if (!deviceId) return;
+
+    let shouldDisconnect = false;
+
+    set((prev) => {
+      const nextRefs = { ...prev.connectionRefs };
+      const currentRefs = nextRefs[deviceId] ?? {};
+      const updatedRefs = { ...currentRefs };
+      delete updatedRefs[ref];
+      if (Object.keys(updatedRefs).length === 0) {
+        delete nextRefs[deviceId];
+        shouldDisconnect = true;
+      } else {
+        nextRefs[deviceId] = updatedRefs;
       }
-      sendJson({ type: 'device/connect', payload: { deviceId } });
-    }
+
+      const nextConnected = new Set(prev.connectedDevices);
+      if (shouldDisconnect) {
+        nextConnected.delete(deviceId);
+      }
+
+      return {
+        connectionRefs: nextRefs,
+        connectedDevices: nextConnected,
+      };
+    });
+
+    if (!shouldDisconnect) return;
+
+    getSelectStateMachine().cleanup(deviceId);
+    const msg = buildDeviceDisconnect(deviceId);
+    getBorshClient().send(msg.kind, msg.payload);
   },
 
-  disconnectDevice: (deviceId, ref = 'page') => {
-    const current = get();
-    const existingRefs = current.connectionRefs[deviceId];
-    if (!existingRefs?.[ref]) {
-      return;
-    }
-
-    const nextRefs: Partial<Record<ConnectionRef, true>> = { ...existingRefs };
-    delete nextRefs[ref];
-
-    const nextConnectionRefs = { ...current.connectionRefs };
-    const stillReferenced = Object.keys(nextRefs).length > 0;
-    if (stillReferenced) {
-      nextConnectionRefs[deviceId] = nextRefs;
-      set({ connectionRefs: nextConnectionRefs });
-      return;
-    }
-
-    delete nextConnectionRefs[deviceId];
-    const nextConnected = new Set(current.connectedDevices);
-    nextConnected.delete(deviceId);
-
-    set((prev) => ({
-      connectedDevices: nextConnected,
-      connectionRefs: nextConnectionRefs,
-      selectedPanes: { ...prev.selectedPanes, [deviceId]: undefined },
-      deviceConnected: { ...prev.deviceConnected, [deviceId]: false },
-    }));
-
-    lastConnectSentAt.delete(deviceId);
-
-    sendJson({ type: 'device/disconnect', payload: { deviceId } });
-  },
-
-  clearDeviceError: (deviceId) => {
+  clearDeviceError(deviceId) {
     set((prev) => ({
       deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
     }));
   },
 
-  selectPane: (deviceId, windowId, paneId) => {
-    set((state) => ({
-      selectedPanes: { ...state.selectedPanes, [deviceId]: { windowId, paneId } },
+  selectPane(deviceId, windowId, paneId, size) {
+    if (!deviceId || !windowId || !paneId) return;
+
+    set((prev) => ({
+      selectedPanes: { ...prev.selectedPanes, [deviceId]: { windowId, paneId } },
     }));
-    sendJson({ type: 'tmux/select', payload: { deviceId, windowId, paneId } });
+
+    const selectToken = generateSelectToken();
+    const wantHistory = true;
+
+    getSelectStateMachine().dispatch({
+      type: 'SELECT_START',
+      deviceId,
+      windowId,
+      paneId,
+      selectToken,
+      wantHistory,
+    });
+
+    const normalizedSize =
+      normalizeTerminalSize(size?.cols, size?.rows) ??
+      (lastReportedTerminalSizes.get(deviceId) ?? null);
+
+    const msg = buildTmuxSelect({
+      deviceId,
+      windowId,
+      paneId,
+      selectToken,
+      wantHistory,
+      cols: normalizedSize?.cols,
+      rows: normalizedSize?.rows,
+    });
+    getBorshClient().send(msg.kind, msg.payload);
   },
 
-  selectWindow: (deviceId, windowId) => {
-    sendJson({ type: 'tmux/select-window', payload: { deviceId, windowId } });
+  selectWindow(deviceId, windowId) {
+    if (!deviceId || !windowId) return;
+    const msg = buildTmuxSelectWindow(deviceId, windowId);
+    getBorshClient().send(msg.kind, msg.payload);
   },
 
-  sendInput: (deviceId, paneId, data, isComposing) => {
-    sendJson({ type: 'term/input', payload: { deviceId, paneId, data, isComposing } });
+  sendInput(deviceId, paneId, data, isComposing = false) {
+    if (!deviceId || !paneId) return;
+    const msg = buildTermInput(deviceId, paneId, data, isComposing);
+    getBorshClient().send(msg.kind, msg.payload);
   },
 
-  resizePane: (deviceId, paneId, cols, rows) => {
-    sendJson({ type: 'term/resize', payload: { deviceId, paneId, cols, rows } });
-  },
-
-  syncPaneSize: (deviceId, paneId, cols, rows) => {
-    sendJson({ type: 'term/sync-size', payload: { deviceId, paneId, cols, rows } });
-  },
-
-  paste: (deviceId, paneId, data) => {
-    sendJson({ type: 'term/paste', payload: { deviceId, paneId, data } });
-  },
-
-  createWindow: (deviceId, name) => {
-    sendJson({ type: 'tmux/create-window', payload: { deviceId, name } });
-  },
-
-  closeWindow: (deviceId, windowId) => {
-    sendJson({ type: 'tmux/close-window', payload: { deviceId, windowId } });
-  },
-
-  closePane: (deviceId, paneId) => {
-    sendJson({ type: 'tmux/close-pane', payload: { deviceId, paneId } });
-  },
-
-  subscribeBinary: (deviceId, handler) => {
-    const sub: PendingBinarySubscriber = { deviceId, handler };
-    binarySubscribers.push(sub);
-    return () => {
-      const idx = binarySubscribers.indexOf(sub);
-      if (idx >= 0) binarySubscribers.splice(idx, 1);
-    };
-  },
-
-  subscribeHistory: (deviceId, paneId, handler) => {
-    const sub: HistorySubscriber = { deviceId, paneId, handler, subscribedAt: Date.now() };
-    historySubscribers.push(sub);
-
-    // 清理过期的订阅（超过10分钟的）
-    const cutoff = Date.now() - 10 * 60 * 1000;
-    for (let i = historySubscribers.length - 1; i >= 0; i--) {
-      if (historySubscribers[i].subscribedAt < cutoff) {
-        historySubscribers.splice(i, 1);
-      }
+  resizePane(deviceId, paneId, cols, rows) {
+    if (!deviceId || !paneId) return;
+    const normalizedSize = normalizeTerminalSize(cols, rows);
+    if (normalizedSize) {
+      lastReportedTerminalSizes.set(deviceId, { ...normalizedSize, at: Date.now() });
     }
+    const msg = buildTermResize(deviceId, paneId, cols, rows);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
 
-    return () => {
-      const idx = historySubscribers.indexOf(sub);
-      if (idx >= 0) historySubscribers.splice(idx, 1);
-    };
+  syncPaneSize(deviceId, paneId, cols, rows) {
+    if (!deviceId || !paneId) return;
+    const normalizedSize = normalizeTerminalSize(cols, rows);
+    if (normalizedSize) {
+      lastReportedTerminalSizes.set(deviceId, { ...normalizedSize, at: Date.now() });
+    }
+    const msg = buildTermSyncSize(deviceId, paneId, cols, rows);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  paste(deviceId, paneId, data) {
+    if (!deviceId || !paneId) return;
+    const msg = buildTermPaste(deviceId, paneId, data);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  createWindow(deviceId, name) {
+    if (!deviceId) return;
+    const msg = buildTmuxCreateWindow(deviceId, name);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  closeWindow(deviceId, windowId) {
+    if (!deviceId || !windowId) return;
+    const msg = buildTmuxCloseWindow(deviceId, windowId);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  closePane(deviceId, paneId) {
+    if (!deviceId || !paneId) return;
+    const msg = buildTmuxClosePane(deviceId, paneId);
+    getBorshClient().send(msg.kind, msg.payload);
   },
 }));

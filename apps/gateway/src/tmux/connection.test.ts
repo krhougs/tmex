@@ -72,6 +72,50 @@ describe('TmuxConnection history selection', () => {
     ]);
   });
 
+  test('deduplicates bell events between tmux control event and BEL byte fallback', async () => {
+    const events: Array<{ type: string; data: unknown }> = [];
+    const mod = await import('./connection');
+    const connection = new mod.TmuxConnection({
+      deviceId: 'test-device',
+      onEvent: (event) => events.push({ type: event.type, data: event.data }),
+      onTerminalOutput: () => {},
+      onTerminalHistory: () => {},
+      onSnapshot: () => {},
+      onError: () => {},
+      onClose: () => {},
+    }) as any;
+
+    connection.handleTmuxEvent({ type: 'bell', data: { paneId: '%9' } });
+    connection.emitTerminalOutput('%9', new Uint8Array([0x07]));
+
+    expect(events).toHaveLength(1);
+  });
+
+  test('augments tmux bell event with active pane id when missing', async () => {
+    const events: Array<{ type: string; data: unknown }> = [];
+    const mod = await import('./connection');
+    const connection = new mod.TmuxConnection({
+      deviceId: 'test-device',
+      onEvent: (event) => events.push({ type: event.type, data: event.data }),
+      onTerminalOutput: () => {},
+      onTerminalHistory: () => {},
+      onSnapshot: () => {},
+      onError: () => {},
+      onClose: () => {},
+    }) as any;
+
+    connection.activePaneId = '%9';
+    connection.handleTmuxEvent({ type: 'bell', data: { windowId: '@1' } });
+    connection.emitTerminalOutput('%9', new Uint8Array([0x07]));
+
+    expect(events).toEqual([
+      {
+        type: 'bell',
+        data: { windowId: '@1', paneId: '%9' },
+      },
+    ]);
+  });
+
   test('capturePaneHistory should keep -e and not use -J', async () => {
     const connection = await createConnection();
     const conn = connection as any;

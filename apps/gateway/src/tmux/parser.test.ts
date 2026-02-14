@@ -27,6 +27,20 @@ describe('TmuxControlParser', () => {
     expect(blocks).toEqual([['line1', 'line2']]);
   });
 
+  test('emits output block begin meta', () => {
+    const begins: Array<{ time: number; commandNo: number; flags: number }> = [];
+    const parser = new TmuxControlParser({
+      onEvent: () => {},
+      onTerminalOutput: () => {},
+      onOutputBlockBegin: (meta) => begins.push(meta),
+      onOutputBlock: () => {},
+    });
+
+    parser.processData('%begin 3 4 5\nline\n%end 3 4 5\n');
+
+    expect(begins).toEqual([{ time: 3, commandNo: 4, flags: 5 }]);
+  });
+
   test('captures output blocks when wrapped in DCS and terminated by ST', () => {
     const blocks: string[][] = [];
     const parser = new TmuxControlParser({

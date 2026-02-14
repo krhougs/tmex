@@ -18,6 +18,7 @@ export interface TerminalRef {
   scrollToBottom: () => void;
   resize: (cols: number, rows: number) => void;
   getTerminal: () => XTermTerminal | null;
+  getSize: () => { cols: number; rows: number } | null;
   runPostSelectResize: () => void;
   scheduleResize: (kind: 'resize' | 'sync', options?: { immediate?: boolean; force?: boolean }) => void;
 }

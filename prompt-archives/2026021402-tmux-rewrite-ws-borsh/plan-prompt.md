@@ -24,6 +24,10 @@
 
 > 先归档 plan 和几个文档。
 
+> 2026-02-14：先阅读 `AGENTS.md`，再阅读 `plan-00.md`，并在确保阅读完计划中提到的所有文档之后再开始实施计划。
+
+> 2026-02-14：继续剩下的工作（补齐 Phase 5：bell 频控/去重、TMUX_SELECT 携带 cols/rows、FE Playwright e2e）。
+
 ## 本次归档范围
 
 - `prompt-archives/2026021402-tmux-rewrite-ws-borsh/plan-prompt.md`（本文件）

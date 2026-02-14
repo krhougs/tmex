@@ -1,0 +1,58 @@
+// FE WebSocket Borsh 协议模块
+
+export {
+  BorshWebSocketClient,
+  getBorshClient,
+  resetBorshClient,
+  type BorshClientOptions,
+  type ConnectionState,
+  type BorshMessage,
+  type MessageHandler,
+  type StateChangeHandler,
+  type ErrorHandler,
+} from './client';
+
+export {
+  SelectStateMachine,
+  getSelectStateMachine,
+  resetSelectStateMachine,
+  type SelectTransactionState,
+  type SelectTransaction,
+  type OutputGateState,
+  type OutputGate,
+  type SelectStartEvent,
+  type SwitchAckEvent,
+  type HistoryEvent,
+  type LiveResumeEvent,
+  type OutputEvent,
+  type SelectFailedEvent,
+  type SelectEvent,
+  type SelectCallbacks,
+} from './state-machine';
+
+export {
+  generateSelectToken,
+  buildDeviceConnect,
+  buildDeviceDisconnect,
+  buildTmuxSelect,
+  buildTmuxSelectWindow,
+  buildTmuxCreateWindow,
+  buildTmuxCloseWindow,
+  buildTmuxClosePane,
+  buildTmuxRenameWindow,
+  buildTermInput,
+  buildTermPaste,
+  buildTermResize,
+  buildTermSyncSize,
+  decodeDeviceConnected,
+  decodeDeviceDisconnected,
+  decodeDeviceEvent,
+  decodeStateSnapshot,
+  decodeTmuxEvent,
+  decodeTermOutput,
+  decodeTermHistory,
+  decodeSwitchAck,
+  decodeLiveResume,
+  decodeError,
+  type TmuxSelectParams,
+} from './message-builder';
