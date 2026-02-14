@@ -53,9 +53,14 @@ export function useTerminalResize({
 
       const term = terminalRef.current;
       const fitAddon = fitAddonRef.current;
-      if (!term || !fitAddon) return false;
+      if (!term || !fitAddon || !term.element) return false;
 
-      fitAddon.fit();
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        // FitAddon may fail if terminal is not fully ready
+        return false;
+      }
       const cols = Math.max(2, term.cols);
       const rows = Math.max(2, term.rows);
       const lastSize = lastReportedSize.current;

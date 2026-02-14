@@ -143,13 +143,20 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       setFitAddon(fit);
       setTerminal(instance);
 
-      // 初始 fit
-      requestAnimationFrame(() => {
-        fit.fit();
+      // 初始 fit - 延迟确保 terminal 已附加到 DOM
+      const initTimer = window.setTimeout(() => {
+        try {
+          if (fitAddonRef.current && instance?.element) {
+            fit.fit();
+          }
+        } catch (e) {
+          console.warn('[Terminal] FitAddon initial fit failed:', e);
+        }
         isTerminalReadyRef.current = true;
-      });
+      }, 50);
 
       return () => {
+        window.clearTimeout(initTimer);
         fitAddonRef.current = null;
         setFitAddon(null);
         setTerminal(null);
@@ -267,7 +274,13 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       if (!container) return;
 
       const observer = new ResizeObserver(() => {
-        fitAddonRef.current?.fit();
+        try {
+          if (fitAddonRef.current && instance?.element) {
+            fitAddonRef.current.fit();
+          }
+        } catch (e) {
+          // Ignore fit errors during resize
+        }
         if (deviceConnected && !isSelectionInvalid) {
           scheduleResize('resize');
         }
@@ -275,7 +288,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       observer.observe(container);
       return () => observer.disconnect();
-    }, [deviceConnected, isSelectionInvalid, scheduleResize]);
+    }, [deviceConnected, isSelectionInvalid, scheduleResize, instance]);
 
     // window resize
     useEffect(() => {
