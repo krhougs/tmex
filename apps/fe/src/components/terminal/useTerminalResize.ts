@@ -27,6 +27,19 @@ export function useTerminalResize({
   const postSelectResizeTimers = useRef<number[]>([]);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalRef = useRef<XTermTerminal | null>(null);
+  
+  // Use refs to store callbacks to avoid dependency cycles
+  const onResizeRef = useRef(onResize);
+  const onSyncRef = useRef(onSync);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onResizeRef.current = onResize;
+  }, [onResize]);
+  
+  useEffect(() => {
+    onSyncRef.current = onSync;
+  }, [onSync]);
 
   const reportSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
@@ -52,16 +65,17 @@ export function useTerminalResize({
       }
 
       if (kind === 'sync') {
-        onSync(cols, rows);
+        onSyncRef.current(cols, rows);
       } else {
-        onResize(cols, rows);
+        onResizeRef.current(cols, rows);
       }
 
       lastReportedSize.current = { cols, rows };
       pendingLocalSize.current = { cols, rows, at: Date.now() };
       return true;
     },
-    [deviceId, paneId, deviceConnected, isSelectionInvalid, onResize, onSync]
+    // Only depend on stable values, not the callbacks
+    [deviceId, paneId, deviceConnected, isSelectionInvalid]
   );
 
   const scheduleResize = useCallback(

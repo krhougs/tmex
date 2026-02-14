@@ -280,10 +280,18 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       return () => window.removeEventListener('resize', handleResize);
     }, [deviceConnected, isSelectionInvalid, scheduleResize]);
 
-    // pane 选择后的 resize
+    // pane 选择后的 resize - 只在 paneId 变化时触发
+    const initialResizeDoneRef = useRef(false);
     useEffect(() => {
       if (!deviceConnected || !paneId || isSelectionInvalid) return;
+      if (initialResizeDoneRef.current) return;
+      
+      initialResizeDoneRef.current = true;
       runPostSelectResize();
+      
+      return () => {
+        initialResizeDoneRef.current = false;
+      };
     }, [deviceConnected, paneId, isSelectionInvalid, runPostSelectResize]);
 
     // 暴露方法给父组件
