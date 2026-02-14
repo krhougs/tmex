@@ -2,7 +2,11 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'rea
 import { useXTerm } from 'react-xtermjs';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalProps, TerminalRef } from './types';
-import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
+import {
+  XTERM_FONT_FAMILY,
+  XTERM_THEME_DARK,
+  XTERM_THEME_LIGHT,
+} from './theme';
 import { useTmuxStore } from '@/stores/tmux';
 import { getSelectStateMachine, type SelectCallbacks } from '@/ws-borsh';
 import { FitAddon } from 'xterm-addon-fit';
@@ -67,7 +71,15 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       options: TERMINAL_OPTIONS,
     });
 
-    const xtermTheme = theme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
+    const xtermTheme = useMemo(() => {
+      switch (theme) {
+        case 'light':
+          return XTERM_THEME_LIGHT;
+        case 'dark':
+        default:
+          return XTERM_THEME_DARK;
+      }
+    }, [theme]);
 
     const sendInput = useTmuxStore((state) => state.sendInput);
 

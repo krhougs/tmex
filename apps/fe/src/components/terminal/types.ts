@@ -1,9 +1,11 @@
 import type { Terminal as XTermTerminal } from '@xterm/xterm';
 
+export type TerminalTheme = 'light' | 'dark';
+
 export interface TerminalProps {
   deviceId: string;
   paneId: string;
-  theme: 'light' | 'dark';
+  theme: TerminalTheme;
   inputMode: 'direct' | 'editor';
   deviceConnected: boolean;
   isSelectionInvalid: boolean;

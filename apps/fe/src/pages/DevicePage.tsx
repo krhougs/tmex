@@ -801,8 +801,7 @@ export default function DevicePage() {
         style={shouldDockEditor ? { paddingBottom: `${editorDockHeight}px` } : undefined}
       >
         <div
-
-          className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex"
+          className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
           style={{ backgroundColor: terminalTheme.background }}
         >
 
