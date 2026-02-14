@@ -57,6 +57,9 @@ export function SideBarDeviceList() {
 
   const navigateToPane = useCallback(
     (deviceId: string, windowId: string, paneId: string) => {
+      // Clear any pending navigation to prevent interference
+      pendingNavigationRef.current = null;
+
       window.dispatchEvent(
         new CustomEvent('tmex:user-initiated-selection', {
           detail: { deviceId, windowId, paneId },
@@ -75,12 +78,20 @@ export function SideBarDeviceList() {
   const pendingNavigationRef = useRef<{
     deviceId: string;
     windowId: string;
+    at: number;
   } | null>(null);
 
   // Retry navigation when snapshot updates and pending window's panes become available
   useEffect(() => {
     const pending = pendingNavigationRef.current;
     if (!pending) return;
+
+    // Only process pending navigation if it's recent (within 5 seconds)
+    // This prevents stale pending navigation from interfering with user actions
+    if (Date.now() - pending.at > 5000) {
+      pendingNavigationRef.current = null;
+      return;
+    }
 
     const { deviceId: pendingDeviceId, windowId: pendingWindowId } = pending;
     const deviceSnapshot = snapshots[pendingDeviceId];
@@ -108,7 +119,7 @@ export function SideBarDeviceList() {
         pendingNavigationRef.current = null;
       } else {
         // Panes not available yet (cross-device switch), wait for snapshot
-        pendingNavigationRef.current = { deviceId, windowId };
+        pendingNavigationRef.current = { deviceId, windowId, at: Date.now() };
       }
     },
     [navigateToPane, selectWindow]
