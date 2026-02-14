@@ -80,8 +80,6 @@ export default function DevicePage() {
   const connectDevice = useTmuxStore((state) => state.connectDevice);
   const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
   const selectPane = useTmuxStore((state) => state.selectPane);
-  const resizePane = useTmuxStore((state) => state.resizePane);
-  const syncPaneSize = useTmuxStore((state) => state.syncPaneSize);
   const socketReady = useTmuxStore((state) => state.socketReady);
 
   const snapshot = useTmuxStore((state) => (deviceId ? state.snapshots[deviceId] : undefined));
@@ -184,17 +182,17 @@ export default function DevicePage() {
     });
   }, [currentDevice?.name, deviceId, selectedPane, selectedWindow]);
 
-  // Handle resize from terminal
+  // Handle resize from terminal - use store directly to avoid unstable callback deps
   const handleResize = useCallback((cols: number, rows: number) => {
     if (!deviceId || !resolvedPaneId) return;
-    resizePane(deviceId, resolvedPaneId, cols, rows);
-  }, [deviceId, resolvedPaneId, resizePane]);
+    useTmuxStore.getState().resizePane(deviceId, resolvedPaneId, cols, rows);
+  }, [deviceId, resolvedPaneId]);
 
   // Handle sync from terminal
   const handleSync = useCallback((cols: number, rows: number) => {
     if (!deviceId || !resolvedPaneId) return;
-    syncPaneSize(deviceId, resolvedPaneId, cols, rows);
-  }, [deviceId, resolvedPaneId, syncPaneSize]);
+    useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
+  }, [deviceId, resolvedPaneId]);
 
   // Handle terminal ready
   const handleTerminalReady = useCallback(() => {

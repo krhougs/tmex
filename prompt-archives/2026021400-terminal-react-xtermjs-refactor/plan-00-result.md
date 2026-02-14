@@ -105,6 +105,18 @@ DevicePage (816 行)
 
 ---
 
+## 问题修复
+
+### Maximum update depth exceeded
+**原因：** zustand store 的 `resizePane` 和 `syncPaneSize` 回调不稳定，导致 `useTerminalResize` hook 中的依赖循环。
+
+**修复方案：**
+1. 在 `useTerminalResize` 中使用 refs 存储 `onResize` 和 `onSync` 回调
+2. 使用 `useEffect` 更新 refs，避免它们成为 `reportSize` 的依赖
+3. 添加 `initialResizeDoneRef` 防止 pane 选择后的重复 resize 调用
+
+**提交：** `8e4866b`
+
 ## Git 提交历史
 
 ```
@@ -112,4 +124,5 @@ cd3bef6 chore: add react-xtermjs dependency
 2aa9581 feat: create Terminal component with react-xtermjs
 07f539a refactor: DevicePage use Terminal component with react-xtermjs
 73ceec6 fix: type errors in Terminal component and DevicePage
+8e4866b fix: prevent infinite loop in Terminal component by using refs for callbacks
 ```

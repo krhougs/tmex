@@ -52,6 +52,19 @@ function normalizeLiveOutputForXterm(
   return { normalized, endedWithCR };
 }
 
+// Stable terminal options - defined outside component to prevent re-creation
+const TERMINAL_OPTIONS = {
+  fontFamily: XTERM_FONT_FAMILY,
+  fontSize: 13,
+  convertEol: true,
+  scrollSensitivity: 2,
+  smoothScrollDuration: 120,
+  letterSpacing: 0,
+  cursorBlink: true,
+  allowProposedApi: true,
+  scrollback: 10000,
+};
+
 export const Terminal = forwardRef<TerminalRef, TerminalProps>(
   (
     {
@@ -66,19 +79,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     },
     ref
   ) => {
+    // Use stable options
     const { instance, ref: terminalRef } = useXTerm({
-      options: {
-        fontFamily: XTERM_FONT_FAMILY,
-        fontSize: 13,
-        convertEol: true,
-        scrollSensitivity: 2,
-        smoothScrollDuration: 120,
-      
-        letterSpacing: 0,
-        cursorBlink: true,
-        allowProposedApi: true,
-        scrollback: 10000,
-      },
+      options: TERMINAL_OPTIONS,
     });
 
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -90,6 +93,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const historyAppliedRef = useRef(false);
     const liveOutputEndedWithCR = useRef(false);
     const isTerminalReadyRef = useRef(false);
+    const initialResizeDoneRef = useRef(false);
 
     const subscribeBinary = useTmuxStore((state) => state.subscribeBinary);
     const subscribeHistory = useTmuxStore((state) => state.subscribeHistory);
@@ -150,8 +154,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         setFitAddon(null);
         setTerminal(null);
         isTerminalReadyRef.current = false;
+        initialResizeDoneRef.current = false;
       };
-    }, [instance, setFitAddon]);
+    }, [instance, setFitAddon, setTerminal]);
 
     // 主题更新
     useEffect(() => {
@@ -179,6 +184,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       historyBufferRef.current = [];
       historyAppliedRef.current = false;
       liveOutputEndedWithCR.current = false;
+      initialResizeDoneRef.current = false;
       if (instance) {
         instance.reset();
       }
@@ -280,18 +286,13 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       return () => window.removeEventListener('resize', handleResize);
     }, [deviceConnected, isSelectionInvalid, scheduleResize]);
 
-    // pane 选择后的 resize - 只在 paneId 变化时触发
-    const initialResizeDoneRef = useRef(false);
+    // pane 选择后的 resize - 只在 paneId 变化时触发一次
     useEffect(() => {
       if (!deviceConnected || !paneId || isSelectionInvalid) return;
       if (initialResizeDoneRef.current) return;
       
       initialResizeDoneRef.current = true;
       runPostSelectResize();
-      
-      return () => {
-        initialResizeDoneRef.current = false;
-      };
     }, [deviceConnected, paneId, isSelectionInvalid, runPostSelectResize]);
 
     // 暴露方法给父组件
@@ -302,6 +303,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         historyBufferRef.current = [];
         historyAppliedRef.current = false;
         liveOutputEndedWithCR.current = false;
+        initialResizeDoneRef.current = false;
       },
       scrollToBottom: () => instance?.scrollToBottom(),
       resize: (cols, rows) => instance?.resize(cols, rows),
