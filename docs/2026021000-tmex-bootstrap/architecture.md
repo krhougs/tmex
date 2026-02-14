@@ -75,7 +75,16 @@ tmex/
 - 状态机解析 tmux 控制模式输出
 - 支持 window/pane 增删、layout 变化、bell 等事件
 - **忽略 iTerm2 窗口位置信息**，避免影响其他客户端
-- 终端输出通过二进制 WebSocket 帧转发
+- 终端输出通过 WebSocket 转发
+
+#### WebSocket 协议（规划）
+
+- legacy（当前）：JSON 控制消息 + 自定义二进制 output 帧（仅转发选中 pane 输出）
+- 规划：`tmex-ws-borsh-v1`（全二进制，Borsh/@zorsh/zorsh）
+  - 目标：统一控制/事件/snapshot/history/output 的编码与版本演进，并引入 `selectToken` 切换屏障保证顺序确定
+  - 协议规范：`docs/ws-protocol/2026021402-ws-borsh-v1-spec.md`
+  - 状态机：`docs/ws-protocol/2026021403-ws-state-machines.md`
+  - 切换屏障：`docs/terminal/2026021404-terminal-switch-barrier-design.md`
 
 ### 3. 移动端输入优化
 - **直接输入模式**: compositionstart/end 保护，防止拼音候选被拆发

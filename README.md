@@ -177,7 +177,7 @@ tmex/
 | --------------------- | --------------------------------------------------------------------------- |
 | **后端 / Backend**    | Bun.js, SQLite, ssh2, Web Crypto API, gramio (Telegram)                     |
 | **前端 / Frontend**   | React 19, TypeScript, Vite, xterm.js, Tailwind CSS, TanStack Query, Zustand |
-| **协议 / Protocol**   | tmux -CC (Control Mode), WebSocket                                          |
+| **协议 / Protocol**   | tmux -CC (Control Mode), WebSocket（legacy JSON + binary output；规划：Borsh 全二进制） |
 | **部署 / Deployment** | Docker Compose, Nginx                                                       |
 
 ## 开发 / Development
