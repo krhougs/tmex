@@ -50,7 +50,9 @@ export const I18N_RESOURCES = {
       "closeSidebar": "Close Sidebar",
       "jumpToLatest": "Jump to Latest",
       "switchToEditor": "Switch to Editor Input",
-      "switchToDirect": "Switch to Direct Input"
+      "switchToDirect": "Switch to Direct Input",
+      "refreshPage": "Refresh Page",
+      "refreshPageConfirm": "Are you sure you want to refresh the page? Unsaved content will be lost."
     },
     "device": {
       "title": "Device Management",
@@ -65,6 +67,7 @@ export const I18N_RESOURCES = {
       "type": "Type",
       "typeLocal": "Local Device",
       "typeSSH": "SSH Remote Device",
+      "typeSSHBadge": "SSH",
       "host": "Host",
       "hostPlaceholder": "example.com",
       "port": "Port",
@@ -149,6 +152,8 @@ export const I18N_RESOURCES = {
       "theme": "Theme",
       "themeLight": "Light",
       "themeDark": "Dark",
+      "siteTab": "Site",
+      "notificationsTab": "Notifications",
       "refreshToApply": "Refresh to apply language change",
       "saveSettings": "Save Settings",
       "settingsSaved": "Settings saved",
@@ -156,6 +161,7 @@ export const I18N_RESOURCES = {
       "loadFailed": "Failed to load settings",
       "restartGateway": "Restart Gateway",
       "restartScheduled": "Gateway restart scheduled",
+      "restartConfirm": "Are you sure you want to restart Gateway? This will interrupt all active connections.",
       "restartFailed": "Failed to restart gateway",
       "sshReconnectMaxRetries": "SSH Reconnect Retries"
     },
@@ -362,7 +368,9 @@ export const I18N_RESOURCES = {
       "closeSidebar": "关闭侧边栏",
       "jumpToLatest": "跳转到最新",
       "switchToEditor": "切换到编辑器输入",
-      "switchToDirect": "切换到直接输入"
+      "switchToDirect": "切换到直接输入",
+      "refreshPage": "刷新页面",
+      "refreshPageConfirm": "确定要刷新页面吗？未保存的内容将会丢失。"
     },
     "device": {
       "title": "设备管理",
@@ -377,6 +385,7 @@ export const I18N_RESOURCES = {
       "type": "类型",
       "typeLocal": "本地设备",
       "typeSSH": "SSH 远程设备",
+      "typeSSHBadge": "SSH",
       "host": "主机",
       "hostPlaceholder": "example.com",
       "port": "端口",
@@ -461,6 +470,8 @@ export const I18N_RESOURCES = {
       "theme": "主题",
       "themeLight": "浅色",
       "themeDark": "深色",
+      "siteTab": "站点",
+      "notificationsTab": "通知",
       "refreshToApply": "刷新后生效",
       "saveSettings": "保存设置",
       "settingsSaved": "站点设置已保存",
@@ -468,6 +479,7 @@ export const I18N_RESOURCES = {
       "loadFailed": "加载设置失败",
       "restartGateway": "重启 Gateway",
       "restartScheduled": "Gateway 重启请求已发送",
+      "restartConfirm": "确定要重启 Gateway 吗？这将中断所有活动连接。",
       "restartFailed": "重启请求失败",
       "sshReconnectMaxRetries": "SSH 重连次数"
     },
@@ -674,7 +686,9 @@ export const I18N_RESOURCES = {
       "closeSidebar": "サイドバーを閉じる",
       "jumpToLatest": "最新にジャンプ",
       "switchToEditor": "エディタ入力に切り替え",
-      "switchToDirect": "直接入力に切り替え"
+      "switchToDirect": "直接入力に切り替え",
+      "refreshPage": "ページを更新",
+      "refreshPageConfirm": "ページを更新してもよろしいですか？保存されていない内容は失われます。"
     },
     "device": {
       "title": "デバイス管理",
@@ -689,6 +703,7 @@ export const I18N_RESOURCES = {
       "type": "タイプ",
       "typeLocal": "ローカルデバイス",
       "typeSSH": "SSH リモートデバイス",
+      "typeSSHBadge": "SSH",
       "host": "ホスト",
       "hostPlaceholder": "example.com",
       "port": "ポート",
@@ -773,6 +788,8 @@ export const I18N_RESOURCES = {
       "theme": "テーマ",
       "themeLight": "ライト",
       "themeDark": "ダーク",
+      "siteTab": "サイト",
+      "notificationsTab": "通知",
       "refreshToApply": "言語変更を適用するには更新してください",
       "saveSettings": "設定を保存",
       "settingsSaved": "設定を保存しました",
@@ -780,6 +797,7 @@ export const I18N_RESOURCES = {
       "loadFailed": "設定の読み込みに失敗しました",
       "restartGateway": "Gateway を再起動",
       "restartScheduled": "Gateway の再起動が予定されました",
+      "restartConfirm": "Gateway を再起動してもよろしいですか？すべてのアクティブ接続が中断されます。",
       "restartFailed": "Gateway の再起動に失敗しました",
       "sshReconnectMaxRetries": "SSH 再接続試行回数"
     },

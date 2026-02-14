@@ -7,9 +7,19 @@ import { Unicode11Addon } from 'xterm-addon-unicode11';
 import 'xterm/css/xterm.css';
 import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
-import { ArrowDownToLine, Keyboard, Loader2, Send, Smartphone, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, Keyboard, Loader2, RefreshCw, Send, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
@@ -815,8 +825,21 @@ export default function DevicePage() {
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
-    term.options.theme = { ...terminalTheme };
-  }, [terminalTheme]);
+    const theme = uiTheme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
+    term.options.theme = theme;
+    // Force renderer to clear texture atlas and redraw
+    const core = (term as unknown as { _core?: {
+      renderer?: { clearTextureAtlas?: () => void; clear?: () => void };
+      viewport?: { refresh: () => void };
+    } })._core;
+    if (core?.renderer?.clearTextureAtlas) {
+      core.renderer.clearTextureAtlas();
+    }
+    if (core?.viewport?.refresh) {
+      core.viewport.refresh();
+    }
+    term.refresh(0, term.rows - 1);
+  }, [uiTheme]);
 
   useEffect(() => {
     const term = terminal.current;
@@ -1416,7 +1439,7 @@ export function PageTitle() {
   return <>{title}</>;
 }
 
-// Page actions component - shows input mode toggle and jump to latest
+// Page actions component - shows input mode toggle, jump to latest and refresh page
 export function PageActions() {
   const { t } = useTranslation();
   const { deviceId, paneId } = useParams();
@@ -1424,6 +1447,8 @@ export function PageActions() {
   const inputMode = useUIStore((state) => state.inputMode);
   const setInputMode = useUIStore((state) => state.setInputMode);
   const deviceConnected = useTmuxStore((state) => deviceId ? state.deviceConnected?.[deviceId] ?? false : false);
+  
+  const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
   
   const canInteract = Boolean(resolvedPaneId && deviceConnected);
   
@@ -1436,8 +1461,25 @@ export function PageActions() {
     window.dispatchEvent(new CustomEvent('tmex:jump-to-latest'));
   };
   
+  const handleRefreshClick = () => {
+    setShowRefreshConfirm(true);
+  };
+  
+  const handleConfirmRefresh = () => {
+    window.location.reload();
+  };
+  
   return (
     <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={handleRefreshClick}
+        aria-label={t('nav.refreshPage')}
+        title={t('nav.refreshPage')}
+      >
+        <RefreshCw className="h-4 w-4" />
+      </Button>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -1458,6 +1500,23 @@ export function PageActions() {
       >
         <ArrowDownToLine className="h-4 w-4" />
       </Button>
+      
+      <AlertDialog open={showRefreshConfirm} onOpenChange={setShowRefreshConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('nav.refreshPage')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('nav.refreshPageConfirm')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowRefreshConfirm(false)}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmRefresh}>
+              {t('common.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

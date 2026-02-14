@@ -392,7 +392,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{device.type === 'local' ? t('device.typeLocal') : 'SSH'}</Badge>
+          <Badge variant="outline">{device.type === 'local' ? t('device.typeLocal') : t('device.typeSSHBadge')}</Badge>
           {device.session && <Badge variant="outline">{device.session}</Badge>}
         </div>
       </CardHeader>

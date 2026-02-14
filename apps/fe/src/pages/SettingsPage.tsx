@@ -1,20 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
-  EventType,
   LocaleCode,
   SiteSettings,
   TelegramBotChat,
   TelegramBotWithStats,
   UpdateSiteSettingsRequest,
-  WebhookEndpoint,
 } from '@tmex/shared';
 import { I18N_MANIFEST, toBCP47 as toBCP47Locale } from '@tmex/shared';
-import { Loader2, RefreshCcw, RotateCcw, Save, Send, Shield, Trash2, Webhook } from 'lucide-react';
+import { Loader2, RotateCcw, Save, Send, Shield, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,9 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useSiteStore } from '../stores/site';
-import { useUIStore } from '../stores/ui';
 
 interface TelegramBotsResponse {
   bots: TelegramBotWithStats[];
@@ -36,10 +42,6 @@ interface TelegramBotsResponse {
 
 interface TelegramChatsResponse {
   chats: TelegramBotChat[];
-}
-
-interface WebhooksResponse {
-  webhooks: WebhookEndpoint[];
 }
 
 interface SiteSettingsResponse {
@@ -59,8 +61,6 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { refreshSettings } = useSiteStore();
-  const theme = useUIStore((state) => state.theme);
-  const setTheme = useUIStore((state) => state.setTheme);
 
   // Site settings state
   const [siteName, setSiteName] = useState('tmex');
@@ -79,14 +79,6 @@ export default function SettingsPage() {
   const [newBotName, setNewBotName] = useState('');
   const [newBotToken, setNewBotToken] = useState('');
   const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
-
-  // Webhook state
-  const [newWebhookUrl, setNewWebhookUrl] = useState('');
-  const [newWebhookSecret, setNewWebhookSecret] = useState('');
-  const [newWebhookEnabled, setNewWebhookEnabled] = useState(true);
-  const [newWebhookEvents, setNewWebhookEvents] = useState<Set<EventType>>(
-    () => new Set(['terminal_bell'])
-  );
 
   const settingsQuery = useQuery({
     queryKey: ['site-settings'],
@@ -107,17 +99,6 @@ export default function SettingsPage() {
         throw new Error(await parseApiError(res, t('telegram.loadBotsFailed')));
       }
       return (await res.json()) as TelegramBotsResponse;
-    },
-  });
-
-  const webhooksQuery = useQuery({
-    queryKey: ['webhooks'],
-    queryFn: async () => {
-      const res = await fetch('/api/webhooks');
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('webhook.loadFailed')));
-      }
-      return (await res.json()) as WebhooksResponse;
     },
   });
 
@@ -178,21 +159,6 @@ export default function SettingsPage() {
     },
   });
 
-  const restartMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/settings/restart', { method: 'POST' });
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('settings.restartFailed')));
-      }
-    },
-    onSuccess: () => {
-      toast.success(t('settings.restartScheduled'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
   const createBotMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch('/api/settings/telegram/bots', {
@@ -223,567 +189,266 @@ export default function SettingsPage() {
     },
   });
 
-  const createWebhookMutation = useMutation({
-    mutationFn: async () => {
-      const payload = {
-        enabled: newWebhookEnabled,
-        url: newWebhookUrl.trim(),
-        secret: newWebhookSecret.trim(),
-        eventMask: Array.from(newWebhookEvents),
-      };
-
-      const res = await fetch('/api/webhooks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('webhook.createFailed')));
-      }
-    },
-    onSuccess: async () => {
-      setNewWebhookUrl('');
-      setNewWebhookSecret('');
-      setNewWebhookEnabled(true);
-      setNewWebhookEvents(new Set(['terminal_bell']));
-      await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const deleteWebhookMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/webhooks/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('webhook.deleteFailed')));
-      }
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
   const bots = botsQuery.data?.bots ?? [];
-  const webhooks = webhooksQuery.data?.webhooks ?? [];
-
-  const webhookEventTypes: EventType[] = useMemo(
-    () => [
-      'terminal_bell',
-      'tmux_window_close',
-      'tmux_pane_close',
-      'device_tmux_missing',
-      'device_disconnect',
-      'session_created',
-      'session_closed',
-    ],
-    []
-  );
 
   return (
     <div
-      className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:gap-4 sm:p-5"
+      className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-3 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:gap-6 sm:p-5"
       data-testid="settings-page"
     >
-      <Tabs defaultValue="site" className="w-full">
-        <TabsList variant="line" className="w-full justify-start gap-4">
-          <TabsTrigger value="site" data-testid="settings-tab-site">{t('settings.siteTab') || '站点'}</TabsTrigger>
-          <TabsTrigger value="notifications" data-testid="settings-tab-notifications">{t('settings.notificationsTab') || '通知'}</TabsTrigger>
-          <TabsTrigger value="telegram" data-testid="settings-tab-telegram">{t('telegram.title')}</TabsTrigger>
-          <TabsTrigger value="webhooks" data-testid="settings-tab-webhooks">{t('webhook.title')}</TabsTrigger>
-        </TabsList>
+      {/* Site Settings Section */}
+      <Card className="border-0 ring-0">
+        <CardHeader>
+          <CardTitle>{t('settings.siteSettings')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <label className="block text-sm font-medium" htmlFor="site-name-input">
+              {t('settings.siteName')}
+            </label>
+            <Input
+              id="site-name-input"
+              value={siteName}
+              onChange={(event) => setSiteName(event.target.value)}
+              placeholder={t('settings.siteNamePlaceholder')}
+              className="min-h-10"
+            />
+          </div>
 
-        {/* Site Tab */}
-        <TabsContent value="site" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.siteName')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="site-name-input">
-                  {t('settings.siteName')}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium" htmlFor="site-url-input">
+              {t('settings.siteUrl')}
+            </label>
+            <Input
+              id="site-url-input"
+              value={siteUrl}
+              onChange={(event) => setSiteUrl(event.target.value)}
+              placeholder={t('settings.siteUrlPlaceholder')}
+              className="min-h-10"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium" htmlFor="language-select">
+              {t('settings.language')}
+            </label>
+            <Select
+              value={language}
+              onValueChange={(nextValue) => {
+                if (!nextValue) return;
+                setLanguage(nextValue as LocaleCode);
+              }}
+            >
+              <SelectTrigger
+                id="language-select"
+                data-testid="settings-language-select"
+                className="w-full min-h-10"
+              >
+                <SelectValue placeholder={t('settings.language')}>
+                  {I18N_MANIFEST.locales.find((l) => l.code === language)?.nativeName ?? language}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-[var(--tmex-viewport-height)]">
+                {I18N_MANIFEST.locales.map((locale) => (
+                  <SelectItem key={locale.code} value={locale.code}>
+                    {locale.nativeName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {showRefreshNotice && (
+              <p
+                className="mt-1 text-xs text-primary"
+                data-testid="settings-refresh-notice"
+              >
+                {t('settings.refreshToApply')}
+              </p>
+            )}
+          </div>
+
+
+        </CardContent>
+      </Card>
+
+      {/* Notifications Section */}
+      <Card className="border-0 ring-0">
+        <CardHeader>
+          <CardTitle>{t('settings.notificationsTab')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Bell Settings */}
+          <div className="space-y-3">
+            <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+              <div className="min-w-0 pr-2">
+                <div className="text-sm font-medium">{t('settings.enableBrowserBellToast')}</div>
+              </div>
+              <Switch
+                checked={enableBrowserBellToast}
+                onCheckedChange={(checked) => setEnableBrowserBellToast(Boolean(checked))}
+                data-testid="settings-enable-browser-bell-toast"
+              />
+            </div>
+
+            <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+              <div className="min-w-0 pr-2">
+                <div className="text-sm font-medium">{t('settings.enableTelegramBellPush')}</div>
+              </div>
+              <Switch
+                checked={enableTelegramBellPush}
+                onCheckedChange={(checked) => setEnableTelegramBellPush(Boolean(checked))}
+                data-testid="settings-enable-telegram-bell-push"
+              />
+            </div>
+          </div>
+
+          {/* Numeric Settings */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium" htmlFor="bell-throttle-input">
+                {t('settings.bellThrottle')}
+              </label>
+              <Input
+                id="bell-throttle-input"
+                type="number"
+                value={bellThrottleSeconds}
+                min={0}
+                max={300}
+                onChange={(event) => setBellThrottleSeconds(Number(event.target.value))}
+                className="min-h-10"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label
+                className="block text-sm font-medium"
+                htmlFor="ssh-reconnect-retries-input"
+              >
+                {t('settings.sshReconnectMaxRetries')}
+              </label>
+              <Input
+                id="ssh-reconnect-retries-input"
+                type="number"
+                value={sshReconnectMaxRetries}
+                min={0}
+                max={20}
+                onChange={(event) => setSshReconnectMaxRetries(Number(event.target.value))}
+                className="min-h-10"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label
+                className="block text-sm font-medium"
+                htmlFor="ssh-reconnect-delay-input"
+              >
+                {t('settings.sshReconnectDelay')}
+              </label>
+              <Input
+                id="ssh-reconnect-delay-input"
+                type="number"
+                value={sshReconnectDelaySeconds}
+                min={1}
+                max={300}
+                onChange={(event) => setSshReconnectDelaySeconds(Number(event.target.value))}
+                className="min-h-10"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Telegram Section */}
+      <Card className="border-0 ring-0">
+        <CardHeader>
+          <CardTitle>{t('telegram.title')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Add Bot Form */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
+              <div className="md:col-span-4 space-y-2">
+                <label className="block text-sm font-medium" htmlFor="new-bot-name">
+                  {t('telegram.botName')}
                 </label>
                 <Input
-                  id="site-name-input"
-                  value={siteName}
-                  onChange={(event) => setSiteName(event.target.value)}
-                  placeholder={t('settings.siteNamePlaceholder')}
+                  id="new-bot-name"
+                  value={newBotName}
+                  onChange={(event) => setNewBotName(event.target.value)}
+                  placeholder={t('telegram.botNamePlaceholder')}
                   className="min-h-10"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="site-url-input">
-                  {t('settings.siteUrl')}
+              <div className="md:col-span-6 space-y-2">
+                <label className="block text-sm font-medium" htmlFor="new-bot-token">
+                  {t('telegram.botToken')}
                 </label>
                 <Input
-                  id="site-url-input"
-                  value={siteUrl}
-                  onChange={(event) => setSiteUrl(event.target.value)}
-                  placeholder={t('settings.siteUrlPlaceholder')}
+                  id="new-bot-token"
+                  type="password"
+                  value={newBotToken}
+                  onChange={(event) => setNewBotToken(event.target.value)}
+                  placeholder={t('telegram.botTokenPlaceholder')}
                   className="min-h-10"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="language-select">
-                  {t('settings.language')}
-                </label>
-                <Select
-                  value={language}
-                  onValueChange={(nextValue) => {
-                    if (!nextValue) return;
-                    setLanguage(nextValue as LocaleCode);
-                  }}
-                >
-                  <SelectTrigger
-                    id="language-select"
-                    data-testid="settings-language-select"
-                    className="w-full min-h-10"
-                  >
-                    <SelectValue placeholder={t('settings.language')}>
-                      {I18N_MANIFEST.locales.find((l) => l.code === language)?.nativeName ?? language}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[var(--tmex-viewport-height)]">
-                    {I18N_MANIFEST.locales.map((locale) => (
-                      <SelectItem key={locale.code} value={locale.code}>
-                        {locale.nativeName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {showRefreshNotice && (
-                  <p
-                    className="mt-1 text-xs text-primary"
-                    data-testid="settings-refresh-notice"
-                  >
-                    {t('settings.refreshToApply')}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{t('settings.theme')}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {theme === 'dark' ? t('settings.themeDark') : t('settings.themeLight')}
-                  </div>
-                </div>
-                <Switch
-                  data-testid="settings-theme-toggle"
-                  checked={theme === 'dark'}
-                  onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-                />
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                <Button
-                  variant="destructive"
-                  data-testid="settings-restart"
-                  onClick={() => restartMutation.mutate()}
-                  disabled={restartMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  {t('settings.restartGateway')}
-                </Button>
-
+              <div className="md:col-span-2">
                 <Button
                   variant="default"
-                  data-testid="settings-save"
-                  onClick={() => saveSiteMutation.mutate()}
-                  disabled={saveSiteMutation.isPending}
-                  className="w-full sm:w-auto"
+                  className="w-full md:w-auto"
+                  data-testid="telegram-add-bot"
+                  onClick={() => createBotMutation.mutate()}
+                  disabled={createBotMutation.isPending || !newBotName.trim() || !newBotToken.trim()}
                 >
-                  <Save className="h-4 w-4" />
-                  {t('common.save')}
+                  {createBotMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {t('telegram.addBot')}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
 
-        {/* Notifications Tab */}
-        <TabsContent value="notifications" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.notificationsTab') || '通知设置'}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Bell Settings */}
-              <div className="space-y-3">
-                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                  <div className="min-w-0 pr-2">
-                    <div className="text-sm font-medium">{t('settings.enableBrowserBellToast')}</div>
-                  </div>
-                  <Switch
-                    checked={enableBrowserBellToast}
-                    onCheckedChange={(checked) => setEnableBrowserBellToast(Boolean(checked))}
-                    data-testid="settings-enable-browser-bell-toast"
-                  />
-                </div>
+          {/* Bot List */}
+          <div className="space-y-3">
+            {botsQuery.isLoading && (
+              <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+            )}
 
-                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                  <div className="min-w-0 pr-2">
-                    <div className="text-sm font-medium">{t('settings.enableTelegramBellPush')}</div>
-                  </div>
-                  <Switch
-                    checked={enableTelegramBellPush}
-                    onCheckedChange={(checked) => setEnableTelegramBellPush(Boolean(checked))}
-                    data-testid="settings-enable-telegram-bell-push"
-                  />
-                </div>
-              </div>
+            {!botsQuery.isLoading && bots.length === 0 && (
+              <div className="text-sm text-muted-foreground">{t('telegram.addBot')}</div>
+            )}
 
-              {/* Numeric Settings */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium" htmlFor="bell-throttle-input">
-                    {t('settings.bellThrottle')}
-                  </label>
-                  <Input
-                    id="bell-throttle-input"
-                    type="number"
-                    value={bellThrottleSeconds}
-                    min={0}
-                    max={300}
-                    onChange={(event) => setBellThrottleSeconds(Number(event.target.value))}
-                    className="min-h-10"
-                  />
-                </div>
+            {bots.map((bot) => (
+              <BotCard
+                key={bot.id}
+                bot={bot}
+                expanded={expandedBotId === bot.id}
+                onToggleExpand={() => {
+                  setExpandedBotId((prev) => (prev === bot.id ? null : bot.id));
+                }}
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-                <div className="space-y-2">
-                  <label
-                    className="block text-sm font-medium"
-                    htmlFor="ssh-reconnect-retries-input"
-                  >
-                    {t('settings.sshReconnectMaxRetries')}
-                  </label>
-                  <Input
-                    id="ssh-reconnect-retries-input"
-                    type="number"
-                    value={sshReconnectMaxRetries}
-                    min={0}
-                    max={20}
-                    onChange={(event) => setSshReconnectMaxRetries(Number(event.target.value))}
-                    className="min-h-10"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label
-                    className="block text-sm font-medium"
-                    htmlFor="ssh-reconnect-delay-input"
-                  >
-                    {t('settings.sshReconnectDelay')}
-                  </label>
-                  <Input
-                    id="ssh-reconnect-delay-input"
-                    type="number"
-                    value={sshReconnectDelaySeconds}
-                    min={1}
-                    max={300}
-                    onChange={(event) => setSshReconnectDelaySeconds(Number(event.target.value))}
-                    className="min-h-10"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                <Button
-                  variant="destructive"
-                  data-testid="settings-restart"
-                  onClick={() => restartMutation.mutate()}
-                  disabled={restartMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  {t('settings.restartGateway')}
-                </Button>
-
-                <Button
-                  variant="default"
-                  data-testid="settings-save"
-                  onClick={() => saveSiteMutation.mutate()}
-                  disabled={saveSiteMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  <Save className="h-4 w-4" />
-                  {t('common.save')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Telegram Tab */}
-        <TabsContent value="telegram" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('telegram.title')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Add Bot Form */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                  <div className="md:col-span-4 space-y-2">
-                    <label className="block text-sm font-medium" htmlFor="new-bot-name">
-                      {t('telegram.botName')}
-                    </label>
-                    <Input
-                      id="new-bot-name"
-                      value={newBotName}
-                      onChange={(event) => setNewBotName(event.target.value)}
-                      placeholder={t('telegram.botNamePlaceholder')}
-                      className="min-h-10"
-                    />
-                  </div>
-
-                  <div className="md:col-span-6 space-y-2">
-                    <label className="block text-sm font-medium" htmlFor="new-bot-token">
-                      {t('telegram.botToken')}
-                    </label>
-                    <Input
-                      id="new-bot-token"
-                      type="password"
-                      value={newBotToken}
-                      onChange={(event) => setNewBotToken(event.target.value)}
-                      placeholder={t('telegram.botTokenPlaceholder')}
-                      className="min-h-10"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <Button
-                      variant="default"
-                      className="w-full md:w-auto"
-                      data-testid="telegram-add-bot"
-                      onClick={() => createBotMutation.mutate()}
-                      disabled={createBotMutation.isPending || !newBotName.trim() || !newBotToken.trim()}
-                    >
-                      {createBotMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Save className="h-4 w-4" />
-                      )}
-                      {t('telegram.addBot')}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bot List */}
-              <div className="space-y-3">
-                {botsQuery.isLoading && (
-                  <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-                )}
-
-                {!botsQuery.isLoading && bots.length === 0 && (
-                  <div className="text-sm text-muted-foreground">{t('telegram.addBot')}</div>
-                )}
-
-                {bots.map((bot) => (
-                  <BotCard
-                    key={bot.id}
-                    bot={bot}
-                    expanded={expandedBotId === bot.id}
-                    onToggleExpand={() => {
-                      setExpandedBotId((prev) => (prev === bot.id ? null : bot.id));
-                    }}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Webhooks Tab */}
-        <TabsContent value="webhooks" className="mt-4">
-          <Card data-testid="webhooks-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Webhook className="h-4 w-4 text-muted-foreground" />
-                {t('webhook.title')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Add Webhook Form */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                  <div className="md:col-span-6 space-y-2">
-                    <label className="block text-sm font-medium" htmlFor="new-webhook-url">
-                      {t('webhook.url')}
-                    </label>
-                    <Input
-                      id="new-webhook-url"
-                      data-testid="webhook-url-input"
-                      value={newWebhookUrl}
-                      onChange={(event) => setNewWebhookUrl(event.target.value)}
-                      placeholder="https://example.com/tmex/webhook"
-                      className="min-h-10"
-                    />
-                  </div>
-
-                  <div className="md:col-span-4 space-y-2">
-                    <label className="block text-sm font-medium" htmlFor="new-webhook-secret">
-                      {t('webhook.secret')}
-                    </label>
-                    <Input
-                      id="new-webhook-secret"
-                      data-testid="webhook-secret-input"
-                      type="password"
-                      value={newWebhookSecret}
-                      onChange={(event) => setNewWebhookSecret(event.target.value)}
-                      placeholder={t('webhook.secretPlaceholder')}
-                      className="min-h-10"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <Button
-                      variant="default"
-                      className="w-full md:w-auto"
-                      data-testid="webhook-add"
-                      onClick={() => createWebhookMutation.mutate()}
-                      disabled={
-                        createWebhookMutation.isPending ||
-                        !newWebhookUrl.trim() ||
-                        !newWebhookSecret.trim()
-                      }
-                    >
-                      {createWebhookMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Save className="h-4 w-4" />
-                      )}
-                      {t('webhook.add')}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                    <div className="min-w-0 pr-2 text-sm font-medium">{t('webhook.enabled')}</div>
-                    <Switch
-                      size="sm"
-                      data-testid="webhook-enabled-toggle"
-                      checked={newWebhookEnabled}
-                      onCheckedChange={(checked) => setNewWebhookEnabled(Boolean(checked))}
-                    />
-                  </div>
-
-                  <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                    <div className="min-w-0 pr-2 text-sm font-medium">{t('webhook.eventMask')}</div>
-                    <Badge variant="secondary" data-testid="webhook-selected-count">
-                      {newWebhookEvents.size}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {webhookEventTypes.map((eventType) => (
-                    <div
-                      key={eventType}
-                      className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-background px-4 py-2.5"
-                    >
-                      <div className="min-w-0 pr-2 text-sm font-medium">
-                        {t(`notification.eventType.${eventType}`)}
-                      </div>
-                      <Switch
-                        size="sm"
-                        data-testid={`webhook-event-${eventType}`}
-                        checked={newWebhookEvents.has(eventType)}
-                        onCheckedChange={(checked) => {
-                          setNewWebhookEvents((prev) => {
-                            const next = new Set(prev);
-                            if (checked) {
-                              next.add(eventType);
-                            } else {
-                              next.delete(eventType);
-                            }
-                            return next;
-                          });
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Webhook List */}
-              <div className="space-y-3" data-testid="webhook-list">
-                {webhooksQuery.isLoading && (
-                  <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-                )}
-
-                {!webhooksQuery.isLoading && webhooks.length === 0 && (
-                  <div className="text-sm text-muted-foreground">{t('webhook.empty')}</div>
-                )}
-
-                {webhooks.map((endpoint) => (
-                  <div
-                    key={endpoint.id}
-                    data-testid="webhook-item"
-                    data-webhook-url={endpoint.url}
-                    className="space-y-3 rounded-md border border-border bg-card p-4"
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="min-w-0 truncate font-medium" title={endpoint.url}>
-                            {endpoint.url}
-                          </div>
-                          <Badge variant={endpoint.enabled ? 'secondary' : 'outline'}>
-                            {endpoint.enabled ? t('common.enabled') : t('common.disabled')}
-                          </Badge>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {endpoint.eventMask.length === 0 ? (
-                            <Badge variant="outline">{t('common.none')}</Badge>
-                          ) : (
-                            endpoint.eventMask.map((eventType) => (
-                              <Badge key={`${endpoint.id}-${eventType}`} variant="outline">
-                                {t(`notification.eventType.${eventType}`)}
-                              </Badge>
-                            ))
-                          )}
-                        </div>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {new Date(endpoint.createdAt).toLocaleString(toBCP47Locale(language))}
-                        </div>
-                      </div>
-
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        data-testid="webhook-delete"
-                        onClick={() => deleteWebhookMutation.mutate(endpoint.id)}
-                        disabled={deleteWebhookMutation.isPending}
-                        className="w-full sm:w-auto"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        {t('common.delete')}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Save Actions */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+        <Button
+          variant="default"
+          data-testid="settings-save"
+          onClick={() => saveSiteMutation.mutate()}
+          disabled={saveSiteMutation.isPending}
+          className="w-full sm:w-auto"
+        >
+          <Save className="h-4 w-4" />
+          {t('common.save')}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -951,7 +616,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
 
   return (
     <div
-      className="space-y-4 rounded-md border border-border bg-card p-4"
+      className="space-y-4 rounded-md border-0 bg-card p-4"
       data-testid={`telegram-bot-card-${bot.id}`}
       data-bot-name={bot.name}
     >
@@ -1093,7 +758,7 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
   const { t } = useTranslation();
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
   return (
-    <div className="space-y-2 rounded border border-border bg-background p-3">
+    <div className="space-y-2 rounded border-0 bg-background p-3">
       <div className="text-sm font-medium truncate" title={chat.displayName}>
         {chat.displayName}
       </div>
@@ -1129,6 +794,7 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
     </div>
   );
 }
+
 // Page title component
 export function PageTitle() {
   const { t } = useTranslation();
@@ -1138,23 +804,59 @@ export function PageTitle() {
 // Page actions component
 export function PageActions() {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['site-settings'] });
-    queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-    queryClient.invalidateQueries({ queryKey: ['webhooks'] });
-  };
-  
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+
+  const restartMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/settings/restart', { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, t('settings.restartFailed')));
+      }
+    },
+    onSuccess: () => {
+      toast.success(t('settings.restartScheduled'));
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    },
+  });
+
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      onClick={handleRefresh}
-      aria-label={t('common.refresh')}
-      title={t('common.refresh')}
-    >
-      <RefreshCcw className="h-4 w-4" />
-    </Button>
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => setShowRestartConfirm(true)}
+        disabled={restartMutation.isPending}
+        aria-label={t('settings.restartGateway')}
+        title={t('settings.restartGateway')}
+        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+      >
+        <RotateCcw className="h-4 w-4" />
+      </Button>
+
+      <AlertDialog open={showRestartConfirm} onOpenChange={setShowRestartConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.restartGateway')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('settings.restartConfirm')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowRestartConfirm(false)}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                restartMutation.mutate();
+                setShowRestartConfirm(false);
+              }}
+            >
+              {t('common.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

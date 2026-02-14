@@ -44,7 +44,9 @@
       "closeSidebar": "サイドバーを閉じる",
       "jumpToLatest": "最新にジャンプ",
       "switchToEditor": "エディタ入力に切り替え",
-      "switchToDirect": "直接入力に切り替え"
+      "switchToDirect": "直接入力に切り替え",
+      "refreshPage": "ページを更新",
+      "refreshPageConfirm": "ページを更新してもよろしいですか？保存されていない内容は失われます。"
     },
     "device": {
       "title": "デバイス管理",
@@ -59,6 +61,7 @@
       "type": "タイプ",
       "typeLocal": "ローカルデバイス",
       "typeSSH": "SSH リモートデバイス",
+      "typeSSHBadge": "SSH",
       "host": "ホスト",
       "hostPlaceholder": "example.com",
       "port": "ポート",
@@ -143,6 +146,8 @@
       "theme": "テーマ",
       "themeLight": "ライト",
       "themeDark": "ダーク",
+      "siteTab": "サイト",
+      "notificationsTab": "通知",
       "refreshToApply": "言語変更を適用するには更新してください",
       "saveSettings": "設定を保存",
       "settingsSaved": "設定を保存しました",
@@ -150,6 +155,7 @@
       "loadFailed": "設定の読み込みに失敗しました",
       "restartGateway": "Gateway を再起動",
       "restartScheduled": "Gateway の再起動が予定されました",
+      "restartConfirm": "Gateway を再起動してもよろしいですか？すべてのアクティブ接続が中断されます。",
       "restartFailed": "Gateway の再起動に失敗しました",
       "sshReconnectMaxRetries": "SSH 再接続試行回数"
     },

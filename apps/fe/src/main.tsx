@@ -64,8 +64,8 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset className="h-screen overflow-hidden">
-        {/* Header with dynamic title and actions */}
-        <header className=" top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 bg-background/95 pt-[var(--tmex-safe-area-top)] backdrop-blur-sm">
+        <div className="h-[var(--tmex-safe-area-top)]"></div>
+        <header className="sticky top-0 z-10 flex h-12 md:h-16 shrink-0 items-center justify-between gap-2 bg-background/95 backdrop-blur-sm">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
@@ -79,7 +79,7 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
         </header>
 
         {/* Page content */}
-        <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 pt-0">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 !pt-0 p-2 md:p-4 mb-2">
           <div className="bg-muted/50 min-h-0 flex-1 overflow-auto overscroll-auto rounded-xl [-webkit-overflow-scrolling:touch]">
             {Page ? <Page /> : null}
           </div>

@@ -44,7 +44,9 @@
       "closeSidebar": "关闭侧边栏",
       "jumpToLatest": "跳转到最新",
       "switchToEditor": "切换到编辑器输入",
-      "switchToDirect": "切换到直接输入"
+      "switchToDirect": "切换到直接输入",
+      "refreshPage": "刷新页面",
+      "refreshPageConfirm": "确定要刷新页面吗？未保存的内容将会丢失。"
     },
     "device": {
       "title": "设备管理",
@@ -59,6 +61,7 @@
       "type": "类型",
       "typeLocal": "本地设备",
       "typeSSH": "SSH 远程设备",
+      "typeSSHBadge": "SSH",
       "host": "主机",
       "hostPlaceholder": "example.com",
       "port": "端口",
@@ -143,6 +146,8 @@
       "theme": "主题",
       "themeLight": "浅色",
       "themeDark": "深色",
+      "siteTab": "站点",
+      "notificationsTab": "通知",
       "refreshToApply": "刷新后生效",
       "saveSettings": "保存设置",
       "settingsSaved": "站点设置已保存",
@@ -150,6 +155,7 @@
       "loadFailed": "加载设置失败",
       "restartGateway": "重启 Gateway",
       "restartScheduled": "Gateway 重启请求已发送",
+      "restartConfirm": "确定要重启 Gateway 吗？这将中断所有活动连接。",
       "restartFailed": "重启请求失败",
       "sshReconnectMaxRetries": "SSH 重连次数"
     },

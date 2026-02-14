@@ -44,7 +44,9 @@
       "closeSidebar": "Close Sidebar",
       "jumpToLatest": "Jump to Latest",
       "switchToEditor": "Switch to Editor Input",
-      "switchToDirect": "Switch to Direct Input"
+      "switchToDirect": "Switch to Direct Input",
+      "refreshPage": "Refresh Page",
+      "refreshPageConfirm": "Are you sure you want to refresh the page? Unsaved content will be lost."
     },
     "device": {
       "title": "Device Management",
@@ -59,6 +61,7 @@
       "type": "Type",
       "typeLocal": "Local Device",
       "typeSSH": "SSH Remote Device",
+      "typeSSHBadge": "SSH",
       "host": "Host",
       "hostPlaceholder": "example.com",
       "port": "Port",
@@ -143,6 +146,8 @@
       "theme": "Theme",
       "themeLight": "Light",
       "themeDark": "Dark",
+      "siteTab": "Site",
+      "notificationsTab": "Notifications",
       "refreshToApply": "Refresh to apply language change",
       "saveSettings": "Save Settings",
       "settingsSaved": "Settings saved",
@@ -150,6 +155,7 @@
       "loadFailed": "Failed to load settings",
       "restartGateway": "Restart Gateway",
       "restartScheduled": "Gateway restart scheduled",
+      "restartConfirm": "Are you sure you want to restart Gateway? This will interrupt all active connections.",
       "restartFailed": "Failed to restart gateway",
       "sshReconnectMaxRetries": "SSH Reconnect Retries"
     },
