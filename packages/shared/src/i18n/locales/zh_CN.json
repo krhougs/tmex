@@ -82,6 +82,7 @@
       "passphrase": "私钥密码（可选）",
       "connect": "连接",
       "connected": "已连接",
+      "disconnect": "断开",
       "disconnected": "已断开",
       "connecting": "连接中...",
       "deleteConfirm": "删除此设备？",
@@ -309,6 +310,10 @@
       "closeWindow": "关闭窗口",
       "closePane": "关闭 pane",
       "addDevice": "添加设备"
+    },
+    "window": {
+      "noWindows": "暂无窗口",
+      "new": "新建窗口"
     },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",

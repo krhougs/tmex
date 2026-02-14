@@ -82,6 +82,7 @@
       "passphrase": "パスフレーズ",
       "connect": "接続",
       "connected": "接続済み",
+      "disconnect": "切断",
       "disconnected": "切断済み",
       "connecting": "接続中...",
       "deleteConfirm": "このデバイスを削除しますか？",
@@ -309,6 +310,10 @@
       "closeWindow": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
       "addDevice": "デバイスを追加"
+    },
+    "window": {
+      "noWindows": "ウィンドウがありません",
+      "new": "新規ウィンドウ"
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",

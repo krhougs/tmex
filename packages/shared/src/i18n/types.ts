@@ -95,6 +95,7 @@ export type TranslationKey =
   | 'device.passphrase'
   | 'device.connect'
   | 'device.connected'
+  | 'device.disconnect'
   | 'device.disconnected'
   | 'device.connecting'
   | 'device.deleteConfirm'
@@ -310,6 +311,9 @@ export type TranslationKey =
   | 'sidebar.closeWindow'
   | 'sidebar.closePane'
   | 'sidebar.addDevice'
+  | 'window'
+  | 'window.noWindows'
+  | 'window.new'
   | 'validation'
   | 'validation.deviceNameRequired'
   | 'validation.hostRequired';

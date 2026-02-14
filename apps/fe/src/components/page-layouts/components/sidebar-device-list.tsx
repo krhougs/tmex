@@ -1,23 +1,14 @@
+import { useGlobalDevice } from '@/components/global-device-provider';
 import { Badge } from '@/components/ui/badge';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
-import { Globe, Monitor, Plus, Power, PowerOff, Trash2 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { Globe, Monitor, Plus, Power, PowerOff } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
 import { useSiteStore } from '../../../stores/site';
@@ -29,6 +20,7 @@ export function SideBarDeviceList() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { toggleDevice } = useGlobalDevice();
 
   // Get selected window/pane from URL
   const paneMatch = matchPath(
@@ -41,15 +33,9 @@ export function SideBarDeviceList() {
 
   const snapshots = useTmuxStore((state) => state.snapshots);
   const connectedDevices = useTmuxStore((state) => state.connectedDevices);
-  const connectDevice = useTmuxStore((state) => state.connectDevice);
-  const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
-  const selectWindow = useTmuxStore((state) => state.selectWindow);
   const closeWindow = useTmuxStore((state) => state.closeWindow);
   const closePane = useTmuxStore((state) => state.closePane);
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
-
-  const queryClient = useQueryClient();
-  const [deleteCandidate, setDeleteCandidate] = useState<Device | null>(null);
 
   const { data: devicesData } = useQuery({
     queryKey: ['devices'],
@@ -62,8 +48,8 @@ export function SideBarDeviceList() {
   });
 
   const handleNavigate = useCallback(
-    (to: string) => {
-      navigate(to);
+    (to: string, options?: { replace?: boolean }) => {
+      navigate(to, { replace: options?.replace ?? true });
       if (isMobile) setOpenMobile(false);
     },
     [navigate, isMobile, setOpenMobile]
@@ -83,13 +69,49 @@ export function SideBarDeviceList() {
     [handleNavigate]
   );
 
-  const handleWindowClick = useCallback(
-    (deviceId: string, windowId: string, _panes: TmuxPane[]) => {
-      // Click window = send selectWindow to tmux and let it handle pane selection
+  const selectWindow = useTmuxStore((state) => state.selectWindow);
+
+  // Track pending navigation when panes are not yet available (cross-device switch)
+  const pendingNavigationRef = useRef<{
+    deviceId: string;
+    windowId: string;
+  } | null>(null);
+
+  // Retry navigation when snapshot updates and pending window's panes become available
+  useEffect(() => {
+    const pending = pendingNavigationRef.current;
+    if (!pending) return;
+
+    const { deviceId: pendingDeviceId, windowId: pendingWindowId } = pending;
+    const deviceSnapshot = snapshots[pendingDeviceId];
+    const windows = deviceSnapshot?.session?.windows;
+    if (!windows) return;
+
+    const targetWindow = windows.find((w) => w.id === pendingWindowId);
+    if (!targetWindow?.panes?.length) return;
+
+    // Panes are now available, navigate to active pane
+    pendingNavigationRef.current = null;
+    const activePane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
+    navigateToPane(pendingDeviceId, pendingWindowId, activePane.id);
+  }, [snapshots, navigateToPane]);
+
+  const navigateToWindow = useCallback(
+    (deviceId: string, windowId: string, panes: TmuxPane[]) => {
+      // Tell backend to select the window (let tmux decide active pane)
       selectWindow(deviceId, windowId);
-      // The pane-active event will trigger URL update via DevicePage effect
+
+      // Navigate to the active pane in this window (based on current snapshot)
+      const activePane = panes.find((p) => p.active) ?? panes[0];
+      if (activePane) {
+        navigateToPane(deviceId, windowId, activePane.id);
+        pendingNavigationRef.current = null;
+      } else {
+        // Panes not available yet (cross-device switch), wait for snapshot
+        pendingNavigationRef.current = { deviceId, windowId };
+      }
     },
-    [selectWindow]
+    [navigateToPane, selectWindow]
   );
 
   const handleConnectToggle = useCallback(
@@ -99,12 +121,13 @@ export function SideBarDeviceList() {
         if (deviceId === selectedDeviceId) {
           handleNavigate('/devices');
         }
-        disconnectDevice(deviceId, 'sidebar');
       } else {
-        connectDevice(deviceId, 'sidebar');
+        // Connect and navigate to device page
+        handleNavigate(`/devices/${deviceId}`);
       }
+      toggleDevice(deviceId, isConnected);
     },
-    [connectDevice, disconnectDevice, selectedDeviceId, handleNavigate]
+    [toggleDevice, selectedDeviceId, handleNavigate]
   );
 
   const handleCloseWindow = useCallback(
@@ -121,16 +144,6 @@ export function SideBarDeviceList() {
   const handleCreateWindow = useCallback((deviceId: string) => {
     useTmuxStore.getState().createWindow(deviceId);
   }, []);
-
-  const deleteDevice = useMutation({
-    mutationFn: async (deviceId: string) => {
-      const res = await fetch(`/api/devices/${deviceId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(t('device.deleteFailed'));
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['devices'] });
-    },
-  });
 
   const devices = devicesData?.devices ?? [];
   const sortedDevices = useMemo(
@@ -157,12 +170,11 @@ export function SideBarDeviceList() {
               onConnectToggle={() =>
                 handleConnectToggle(device.id, connectedDevices.has(device.id))
               }
-              onRequestDelete={() => setDeleteCandidate(device)}
               onCreateWindow={handleCreateWindow}
               onCloseWindow={handleCloseWindow}
               onClosePane={closePane}
               onPaneClick={navigateToPane}
-              onWindowClick={handleWindowClick}
+              onWindowClick={navigateToWindow}
             />
           ))}
           {sortedDevices.length === 0 && (
@@ -172,39 +184,6 @@ export function SideBarDeviceList() {
           )}
         </div>
       </ScrollArea>
-
-      <AlertDialog open={deleteCandidate !== null} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('device.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>{deleteCandidate?.name ?? ''}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={!deleteCandidate || deleteDevice.isPending}
-              onClick={() => {
-                if (!deleteCandidate) return;
-                const deviceId = deleteCandidate.id;
-
-                if (deviceId === selectedDeviceId) {
-                  handleNavigate('/devices');
-                }
-
-                if (connectedDevices.has(deviceId)) {
-                  disconnectDevice(deviceId, 'sidebar');
-                }
-
-                deleteDevice.mutate(deviceId);
-                setDeleteCandidate(null);
-              }}
-            >
-              {t('common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </SidebarGroup>
   );
 }
@@ -216,7 +195,6 @@ interface DeviceSectionProps {
   selectedWindowId?: string;
   selectedPaneId?: string;
   onConnectToggle: () => void;
-  onRequestDelete: () => void;
   onCreateWindow: (deviceId: string) => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
@@ -231,7 +209,6 @@ function DeviceSection({
   selectedWindowId,
   selectedPaneId,
   onConnectToggle,
-  onRequestDelete,
   onCreateWindow,
   onCloseWindow,
   onClosePane,
@@ -254,7 +231,9 @@ function DeviceSection({
       <div className="px-3 py-1 bg-muted/30 border-b">
         <div className="flex items-center gap-2">
           <DeviceIcon className="ml-1 h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="flex-1 truncate text-sm font-medium text-select-none">{device.name}</span>
+          <span className="flex-1 truncate text-sm font-medium text-select-none">
+            {device.name}
+          </span>
 
           {/* Connection Status */}
           <div
@@ -272,7 +251,9 @@ function DeviceSection({
               e.stopPropagation();
               onConnectToggle();
             }}
-            data-testid={isConnected ? `device-disconnect-${device.id}` : `device-connect-${device.id}`}
+            data-testid={
+              isConnected ? `device-disconnect-${device.id}` : `device-connect-${device.id}`
+            }
             title={isConnected ? t('device.disconnect') : t('device.connect')}
           >
             {isConnected ? (
@@ -280,18 +261,6 @@ function DeviceSection({
             ) : (
               <Power className="h-3.5 w-3.5 text-emerald-500" />
             )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRequestDelete();
-            }}
-            data-testid={`device-delete-${device.id}`}
-            title={t('common.delete')}
-          >
-            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
           </Button>
         </div>
       </div>

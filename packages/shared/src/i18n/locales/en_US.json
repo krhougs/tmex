@@ -82,6 +82,7 @@
       "passphrase": "Passphrase",
       "connect": "Connect",
       "connected": "Connected",
+      "disconnect": "Disconnect",
       "disconnected": "Disconnected",
       "connecting": "Connecting...",
       "deleteConfirm": "Delete this device?",
@@ -309,6 +310,10 @@
       "closeWindow": "Close Window",
       "closePane": "Close Pane",
       "addDevice": "Add Device"
+    },
+    "window": {
+      "noWindows": "No windows",
+      "new": "New Window"
     },
     "validation": {
       "deviceNameRequired": "Device name is required",

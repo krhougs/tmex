@@ -1,3 +1,19 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
@@ -16,22 +32,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, matchPath, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { cn } from '@/lib/utils';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
@@ -54,7 +54,10 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { t } = useTranslation();
   const location = useLocation();
-  const paneMatch = matchPath('/devices/:deviceId/windows/:windowId/panes/:paneId', location.pathname);
+  const paneMatch = matchPath(
+    '/devices/:deviceId/windows/:windowId/panes/:paneId',
+    location.pathname
+  );
   const deviceMatch = matchPath('/devices/:deviceId', location.pathname);
   const selectedDeviceId = paneMatch?.params.deviceId ?? deviceMatch?.params.deviceId;
   const selectedWindowId = paneMatch?.params.windowId;
@@ -113,8 +116,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         delete next[device.id];
         return next;
       });
-      disconnectDevice(device.id, 'sidebar');
-      disconnectDevice(device.id, 'page');
+      disconnectDevice(device.id);
 
       await queryClient.invalidateQueries({ queryKey: ['devices'] });
       toast.success(t('device.deleteSuccess'));
@@ -143,11 +145,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         if (next.has(deviceId)) {
           next.delete(deviceId);
           if (deviceId !== selectedDeviceId) {
-            disconnectDevice(deviceId, 'sidebar');
+            disconnectDevice(deviceId);
           }
         } else {
           next.add(deviceId);
-          connectDevice(deviceId, 'sidebar');
+          connectDevice(deviceId);
         }
         return next;
       });
@@ -223,12 +225,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   useEffect(() => {
     if (selectedDeviceId && !expandedDevices.has(selectedDeviceId)) {
       setExpandedDevices((prev) => new Set(prev).add(selectedDeviceId));
-      const isPaneRoute = Boolean(paneMatch?.params.deviceId);
-      if (!isPaneRoute) {
-        connectDevice(selectedDeviceId, 'sidebar');
-      }
     }
-  }, [selectedDeviceId, expandedDevices, connectDevice, paneMatch?.params.deviceId]);
+  }, [selectedDeviceId, expandedDevices]);
 
   useEffect(() => {
     const pendingEntries = Object.entries(pendingWindowSelection);
@@ -242,7 +240,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
     for (const [deviceId, pending] of pendingEntries) {
       const snapshot = snapshots[deviceId];
-      const targetWindow = snapshot?.session?.windows.find((window) => window.id === pending.windowId);
+      const targetWindow = snapshot?.session?.windows.find(
+        (window) => window.id === pending.windowId
+      );
       const targetPane = targetWindow?.panes.find((pane) => pane.active) ?? targetWindow?.panes[0];
 
       if (targetWindow && targetPane) {
@@ -288,7 +288,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <div className="tmex-mobile-topbar border-b border-sidebar-border flex-shrink-0">
         <div className="h-11 flex items-center gap-2">
           {!effectiveCollapsed && (
-            <span className="line-clamp-1 flex-1 truncate text-sm font-semibold tracking-tight" title={siteName}>
+            <span
+              className="line-clamp-1 flex-1 truncate text-sm font-semibold tracking-tight"
+              title={siteName}
+            >
               {siteName}
             </span>
           )}
@@ -313,7 +316,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               title={sidebarCollapsed ? t('nav.sidebarExpand') : t('nav.sidebarCollapse')}
               className={effectiveCollapsed ? 'mx-auto' : 'ml-auto'}
             >
-              {effectiveCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+              {effectiveCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
             </Button>
           )}
         </div>
@@ -413,16 +420,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
       )}
 
-      <AlertDialog open={deleteCandidate !== null} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
+      <AlertDialog
+        open={deleteCandidate !== null}
+        onOpenChange={(open) => !open && setDeleteCandidate(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogMedia>
               <Trash2 className="h-5 w-5 text-muted-foreground" />
             </AlertDialogMedia>
             <AlertDialogTitle>{t('device.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteCandidate?.name ?? ''}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{deleteCandidate?.name ?? ''}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
@@ -506,7 +514,9 @@ function DeviceTreeItem({
           className={cn(
             'relative',
             isSelected && 'bg-sidebar-accent text-sidebar-accent-foreground',
-            isConnected && !isSelected && 'after:absolute after:right-1 after:top-1 after:h-1.5 after:w-1.5 after:rounded-full after:bg-emerald-500'
+            isConnected &&
+              !isSelected &&
+              'after:absolute after:right-1 after:top-1 after:h-1.5 after:w-1.5 after:rounded-full after:bg-emerald-500'
           )}
         >
           <DeviceIcon className="h-4 w-4" />
@@ -535,7 +545,11 @@ function DeviceTreeItem({
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:w-9"
             title={isExpanded ? t('common.collapse') : t('common.expand')}
           >
-            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {isExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
           </button>
 
           <button
@@ -549,7 +563,12 @@ function DeviceTreeItem({
             <span className="truncate text-sm font-medium">{device.name}</span>
           </button>
 
-          {isConnected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title={t('device.connected')} />}
+          {isConnected && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              title={t('device.connected')}
+            />
+          )}
 
           <Button
             type="button"
@@ -693,7 +712,11 @@ function WindowTreeItem({
               }}
               className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground [@media(any-pointer:coarse)]:h-8 [@media(any-pointer:coarse)]:w-8"
             >
-              {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
             </button>
           ) : (
             <span className="inline-block h-5 w-5 shrink-0" />
@@ -707,7 +730,12 @@ function WindowTreeItem({
             {window.name}
           </span>
 
-          {window.active && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title={t('sidebar.currentWindow')} />}
+          {window.active && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              title={t('sidebar.currentWindow')}
+            />
+          )}
 
           <Button
             type="button"
@@ -728,7 +756,12 @@ function WindowTreeItem({
       </div>
 
       {(isExpanded || !hasMultiplePanes) && (
-        <div className={cn('space-y-1 border-l border-sidebar-border/60 pl-2', !isSelected && parentSelected && 'ml-2')}>
+        <div
+          className={cn(
+            'space-y-1 border-l border-sidebar-border/60 pl-2',
+            !isSelected && parentSelected && 'ml-2'
+          )}
+        >
           {window.panes.map((pane) => (
             <PaneTreeItem
               key={pane.id}
@@ -782,7 +815,9 @@ function PaneTreeItem({
         'flex items-center gap-1 rounded-md border border-transparent px-1 py-1 text-xs transition-colors',
         isSelected && 'border-primary/65 bg-primary text-primary-foreground',
         !isSelected && isWindowTreeSelected && 'bg-primary/10 text-foreground',
-        !isSelected && !isWindowTreeSelected && 'text-muted-foreground hover:bg-sidebar-accent/45 hover:text-foreground',
+        !isSelected &&
+          !isWindowTreeSelected &&
+          'text-muted-foreground hover:bg-sidebar-accent/45 hover:text-foreground',
         !isSelected && parentWindowSelected && 'ml-1'
       )}
     >
@@ -792,11 +827,24 @@ function PaneTreeItem({
         title={`Pane ${pane.index}${pane.active ? ' (active)' : ''}`}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
-        <span className={cn('text-[10px]', isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+        <span
+          className={cn(
+            'text-[10px]',
+            isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground'
+          )}
+        >
           ▸
         </span>
         <span className="truncate">Pane {pane.index}</span>
-        {pane.active && <span className={cn('h-1 w-1 rounded-full', isSelected ? 'bg-primary-foreground/80' : 'bg-emerald-500')} title={t('sidebar.currentPane')} />}
+        {pane.active && (
+          <span
+            className={cn(
+              'h-1 w-1 rounded-full',
+              isSelected ? 'bg-primary-foreground/80' : 'bg-emerald-500'
+            )}
+            title={t('sidebar.currentPane')}
+          />
+        )}
       </button>
 
       <Button

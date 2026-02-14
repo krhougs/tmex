@@ -88,6 +88,7 @@ export const I18N_RESOURCES = {
       "passphrase": "Passphrase",
       "connect": "Connect",
       "connected": "Connected",
+      "disconnect": "Disconnect",
       "disconnected": "Disconnected",
       "connecting": "Connecting...",
       "deleteConfirm": "Delete this device?",
@@ -316,6 +317,10 @@ export const I18N_RESOURCES = {
       "closePane": "Close Pane",
       "addDevice": "Add Device"
     },
+    "window": {
+      "noWindows": "No windows",
+      "new": "New Window"
+    },
     "validation": {
       "deviceNameRequired": "Device name is required",
       "hostRequired": "Host is required for SSH devices"
@@ -406,6 +411,7 @@ export const I18N_RESOURCES = {
       "passphrase": "私钥密码（可选）",
       "connect": "连接",
       "connected": "已连接",
+      "disconnect": "断开",
       "disconnected": "已断开",
       "connecting": "连接中...",
       "deleteConfirm": "删除此设备？",
@@ -634,6 +640,10 @@ export const I18N_RESOURCES = {
       "closePane": "关闭 pane",
       "addDevice": "添加设备"
     },
+    "window": {
+      "noWindows": "暂无窗口",
+      "new": "新建窗口"
+    },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
       "hostRequired": "SSH 设备需要填写主机地址"
@@ -724,6 +734,7 @@ export const I18N_RESOURCES = {
       "passphrase": "パスフレーズ",
       "connect": "接続",
       "connected": "接続済み",
+      "disconnect": "切断",
       "disconnected": "切断済み",
       "connecting": "接続中...",
       "deleteConfirm": "このデバイスを削除しますか？",
@@ -951,6 +962,10 @@ export const I18N_RESOURCES = {
       "closeWindow": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
       "addDevice": "デバイスを追加"
+    },
+    "window": {
+      "noWindows": "ウィンドウがありません",
+      "new": "新規ウィンドウ"
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",

@@ -1,6 +1,3 @@
-import type { EventDevicePayload, EventTmuxPayload, StateSnapshotPayload } from '@tmex/shared';
-import { wsBorsh } from '@tmex/shared';
-import { create } from 'zustand';
 import { getBorshClient } from '@/ws-borsh';
 import {
   buildDeviceConnect,
@@ -17,11 +14,12 @@ import {
   generateSelectToken,
 } from '@/ws-borsh';
 import { getSelectStateMachine } from '@/ws-borsh';
+import type { EventDevicePayload, EventTmuxPayload, StateSnapshotPayload } from '@tmex/shared';
+import { wsBorsh } from '@tmex/shared';
+import { create } from 'zustand';
 import { useSiteStore } from './site';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
-
-type ConnectionRef = 'sidebar' | 'page';
 
 interface DeviceError {
   message: string;
@@ -36,12 +34,10 @@ interface TmuxState {
   deviceErrors: Record<string, DeviceError | undefined>;
   selectedPanes: Record<string, { windowId: string; paneId: string } | undefined>;
   activePaneFromEvent: Record<string, { windowId: string; paneId: string } | undefined>;
-  connectionRefs: Record<string, Partial<Record<ConnectionRef, true>> | undefined>;
-  lastConnectRequest: { deviceId: string; ref: ConnectionRef; at: number } | null;
 
   ensureSocketConnected: () => void;
-  connectDevice: (deviceId: string, ref?: ConnectionRef) => void;
-  disconnectDevice: (deviceId: string, ref?: ConnectionRef) => void;
+  connectDevice: (deviceId: string) => void;
+  disconnectDevice: (deviceId: string) => void;
   clearDeviceError: (deviceId: string) => void;
   selectPane: (
     deviceId: string,
@@ -129,10 +125,7 @@ function setupClientHandlers(
       }
 
       case wsBorsh.KIND_DEVICE_DISCONNECTED: {
-        const decoded = wsBorsh.decodePayload(
-          wsBorsh.schema.DeviceDisconnectedSchema,
-          msg.payload
-        );
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.DeviceDisconnectedSchema, msg.payload);
         sm.cleanup(decoded.deviceId);
         setState((prev) => ({
           deviceConnected: { ...prev.deviceConnected, [decoded.deviceId]: false },
@@ -165,7 +158,11 @@ function setupClientHandlers(
 
       case wsBorsh.KIND_SWITCH_ACK: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.SwitchAckSchema, msg.payload);
-        sm.dispatch({ type: 'SWITCH_ACK', deviceId: decoded.deviceId, selectToken: decoded.selectToken });
+        sm.dispatch({
+          type: 'SWITCH_ACK',
+          deviceId: decoded.deviceId,
+          selectToken: decoded.selectToken,
+        });
         return;
       }
 
@@ -183,7 +180,11 @@ function setupClientHandlers(
 
       case wsBorsh.KIND_LIVE_RESUME: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.LiveResumeSchema, msg.payload);
-        sm.dispatch({ type: 'LIVE_RESUME', deviceId: decoded.deviceId, selectToken: decoded.selectToken });
+        sm.dispatch({
+          type: 'LIVE_RESUME',
+          deviceId: decoded.deviceId,
+          selectToken: decoded.selectToken,
+        });
         return;
       }
 
@@ -321,29 +322,19 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   deviceErrors: {},
   selectedPanes: {},
   activePaneFromEvent: {},
-  connectionRefs: {},
-  lastConnectRequest: null,
 
   ensureSocketConnected() {
     setupClientHandlers(set, get);
     getBorshClient().connect();
   },
 
-  connectDevice(deviceId, ref = 'page') {
+  connectDevice(deviceId) {
     if (!deviceId) return;
 
     set((prev) => {
-      const nextRefs = { ...prev.connectionRefs };
-      nextRefs[deviceId] = { ...(nextRefs[deviceId] ?? {}), [ref]: true };
-
       const nextConnected = new Set(prev.connectedDevices);
       nextConnected.add(deviceId);
-
-      return {
-        connectionRefs: nextRefs,
-        connectedDevices: nextConnected,
-        lastConnectRequest: { deviceId, ref, at: Date.now() },
-      };
+      return { connectedDevices: nextConnected };
     });
 
     get().ensureSocketConnected();
@@ -353,35 +344,14 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     getBorshClient().send(msg.kind, msg.payload);
   },
 
-  disconnectDevice(deviceId, ref = 'page') {
+  disconnectDevice(deviceId) {
     if (!deviceId) return;
 
-    let shouldDisconnect = false;
-
     set((prev) => {
-      const nextRefs = { ...prev.connectionRefs };
-      const currentRefs = nextRefs[deviceId] ?? {};
-      const updatedRefs = { ...currentRefs };
-      delete updatedRefs[ref];
-      if (Object.keys(updatedRefs).length === 0) {
-        delete nextRefs[deviceId];
-        shouldDisconnect = true;
-      } else {
-        nextRefs[deviceId] = updatedRefs;
-      }
-
       const nextConnected = new Set(prev.connectedDevices);
-      if (shouldDisconnect) {
-        nextConnected.delete(deviceId);
-      }
-
-      return {
-        connectionRefs: nextRefs,
-        connectedDevices: nextConnected,
-      };
+      nextConnected.delete(deviceId);
+      return { connectedDevices: nextConnected };
     });
-
-    if (!shouldDisconnect) return;
 
     getSelectStateMachine().cleanup(deviceId);
     const msg = buildDeviceDisconnect(deviceId);
@@ -415,7 +385,8 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
 
     const normalizedSize =
       normalizeTerminalSize(size?.cols, size?.rows) ??
-      (lastReportedTerminalSizes.get(deviceId) ?? null);
+      lastReportedTerminalSizes.get(deviceId) ??
+      null;
 
     const msg = buildTmuxSelect({
       deviceId,

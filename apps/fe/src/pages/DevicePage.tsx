@@ -87,8 +87,6 @@ export default function DevicePage() {
   // Track user-initiated navigation to prevent auto-redirect overwriting it
   const userInitiatedSelectionRef = useRef<{ windowId: string; paneId: string } | null>(null);
 
-  const connectDevice = useTmuxStore((state) => state.connectDevice);
-  const disconnectDevice = useTmuxStore((state) => state.disconnectDevice);
   const selectPane = useTmuxStore((state) => state.selectPane);
 
   const snapshot = useTmuxStore((state) => (deviceId ? state.snapshots[deviceId] : undefined));
@@ -316,17 +314,16 @@ export default function DevicePage() {
     return () => observer.disconnect();
   }, [shouldDockEditor]);
 
-  // Connect/disconnect device
+  // Ensure device is connected when viewing (GlobalDeviceProvider handles actual connection)
+  // This effect resets auto-selection logic and related refs when deviceId changes
   useEffect(() => {
     if (!deviceId) return;
-    connectDevice(deviceId, 'page');
     autoSelected.current = false;
-
-    return () => {
-      disconnectDevice(deviceId, 'page');
-      autoSelected.current = false;
-    };
-  }, [connectDevice, deviceId, disconnectDevice]);
+    lastHandledActiveRef.current = null;
+    lastSnapshotActiveRef.current = null;
+    userInitiatedSelectionRef.current = null;
+    recentSelectRequestsRef.current = [];
+  }, [deviceId]);
 
   // Reset autoSelected when device connection changes
   useEffect(() => {
@@ -352,33 +349,12 @@ export default function DevicePage() {
       return;
     }
 
-    // Check if this is a user-initiated selection that hasn't been reflected in snapshot yet
-    const userInitiated = userInitiatedSelectionRef.current;
-    if (userInitiated && userInitiated.windowId === windowId) {
-      // User just clicked this window, wait for snapshot to update
-      // Clear the ref after a short delay to allow future corrections
-      const timeout = setTimeout(() => {
-        userInitiatedSelectionRef.current = null;
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-
     // Find the target window
     const targetWindow = windows.find((w) => w.id === windowId);
     if (!targetWindow) {
-      // Window doesn't exist, navigate to active window
-      const activeWindow = windows.find((w) => w.active) ?? windows[0];
-      if (activeWindow) {
-        const activePane = activeWindow.panes.find((p) => p.active) ?? activeWindow.panes[0];
-        if (activePane) {
-          navigate(
-            `/devices/${deviceId}/windows/${activeWindow.id}/panes/${encodePaneIdForUrl(activePane.id)}`,
-            { replace: true }
-          );
-        }
-      } else {
-        navigate('/devices', { replace: true });
-      }
+      // Window doesn't exist in snapshot yet.
+      // Wait for snapshot to arrive. Don't redirect to another window,
+      // as the user may have explicitly navigated to this specific window.
       return;
     }
 
@@ -435,7 +411,9 @@ export default function DevicePage() {
   useEffect(() => {
     if (!deviceId || !windowId || !resolvedPaneId) return;
     // Allow sending TMUX_SELECT before WS is READY: borsh client will queue messages and flush on READY.
-    if (isLoading || !deviceConnected || isSelectionInvalid) return;
+    // Note: We don't check isSelectionInvalid here because when user navigates via URL,
+    // the snapshot may not yet reflect the new window, but we should still send the select command.
+    if (isLoading || !deviceConnected) return;
 
     // Short-circuit: if already selected, don't send again
     const currentSelected = useTmuxStore.getState().selectedPanes[deviceId];
@@ -450,15 +428,7 @@ export default function DevicePage() {
     const size = terminalRef.current?.getSize() ?? undefined;
     recordSelectRequest(windowId, resolvedPaneId);
     selectPane(deviceId, windowId, resolvedPaneId, size);
-  }, [
-    deviceConnected,
-    deviceId,
-    isLoading,
-    isSelectionInvalid,
-    resolvedPaneId,
-    selectPane,
-    windowId,
-  ]);
+  }, [deviceConnected, deviceId, isLoading, resolvedPaneId, selectPane, windowId]);
 
   const recentSelectRequestsRef = useRef<Array<{ windowId: string; paneId: string; at: number }>>(
     []
@@ -553,7 +523,8 @@ export default function DevicePage() {
 
     // Avoid snapshot-driven "bounce back" shortly after we send TMUX_SELECT.
     const recentRequests = recentSelectRequestsRef.current;
-    const lastRequest = recentRequests.length > 0 ? recentRequests[recentRequests.length - 1] : null;
+    const lastRequest =
+      recentRequests.length > 0 ? recentRequests[recentRequests.length - 1] : null;
     if (lastRequest && Date.now() - lastRequest.at < 1200) {
       return;
     }
@@ -662,6 +633,7 @@ export default function DevicePage() {
     ) => {
       const { deviceId: eventDeviceId, windowId, paneId } = event.detail;
       // Only track if it's for the current device
+      // Note: when switching devices, refs are reset in the deviceId effect above
       if (eventDeviceId === deviceId) {
         userInitiatedSelectionRef.current = { windowId, paneId };
       }
@@ -836,6 +808,7 @@ export default function DevicePage() {
         >
           {deviceConnected && resolvedPaneId ? (
             <TerminalComponent
+              key={`${deviceId}:${resolvedPaneId}`}
               ref={terminalRef}
               deviceId={deviceId}
               paneId={resolvedPaneId}
