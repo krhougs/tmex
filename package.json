@@ -1,15 +1,20 @@
 {
   "name": "tmex",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bash ./scripts/dev-supervisor.sh",
-    "build": "bun run build:i18n && bun run --filter '*' build",
+    "build": "bun run build:i18n && bun run build:fe && bun run build:tmex:resources && bun run build:tmex",
     "build:i18n": "bun run --filter @tmex/shared build:i18n",
-    "build:tmex": "bun run --filter tmex-cli build",
+    "build:fe": "bun run --filter @tmex/fe build",
     "build:tmex:resources": "bun run --filter tmex-cli bundle:resources",
     "build:tmex:runtime": "bun run --filter tmex-cli build:runtime",
+    "build:tmex": "bun run --filter tmex-cli build",
     "build:tmex:cli": "bun run --filter tmex-cli build:cli",
+    "publish:tmex": "bun run --filter tmex-cli publish",
     "test": "bun run --filter '*' test",
     "test:tmex": "bun run --filter tmex-cli test",
     "lint": "biome check .",
