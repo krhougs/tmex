@@ -309,17 +309,45 @@ export default function DevicePage() {
 
     return () => {
       disconnectDevice(deviceId, 'page');
+      autoSelected.current = false;
     };
   }, [connectDevice, deviceId, disconnectDevice]);
 
-  // Auto-select active pane
+  // Reset autoSelected when device connection changes
+  useEffect(() => {
+    if (!deviceConnected) {
+      autoSelected.current = false;
+    }
+  }, [deviceConnected]);
+
+  // Auto-select pane when window changes or on initial load
   useEffect(() => {
     if (!deviceId) return;
-    if (windowId && resolvedPaneId) return;
-    if (autoSelected.current) return;
     if (!deviceConnected) return;
     if (!windows || windows.length === 0) return;
 
+    // If we have windowId but no paneId, select the first pane in that window
+    if (windowId && !resolvedPaneId) {
+      const targetWindow = windows.find((w) => w.id === windowId);
+      if (targetWindow) {
+        const targetPane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
+        if (targetPane) {
+          navigate(
+            `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPane.id)}`,
+            { replace: true }
+          );
+        }
+      }
+      return;
+    }
+
+    // If we have both windowId and paneId, don't auto-select
+    if (windowId && resolvedPaneId) return;
+
+    // If autoSelect already done, skip
+    if (autoSelected.current) return;
+
+    // Select the active window's active pane (initial load)
     const activeWindow = windows.find((win) => win.active) ?? windows[0];
     const activePane = activeWindow.panes.find((pane) => pane.active) ?? activeWindow.panes[0];
     if (!activePane) return;

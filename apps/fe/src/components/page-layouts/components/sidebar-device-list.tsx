@@ -22,6 +22,7 @@ export function SideBarDeviceList() {
 
   // Get selected window/pane from URL
   const paneMatch = matchPath('/devices/:deviceId/windows/:windowId/panes/:paneId', location.pathname);
+  const selectedDeviceId = paneMatch?.params.deviceId;
   const selectedWindowId = paneMatch?.params.windowId;
   const selectedPaneId = decodePaneIdFromUrlParam(paneMatch?.params.paneId);
 
@@ -63,11 +64,15 @@ export function SideBarDeviceList() {
 
   const handleConnectToggle = useCallback((deviceId: string, isConnected: boolean) => {
     if (isConnected) {
+      // If disconnecting the currently selected device, navigate to fallback
+      if (deviceId === selectedDeviceId) {
+        handleNavigate('/devices');
+      }
       disconnectDevice(deviceId, 'sidebar');
     } else {
       connectDevice(deviceId, 'sidebar');
     }
-  }, [connectDevice, disconnectDevice]);
+  }, [connectDevice, disconnectDevice, selectedDeviceId, handleNavigate]);
 
   const devices = devicesData?.devices ?? [];
   const sortedDevices = useMemo(() =>
@@ -89,7 +94,6 @@ export function SideBarDeviceList() {
               selectedWindowId={selectedWindowId}
               selectedPaneId={selectedPaneId}
               onConnectToggle={() => handleConnectToggle(device.id, connectedDevices.has(device.id))}
-
               onCloseWindow={closeWindow}
               onClosePane={closePane}
               onPaneClick={navigateToPane}
@@ -136,7 +140,10 @@ function DeviceSection({
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
 
   return (
-    <div className="rounded-lg border bg-card/30 overflow-hidden">
+    <div className={cn(
+      "rounded-lg border overflow-hidden",
+      isConnected ? "bg-card/50" : "bg-muted/20"
+    )}>
       {/* Device Header - Not selectable, just shows status and controls */}
       <div className="px-3 py-2 bg-muted/30 border-b">
         <div className="flex items-center gap-2">
@@ -165,40 +172,36 @@ function DeviceSection({
         </div>
       </div>
 
-      {/* Windows List */}
-      <div className="p-1 space-y-0.5">
-        {!isConnected && (
-          <div className="text-xs text-muted-foreground px-2 py-1.5 text-center">
-            {t('device.disconnected')}
-          </div>
-        )}
+      {/* Windows List - only show when connected */}
+      {isConnected && (
+        <div className="p-1 space-y-0.5">
+          {!windows && (
+            <div className="text-xs text-muted-foreground px-2 py-1.5 text-center">
+              {t('device.connecting')}
+            </div>
+          )}
 
-        {isConnected && !windows && (
-          <div className="text-xs text-muted-foreground px-2 py-1.5 text-center">
-            {t('device.connecting')}
-          </div>
-        )}
+          {windows?.length === 0 && (
+            <div className="text-xs text-muted-foreground px-2 py-1.5 text-center">
+              {t('window.noWindows')}
+            </div>
+          )}
 
-        {isConnected && windows?.length === 0 && (
-          <div className="text-xs text-muted-foreground px-2 py-1.5 text-center">
-            {t('window.noWindows')}
-          </div>
-        )}
-
-        {windows?.map((window) => (
-          <WindowItem
-            key={window.id}
-            deviceId={device.id}
-            window={window}
-            isSelected={window.id === selectedWindowId}
-            selectedPaneId={selectedPaneId}
-            onPaneClick={onPaneClick}
-            onWindowClick={onWindowClick}
-            onCloseWindow={onCloseWindow}
-            onClosePane={onClosePane}
-          />
-        ))}
-      </div>
+          {windows?.map((window) => (
+            <WindowItem
+              key={window.id}
+              deviceId={device.id}
+              window={window}
+              isSelected={window.id === selectedWindowId}
+              selectedPaneId={selectedPaneId}
+              onPaneClick={onPaneClick}
+              onWindowClick={onWindowClick}
+              onCloseWindow={onCloseWindow}
+              onClosePane={onClosePane}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -237,15 +240,15 @@ function WindowItem({
         <button
           onClick={() => onWindowClick(deviceId, window.id, window.panes)}
           className={cn(
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors",
+            "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors pr-7",
             isPaneSelected
-              ? "bg-accent text-accent-foreground"
-              : "hover:bg-accent/50 text-foreground"
+              ? "bg-primary/15 text-primary border border-primary/30"
+              : "hover:bg-accent/50 text-foreground border border-transparent"
           )}
         >
           <Badge
-            variant={isPaneSelected ? "secondary" : "outline"}
-            className="h-5 text-[10px] px-1 shrink-0"
+            variant={isPaneSelected ? "default" : "outline"}
+            className="h-5 text-[10px] px-1.5 shrink-0"
           >
             {window.index}
           </Badge>
@@ -257,19 +260,19 @@ function WindowItem({
           {window.active && (
             <span className={cn(
               "h-1.5 w-1.5 rounded-full shrink-0",
-              isPaneSelected ? "bg-accent-foreground/70" : "bg-emerald-500"
+              isPaneSelected ? "bg-primary" : "bg-emerald-500"
             )} />
           )}
         </button>
 
-        {/* Close Window Button - positioned absolutely, shown on hover */}
+        {/* Close Window Button - positioned absolutely */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             onCloseWindow(deviceId, window.id);
           }}
           className={cn(
-            "absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-opacity",
+            "absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity",
             isPaneSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           )}
           title="Close window"
@@ -289,13 +292,13 @@ function WindowItem({
                 <button
                   onClick={() => onPaneClick(deviceId, window.id, pane.id)}
                   className={cn(
-                    "w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition-colors",
+                    "w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition-colors pr-7",
                     isPaneActive
-                      ? "bg-accent/80 text-accent-foreground"
-                      : "hover:bg-accent/30 text-muted-foreground"
+                      ? "bg-primary/10 text-primary border border-primary/20"
+                      : "hover:bg-accent/30 text-muted-foreground border border-transparent"
                   )}
                 >
-                  <span className="text-[10px] font-mono opacity-60">
+                  <span className="text-[10px] font-mono opacity-60 w-4">
                     {pane.index}
                   </span>
 
@@ -306,7 +309,7 @@ function WindowItem({
                   {pane.active && (
                     <span className={cn(
                       "h-1 w-1 rounded-full shrink-0",
-                      isPaneActive ? "bg-accent-foreground/70" : "bg-emerald-500"
+                      isPaneActive ? "bg-primary" : "bg-emerald-500"
                     )} />
                   )}
                 </button>
@@ -318,7 +321,7 @@ function WindowItem({
                     onClosePane(deviceId, window.id, pane.id, window.panes.length);
                   }}
                   className={cn(
-                    "absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-opacity",
+                    "absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity",
                     isPaneActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                   )}
                   title="Close pane"
