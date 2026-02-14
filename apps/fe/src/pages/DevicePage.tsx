@@ -320,33 +320,60 @@ export default function DevicePage() {
     }
   }, [deviceConnected]);
 
-  // Handle external window change (from other clients)
+  // Handle window/pane changes - both external and from sidebar navigation
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceConnected) return;
-    if (!windows || windows.length === 0) return;
-    if (!windowId || !resolvedPaneId) return;
+    if (!windowId) return;
 
-    // Check if current window still exists
-    const currentWindow = windows.find((w) => w.id === windowId);
-    if (!currentWindow) {
-      // Current window was closed externally, navigate to active window
+    console.log('[DevicePage] Window change effect:', { windowId, resolvedPaneId, windowsCount: windows?.length });
+
+    // If no windows left (all closed), navigate to fallback
+    if (!windows || windows.length === 0) {
+      console.log('[DevicePage] No windows left, navigating to fallback');
+      navigate('/devices', { replace: true });
+      return;
+    }
+
+    // Find the target window
+    const targetWindow = windows.find((w) => w.id === windowId);
+    if (!targetWindow) {
+      console.log('[DevicePage] Target window not found:', windowId);
+      // Window doesn't exist, navigate to active window
       const activeWindow = windows.find((w) => w.active) ?? windows[0];
-      const activePane = activeWindow.panes.find((p) => p.active) ?? activeWindow.panes[0];
-      if (activePane) {
+      if (activeWindow) {
+        const activePane = activeWindow.panes.find((p) => p.active) ?? activeWindow.panes[0];
+        if (activePane) {
+          navigate(
+            `/devices/${deviceId}/windows/${activeWindow.id}/panes/${encodePaneIdForUrl(activePane.id)}`,
+            { replace: true }
+          );
+        }
+      } else {
+        navigate('/devices', { replace: true });
+      }
+      return;
+    }
+
+    // If no paneId in URL, select the active pane in this window
+    if (!resolvedPaneId) {
+      console.log('[DevicePage] No paneId, selecting active pane in window:', windowId);
+      const targetPane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
+      if (targetPane) {
         navigate(
-          `/devices/${deviceId}/windows/${activeWindow.id}/panes/${encodePaneIdForUrl(activePane.id)}`,
+          `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPane.id)}`,
           { replace: true }
         );
       }
       return;
     }
 
-    // Check if current pane still exists in current window
-    const currentPane = currentWindow.panes.find((p) => p.id === resolvedPaneId);
+    // Check if current pane exists in the window
+    const currentPane = targetWindow.panes.find((p) => p.id === resolvedPaneId);
     if (!currentPane) {
-      // Current pane was closed externally, navigate to active pane in same window
-      const activePane = currentWindow.panes.find((p) => p.active) ?? currentWindow.panes[0];
+      console.log('[DevicePage] Current pane not found, navigating to active pane');
+      // Pane was closed, navigate to active pane in same window
+      const activePane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
       if (activePane) {
         navigate(
           `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(activePane.id)}`,
@@ -355,32 +382,17 @@ export default function DevicePage() {
       }
       return;
     }
+
+    console.log('[DevicePage] Window/pane valid, no navigation needed');
   }, [deviceId, deviceConnected, windows, windowId, resolvedPaneId, navigate]);
 
-  // Auto-select pane when window changes or on initial load
+  // Auto-select pane on initial load only
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceConnected) return;
     if (!windows || windows.length === 0) return;
-
-    // If we have windowId but no paneId, select the first pane in that window
-    if (windowId && !resolvedPaneId) {
-      const targetWindow = windows.find((w) => w.id === windowId);
-      if (targetWindow) {
-        const targetPane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
-        if (targetPane) {
-          navigate(
-            `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPane.id)}`,
-            { replace: true }
-          );
-        }
-      }
-      return;
-    }
-
-    // If we have both windowId and paneId, don't auto-select
+    // If we already have window and pane selected, skip
     if (windowId && resolvedPaneId) return;
-
     // If autoSelect already done, skip
     if (autoSelected.current) return;
 

@@ -55,12 +55,14 @@ export function SideBarDeviceList() {
   );
 
   const handleWindowClick = useCallback((deviceId: string, windowId: string, panes: TmuxPane[]) => {
-    // Click window = select its first/active pane
+    // Click window = select its first/active pane and navigate
     const targetPane = panes.find((p) => p.active) ?? panes[0];
     if (targetPane) {
-      navigateToPane(deviceId, windowId, targetPane.id);
+      const url = `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPane.id)}`;
+      console.log('[Sidebar] Navigating to window:', windowId, 'pane:', targetPane.id, 'url:', url);
+      handleNavigate(url);
     }
-  }, [navigateToPane]);
+  }, [handleNavigate]);
 
   const handleConnectToggle = useCallback((deviceId: string, isConnected: boolean) => {
     if (isConnected) {
