@@ -555,23 +555,58 @@ export default function DevicePage() {
       >
         <div
           ref={terminalContainerRef}
-          className="h-full min-h-0 min-w-0 w-full"
+          className="h-full min-h-0 min-w-0 w-full relative"
           style={{ backgroundColor: terminalTheme.background }}
         >
-          <TerminalComponent
-            ref={terminalRef}
-            deviceId={deviceId}
-            paneId={resolvedPaneId ?? ''}
-            theme={uiTheme}
-            inputMode={inputMode}
-            deviceConnected={deviceConnected}
-            isSelectionInvalid={isSelectionInvalid}
-            onResize={handleResize}
-            onSync={handleSync}
-          />
+          {deviceConnected && resolvedPaneId ? (
+            <TerminalComponent
+              ref={terminalRef}
+              deviceId={deviceId}
+              paneId={resolvedPaneId}
+              theme={uiTheme}
+              inputMode={inputMode}
+              deviceConnected={deviceConnected}
+              isSelectionInvalid={isSelectionInvalid}
+              onResize={handleResize}
+              onSync={handleSync}
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+              <div className="max-w-sm space-y-4">
+                {!deviceConnected ? (
+                  <>
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+                      <span className="text-2xl text-muted-foreground">🔌</span>
+                    </div>
+                    <h3 className="text-lg font-medium">{t('device.disconnected')}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {t('device.connectToStart')}
+                    </p>
+                  </>
+                ) : !windowId ? (
+                  <>
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+                      <span className="text-2xl text-muted-foreground">📋</span>
+                    </div>
+                    <h3 className="text-lg font-medium">{t('window.noWindowSelected')}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {t('window.selectWindowToStart')}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+                      <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+                    </div>
+                    <h3 className="text-lg font-medium">{t('terminal.connecting')}</h3>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {(isLoading || showConnecting) && (
+        {showConnecting && (
           <div
             className="absolute inset-0 flex items-center justify-center bg-background/85 backdrop-blur-sm"
             data-testid="terminal-status-overlay"
@@ -579,7 +614,7 @@ export default function DevicePage() {
             <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card/90 px-4 py-3 shadow-sm">
               <div className="h-7 w-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               <span className="text-xs text-muted-foreground" data-testid="terminal-status-text">
-                {isLoading ? t('terminal.initializing') : t('terminal.connecting')}
+                {t('terminal.connecting')}
               </span>
             </div>
           </div>
