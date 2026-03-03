@@ -800,6 +800,11 @@ export default function DevicePage() {
     setIsEditorFocused(false);
   }, []);
 
+  // 聚焦编辑器回调 - 必须在所有早期 return 之前定义
+  const handleFocusEditor = useCallback(() => {
+    editorTextareaRef.current?.focus({ preventScroll: true });
+  }, []);
+
   if (!deviceId) {
     return (
       <div className="flex h-full items-center justify-center p-4">
@@ -811,11 +816,6 @@ export default function DevicePage() {
   }
 
   const showConnecting = !deviceConnected && !deviceError;
-
-  // 聚焦编辑器回调
-  const handleFocusEditor = useCallback(() => {
-    editorTextareaRef.current?.focus({ preventScroll: true });
-  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
