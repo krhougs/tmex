@@ -11,6 +11,7 @@ import { useTmuxStore } from '@/stores/tmux';
 import { getSelectStateMachine, type SelectCallbacks } from '@/ws-borsh';
 import { FitAddon } from 'xterm-addon-fit';
 import { useTerminalResize } from './useTerminalResize';
+import { useMobileTouch } from './useMobileTouch';
 
 function normalizeHistoryForXterm(data: string): string {
   if (!data) return data;
@@ -84,6 +85,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const sendInput = useTmuxStore((state) => state.sendInput);
 
     const containerRef = useRef<HTMLDivElement>(null);
+    const getTerminalForTouch = useCallback(() => (instance as any) ?? null, [instance]);
+    useMobileTouch(containerRef, getTerminalForTouch);
     const currentDeviceIdRef = useRef(deviceId);
     const currentPaneIdRef = useRef(paneId);
     const canWriteRef = useRef(deviceConnected && !isSelectionInvalid);
