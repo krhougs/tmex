@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useXTerm } from 'react-xtermjs';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalProps, TerminalRef } from './types';
@@ -87,6 +87,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const currentDeviceIdRef = useRef(deviceId);
     const currentPaneIdRef = useRef(paneId);
     const canWriteRef = useRef(deviceConnected && !isSelectionInvalid);
+    const imeIsComposingRef = useRef(false);
+    const imeFallbackDataRef = useRef('');
+    const imeLastSentRef = useRef<{ data: string; at: number } | null>(null);
     const liveOutputEndedWithCR = useRef(false);
     const lastXtermInstanceRef = useRef<typeof instance>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -94,11 +97,40 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     useEffect(() => {
       currentDeviceIdRef.current = deviceId;
       currentPaneIdRef.current = paneId;
+      imeIsComposingRef.current = false;
+      imeFallbackDataRef.current = '';
+      imeLastSentRef.current = null;
     }, [deviceId, paneId]);
 
     useEffect(() => {
       canWriteRef.current = deviceConnected && !isSelectionInvalid;
     }, [deviceConnected, isSelectionInvalid]);
+
+    const sendInputWithImeDedup = useCallback(
+      (data: string) => {
+        if (!data || inputMode !== 'direct') {
+          return;
+        }
+        if (!canWriteRef.current) {
+          return;
+        }
+
+        const activeDeviceId = currentDeviceIdRef.current;
+        const activePaneId = currentPaneIdRef.current;
+        if (!activeDeviceId || !activePaneId) {
+          return;
+        }
+
+        const now = Date.now();
+        const lastSent = imeLastSentRef.current;
+        if (lastSent && lastSent.data === data && now - lastSent.at < 40) {
+          return;
+        }
+        imeLastSentRef.current = { data, at: now };
+        sendInput(activeDeviceId, activePaneId, data, false);
+      },
+      [inputMode, sendInput]
+    );
 
     const {
       scheduleResize,
@@ -129,6 +161,68 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       if (!instance) return;
       instance.options.disableStdin = inputMode === 'editor';
     }, [instance, inputMode]);
+
+    useEffect(() => {
+      if (!instance) {
+        imeIsComposingRef.current = false;
+        imeFallbackDataRef.current = '';
+        return;
+      }
+
+      const textarea = instance.textarea;
+      if (!textarea) {
+        imeIsComposingRef.current = false;
+        imeFallbackDataRef.current = '';
+        return;
+      }
+
+      const handleCompositionStart = () => {
+        imeIsComposingRef.current = true;
+        imeFallbackDataRef.current = '';
+      };
+      const handleCompositionUpdate = (event: CompositionEvent) => {
+        if (typeof event.data === 'string' && event.data) {
+          imeFallbackDataRef.current = event.data;
+        }
+      };
+      const handleCompositionEnd = (event: CompositionEvent) => {
+        imeIsComposingRef.current = false;
+        const dataFromEvent = typeof event.data === 'string' ? event.data : '';
+        const finalData = dataFromEvent || imeFallbackDataRef.current;
+        imeFallbackDataRef.current = '';
+        if (finalData) {
+          sendInputWithImeDedup(finalData);
+        }
+      };
+      const handleBeforeInput = (event: InputEvent) => {
+        const data = typeof event.data === 'string' ? event.data : '';
+        if (!data) {
+          return;
+        }
+
+        if (event.isComposing || imeIsComposingRef.current) {
+          imeFallbackDataRef.current = data;
+          return;
+        }
+
+        // iOS 某些输入法路径不会触发 onData，beforeinput 兜底。
+        sendInputWithImeDedup(data);
+      };
+
+      textarea.addEventListener('compositionstart', handleCompositionStart);
+      textarea.addEventListener('compositionupdate', handleCompositionUpdate);
+      textarea.addEventListener('compositionend', handleCompositionEnd);
+      textarea.addEventListener('beforeinput', handleBeforeInput);
+
+      return () => {
+        textarea.removeEventListener('compositionstart', handleCompositionStart);
+        textarea.removeEventListener('compositionupdate', handleCompositionUpdate);
+        textarea.removeEventListener('compositionend', handleCompositionEnd);
+        textarea.removeEventListener('beforeinput', handleBeforeInput);
+        imeIsComposingRef.current = false;
+        imeFallbackDataRef.current = '';
+      };
+    }, [instance, sendInputWithImeDedup]);
 
     const callbacks: SelectCallbacks = useMemo(
       () => {
@@ -261,17 +355,21 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       const disposable = instance.onData((data) => {
         if (!deviceConnected || isSelectionInvalid) return;
-        sendInput(deviceId, paneId, data, false);
+        if (imeIsComposingRef.current) {
+          return;
+        }
+        sendInputWithImeDedup(data);
       });
 
       instance.attachCustomKeyEventHandler((domEvent) => {
         if (!deviceConnected || isSelectionInvalid) return true;
         if (domEvent.type !== 'keydown') return true;
+        if (imeIsComposingRef.current) return true;
         if (inputMode !== 'direct') return true;
 
         if (domEvent.shiftKey && domEvent.key === 'Enter') {
           domEvent.preventDefault();
-          sendInput(deviceId, paneId, '\x1b[13;2u', false);
+          sendInputWithImeDedup('\x1b[13;2u');
           return false;
         }
 
@@ -282,7 +380,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         disposable.dispose();
         instance.attachCustomKeyEventHandler(() => true);
       };
-    }, [instance, deviceId, paneId, deviceConnected, isSelectionInvalid, inputMode, sendInput]);
+    }, [instance, deviceConnected, isSelectionInvalid, inputMode, sendInputWithImeDedup]);
 
     useImperativeHandle(
       ref,
