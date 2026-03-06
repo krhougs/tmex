@@ -183,11 +183,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         imeIsComposingRef.current = true;
         imeFallbackDataRef.current = '';
       };
-      const handleCompositionUpdate = (event: CompositionEvent) => {
-        if (typeof event.data === 'string' && event.data) {
-          imeFallbackDataRef.current = event.data;
-        }
-      };
       const handleCompositionEnd = (event: CompositionEvent) => {
         imeIsComposingRef.current = false;
         const dataFromEvent = typeof event.data === 'string' ? event.data : '';
@@ -198,13 +193,22 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         }
       };
       const handleBeforeInput = (event: InputEvent) => {
+        const inputType = typeof event.inputType === 'string' ? event.inputType : '';
         const data = typeof event.data === 'string' ? event.data : '';
+        if (inputType === 'insertFromPaste') {
+          return;
+        }
         if (!data) {
+          if (imeIsComposingRef.current && inputType === 'deleteCompositionText') {
+            imeFallbackDataRef.current = '';
+          }
           return;
         }
 
         if (event.isComposing || imeIsComposingRef.current) {
-          imeFallbackDataRef.current = data;
+          if (inputType === 'insertText' || inputType === 'insertFromComposition') {
+            imeFallbackDataRef.current = data;
+          }
           return;
         }
 
@@ -213,13 +217,11 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       };
 
       textarea.addEventListener('compositionstart', handleCompositionStart);
-      textarea.addEventListener('compositionupdate', handleCompositionUpdate);
       textarea.addEventListener('compositionend', handleCompositionEnd);
       textarea.addEventListener('beforeinput', handleBeforeInput);
 
       return () => {
         textarea.removeEventListener('compositionstart', handleCompositionStart);
-        textarea.removeEventListener('compositionupdate', handleCompositionUpdate);
         textarea.removeEventListener('compositionend', handleCompositionEnd);
         textarea.removeEventListener('beforeinput', handleBeforeInput);
         imeIsComposingRef.current = false;
