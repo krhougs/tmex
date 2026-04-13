@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_DIR}/.env"
 ENV_FALLBACK_FILE="${PROJECT_DIR}/.env.example"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/dev-supervisor-pids.sh"
 
 if ! command -v bun >/dev/null 2>&1; then
   if [[ -f "${HOME}/.zshrc" ]]; then
@@ -50,7 +52,8 @@ if [[ -n "${DATABASE_URL:-}" ]]; then
   esac
 fi
 
-declare -A PIDS=()
+GATEWAY_PID=""
+FRONTEND_PID=""
 RESTART_DELAY_SECONDS=1
 POLL_INTERVAL_SECONDS=0.3
 SHUTTING_DOWN=0
@@ -281,7 +284,8 @@ wait_gateway_ready_before_first_frontend_start() {
 }
 
 start_gateway_with_fresh_agent() {
-  local old_pid="${PIDS[gateway]:-}"
+  local old_pid
+  old_pid="$(pid_store_get gateway)"
   if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" >/dev/null 2>&1; then
     kill "${old_pid}" >/dev/null 2>&1 || true
   fi
@@ -301,13 +305,13 @@ start_gateway_with_fresh_agent() {
     bun --cwd apps/gateway --watch src/index.ts &
   fi
 
-  PIDS[gateway]=$!
+  pid_store_set gateway "$!"
 }
 
 start_frontend() {
   log "start frontend: bun run --cwd apps/fe dev"
   bun run --cwd apps/fe dev &
-  PIDS[frontend]=$!
+  pid_store_set frontend "$!"
 }
 
 stop_all() {
@@ -319,14 +323,16 @@ stop_all() {
   log "received stop signal, stopping all services"
 
   for service in gateway frontend; do
-    local pid="${PIDS[${service}]:-}"
+    local pid
+    pid="$(pid_store_get "${service}")"
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
       kill "$pid" >/dev/null 2>&1 || true
     fi
   done
 
   for service in gateway frontend; do
-    local pid="${PIDS[${service}]:-}"
+    local pid
+    pid="$(pid_store_get "${service}")"
     if [[ -n "$pid" ]]; then
       wait "$pid" >/dev/null 2>&1 || true
     fi
@@ -347,7 +353,7 @@ while true; do
     break
   fi
 
-  gateway_pid="${PIDS[gateway]:-}"
+  gateway_pid="$(pid_store_get gateway)"
   if [[ -z "${gateway_pid}" ]]; then
     log "gateway pid missing, restarting with fresh ssh-agent"
     sleep "${RESTART_DELAY_SECONDS}"
@@ -370,7 +376,7 @@ while true; do
     start_gateway_with_fresh_agent
   fi
 
-  frontend_pid="${PIDS[frontend]:-}"
+  frontend_pid="$(pid_store_get frontend)"
   if [[ -z "${frontend_pid}" ]]; then
     sleep "${RESTART_DELAY_SECONDS}"
     start_frontend

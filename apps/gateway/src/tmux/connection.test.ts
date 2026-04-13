@@ -16,6 +16,21 @@ async function createConnection(options?: {
 }
 
 describe('TmuxConnection history selection', () => {
+  test('builds local tmux command with HOME as start directory', async () => {
+    const mod = await import('./connection');
+
+    expect(mod.buildLocalTmuxCommand('tmex', '/Users/alice')).toEqual([
+      'tmux',
+      '-CC',
+      'new-session',
+      '-A',
+      '-c',
+      '/Users/alice',
+      '-s',
+      'tmex',
+    ]);
+  });
+
   test('suppresses recoverable target missing errors and requests snapshot', async () => {
     const errors: Error[] = [];
     const mod = await import('./connection');

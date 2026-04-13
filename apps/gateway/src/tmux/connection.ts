@@ -1,12 +1,18 @@
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import type { Subprocess, Terminal as BunTerminal } from 'bun';
+import { homedir } from 'node:os';
 import { Client } from 'ssh2';
 import { decryptWithContext } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
+import { buildLocalTmuxEnv, getLocalShellPath } from './local-shell-path';
 import { resolveSshAgentSocket, resolveSshUsername } from './ssh-auth';
 import { TmuxControlParser, type TmuxEvent, type TmuxOutputBlock, type TmuxOutputBlockBegin } from './parser';
 
 const BELL_DEDUP_WINDOW_MS = 200;
+
+export function buildLocalTmuxCommand(sessionName: string, startDirectory: string): string[] {
+  return ['tmux', '-CC', 'new-session', '-A', '-c', startDirectory, '-s', sessionName];
+}
 
 type PendingCommandKind =
   | 'noop'
@@ -169,9 +175,11 @@ export class TmuxConnection {
 
   private async connectLocal(): Promise<void> {
     const sessionName = this.device?.session ?? 'tmex';
-    
-    // 使用 Bun.spawn 启动本地 tmux -CC，分配伪终端
-    this.subprocess = Bun.spawn(['tmux', '-CC', 'new-session', '-A', '-s', sessionName], {
+    const env = buildLocalTmuxEnv(getLocalShellPath());
+    const startDirectory = homedir();
+
+    this.subprocess = Bun.spawn(buildLocalTmuxCommand(sessionName, startDirectory), {
+      env,
       terminal: {
         name: 'xterm-256color',
         cols: 80,

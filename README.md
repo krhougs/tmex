@@ -206,58 +206,20 @@ chmod +x scripts/health-check.sh
 >
 > Maintainers only.
 
-1. 更新版本号 / Bump version
+完整发布说明见：
 
-修改 `packages/app/package.json` 的 `version`（npm 包名为 `tmex-cli`）。
+- [tmex-cli 发布流程](docs/release/2026041300-cli-release-process.md)
 
-1. 构建与门禁（含 FE/Gateway/resources）/ Build & checks (including FE/Gateway/resources)
+发布前必须在仓库根目录执行**全量重新编译**：
 
 ```bash
 bun install
-
-# 先构建前端资源（生成 apps/fe/dist）
-bun run --filter @tmex/fe build
-
-# 校验 gateway 构建
-bun run --filter @tmex/gateway build
-
-# 生成 packages/app/resources
-# - resources/fe-dist 来自 apps/fe/dist
-# - resources/gateway-drizzle 来自 apps/gateway/drizzle
-bun run build:tmex:resources
-
-# 构建 CLI + runtime
-bun run build:tmex:runtime
-bun run build:tmex:cli
-
-# 测试并预演打包
+bun run build
 bun run test:tmex
 npm pack --dry-run --workspace tmex-cli
 ```
 
-1. 登录并发布稳定版（`latest`）/ Publish stable to `latest`
-
-```bash
-npm whoami
-cd packages/app
-npm publish --access public --tag latest
-```
-
-1. 发布预发布版本（`next`）/ Publish pre-release to `next`
-
-当版本号包含 `-alpha/-beta/-rc` 等后缀时，建议使用 `next`，避免影响默认安装用户。
-
-```bash
-cd packages/app
-npm publish --access public --tag next
-```
-
-1. 发布后验证 / Post-publish verification
-
-```bash
-npm view tmex-cli version
-npx --yes tmex-cli@<version> --lang en help
-```
+不要只执行 `bun run --filter tmex-cli build`，该命令不能保证共享 i18n 与前端静态资源都被重新生成。
 
 ## 环境变量 / Environment Variables
 
@@ -277,6 +239,7 @@ npx --yes tmex-cli@<version> --lang en help
 
 - [部署指南 / Deployment Guide](docs/2026021000-tmex-bootstrap/deployment.md)
 - [架构文档 / Architecture](docs/2026021000-tmex-bootstrap/architecture.md)
+- [发布流程 / Release Process](docs/release/2026041300-cli-release-process.md)
 
 ## License
 
