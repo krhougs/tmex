@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { shouldApplyRemotePaneSize, shouldForceLocalSizeSync } from './resizeSyncGuards';
+import {
+  shouldApplyRemotePaneSize,
+  shouldForceLocalSizeSync,
+  shouldSyncOnViewportRestore,
+} from './resizeSyncGuards';
 
 describe('resizeSyncGuards', () => {
   test('shouldApplyRemotePaneSize allows remote size when there is no pending local resize', () => {
@@ -42,7 +46,7 @@ describe('resizeSyncGuards', () => {
     ).toBe(true);
   });
 
-  test('shouldForceLocalSizeSync requests another local sync when stale remote size would overwrite latest local size', () => {
+  test('shouldForceLocalSizeSync does not request another local sync when stale remote size arrives', () => {
     expect(
       shouldForceLocalSizeSync({
         now: 5_000,
@@ -50,7 +54,7 @@ describe('resizeSyncGuards', () => {
         pendingLocalSize: { cols: 449, rows: 133, at: 4_200 },
         containerSize: { cols: 449, rows: 133 },
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test('shouldForceLocalSizeSync stays quiet when container no longer matches pending local size', () => {
@@ -62,5 +66,33 @@ describe('resizeSyncGuards', () => {
         containerSize: { cols: 132, rows: 45 },
       })
     ).toBe(false);
+  });
+
+  test('shouldSyncOnViewportRestore requests one sync when current xterm size is stale against container', () => {
+    expect(
+      shouldSyncOnViewportRestore({
+        currentSize: { cols: 90, rows: 30 },
+        containerSize: { cols: 120, rows: 40 },
+      })
+    ).toBe(true);
+  });
+
+  test('shouldSyncOnViewportRestore stays quiet when xterm already matches container', () => {
+    expect(
+      shouldSyncOnViewportRestore({
+        currentSize: { cols: 120, rows: 40 },
+        containerSize: { cols: 120, rows: 40 },
+      })
+    ).toBe(false);
+  });
+
+  test('shouldSyncOnViewportRestore can force one resync even when xterm already matches container', () => {
+    expect(
+      shouldSyncOnViewportRestore({
+        currentSize: { cols: 120, rows: 40 },
+        containerSize: { cols: 120, rows: 40 },
+        force: true,
+      })
+    ).toBe(true);
   });
 });

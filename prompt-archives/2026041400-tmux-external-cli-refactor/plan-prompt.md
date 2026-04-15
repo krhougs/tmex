@@ -149,3 +149,12 @@
 ## 终端尺寸继续排查 Prompt（2026-04-15）
 
 > 继续找原因，测试环境分辨率开到4k
+
+## 双浏览器尺寸回环 Prompt（2026-04-15）
+
+> 但是现在又有了新的问题，在不同尺寸的浏览器中同时打开相同的pane，两边会同时疯狂不停触发window resize，导致终端内容抽搐
+> 你需要按照项目要求，在不影响当前流程、不做大重构的情况下，系统性分析问题，确保window resize只在页面冷启动、窗口resize、切换pane这三种情况下去触发tmux window resize，web端收到tmux resize同步事件只应该改变自身的渲染状态，而不是去触发重复更新resize
+
+## focus / visibility 补充 Prompt（2026-04-15）
+
+> `visibilitychange` / `focus`需要加回来

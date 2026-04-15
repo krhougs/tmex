@@ -1,3 +1,4 @@
+import { shouldSyncOnViewportRestore } from '@/utils/resizeSyncGuards';
 import type { Terminal as XTermTerminal } from '@xterm/xterm';
 import { useCallback, useEffect, useRef } from 'react';
 import type { FitAddon } from 'xterm-addon-fit';
@@ -49,6 +50,42 @@ export function useTerminalResize({
     getContainerRectRef.current = getContainerRect;
   }, [getContainerRect]);
 
+  const measureTerminalSize = useCallback((): { cols: number; rows: number } | null => {
+    const term = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term || !fitAddon || !term.element) {
+      return null;
+    }
+
+    let cols: number;
+
+    try {
+      const proposed = fitAddon.proposeDimensions();
+      if (!proposed) {
+        throw new Error('fitAddon.proposeDimensions() returned null');
+      }
+      cols = Math.max(2, proposed.cols);
+    } catch {
+      const core = (term as any)._core;
+      const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
+      const rect = getContainerRectRef.current?.();
+      if (!rect || rect.width === 0) {
+        return null;
+      }
+      cols = Math.max(2, Math.floor(rect.width / cellWidth));
+    }
+
+    const containerRect = getContainerRectRef.current?.();
+    if (!containerRect || containerRect.height === 0) {
+      return null;
+    }
+    const core = (term as any)._core;
+    const cellHeight = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
+    const rows = Math.max(2, Math.floor(containerRect.height / cellHeight));
+
+    return { cols, rows };
+  }, []);
+
   const applyTerminalSize = useCallback((cols: number, rows: number): void => {
     const term = terminalRef.current;
     if (!term) {
@@ -76,40 +113,15 @@ export function useTerminalResize({
       }
 
       const term = terminalRef.current;
-      const fitAddon = fitAddonRef.current;
-      if (!term || !fitAddon || !term.element) {
+      if (!term) {
         return false;
       }
 
-      // 宽度信任 fitAddon，高度信任容器
-      let cols: number;
-      let rows: number;
-
-      try {
-        const proposed = fitAddon.proposeDimensions();
-        if (!proposed) {
-          throw new Error('fitAddon.proposeDimensions() returned null');
-        }
-        cols = Math.max(2, proposed.cols);
-      } catch {
-        // fitAddon 失败时使用容器宽度和字符宽度计算
-        const core = (term as any)._core;
-        const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
-        const rect = getContainerRectRef.current?.();
-        if (!rect || rect.width === 0) {
-          return false;
-        }
-        cols = Math.max(2, Math.floor(rect.width / cellWidth));
-      }
-
-      // 高度永远使用容器尺寸
-      const containerRect = getContainerRectRef.current?.();
-      if (!containerRect || containerRect.height === 0) {
+      const measuredSize = measureTerminalSize();
+      if (!measuredSize) {
         return false;
       }
-      const core = (term as any)._core;
-      const cellHeight = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
-      rows = Math.max(2, Math.floor(containerRect.height / cellHeight));
+      const { cols, rows } = measuredSize;
       // Debug: console.log('[resize] success:', { kind, cols, rows, force });
       const lastSize = lastReportedSize.current;
 
@@ -131,7 +143,7 @@ export function useTerminalResize({
       return true;
     },
     // Only depend on stable values, not the callbacks
-    [applyTerminalSize, deviceConnected, deviceId, isSelectionInvalid, paneId]
+    [applyTerminalSize, deviceConnected, deviceId, isSelectionInvalid, measureTerminalSize, paneId]
   );
 
   const scheduleResize = useCallback(
@@ -221,19 +233,35 @@ export function useTerminalResize({
     };
   }, [scheduleResize]);
 
-  // 重新获得焦点时触发 resize sync - 共享 scheduleResize 的防抖
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // 使用 sync 类型，因为重新获得焦点时需要同步到远程 pty
-        // 不使用 immediate，共享同一个防抖延时
-        scheduleResize('sync', { force: true });
+    const handleViewportRestore = () => {
+      const term = terminalRef.current;
+      const containerSize = measureTerminalSize();
+      if (!term || !containerSize) {
+        return;
       }
+
+      const shouldSync = shouldSyncOnViewportRestore({
+        currentSize: { cols: Math.max(2, term.cols), rows: Math.max(2, term.rows) },
+        containerSize,
+        force: true,
+      });
+      if (!shouldSync) {
+        return;
+      }
+
+      scheduleResize('sync', { force: true });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      handleViewportRestore();
     };
 
     const handleWindowFocus = () => {
-      // 不使用 immediate，共享同一个防抖延时
-      scheduleResize('sync', { force: true });
+      handleViewportRestore();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -243,7 +271,7 @@ export function useTerminalResize({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [scheduleResize]);
+  }, [measureTerminalSize, scheduleResize]);
 
   // 清理
   useEffect(() => {

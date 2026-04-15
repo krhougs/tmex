@@ -258,6 +258,98 @@ cd apps/fe && CI=1 TMEX_E2E_GATEWAY_PORT=9896 TMEX_E2E_FE_PORT=10017 bun run tes
   - 行数始终基于容器高度和 cell height 计算；
   - 计算出 `cols/rows` 后，先调用 `term.resize(cols, rows)` 立即更新本地 xterm，再同步到后端。
 - 更新 `apps/fe/src/components/terminal/Terminal.tsx`
+
+## 2026-04-15 第五轮双浏览器尺寸回环修复
+
+在不同 viewport 的两个浏览器同时打开同一个 pane 时，又发现一类新的尺寸回环：
+
+- A 页面对 tmux 发出一次正常 resize；
+- B 页面收到更新后的 remote pane size 后，不只是本地重绘，还会再次触发上行 `TERM_SYNC_SIZE`；
+- 两边尺寸不断互相覆盖，最终形成持续的 resize storm，终端内容抽搐。
+
+### 根因
+
+前端尺寸链路里有两条不该存在的“被动收到 remote 信息后再次上行”的路径：
+
+1. `apps/fe/src/pages/DevicePage.tsx`
+   - 当 remote pane size 与本地 pending size 不一致时，会调用 `scheduleResize('sync')` 反向重发本地尺寸。
+   - 这原本是为了对抗 stale snapshot，但在多浏览器同 pane 场景下会直接形成 `remote -> local sync -> remote -> local sync` 回环。
+2. `apps/fe/src/components/terminal/useTerminalResize.ts`
+   - `visibilitychange` / `focus` 也会触发上行 `sync`。
+   - 这不属于“冷启动 / 浏览器窗口 resize / 切换 pane”三种预期触发源，会把尺寸状态再次搅乱。
+
+### 修复内容
+
+- 更新 `apps/fe/src/pages/DevicePage.tsx`
+  - 保留“stale remote size 不覆盖最近一次本地 resize”的 guard；
+  - 但彻底删除“收到 stale remote size 后再次 `scheduleResize('sync')`”的反向补偿逻辑。
+- 更新 `apps/fe/src/components/terminal/useTerminalResize.ts`
+  - 删除 `visibilitychange` / `focus` 触发的上行尺寸同步；
+  - 保持只有三类路径会向 tmux 发 resize：
+    - 页面冷启动；
+    - 浏览器窗口 resize；
+    - 切换 pane 后的 post-select resize。
+- 更新 `apps/fe/src/utils/resizeSyncGuards.ts`
+  - `shouldForceLocalSizeSync()` 明确不再请求任何补偿性上行 sync，只保留“remote size 是否允许覆盖本地渲染”的判断职责。
+- 更新测试：
+  - `apps/fe/src/utils/resizeSyncGuards.test.ts`
+    - 新断言：stale remote size 到来时，不允许再次请求本地 sync。
+  - `apps/fe/tests/ws-borsh-resize.spec.ts`
+    - 新增双浏览器回归：两个不同 viewport 页面同时打开同一个 pane 时，主动 resize 的一侧可以上行发送尺寸，另一侧只能本地消费 remote resize，不能再发 `TERM_RESIZE/TERM_SYNC_SIZE`。
+
+### 验证
+
+已执行：
+
+```bash
+bun test apps/fe/src/utils/resizeSyncGuards.test.ts
+cd apps/fe && CI=1 TMEX_E2E_GATEWAY_PORT=9896 TMEX_E2E_FE_PORT=10017 bun run test:e2e -- --grep "remote tmux resize does not trigger resize echo from another browser" tests/ws-borsh-resize.spec.ts
+bunx @biomejs/biome check apps/fe/src/pages/DevicePage.tsx apps/fe/src/components/terminal/useTerminalResize.ts apps/fe/src/utils/resizeSyncGuards.ts apps/fe/src/utils/resizeSyncGuards.test.ts apps/fe/tests/ws-borsh-resize.spec.ts prompt-archives/2026041400-tmux-external-cli-refactor/plan-prompt.md
+```
+
+结果：
+
+- 单测：通过
+- 双浏览器 E2E：`1 passed`
+- Biome：通过
+
+## 2026-04-15 第六轮恢复 focus / visibility 尺寸补 sync
+
+在收掉“双浏览器 resize 回环”之后，又按最新要求把 `visibilitychange` / `focus` 的尺寸同步补了回来，但没有回退成旧的无条件回环实现。
+
+### 目标
+
+- 保留上一轮已经修掉的 `remote resize -> 反向上行 resize` 问题；
+- 恢复页面在重新获得焦点、从后台切回前台时，对 tmux 补发一次本页尺寸同步的能力；
+- 不影响现有冷启动、窗口 resize、切 pane 主流程。
+
+### 修复内容
+
+- 更新 `apps/fe/src/components/terminal/useTerminalResize.ts`
+  - 恢复 `visibilitychange` / `focus` 监听；
+  - 两个事件共享现有 `scheduleResize('sync', { force: true })` 防抖链路，不额外新开通道；
+  - 将尺寸测量提取为内部复用函数，确保普通 resize 和 focus/visibility 补 sync 使用同一套 `cols/rows` 计算逻辑。
+- 更新 `apps/fe/src/utils/resizeSyncGuards.ts`
+  - 新增 `shouldSyncOnViewportRestore()`，用于表达“页面恢复时允许补发一次 sync”的判断语义。
+- 更新 `apps/fe/src/utils/resizeSyncGuards.test.ts`
+  - 新增 viewport restore 相关断言。
+- 更新 `apps/fe/tests/ws-borsh-resize.spec.ts`
+  - 保留上一轮双浏览器“remote resize 不回声”的回归；
+  - 新增“stale 页面收到 focus 后补发一次 `TERM_SYNC_SIZE`，但不升级成 loop”的回归。
+
+### 验证
+
+已执行：
+
+```bash
+bun test apps/fe/src/utils/resizeSyncGuards.test.ts
+cd apps/fe && CI=1 TMEX_E2E_GATEWAY_PORT=9896 TMEX_E2E_FE_PORT=10017 bun run test:e2e -- --grep "focus restore resyncs one stale terminal without reintroducing resize loop|remote tmux resize does not trigger resize echo from another browser" tests/ws-borsh-resize.spec.ts
+```
+
+结果：
+
+- 单测：`9 pass`
+- 定向 E2E：`2 passed`
   - 初始挂载不再只做一次 `scheduleResize('sync')`；
   - 改为直接复用 `runPostSelectResize()`，与“切 pane 后”的尺寸收敛路径完全一致，包含立即同步、延迟重试和字体稳定后的再次同步。
 - 更新 `apps/fe/src/pages/DevicePage.tsx`

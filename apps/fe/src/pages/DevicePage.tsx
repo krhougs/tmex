@@ -30,7 +30,7 @@ import { toast } from 'sonner';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
-import { shouldApplyRemotePaneSize, shouldForceLocalSizeSync } from '../utils/resizeSyncGuards';
+import { shouldApplyRemotePaneSize } from '../utils/resizeSyncGuards';
 import {
   type TimedPaneSelection,
   resolvePendingUserSelection,
@@ -724,17 +724,6 @@ export default function DevicePage() {
         pendingLocalSize,
       })
     ) {
-      const containerSize = terminal?.calculateSizeFromContainer() ?? null;
-      if (
-        shouldForceLocalSizeSync({
-          now,
-          remoteSize,
-          pendingLocalSize,
-          containerSize,
-        })
-      ) {
-        terminal?.scheduleResize('sync', { immediate: true, force: true });
-      }
       return;
     }
 

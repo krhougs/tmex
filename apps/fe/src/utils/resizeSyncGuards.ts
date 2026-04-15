@@ -7,6 +7,12 @@ export interface TimedTerminalSizeSnapshot extends TerminalSizeSnapshot {
   at: number;
 }
 
+interface ViewportRestoreSyncInput {
+  currentSize: TerminalSizeSnapshot;
+  containerSize: TerminalSizeSnapshot;
+  force?: boolean;
+}
+
 interface RemotePaneSizeGuardInput {
   now: number;
   remoteSize: TerminalSizeSnapshot;
@@ -36,26 +42,23 @@ interface ForceLocalSizeSyncInput extends RemotePaneSizeGuardInput {
 }
 
 export function shouldForceLocalSizeSync({
-  now,
-  remoteSize,
-  pendingLocalSize,
-  containerSize,
-  ttlMs = 2000,
+  now: _now,
+  remoteSize: _remoteSize,
+  pendingLocalSize: _pendingLocalSize,
+  containerSize: _containerSize,
+  ttlMs: _ttlMs = 2000,
 }: ForceLocalSizeSyncInput): boolean {
-  if (!pendingLocalSize || !containerSize) {
-    return false;
+  return false;
+}
+
+export function shouldSyncOnViewportRestore({
+  currentSize,
+  containerSize,
+  force = false,
+}: ViewportRestoreSyncInput): boolean {
+  if (force) {
+    return true;
   }
 
-  if (now - pendingLocalSize.at > ttlMs) {
-    return false;
-  }
-
-  if (
-    pendingLocalSize.cols !== containerSize.cols ||
-    pendingLocalSize.rows !== containerSize.rows
-  ) {
-    return false;
-  }
-
-  return pendingLocalSize.cols !== remoteSize.cols || pendingLocalSize.rows !== remoteSize.rows;
+  return currentSize.cols !== containerSize.cols || currentSize.rows !== containerSize.rows;
 }
