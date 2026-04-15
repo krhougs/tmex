@@ -26,7 +26,17 @@ test('device: terminal ui renders and editor input toggles', async ({ page, requ
       { timeout: 20_000 }
     )
     .toBe('ghostty-official');
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          return (window as any).__tmexE2eTerminalRenderer ?? null;
+        }),
+      { timeout: 20_000 }
+    )
+    .toBe('canvas');
   await expect(page.locator('[data-terminal-engine="ghostty-official"]')).toBeVisible();
+  await expect(page.locator('.xterm canvas').first()).toBeVisible({ timeout: 20_000 });
 
   await page.getByTestId('terminal-input-mode-toggle').click();
   await expect(page.getByTestId('editor-input')).toBeVisible();

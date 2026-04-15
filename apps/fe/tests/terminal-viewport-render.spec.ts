@@ -1,6 +1,24 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createTwoPaneSession, ensureCleanSession, tmux } from './helpers/tmux';
 
+async function waitForCanvasTerminal(page: Page): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          return {
+            renderer: (window as any).__tmexE2eTerminalRenderer ?? null,
+            hasCanvas: Boolean(document.querySelector('.xterm canvas')),
+          };
+        }),
+      { timeout: 20_000 }
+    )
+    .toEqual({
+      renderer: 'canvas',
+      hasCanvas: true,
+    });
+}
+
 async function readVisibleTerminalText(page: Page): Promise<string> {
   return page.evaluate(() => {
     const term = (window as any).__tmexE2eXterm;
@@ -41,6 +59,7 @@ test('desktop: visible terminal should follow the latest viewport contents', asy
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await waitForCanvasTerminal(page);
 
     tmux(
       `send-keys -t ${sessionName}.0 "for i in \\$(seq 1 120); do echo TMEX_VIEWPORT_LATEST_\\$i; done" C-m`
@@ -94,6 +113,7 @@ test('desktop: direct input should become visible in the current viewport', asyn
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await waitForCanvasTerminal(page);
 
     await page.locator('.xterm').click();
     await page.keyboard.type(`echo ${marker}`);

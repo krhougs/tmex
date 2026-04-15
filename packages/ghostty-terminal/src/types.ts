@@ -39,6 +39,79 @@ export interface GhosttyCellDimensions {
   height: number;
 }
 
+export interface GhosttyColorRgb {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export type GhosttyRenderDirtyState = 'clean' | 'partial' | 'full';
+export type GhosttyCursorVisualStyle = 'bar' | 'block' | 'underline' | 'block-hollow';
+export type GhosttyCellWidthKind = 'narrow' | 'wide' | 'spacer-tail' | 'spacer-head';
+
+export interface GhosttyRenderColors {
+  background: GhosttyColorRgb;
+  foreground: GhosttyColorRgb;
+  cursor: GhosttyColorRgb | null;
+  palette: GhosttyColorRgb[];
+}
+
+export interface GhosttyRenderCursor {
+  style: GhosttyCursorVisualStyle;
+  visible: boolean;
+  blinking: boolean;
+  passwordInput: boolean;
+  x: number | null;
+  y: number | null;
+  wideTail: boolean;
+}
+
+export interface GhosttyRenderCellStyle {
+  bold: boolean;
+  italic: boolean;
+  faint: boolean;
+  blink: boolean;
+  inverse: boolean;
+  invisible: boolean;
+  strikethrough: boolean;
+  overline: boolean;
+  underline: number;
+}
+
+export interface GhosttyRenderCell {
+  x: number;
+  text: string;
+  codepoints: number[];
+  widthKind: GhosttyCellWidthKind;
+  hasText: boolean;
+  style: GhosttyRenderCellStyle;
+  fgColor: GhosttyColorRgb | null;
+  bgColor: GhosttyColorRgb | null;
+}
+
+export interface GhosttyRenderRow {
+  y: number;
+  dirty: boolean;
+  wrap: boolean;
+  wrapContinuation: boolean;
+  text: string;
+  cells: GhosttyRenderCell[];
+}
+
+export interface GhosttySelectionRect {
+  row: number;
+  x: number;
+  width: number;
+}
+
+export interface GhosttyRenderSnapshotMeta {
+  cols: number;
+  rows: number;
+  dirty: GhosttyRenderDirtyState;
+  colors: GhosttyRenderColors;
+  cursor: GhosttyRenderCursor;
+}
+
 export interface TerminalDisposable {
   dispose: () => void;
 }
@@ -84,4 +157,5 @@ export interface CompatibleTerminalLike {
     callback: (event: KeyboardEvent) => boolean
   ) => void;
   loadAddon: (addon: { activate: (terminal: CompatibleTerminalLike) => void; dispose: () => void }) => void;
+  getRendererKind?: () => string;
 }

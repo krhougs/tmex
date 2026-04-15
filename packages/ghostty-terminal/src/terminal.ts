@@ -1,7 +1,31 @@
+import { CanvasRenderer } from './canvas-renderer';
 import { getGhosttyKeyCode, getUnshiftedCodepoint } from './ghostty-keycodes';
 import {
-  GHOSTTY_FORMATTER_FORMAT_HTML,
-  GHOSTTY_FORMATTER_FORMAT_PLAIN,
+  createRenderState,
+  disposeRenderStateResources,
+  iterateRows,
+  readRenderSnapshotMeta,
+  updateRenderState,
+  type GhosttyRenderStateResources,
+} from './render-state';
+import {
+  clearSelection as resetSelectionData,
+  createEmptySelectionState,
+  hasSelection,
+  projectSelectionRects,
+  resolvePointerSelection,
+  serializeSelectionText,
+  updateSelectionFocus,
+  type SelectionMode,
+  type SelectionPoint,
+  type SelectionState,
+} from './selection-model';
+import {
+  isCopyShortcut,
+  writeSelectionToClipboard,
+  writeSelectionToCopyEvent,
+} from './selection-clipboard';
+import {
   getGhosttyBindings,
   keyboardEventToGhosttyMods,
   type GhosttyBindings,
@@ -11,6 +35,7 @@ import type {
   CompatibleTerminalBuffer,
   CompatibleTerminalLike,
   GhosttyCellDimensions,
+  GhosttyRenderRow,
   GhosttyTerminalInitOptions,
   GhosttyTerminalSize,
   TerminalDisposable,
@@ -20,7 +45,16 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_CELL_WIDTH = 9;
 const DEFAULT_CELL_HEIGHT = 17;
+const AUTO_SCROLL_INTERVAL_MS = 48;
 const TERMINAL_ENGINE = 'ghostty-official';
+
+type PointerDragState = {
+  active: boolean;
+  moved: boolean;
+  mode: SelectionMode;
+  lastClientX: number | null;
+  lastClientY: number | null;
+};
 
 class BufferLine implements CompatibleBufferLine {
   constructor(private readonly content: string) {}
@@ -61,17 +95,12 @@ function shouldEncodeOnKeyDown(event: KeyboardEvent): boolean {
   return true;
 }
 
-function normalizeFormatterLines(output: string, rows: number): string[] {
-  const lines = output.split('\n');
-  if (lines.length > rows) {
-    return lines.slice(0, rows).map((line) => line.replace(/\s+$/u, ''));
-  }
-
-  while (lines.length < rows) {
+function normalizeVisibleLines(rows: GhosttyRenderRow[], expectedRows: number): string[] {
+  const lines = rows.slice(0, expectedRows).map((row) => row.text);
+  while (lines.length < expectedRows) {
     lines.push('');
   }
-
-  return lines.map((line) => line.replace(/\s+$/u, ''));
+  return lines;
 }
 
 export class FitAddon {
@@ -124,25 +153,44 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private readonly bindings: GhosttyBindings;
   private readonly terminalHandle: number;
   private readonly keyEncoderHandle: number;
+  private readonly renderState: GhosttyRenderStateResources;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly addons = new Set<{ dispose: () => void }>();
   private screenElement: HTMLDivElement | null = null;
+  private renderer: CanvasRenderer | null = null;
   private renderRaf: number | null = null;
   private disposed = false;
   private disableStdin: boolean;
   private customKeyEventHandler: (event: KeyboardEvent) => boolean = () => true;
   private imeIsComposing = false;
   private lastCompositionCommit: { data: string; at: number } | null = null;
+  private selectionState: SelectionState = createEmptySelectionState();
+  private readonly lineCache = new Map<number, string>();
+  private lastViewportOffset = 0;
+  private lastViewportRows = DEFAULT_ROWS;
+  private lastRenderedRows: GhosttyRenderRow[] = [];
+  private pointerDrag: PointerDragState = {
+    active: false,
+    moved: false,
+    mode: 'character',
+    lastClientX: null,
+    lastClientY: null,
+  };
+  private autoScrollTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly domEventDisposers: Array<() => void> = [];
+  private copyShortcutSuppressed = false;
 
   private constructor(
     bindings: GhosttyBindings,
     terminalHandle: number,
     keyEncoderHandle: number,
+    renderState: GhosttyRenderStateResources,
     options: GhosttyTerminalInitOptions
   ) {
     this.bindings = bindings;
     this.terminalHandle = terminalHandle;
     this.keyEncoderHandle = keyEncoderHandle;
+    this.renderState = renderState;
     this.options = options;
     this.disableStdin = Boolean(options.disableStdin);
   }
@@ -150,15 +198,31 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   static async create(options: GhosttyTerminalInitOptions): Promise<GhosttyTerminalController> {
     const bindings = await getGhosttyBindings();
     const terminalHandle = bindings.createTerminal(DEFAULT_COLS, DEFAULT_ROWS, options.scrollback);
-    bindings.setTerminalTheme(terminalHandle, options.theme);
-    const keyEncoderHandle = bindings.createKeyEncoder();
+    let keyEncoderHandle = 0;
+    let renderState: GhosttyRenderStateResources | null = null;
 
-    return new GhosttyTerminalController(
-      bindings,
-      terminalHandle,
-      keyEncoderHandle,
-      options
-    );
+    try {
+      bindings.setTerminalTheme(terminalHandle, options.theme);
+      keyEncoderHandle = bindings.createKeyEncoder();
+      renderState = createRenderState(bindings);
+
+      return new GhosttyTerminalController(
+        bindings,
+        terminalHandle,
+        keyEncoderHandle,
+        renderState,
+        options
+      );
+    } catch (error) {
+      if (renderState) {
+        disposeRenderStateResources(renderState);
+      }
+      if (keyEncoderHandle !== 0) {
+        bindings.freeKeyEncoder(keyEncoderHandle);
+      }
+      bindings.freeTerminal(terminalHandle);
+      throw error;
+    }
   }
 
   open(container: HTMLElement): void {
@@ -190,10 +254,9 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     screen.className = 'xterm-screen';
     screen.style.width = '100%';
     screen.style.height = '100%';
-    screen.style.whiteSpace = 'pre';
-    screen.style.userSelect = 'text';
-    screen.style.webkitUserSelect = 'text';
-    screen.style.color = this.options.theme.foreground;
+    screen.style.position = 'relative';
+    screen.style.userSelect = 'none';
+    screen.style.webkitUserSelect = 'none';
     screen.style.backgroundColor = this.options.theme.background;
 
     const textarea = document.createElement('textarea');
@@ -223,6 +286,12 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.element = root;
     this.screenElement = screen;
     this.textarea = textarea;
+    this.renderer = new CanvasRenderer({
+      screenElement: screen,
+      theme: this.options.theme,
+      fontFamily: this.options.fontFamily,
+      fontSize: this.options.fontSize,
+    });
 
     this.syncInputState();
     this.bindDomEvents();
@@ -268,6 +337,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    this.lineCache.clear();
+    this.clearSelectionState(false);
     this.bindings.resetTerminal(this.terminalHandle);
     this.scheduleRender();
   }
@@ -281,6 +352,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const nextRows = Math.max(2, Math.floor(rows));
     this.cols = nextCols;
     this.rows = nextRows;
+    this.clearSelectionState(false);
     this.bindings.resizeTerminal(this.terminalHandle, nextCols, nextRows, this.cellDimensions());
     this.scheduleRender();
   }
@@ -329,6 +401,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.textarea?.focus({ preventScroll: true });
   }
 
+  getRendererKind(): string {
+    return this.renderer?.kind ?? 'unknown';
+  }
+
   setTheme(theme: GhosttyTerminalInitOptions['theme']): void {
     this.bindings.setTerminalTheme(this.terminalHandle, theme);
     this.options.theme = theme;
@@ -340,9 +416,9 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     if (this.screenElement) {
       this.screenElement.style.backgroundColor = theme.background;
-      this.screenElement.style.color = theme.foreground;
     }
 
+    this.renderer?.setTheme(theme);
     this.scheduleRender();
   }
 
@@ -381,16 +457,24 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       this.renderRaf = null;
     }
 
+    this.stopAutoScroll();
+    this.updateSelectionTextProbe(null);
+    this.clearDomEventListeners();
+
     for (const addon of this.addons) {
       addon.dispose();
     }
     this.addons.clear();
+
+    this.renderer?.dispose();
+    this.renderer = null;
 
     this.element?.remove();
     this.element = null;
     this.screenElement = null;
     this.textarea = null;
 
+    disposeRenderStateResources(this.renderState);
     this.bindings.freeKeyEncoder(this.keyEncoderHandle);
     this.bindings.freeTerminal(this.terminalHandle);
   }
@@ -424,6 +508,20 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       }
     });
 
+    const selectSurface = this.screenElement ?? root;
+    selectSurface.addEventListener('mousedown', (event) => {
+      if (!(event instanceof MouseEvent) || event.button !== 0) {
+        return;
+      }
+
+      if (!this.disableStdin) {
+        this.focus();
+      }
+
+      this.beginPointerSelection(event);
+      event.preventDefault();
+    });
+
     root.addEventListener(
       'wheel',
       (event) => {
@@ -442,7 +540,35 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       { passive: false }
     );
 
+    const dragEventTarget =
+      typeof window !== 'undefined' && typeof window.addEventListener === 'function'
+        ? window
+        : null;
+    if (dragEventTarget) {
+      const moveListener = (event: MouseEvent) => {
+        this.updatePointerSelection(event);
+      };
+      const upListener = (event: MouseEvent) => {
+        this.finishPointerSelection(event);
+      };
+      dragEventTarget.addEventListener('mousemove', moveListener);
+      dragEventTarget.addEventListener('mouseup', upListener);
+      this.domEventDisposers.push(() => {
+        dragEventTarget.removeEventListener('mousemove', moveListener);
+        dragEventTarget.removeEventListener('mouseup', upListener);
+      });
+    }
+
     textarea.addEventListener('keydown', (event) => {
+      const selectionText = this.getSelectionText();
+      if (selectionText && isCopyShortcut(event)) {
+        this.copyShortcutSuppressed = true;
+        event.preventDefault();
+        void writeSelectionToClipboard(selectionText).catch(() => {});
+        this.clearTextarea();
+        return;
+      }
+
       if (!this.customKeyEventHandler(event)) {
         return;
       }
@@ -466,6 +592,20 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     });
 
     textarea.addEventListener('keyup', (event) => {
+      if (this.copyShortcutSuppressed) {
+        const key = event.key.toLowerCase();
+        if (key === 'c') {
+          event.preventDefault();
+          return;
+        }
+
+        if (key === 'control' || key === 'meta' || key === 'os') {
+          this.copyShortcutSuppressed = false;
+          event.preventDefault();
+          return;
+        }
+      }
+
       if (this.disableStdin || this.imeIsComposing) {
         return;
       }
@@ -547,6 +687,15 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       this.clearTextarea();
     });
 
+    textarea.addEventListener('copy', (event) => {
+      const selectionText = this.getSelectionText();
+      if (!selectionText) {
+        return;
+      }
+
+      writeSelectionToCopyEvent(event, selectionText);
+    });
+
     textarea.addEventListener('input', () => {
       this.clearTextarea();
     });
@@ -598,45 +747,47 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   private render(): void {
-    if (this.disposed || !this.screenElement) {
+    if (this.disposed || !this.screenElement || !this.renderer) {
       return;
     }
 
     const scrollbar = this.bindings.readScrollbar(this.terminalHandle);
     const viewportRows = Math.max(1, scrollbar.len || this.rows);
-    const viewport = {
-      cols: Math.max(1, this.cols),
-      rows: viewportRows,
-    };
-    const html = this.bindings.formatViewport(
-      this.terminalHandle,
-      GHOSTTY_FORMATTER_FORMAT_HTML,
-      {
-        trim: false,
-        unwrap: false,
-        includePalette: true,
-      },
-      viewport
-    );
-    const plain = this.bindings.formatViewport(
-      this.terminalHandle,
-      GHOSTTY_FORMATTER_FORMAT_PLAIN,
-      {
-        trim: false,
-        unwrap: false,
-        includePalette: false,
-      },
-      viewport
-    );
 
-    this.cols = Math.max(2, this.cols);
-    this.rows = Math.max(2, viewportRows);
-    this.screenElement.innerHTML = html;
+    updateRenderState(this.renderState, this.terminalHandle);
+    const meta = readRenderSnapshotMeta(this.renderState);
+    const rows = Array.from(iterateRows(this.renderState));
 
-    const visibleLines = normalizeFormatterLines(plain, this.rows);
+    this.cols = Math.max(2, meta.cols);
+    this.rows = Math.max(2, meta.rows || viewportRows);
+    this.lastViewportOffset = scrollbar.offset;
+    this.lastViewportRows = this.rows;
+    this.lastRenderedRows = rows;
+
+    for (const row of rows) {
+      this.lineCache.set(scrollbar.offset + row.y, row.text);
+    }
+
+    const selectionRects = projectSelectionRects(
+      this.selectionState,
+      this.lastViewportOffset,
+      this.lastViewportRows,
+      (line) => this.getLineText(line)
+    );
+    const selectionText = this.getSelectionText();
+
+    this.renderer.render({
+      meta,
+      rows,
+      cellDimensions: this.cellDimensions(),
+      selectionRects,
+      selectionColor: this.options.theme.selectionBackground,
+    });
+
+    const visibleLines = normalizeVisibleLines(rows, this.rows);
     const baseY = Math.max(0, scrollbar.total - scrollbar.len);
-
     this.buffer.setViewport(scrollbar.offset, baseY, scrollbar.total, visibleLines);
+    this.updateSelectionTextProbe(selectionText);
   }
 
   private updateCellDimensions(): void {
@@ -661,6 +812,235 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       rect.width > 0 ? rect.width / 10 : DEFAULT_CELL_WIDTH;
     this._core._renderService.dimensions.css.cell.height =
       rect.height > 0 ? rect.height : DEFAULT_CELL_HEIGHT;
+  }
+
+  private clearSelectionState(repaint = true): void {
+    this.selectionState = resetSelectionData();
+    this.pointerDrag = {
+      active: false,
+      moved: false,
+      mode: 'character',
+      lastClientX: null,
+      lastClientY: null,
+    };
+    this.copyShortcutSuppressed = false;
+    this.stopAutoScroll();
+    this.updateSelectionTextProbe(null);
+
+    if (repaint && this.screenElement && this.renderer) {
+      this.render();
+    }
+  }
+
+  private beginPointerSelection(event: MouseEvent): void {
+    const point = this.hitTest(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+
+    const mode = this.selectionModeFromClickDetail(event.detail);
+    this.pointerDrag = {
+      active: true,
+      moved: false,
+      mode,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
+    };
+    this.selectionState = resolvePointerSelection(
+      this.selectionState,
+      {
+        ...point,
+        mode,
+      },
+      (line) => this.getLineText(line)
+    );
+    this.updateAutoScroll();
+    this.render();
+  }
+
+  private updatePointerSelection(event: MouseEvent): void {
+    if (!this.pointerDrag.active) {
+      return;
+    }
+
+    const point = this.hitTest(event.clientX, event.clientY);
+    this.pointerDrag.lastClientX = event.clientX;
+    this.pointerDrag.lastClientY = event.clientY;
+
+    if (point) {
+      this.pointerDrag.moved = true;
+      this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
+        this.getLineText(line)
+      );
+      this.render();
+    }
+
+    this.updateAutoScroll();
+  }
+
+  private finishPointerSelection(event: MouseEvent): void {
+    if (!this.pointerDrag.active || event.button !== 0) {
+      return;
+    }
+
+    this.pointerDrag.lastClientX = event.clientX;
+    this.pointerDrag.lastClientY = event.clientY;
+    this.stopAutoScroll();
+
+    const shouldClear =
+      this.pointerDrag.mode === 'character' &&
+      !this.pointerDrag.moved &&
+      this.selectionState.anchor?.line === this.selectionState.focus?.line &&
+      this.selectionState.anchor?.col === this.selectionState.focus?.col;
+    this.pointerDrag.active = false;
+
+    if (shouldClear) {
+      this.clearSelectionState();
+      return;
+    }
+
+    this.render();
+  }
+
+  private selectionModeFromClickDetail(detail: number): SelectionMode {
+    if (detail >= 3) {
+      return 'line';
+    }
+    if (detail === 2) {
+      return 'word';
+    }
+    return 'character';
+  }
+
+  private hitTest(clientX: number, clientY: number): SelectionPoint | null {
+    const rect = this.screenElement?.getBoundingClientRect();
+    if (!rect) {
+      return null;
+    }
+
+    const { width, height } = this.cellDimensions();
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+
+    const relativeX = clientX - rect.left;
+    const relativeY = clientY - rect.top;
+    const maxCol = Math.max(this.cols - 1, 0);
+    const maxRow = Math.max(this.lastViewportRows - 1, 0);
+    const col = Math.max(0, Math.min(maxCol, Math.floor(relativeX / width)));
+    const row = Math.max(0, Math.min(maxRow, Math.floor(relativeY / height)));
+
+    return {
+      line: this.lastViewportOffset + row,
+      col,
+    };
+  }
+
+  private getLineText(line: number): string {
+    const cached = this.lineCache.get(line);
+    if (typeof cached === 'string') {
+      return cached;
+    }
+
+    const visibleIndex = line - this.lastViewportOffset;
+    const visibleRow = this.lastRenderedRows[visibleIndex];
+    return visibleRow?.text ?? '';
+  }
+
+  private getSelectionText(): string | null {
+    if (!hasSelection(this.selectionState)) {
+      return null;
+    }
+
+    return serializeSelectionText(this.selectionState, (line) => this.getLineText(line));
+  }
+
+  private updateSelectionTextProbe(value: string | null): void {
+    (globalThis as { __tmexE2eTerminalSelectionText?: string | null }).__tmexE2eTerminalSelectionText =
+      value;
+  }
+
+  private updateAutoScroll(): void {
+    if (!this.pointerDrag.active || this.pointerDrag.lastClientY === null) {
+      this.stopAutoScroll();
+      return;
+    }
+
+    const rect = this.screenElement?.getBoundingClientRect();
+    if (!rect) {
+      this.stopAutoScroll();
+      return;
+    }
+
+    const outsideViewport =
+      this.pointerDrag.lastClientY < rect.top || this.pointerDrag.lastClientY > rect.bottom;
+    if (!outsideViewport) {
+      this.stopAutoScroll();
+      return;
+    }
+
+    if (this.autoScrollTimer !== null) {
+      return;
+    }
+
+    this.autoScrollTimer = setInterval(() => {
+      this.stepAutoScroll();
+    }, AUTO_SCROLL_INTERVAL_MS);
+  }
+
+  private stepAutoScroll(): void {
+    if (!this.pointerDrag.active || this.pointerDrag.lastClientX === null || this.pointerDrag.lastClientY === null) {
+      this.stopAutoScroll();
+      return;
+    }
+
+    const rect = this.screenElement?.getBoundingClientRect();
+    if (!rect) {
+      this.stopAutoScroll();
+      return;
+    }
+
+    let delta = 0;
+    if (this.pointerDrag.lastClientY < rect.top) {
+      delta = -1;
+    } else if (this.pointerDrag.lastClientY > rect.bottom) {
+      delta = 1;
+    }
+
+    if (delta === 0) {
+      this.stopAutoScroll();
+      return;
+    }
+
+    this.bindings.scrollViewportDelta(this.terminalHandle, delta);
+    this.render();
+
+    const point = this.hitTest(this.pointerDrag.lastClientX, this.pointerDrag.lastClientY);
+    if (!point) {
+      return;
+    }
+
+    this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
+      this.getLineText(line)
+    );
+    this.pointerDrag.moved = true;
+    this.render();
+  }
+
+  private stopAutoScroll(): void {
+    if (this.autoScrollTimer === null) {
+      return;
+    }
+
+    clearInterval(this.autoScrollTimer);
+    this.autoScrollTimer = null;
+  }
+
+  private clearDomEventListeners(): void {
+    while (this.domEventDisposers.length > 0) {
+      const dispose = this.domEventDisposers.pop();
+      dispose?.();
+    }
   }
 }
 

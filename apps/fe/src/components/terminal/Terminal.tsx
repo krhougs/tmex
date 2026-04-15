@@ -77,6 +77,7 @@ function setE2eTerminalProbe(terminal: CompatibleTerminalLike): void {
   g.__tmexE2eXterm = terminal;
   g.__tmexE2eTerminal = terminal;
   g.__tmexE2eTerminalEngine = TERMINAL_ENGINE;
+  g.__tmexE2eTerminalRenderer = terminal.getRendererKind?.() ?? null;
 }
 
 function clearE2eTerminalProbe(terminal: CompatibleTerminalLike | null): void {
@@ -92,6 +93,8 @@ function clearE2eTerminalProbe(terminal: CompatibleTerminalLike | null): void {
   g.__tmexE2eXterm = null;
   g.__tmexE2eTerminal = null;
   g.__tmexE2eTerminalEngine = null;
+  g.__tmexE2eTerminalRenderer = null;
+  g.__tmexE2eTerminalSelectionText = null;
 }
 
 export const Terminal = forwardRef<TerminalRef, TerminalProps>(

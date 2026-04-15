@@ -2,6 +2,7 @@ import ghosttyWasmUrl from './assets/ghostty-vt.wasm?url';
 import type { GhosttyCellDimensions, GhosttyTheme } from './types';
 
 const GHOSTTY_SUCCESS = 0;
+const GHOSTTY_INVALID_VALUE = -2;
 const GHOSTTY_OUT_OF_SPACE = -3;
 
 const GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND = 11;
@@ -71,6 +72,24 @@ type GhosttyExports = WebAssembly.Exports & {
   ghostty_terminal_get: (terminal: number, data: number, outPtr: number) => number;
   ghostty_terminal_mode_get: (terminal: number, mode: number, outValuePtr: number) => number;
   ghostty_terminal_grid_ref: (terminal: number, pointPtr: number, outRefPtr: number) => number;
+  ghostty_render_state_new: (allocatorPtr: number, outStatePtr: number) => number;
+  ghostty_render_state_free: (state: number) => void;
+  ghostty_render_state_update: (state: number, terminal: number) => number;
+  ghostty_render_state_get: (state: number, data: number, outPtr: number) => number;
+  ghostty_render_state_set: (state: number, option: number, valuePtr: number) => number;
+  ghostty_render_state_colors_get: (state: number, outColorsPtr: number) => number;
+  ghostty_render_state_row_iterator_new: (allocatorPtr: number, outIteratorPtr: number) => number;
+  ghostty_render_state_row_iterator_free: (iterator: number) => void;
+  ghostty_render_state_row_iterator_next: (iterator: number) => number;
+  ghostty_render_state_row_get: (iterator: number, data: number, outPtr: number) => number;
+  ghostty_render_state_row_set: (iterator: number, option: number, valuePtr: number) => number;
+  ghostty_render_state_row_cells_new: (allocatorPtr: number, outCellsPtr: number) => number;
+  ghostty_render_state_row_cells_free: (cells: number) => void;
+  ghostty_render_state_row_cells_next: (cells: number) => number;
+  ghostty_render_state_row_cells_select: (cells: number, x: number) => number;
+  ghostty_render_state_row_cells_get: (cells: number, data: number, outPtr: number) => number;
+  ghostty_row_get: (row: bigint, data: number, outPtr: number) => number;
+  ghostty_cell_get: (cell: bigint, data: number, outPtr: number) => number;
   ghostty_formatter_terminal_new: (
     allocatorPtr: number,
     outFormatterPtr: number,
@@ -299,6 +318,10 @@ export class GhosttyBindings {
     }
 
     return Number(this.view().getBigUint64(ptr, true));
+  }
+
+  readU64(ptr: number): bigint {
+    return this.view().getBigUint64(ptr, true);
   }
 
   setField(target: DataView, typeName: string, fieldName: string, value: number | boolean): void {
@@ -822,6 +845,162 @@ export class GhosttyBindings {
     }
   }
 
+  createRenderState(): number {
+    const outStatePtr = this.allocOpaque();
+
+    try {
+      assertResult(this.exports.ghostty_render_state_new(0, outStatePtr), 'ghostty_render_state_new');
+      return this.readPointer(outStatePtr);
+    } finally {
+      this.freeOpaque(outStatePtr);
+    }
+  }
+
+  freeRenderState(state: number): void {
+    this.exports.ghostty_render_state_free(state);
+  }
+
+  updateRenderState(state: number, terminal: number): void {
+    assertResult(
+      this.exports.ghostty_render_state_update(state, terminal),
+      'ghostty_render_state_update'
+    );
+  }
+
+  getRenderStateValueResult(state: number, data: number, outPtr: number): number {
+    return this.exports.ghostty_render_state_get(state, data, outPtr);
+  }
+
+  getRenderStateValue(state: number, data: number, outPtr: number): void {
+    assertResult(this.getRenderStateValueResult(state, data, outPtr), 'ghostty_render_state_get');
+  }
+
+  setRenderStateValue(state: number, option: number, valuePtr: number): void {
+    assertResult(this.exports.ghostty_render_state_set(state, option, valuePtr), 'ghostty_render_state_set');
+  }
+
+  getRenderStateColors(state: number, outColorsPtr: number): void {
+    assertResult(
+      this.exports.ghostty_render_state_colors_get(state, outColorsPtr),
+      'ghostty_render_state_colors_get'
+    );
+  }
+
+  createRenderStateRowIterator(): number {
+    const outIteratorPtr = this.allocOpaque();
+
+    try {
+      assertResult(
+        this.exports.ghostty_render_state_row_iterator_new(0, outIteratorPtr),
+        'ghostty_render_state_row_iterator_new'
+      );
+      return this.readPointer(outIteratorPtr);
+    } finally {
+      this.freeOpaque(outIteratorPtr);
+    }
+  }
+
+  freeRenderStateRowIterator(iterator: number): void {
+    this.exports.ghostty_render_state_row_iterator_free(iterator);
+  }
+
+  bindRenderStateRowIterator(state: number, iterator: number): void {
+    const outPtr = this.allocOpaque();
+
+    try {
+      this.view(outPtr, 4).setUint32(0, iterator, true);
+      this.getRenderStateValue(state, 4, outPtr);
+    } finally {
+      this.freeOpaque(outPtr);
+    }
+  }
+
+  nextRenderStateRowIterator(iterator: number): boolean {
+    return this.exports.ghostty_render_state_row_iterator_next(iterator) !== 0;
+  }
+
+  getRenderStateRowValueResult(iterator: number, data: number, outPtr: number): number {
+    return this.exports.ghostty_render_state_row_get(iterator, data, outPtr);
+  }
+
+  getRenderStateRowValue(iterator: number, data: number, outPtr: number): void {
+    assertResult(this.getRenderStateRowValueResult(iterator, data, outPtr), 'ghostty_render_state_row_get');
+  }
+
+  setRenderStateRowValue(iterator: number, option: number, valuePtr: number): void {
+    assertResult(
+      this.exports.ghostty_render_state_row_set(iterator, option, valuePtr),
+      'ghostty_render_state_row_set'
+    );
+  }
+
+  createRenderStateRowCells(): number {
+    const outCellsPtr = this.allocOpaque();
+
+    try {
+      assertResult(
+        this.exports.ghostty_render_state_row_cells_new(0, outCellsPtr),
+        'ghostty_render_state_row_cells_new'
+      );
+      return this.readPointer(outCellsPtr);
+    } finally {
+      this.freeOpaque(outCellsPtr);
+    }
+  }
+
+  freeRenderStateRowCells(cells: number): void {
+    this.exports.ghostty_render_state_row_cells_free(cells);
+  }
+
+  bindRenderStateRowCells(iterator: number, cells: number): void {
+    const outPtr = this.allocOpaque();
+
+    try {
+      this.view(outPtr, 4).setUint32(0, cells, true);
+      this.getRenderStateRowValue(iterator, 3, outPtr);
+    } finally {
+      this.freeOpaque(outPtr);
+    }
+  }
+
+  nextRenderStateRowCell(cells: number): boolean {
+    return this.exports.ghostty_render_state_row_cells_next(cells) !== 0;
+  }
+
+  selectRenderStateRowCell(cells: number, x: number): void {
+    assertResult(
+      this.exports.ghostty_render_state_row_cells_select(cells, x),
+      'ghostty_render_state_row_cells_select'
+    );
+  }
+
+  getRenderStateRowCellValueResult(cells: number, data: number, outPtr: number): number {
+    return this.exports.ghostty_render_state_row_cells_get(cells, data, outPtr);
+  }
+
+  getRenderStateRowCellValue(cells: number, data: number, outPtr: number): void {
+    assertResult(
+      this.getRenderStateRowCellValueResult(cells, data, outPtr),
+      'ghostty_render_state_row_cells_get'
+    );
+  }
+
+  getRawRowValueResult(row: bigint, data: number, outPtr: number): number {
+    return this.exports.ghostty_row_get(row, data, outPtr);
+  }
+
+  getRawRowValue(row: bigint, data: number, outPtr: number): void {
+    assertResult(this.getRawRowValueResult(row, data, outPtr), 'ghostty_row_get');
+  }
+
+  getRawCellValueResult(cell: bigint, data: number, outPtr: number): number {
+    return this.exports.ghostty_cell_get(cell, data, outPtr);
+  }
+
+  getRawCellValue(cell: bigint, data: number, outPtr: number): void {
+    assertResult(this.getRawCellValueResult(cell, data, outPtr), 'ghostty_cell_get');
+  }
+
   createKeyEncoder(): number {
     const outEncoderPtr = this.allocOpaque();
 
@@ -995,15 +1174,29 @@ export class GhosttyBindings {
   }
 }
 
+async function loadGhosttyWasmBytes(source: string): Promise<ArrayBuffer> {
+  const isFilePath =
+    source.startsWith('/') ||
+    source.startsWith('./') ||
+    source.startsWith('../') ||
+    /^[A-Za-z]:[\\/]/.test(source);
+
+  if (isFilePath && typeof Bun !== 'undefined') {
+    return Bun.file(source).arrayBuffer();
+  }
+
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`failed to load ghostty wasm: ${response.status} ${response.statusText}`);
+  }
+
+  return response.arrayBuffer();
+}
+
 export async function getGhosttyBindings(): Promise<GhosttyBindings> {
   if (!bindingsPromise) {
     bindingsPromise = (async () => {
-      const response = await fetch(ghosttyWasmUrl);
-      if (!response.ok) {
-        throw new Error(`failed to load ghostty wasm: ${response.status} ${response.statusText}`);
-      }
-
-      const wasmBytes = await response.arrayBuffer();
+      const wasmBytes = await loadGhosttyWasmBytes(ghosttyWasmUrl);
       const wasmModule = await WebAssembly.instantiate(wasmBytes, {
         env: {
           log() {
