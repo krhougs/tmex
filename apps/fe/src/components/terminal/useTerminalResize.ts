@@ -1,5 +1,5 @@
-import { useCallback, useRef, useEffect } from 'react';
 import type { Terminal as XTermTerminal } from '@xterm/xterm';
+import { useCallback, useEffect, useRef } from 'react';
 import type { FitAddon } from 'xterm-addon-fit';
 
 interface UseTerminalResizeOptions {
@@ -30,19 +30,35 @@ export function useTerminalResize({
   const postSelectResizeTimers = useRef<number[]>([]);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalRef = useRef<XTermTerminal | null>(null);
-  
+  const getContainerRectRef = useRef(getContainerRect);
+
   // Use refs to store callbacks to avoid dependency cycles
   const onResizeRef = useRef(onResize);
   const onSyncRef = useRef(onSync);
-  
+
   // Update refs when callbacks change
   useEffect(() => {
     onResizeRef.current = onResize;
   }, [onResize]);
-  
+
   useEffect(() => {
     onSyncRef.current = onSync;
   }, [onSync]);
+
+  useEffect(() => {
+    getContainerRectRef.current = getContainerRect;
+  }, [getContainerRect]);
+
+  const applyTerminalSize = useCallback((cols: number, rows: number): void => {
+    const term = terminalRef.current;
+    if (!term) {
+      return;
+    }
+    if (term.cols === cols && term.rows === rows) {
+      return;
+    }
+    term.resize(cols, rows);
+  }, []);
 
   const reportSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
@@ -69,15 +85,17 @@ export function useTerminalResize({
       let cols: number;
       let rows: number;
 
-      // 先调用 fitAddon.fit() 计算宽度
       try {
-        fitAddon.fit();
-        cols = Math.max(2, term.cols);
+        const proposed = fitAddon.proposeDimensions();
+        if (!proposed) {
+          throw new Error('fitAddon.proposeDimensions() returned null');
+        }
+        cols = Math.max(2, proposed.cols);
       } catch {
         // fitAddon 失败时使用容器宽度和字符宽度计算
         const core = (term as any)._core;
         const cellWidth = core?._renderService?.dimensions?.css?.cell?.width ?? 9;
-        const rect = getContainerRect?.();
+        const rect = getContainerRectRef.current?.();
         if (!rect || rect.width === 0) {
           return false;
         }
@@ -85,7 +103,7 @@ export function useTerminalResize({
       }
 
       // 高度永远使用容器尺寸
-      const containerRect = getContainerRect?.();
+      const containerRect = getContainerRectRef.current?.();
       if (!containerRect || containerRect.height === 0) {
         return false;
       }
@@ -96,8 +114,11 @@ export function useTerminalResize({
       const lastSize = lastReportedSize.current;
 
       if (!force && lastSize && lastSize.cols === cols && lastSize.rows === rows) {
+        applyTerminalSize(cols, rows);
         return true;
       }
+
+      applyTerminalSize(cols, rows);
 
       if (kind === 'sync') {
         onSyncRef.current(cols, rows);
@@ -110,11 +131,14 @@ export function useTerminalResize({
       return true;
     },
     // Only depend on stable values, not the callbacks
-    [deviceId, paneId, deviceConnected, isSelectionInvalid]
+    [applyTerminalSize, deviceConnected, deviceId, isSelectionInvalid, paneId]
   );
 
   const scheduleResize = useCallback(
-    (kind: 'resize' | 'sync' = 'resize', options: { immediate?: boolean; force?: boolean } = {}) => {
+    (
+      kind: 'resize' | 'sync' = 'resize',
+      options: { immediate?: boolean; force?: boolean } = {}
+    ) => {
       const { immediate = false, force = false } = options;
 
       if (resizeTimer.current !== null) {
@@ -148,7 +172,9 @@ export function useTerminalResize({
   );
 
   const clearPostSelectResizeTimers = useCallback(() => {
-    postSelectResizeTimers.current.forEach((id) => window.clearTimeout(id));
+    for (const id of postSelectResizeTimers.current) {
+      window.clearTimeout(id);
+    }
     postSelectResizeTimers.current = [];
   }, []);
 

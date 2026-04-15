@@ -554,7 +554,6 @@ export class SshExternalTmuxConnection {
       ['resize-window', '-t', windowId, '-x', String(safeCols), '-y', String(safeRows)],
       true
     );
-    await this.runTmux(['set-window-option', '-t', windowId, 'window-size', 'latest'], true);
     await this.requestSnapshotInternal();
   }
 

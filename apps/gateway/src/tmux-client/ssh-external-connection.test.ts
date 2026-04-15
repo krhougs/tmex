@@ -206,4 +206,81 @@ describe('SshExternalTmuxConnection', () => {
       },
     ]);
   });
+
+  test('resizePane keeps window-size manual on ssh runtime', async () => {
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+
+    fakeClient.commandChannel.onWrite = (payload) => {
+      writes.push(payload);
+      const commandId = extractCommandId(payload);
+
+      let stdout = '';
+      let exitCode = 0;
+      if (payload.includes('command -v tmux')) {
+        stdout = 'TMEX_BOOT_OK\t/usr/bin/tmux\ttmux 3.4\t/home/alice\n';
+      } else if (payload.includes('find ') && payload.includes('/tmp/tmex')) {
+        stdout = '';
+      } else if (payload.includes('mkdir -p')) {
+        stdout = '';
+      } else if (payload.includes("mkfifo '/tmp/tmex/device-ssh-")) {
+        stdout = '';
+      } else if (payload.includes("'has-session' '-t' 'tmex-ssh-resize'")) {
+        stdout = "can't find session: tmex-ssh-resize\n";
+        exitCode = 1;
+      } else if (payload.includes("'new-session' '-d' '-c' '/home/alice' '-s' 'tmex-ssh-resize'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'alert-bell'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'pane-exited'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'pane-died'")) {
+        stdout = '';
+      } else if (payload.includes("'display-message' '-p' '-t' 'tmex-ssh-resize' '#{session_id}")) {
+        stdout = '$1\ttmex-ssh-resize\n';
+      } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-resize'")) {
+        stdout = '@1\t0\tmain\t1\n';
+      } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-resize'")) {
+        stdout = '%1\t@1\t0\tbash\t1\t80\t24\n';
+      } else if (payload.includes("'resize-window' '-t' '@1' '-x' '137' '-y' '41'")) {
+        stdout = '';
+      } else {
+        throw new Error(`unexpected command payload: ${payload}`);
+      }
+
+      fakeClient.commandChannel.emit(
+        'data',
+        Buffer.from(`${stdout}\x1eTMEX_END ${commandId} ${exitCode}\x1e\n`)
+      );
+    };
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-resize'),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    await connection.connect();
+    connection.resizePane('%1', 137, 41);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      writes.some((payload) =>
+        payload.includes("'set-window-option' '-t' '@1' 'window-size' 'latest'")
+      )
+    ).toBe(false);
+  });
 });

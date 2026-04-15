@@ -140,20 +140,21 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       [inputMode, sendInput]
     );
 
-    const { scheduleResize, runPostSelectResize, setFitAddon, setTerminal } = useTerminalResize({
-      deviceId,
-      paneId,
-      deviceConnected,
-      isSelectionInvalid,
-      onResize,
-      onSync,
-      getContainerRect: () => {
-        const el = containerRef.current;
-        if (!el) return null;
-        const rect = el.getBoundingClientRect();
-        return { width: rect.width, height: rect.height };
-      },
-    });
+    const { pendingLocalSize, scheduleResize, runPostSelectResize, setFitAddon, setTerminal } =
+      useTerminalResize({
+        deviceId,
+        paneId,
+        deviceConnected,
+        isSelectionInvalid,
+        onResize,
+        onSync,
+        getContainerRect: () => {
+          const el = containerRef.current;
+          if (!el) return null;
+          const rect = el.getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        },
+      });
 
     useEffect(() => {
       if (!instance) return;
@@ -327,7 +328,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       setFitAddon(fitAddon);
       setTerminal(instance);
 
-      scheduleResize('sync', { immediate: true, force: true });
+      runPostSelectResize();
 
       return () => {
         try {
@@ -338,7 +339,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           setTerminal(null);
         }
       };
-    }, [instance, scheduleResize, setFitAddon, setTerminal]);
+    }, [instance, runPostSelectResize, setFitAddon, setTerminal]);
 
     useEffect(() => {
       const el = containerRef.current;
@@ -457,8 +458,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
           return { cols, rows };
         },
+        getPendingLocalSize: () => pendingLocalSize.current,
       }),
-      [instance, runPostSelectResize, scheduleResize]
+      [instance, pendingLocalSize, runPostSelectResize, scheduleResize]
     );
 
     return (

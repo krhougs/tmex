@@ -181,4 +181,57 @@ describe('LocalExternalTmuxConnection', () => {
       'ad',
     ]);
   });
+
+  test('resizePane keeps window-size in manual mode instead of forcing latest', async () => {
+    const commands: string[][] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-resize'),
+        run: async (argv) => {
+          commands.push(argv);
+          const command = argv.slice(1).join(' ');
+          if (command === 'has-session -t tmex-resize') {
+            return { exitCode: 1, stdout: '', stderr: "can't find session: tmex-resize" };
+          }
+          if (command === 'new-session -d -c /Users/krhougs -s tmex-resize') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (command.startsWith('display-message -p -t tmex-resize #{session_id}')) {
+            return { exitCode: 0, stdout: '$1\ttmex-resize\n', stderr: '' };
+          }
+          if (command.startsWith('list-windows -t tmex-resize')) {
+            return { exitCode: 0, stdout: '@1\t0\tmain\t1\n', stderr: '' };
+          }
+          if (command.startsWith('list-panes -t tmex-resize')) {
+            return { exitCode: 0, stdout: '%1\t@1\t0\tbash\t1\t80\t24\n', stderr: '' };
+          }
+          if (command === 'resize-window -t @1 -x 137 -y 41') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          throw new Error(`unexpected command: ${argv.join(' ')}`);
+        },
+      }
+    );
+
+    await connection.connect();
+    connection.resizePane('%1', 137, 41);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(commands.map((argv) => argv.slice(1).join(' '))).not.toContain(
+      'set-window-option -t @1 window-size latest'
+    );
+  });
 });

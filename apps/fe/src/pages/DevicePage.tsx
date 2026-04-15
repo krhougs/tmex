@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
+import { shouldApplyRemotePaneSize, shouldForceLocalSizeSync } from '../utils/resizeSyncGuards';
 import {
   type TimedPaneSelection,
   resolvePendingUserSelection,
@@ -705,12 +706,37 @@ export default function DevicePage() {
   useEffect(() => {
     if (!canInteractWithPane || !selectedPane || isLoading) return;
 
-    const term = terminalRef.current?.getTerminal();
+    const terminal = terminalRef.current;
+    const term = terminal?.getTerminal();
     if (!term) return;
 
     const remoteCols = Math.max(2, Math.floor(selectedPane.width || 0));
     const remoteRows = Math.max(2, Math.floor(selectedPane.height || 0));
     if (!remoteCols || !remoteRows) return;
+
+    const now = Date.now();
+    const remoteSize = { cols: remoteCols, rows: remoteRows };
+    const pendingLocalSize = terminal?.getPendingLocalSize() ?? null;
+    if (
+      !shouldApplyRemotePaneSize({
+        now,
+        remoteSize,
+        pendingLocalSize,
+      })
+    ) {
+      const containerSize = terminal?.calculateSizeFromContainer() ?? null;
+      if (
+        shouldForceLocalSizeSync({
+          now,
+          remoteSize,
+          pendingLocalSize,
+          containerSize,
+        })
+      ) {
+        terminal?.scheduleResize('sync', { immediate: true, force: true });
+      }
+      return;
+    }
 
     if (term.cols === remoteCols && term.rows === remoteRows) {
       return;
@@ -923,7 +949,7 @@ export default function DevicePage() {
           style={{ backgroundColor: terminalTheme.background }}
         >
           {deviceConnected && resolvedPaneId ? (
-            <div ref={terminalContainerRef} className="flex-1 w-full">
+            <div ref={terminalContainerRef} className="flex-1 h-full min-h-0 w-full">
               <TerminalComponent
                 key={`${deviceId}:${resolvedPaneId}`}
                 ref={terminalRef}

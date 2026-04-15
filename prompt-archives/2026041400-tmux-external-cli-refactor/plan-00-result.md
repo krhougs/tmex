@@ -177,3 +177,147 @@ cd apps/fe && CI=1 TMEX_E2E_GATEWAY_PORT=9896 TMEX_E2E_FE_PORT=10017 bun run tes
 - 验证结果：
   - 不再出现第二条反向 `TMUX_SELECT @1/%1`
   - 最终 URL 稳定停在 `.../windows/@23/panes/%2525`
+
+## 2026-04-15 第三轮终端尺寸回归修复
+
+又补了一轮尺寸链路修复，针对以下两个新回归：
+
+- 页面初始进入 / 页面刷新 / pane 切换后，终端宽高无法正确同步到 tmux pane；
+- 浏览器 resize 后，tmux pane 会短暂闪动，但尺寸随即被恢复成外部 tmux client 的尺寸。
+
+### 根因
+
+`apps/gateway/src/tmux-client/local-external-connection.ts` 和 `ssh-external-connection.ts` 的 `resizePaneInternal()` 在执行完：
+
+```bash
+tmux resize-window -t <window> -x <cols> -y <rows>
+```
+
+之后，又额外执行了一次：
+
+```bash
+tmux set-window-option -t <window> window-size latest
+```
+
+但 tmux 3.4 手册明确说明，`resize-window` 本身就会把 `window-size` 自动设为 `manual`。这里把它改回 `latest`，会导致“最近活跃的外部 tmux client”立刻把浏览器目标尺寸冲掉，所以外部观察只会看到 pane 闪一下。
+
+### 修复内容
+
+- 删除以下两处错误回退：
+  - `apps/gateway/src/tmux-client/local-external-connection.ts`
+  - `apps/gateway/src/tmux-client/ssh-external-connection.ts`
+- 新增命令序列回归测试：
+  - `apps/gateway/src/tmux-client/local-external-connection.test.ts`
+  - `apps/gateway/src/tmux-client/ssh-external-connection.test.ts`
+- 新增端到端尺寸收敛回归：
+  - `apps/fe/tests/helpers/tmux.ts`
+  - `apps/fe/tests/ws-borsh-resize.spec.ts`
+  - 覆盖“页面初始加载”和“浏览器 viewport resize 后”，`xterm` 尺寸最终与 tmux pane 实际尺寸一致。
+
+### 验证
+
+已执行：
+
+```bash
+bun test apps/gateway/src/tmux-client/local-external-connection.test.ts apps/gateway/src/tmux-client/ssh-external-connection.test.ts
+bunx @biomejs/biome check apps/gateway/src/tmux-client/local-external-connection.ts apps/gateway/src/tmux-client/ssh-external-connection.ts apps/gateway/src/tmux-client/local-external-connection.test.ts apps/gateway/src/tmux-client/ssh-external-connection.test.ts apps/fe/tests/helpers/tmux.ts apps/fe/tests/ws-borsh-resize.spec.ts
+cd apps/fe && CI=1 TMEX_E2E_GATEWAY_PORT=9896 TMEX_E2E_FE_PORT=10017 bun run test:e2e -- ws-borsh-resize.spec.ts ws-borsh-history.spec.ts ws-borsh-switch-barrier.spec.ts
+```
+
+结果：
+
+- Gateway 单测：`6 pass`
+- Biome：通过
+- 前端 E2E：`5 passed`
+
+## 2026-04-15 第四轮终端初始布局与高度收敛修复
+
+在继续对真实页面做尺寸取样时，又发现前一轮修复只解决了“tmux 尺寸会被外部 client 冲掉”的后端问题，但前端初始布局仍然存在一层单独的收敛缺陷：
+
+- 真实页面中，终端宿主区域高度约为 `744px`，但 `.xterm` 实际高度只有 `675px`；
+- 终端 `rows = 45`，正好对应 `675 / 15`，说明 xterm 本地行数仍停留在旧值；
+- 而切换 pane 后高度会恢复正常，说明“切 pane 路径”的二次收敛逻辑比“初始挂载路径”更完整。
+
+### 根因
+
+前端尺寸链路存在两个问题叠加：
+
+- `useTerminalResize` 在本地只通过 `fitAddon` 推导尺寸并上报给后端，但没有先把同样的 `cols/rows` 立即应用到本地 xterm；
+- `Terminal` 初始挂载时只做了一次单次 `sync`，没有复用切 pane 后的多次收敛流程，因此很容易在字体尚未稳定、renderService 尺寸尚未最终收敛时拿到偏小的行高结果。
+
+这就会导致：
+
+- 初始进入页面 / 刷新时，本地 `.xterm` 高度小于 wrapper；
+- 后续只有在 pane 切换触发 `runPostSelectResize()` 后，终端才会被重新拉到正确高度；
+- 浏览器 resize 时，对“变小”更敏感，但对“变大”场景恢复不稳定。
+
+### 修复内容
+
+- 更新 `apps/fe/src/components/terminal/useTerminalResize.ts`
+  - 用 `fitAddon.proposeDimensions()` 仅计算列数；
+  - 行数始终基于容器高度和 cell height 计算；
+  - 计算出 `cols/rows` 后，先调用 `term.resize(cols, rows)` 立即更新本地 xterm，再同步到后端。
+- 更新 `apps/fe/src/components/terminal/Terminal.tsx`
+  - 初始挂载不再只做一次 `scheduleResize('sync')`；
+  - 改为直接复用 `runPostSelectResize()`，与“切 pane 后”的尺寸收敛路径完全一致，包含立即同步、延迟重试和字体稳定后的再次同步。
+- 更新 `apps/fe/src/pages/DevicePage.tsx`
+  - 为包裹 `TerminalComponent` 的外层 wrapper 补齐 `h-full min-h-0`，避免 flex 场景下高度约束不完整。
+- 扩展 `apps/fe/tests/ws-borsh-resize.spec.ts`
+  - 新增断言：`.xterm` 视口高度与宿主区域高度的差值必须控制在一个终端 cell 高度内；
+  - 继续覆盖初始加载与浏览器 resize 两条路径。
+
+### 验证
+
+已执行：
+
+```bash
+bunx @biomejs/biome check apps/fe/src/components/terminal/useTerminalResize.ts apps/fe/src/components/terminal/Terminal.tsx apps/fe/src/pages/DevicePage.tsx apps/fe/tests/ws-borsh-resize.spec.ts
+cd apps/fe && CI=1 TMEX_E2E_GATEWAY_PORT=9896 TMEX_E2E_FE_PORT=10017 bun run test:e2e -- ws-borsh-resize.spec.ts ws-borsh-history.spec.ts ws-borsh-switch-barrier.spec.ts
+```
+
+结果：
+
+- Biome：通过
+- 前端 E2E：`6 passed`
+
+## 2026-04-15 第五轮尺寸链路根因补充结论
+
+在继续按真实 `http://127.0.0.1:19883/devices/6de4ac46-f59e-49c2-81d4-5a2ae3af6472` 页面做 4K 复现后，最终把问题拆成了两层：
+
+### 第一层：前端本地被旧 remote size 反向覆盖
+
+- 真实页面从普通窗口放大到 4K 后，宿主高度会立刻增长，但 xterm 会被一次旧的 remote pane size 重新 `term.resize()` 回去；
+- 这一层已经通过 `resizeSyncGuards` 修掉：
+  - 前端本地先正确算出并应用 `449x133`；
+  - 旧 snapshot / 旧 `selectedPane.width,height` 不再允许覆盖最近一次本地 resize；
+  - 真实页面探针已确认第二次反向 `term.resize(132, 45)` 消失。
+
+### 第二层：真实 tmux session 本身不接受当前 external CLI 路径的尺寸改写
+
+进一步证据显示，前端稳定后，tmux 本体仍然可能保持旧尺寸，这不是前端造成的，而是当前 live session 的 tmux 行为本身如此：
+
+- 页面和直接 borsh 客户端都能向 `19663/ws` 发出正确的 `TERM_SYNC_SIZE`：
+  - `deviceId = 6de4ac46-f59e-49c2-81d4-5a2ae3af6472`
+  - `paneId = %1`
+  - grow 后 `cols = 449, rows = 133`
+- 但真实 tmux pane `%1` 尺寸始终停在 `132x45`。
+- 更关键的是，直接在 shell 里对真实 session 执行原生命令也无效：
+
+```bash
+tmux resize-window -t @1 -x 220 -y 70
+tmux resize-pane -t %1 -x 220 -y 70
+```
+
+执行前后 `#{window_width} #{window_height}` / `#{pane_width} #{pane_height}` 都不变。
+
+### 结构性结论
+
+这说明当前 external CLI 架构至少在“真实有 attached client 的 tmux session”上，不能再假设 `resize-window` / `resize-pane` 一定能把浏览器尺寸落到 live session。也就是说：
+
+- `pipe-pane + list/capture + shell tmux 命令` 可以替代 I/O 与 snapshot；
+- 但“浏览器作为终端 client 驱动 tmux 尺寸”这件事，旧 control-mode client 提供的语义，当前 external CLI 方案并没有等价替代。
+
+目前这一层还没有代码级最终修复，后续需要在架构上二选一：
+
+- 为浏览器引入一个真正能影响 tmux client-size 的隐藏 client 路径；
+- 或重新约束产品语义，不再要求浏览器尺寸强行驱动真实 attached session 的 pane/window 尺寸。

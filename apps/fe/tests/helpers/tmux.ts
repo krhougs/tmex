@@ -27,3 +27,14 @@ export function createTwoPaneSession(sessionName: string): { paneIds: string[]; 
 
   return { paneIds, windowId };
 }
+
+export function getPaneSize(paneId: string): { cols: number; rows: number } {
+  const [colsRaw, rowsRaw] = tmux(`display-message -p -t ${paneId} '#{pane_width}\t#{pane_height}'`)
+    .split('\t')
+    .map((value) => value.trim());
+
+  return {
+    cols: Number.parseInt(colsRaw ?? '0', 10),
+    rows: Number.parseInt(rowsRaw ?? '0', 10),
+  };
+}
