@@ -2,7 +2,6 @@ import ghosttyWasmUrl from './assets/ghostty-vt.wasm?url';
 import type { GhosttyCellDimensions, GhosttyTheme } from './types';
 
 const GHOSTTY_SUCCESS = 0;
-const GHOSTTY_INVALID_VALUE = -2;
 const GHOSTTY_OUT_OF_SPACE = -3;
 
 const GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND = 11;
