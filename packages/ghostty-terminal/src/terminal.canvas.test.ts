@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import type { GhosttyTheme } from './types';
 
-type EventListener = (event: { type: string; preventDefault?: () => void }) => void;
+type FakeEvent = {
+  type: string;
+  data?: string;
+  preventDefault?: () => void;
+};
+
+type EventListener = (event: FakeEvent) => void;
 type RafCallback = (timestamp: number) => void;
 
 class FakeCanvasContext2D {
@@ -107,7 +113,7 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatchEvent(event: { type: string; preventDefault?: () => void }): void {
+  dispatchEvent(event: FakeEvent): void {
     const listeners = this.listeners.get(event.type) ?? [];
     for (const listener of listeners) {
       listener(event);
@@ -490,6 +496,41 @@ describe('GhosttyTerminalController canvas baseline', () => {
 
     expect(dom.cancelledFrames.length).toBeGreaterThan(0);
     expect(findElementsByTag(dom.document.body, 'textarea').length).toBe(0);
+  });
+
+  test('input event should emit committed text when compositionend data is empty', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    const textarea = findElementsByTag(dom.document.body, 'textarea')[0];
+    expect(textarea).toBeDefined();
+
+    textarea.dispatchEvent({ type: 'compositionstart' });
+    textarea.value = '你';
+    textarea.dispatchEvent({ type: 'compositionend', data: '' });
+    textarea.dispatchEvent({ type: 'input' });
+
+    expect(received).toEqual(['你']);
+
+    disposable.dispose();
   });
 });
 

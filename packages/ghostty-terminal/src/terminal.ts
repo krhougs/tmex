@@ -179,6 +179,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private autoScrollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly domEventDisposers: Array<() => void> = [];
   private copyShortcutSuppressed = false;
+  private scrollbarThumb: HTMLDivElement | null = null;
+  private scrollbarFadeTimer: ReturnType<typeof setTimeout> | null = null;
 
   private constructor(
     bindings: GhosttyBindings,
@@ -267,7 +269,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     textarea.setAttribute('autocorrect', 'off');
     textarea.spellcheck = false;
     textarea.style.position = 'absolute';
-    textarea.style.opacity = '0';
+    textarea.style.opacity = '1';
     textarea.style.pointerEvents = 'none';
     textarea.style.left = '0';
     textarea.style.top = '0';
@@ -277,15 +279,46 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     textarea.style.border = '0';
     textarea.style.padding = '0';
     textarea.style.margin = '0';
+    textarea.style.color = 'transparent';
+    textarea.style.backgroundColor = 'transparent';
+    textarea.style.caretColor = 'transparent';
+    textarea.style.overflow = 'hidden';
+
+    const scrollbarTrack = document.createElement('div');
+    scrollbarTrack.className = 'xterm-scrollbar-track';
+    scrollbarTrack.style.position = 'absolute';
+    scrollbarTrack.style.top = '0';
+    scrollbarTrack.style.right = '0';
+    scrollbarTrack.style.width = '8px';
+    scrollbarTrack.style.height = '100%';
+    scrollbarTrack.style.backgroundColor = 'transparent';
+    scrollbarTrack.style.pointerEvents = 'none';
+
+    const scrollbarThumb = document.createElement('div');
+    scrollbarThumb.className = 'xterm-scrollbar-thumb';
+    scrollbarThumb.style.position = 'absolute';
+    scrollbarThumb.style.top = '0';
+    scrollbarThumb.style.right = '0';
+    scrollbarThumb.style.width = '6px';
+    scrollbarThumb.style.marginRight = '1px';
+    scrollbarThumb.style.borderRadius = '3px';
+    scrollbarThumb.style.backgroundColor = 'rgba(128, 128, 128, 0.5)';
+    scrollbarThumb.style.pointerEvents = 'none';
+    scrollbarThumb.style.transition = 'opacity 0.15s ease';
+    scrollbarThumb.style.opacity = '0';
+
+    scrollbarTrack.appendChild(scrollbarThumb);
 
     viewport.appendChild(screen);
     root.appendChild(viewport);
     root.appendChild(textarea);
+    root.appendChild(scrollbarTrack);
     container.appendChild(root);
 
     this.element = root;
     this.screenElement = screen;
     this.textarea = textarea;
+    this.scrollbarThumb = scrollbarThumb;
     this.renderer = new CanvasRenderer({
       screenElement: screen,
       theme: this.options.theme,
@@ -461,6 +494,11 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.updateSelectionTextProbe(null);
     this.clearDomEventListeners();
 
+    if (this.scrollbarFadeTimer) {
+      clearTimeout(this.scrollbarFadeTimer);
+      this.scrollbarFadeTimer = null;
+    }
+
     for (const addon of this.addons) {
       addon.dispose();
     }
@@ -473,6 +511,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.element = null;
     this.screenElement = null;
     this.textarea = null;
+    this.scrollbarThumb = null;
 
     disposeRenderStateResources(this.renderState);
     this.bindings.freeKeyEncoder(this.keyEncoderHandle);
@@ -577,6 +616,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         return;
       }
 
+      if (event.keyCode === 229) {
+        return;
+      }
+
       if (!shouldEncodeOnKeyDown(event)) {
         return;
       }
@@ -623,15 +666,20 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     textarea.addEventListener('compositionstart', () => {
       this.imeIsComposing = true;
       this.lastCompositionCommit = null;
+      this.syncTextareaPositionToCursor();
+    });
+
+    textarea.addEventListener('compositionupdate', () => {
+      this.syncTextareaPositionToCursor();
     });
 
     textarea.addEventListener('compositionend', (event) => {
       this.imeIsComposing = false;
       const finalData = event.data ?? '';
-      this.clearTextarea();
       if (finalData) {
         this.lastCompositionCommit = { data: finalData, at: Date.now() };
         this.emitData(finalData);
+        this.clearTextarea();
       }
     });
 
@@ -697,6 +745,29 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     });
 
     textarea.addEventListener('input', () => {
+      if (this.disableStdin || this.imeIsComposing) {
+        return;
+      }
+
+      const data = textarea.value;
+      if (!data) {
+        this.clearTextarea();
+        return;
+      }
+
+      const recentCompositionCommit = this.lastCompositionCommit;
+      if (
+        recentCompositionCommit &&
+        recentCompositionCommit.data === data &&
+        Date.now() - recentCompositionCommit.at < 40
+      ) {
+        this.lastCompositionCommit = null;
+        this.clearTextarea();
+        return;
+      }
+
+      this.lastCompositionCommit = null;
+      this.emitData(data);
       this.clearTextarea();
     });
   }
@@ -733,6 +804,44 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     if (this.textarea) {
       this.textarea.value = '';
     }
+  }
+
+  private syncTextareaPositionToCursor(): void {
+    const textarea = this.textarea;
+    const screen = this.screenElement;
+    if (!textarea || !screen) {
+      return;
+    }
+
+    const { width, height } = this.cellDimensions();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    const renderState = createRenderState(this.bindings);
+    let cursorX = 0;
+    let cursorY = 0;
+    try {
+      updateRenderState(renderState, this.terminalHandle);
+      const meta = readRenderSnapshotMeta(renderState);
+      if (meta.cursor.x !== null && meta.cursor.y !== null) {
+        cursorX = meta.cursor.x;
+        cursorY = meta.cursor.y;
+      }
+    } finally {
+      disposeRenderStateResources(renderState);
+    }
+
+    const left = cursorX * width;
+    const top = cursorY * height;
+
+    textarea.style.left = `${left}px`;
+    textarea.style.top = `${top}px`;
+    textarea.style.width = `${Math.max(1, width)}px`;
+    textarea.style.height = `${Math.max(1, height)}px`;
+    textarea.style.lineHeight = `${height}px`;
+    textarea.style.fontFamily = this.options.fontFamily;
+    textarea.style.fontSize = `${this.options.fontSize}px`;
   }
 
   private scheduleRender(): void {
@@ -788,6 +897,36 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const baseY = Math.max(0, scrollbar.total - scrollbar.len);
     this.buffer.setViewport(scrollbar.offset, baseY, scrollbar.total, visibleLines);
     this.updateSelectionTextProbe(selectionText);
+    this.updateScrollbar(scrollbar);
+  }
+
+  private updateScrollbar(scrollbar: { total: number; offset: number; len: number }): void {
+    const thumb = this.scrollbarThumb;
+    if (!thumb) {
+      return;
+    }
+
+    const trackHeight = this.screenElement?.clientHeight ?? 0;
+    if (trackHeight === 0 || scrollbar.total <= scrollbar.len) {
+      thumb.style.opacity = '0';
+      return;
+    }
+
+    const ratio = scrollbar.len / scrollbar.total;
+    const thumbHeight = Math.max(20, ratio * trackHeight);
+    const scrollRatio = scrollbar.offset / Math.max(1, scrollbar.total - scrollbar.len);
+    const thumbTop = scrollRatio * (trackHeight - thumbHeight);
+
+    thumb.style.height = `${thumbHeight}px`;
+    thumb.style.transform = `translateY(${thumbTop}px)`;
+    thumb.style.opacity = '1';
+
+    if (this.scrollbarFadeTimer) {
+      clearTimeout(this.scrollbarFadeTimer);
+    }
+    this.scrollbarFadeTimer = setTimeout(() => {
+      thumb.style.opacity = '0';
+    }, 800);
   }
 
   private updateCellDimensions(): void {
