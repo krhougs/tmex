@@ -30,6 +30,13 @@ import { toast } from 'sonner';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
+import {
+  type TimedPaneSelection,
+  resolvePendingUserSelection,
+  shouldIgnoreActivePaneEvent,
+  shouldSkipSnapshotFollow,
+  shouldTrackPendingRouteSelection,
+} from '../utils/selectionGuards';
 import { buildBrowserTitle, buildTerminalLabel } from '../utils/terminalMeta';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
 
@@ -132,7 +139,7 @@ export default function DevicePage() {
   const autoSelected = useRef(false);
   const iosAddressBarCollapseTried = useRef(false);
   // Track user-initiated navigation to prevent auto-redirect overwriting it
-  const userInitiatedSelectionRef = useRef<{ windowId: string; paneId: string } | null>(null);
+  const userInitiatedSelectionRef = useRef<TimedPaneSelection | null>(null);
 
   const selectPane = useTmuxStore((state) => state.selectPane);
 
@@ -237,6 +244,18 @@ export default function DevicePage() {
     });
   }, [currentDevice?.name, deviceId, selectedPane, selectedWindow]);
 
+  const snapshotActiveSelection = useMemo(() => {
+    if (!windows || windows.length === 0) {
+      return null;
+    }
+    const activeWindow = windows.find((win) => win.active);
+    const activePane = activeWindow?.panes.find((pane) => pane.active);
+    if (!activeWindow || !activePane) {
+      return null;
+    }
+    return { windowId: activeWindow.id, paneId: activePane.id };
+  }, [windows]);
+
   // Handle resize from terminal - use store directly to avoid unstable callback deps
   const handleResize = useCallback(
     (cols: number, rows: number) => {
@@ -253,6 +272,33 @@ export default function DevicePage() {
       useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
     },
     [deviceId, resolvedPaneId]
+  );
+
+  const getSelectSize = useCallback(
+    (targetWindowId?: string, targetPaneId?: string) => {
+      const terminal = terminalRef.current;
+      const terminalSize =
+        terminal?.calculateSizeFromContainer() ?? terminal?.getSize() ?? undefined;
+      if (terminalSize) {
+        return terminalSize;
+      }
+
+      if (!targetWindowId || !targetPaneId || !windows) {
+        return undefined;
+      }
+
+      const targetWindow = windows.find((window) => window.id === targetWindowId);
+      const targetPane = targetWindow?.panes.find((pane) => pane.id === targetPaneId);
+      if (!targetPane || targetPane.width <= 1 || targetPane.height <= 1) {
+        return undefined;
+      }
+
+      return {
+        cols: targetPane.width,
+        rows: targetPane.height,
+      };
+    },
+    [windows]
   );
 
   // Mobile detection
@@ -472,10 +518,34 @@ export default function DevicePage() {
       return;
     }
 
-    const size = terminalRef.current?.calculateSizeFromContainer() ?? undefined;
+    const size = getSelectSize(windowId, resolvedPaneId);
     recordSelectRequest(windowId, resolvedPaneId);
     selectPane(deviceId, windowId, resolvedPaneId, size);
-  }, [deviceConnected, deviceId, isLoading, resolvedPaneId, selectPane, windowId]);
+  }, [deviceConnected, deviceId, getSelectSize, isLoading, resolvedPaneId, selectPane, windowId]);
+
+  // Treat explicit route selection as authoritative until snapshot/runtime catches up.
+  useEffect(() => {
+    if (!deviceId || !deviceConnected || !windowId || !resolvedPaneId) {
+      return;
+    }
+
+    const routeTarget = { windowId, paneId: resolvedPaneId };
+    if (
+      !shouldTrackPendingRouteSelection({
+        routeTarget,
+        snapshotActive: snapshotActiveSelection,
+        pendingUserSelection: userInitiatedSelectionRef.current,
+      })
+    ) {
+      return;
+    }
+
+    userInitiatedSelectionRef.current = {
+      windowId: routeTarget.windowId,
+      paneId: routeTarget.paneId,
+      at: Date.now(),
+    };
+  }, [deviceConnected, deviceId, resolvedPaneId, snapshotActiveSelection, windowId]);
 
   const recentSelectRequestsRef = useRef<Array<{ windowId: string; paneId: string; at: number }>>(
     []
@@ -502,42 +572,37 @@ export default function DevicePage() {
     if (!windowId || !resolvedPaneId) return;
     if (!activePaneFromEvent) return;
 
-    // Ignore pane-active events that are likely confirmations (or stale echoes) of our own recent selects.
-    // Without this, rapid user navigation can cause us to "follow back" to an older pane-active event.
-    {
-      const now = Date.now();
-      const isRecentRequested = recentSelectRequestsRef.current.some(
-        (r) =>
-          r.windowId === activePaneFromEvent.windowId &&
-          r.paneId === activePaneFromEvent.paneId &&
-          now - r.at < 1200
-      );
-      if (isRecentRequested) {
-        return;
-      }
-    }
+    const now = Date.now();
+    const pendingUserSelection = resolvePendingUserSelection(
+      userInitiatedSelectionRef.current,
+      now
+    );
+    userInitiatedSelectionRef.current = pendingUserSelection;
 
-    // Ignore if already at the right place
     if (
-      activePaneFromEvent.windowId === windowId &&
-      activePaneFromEvent.paneId === resolvedPaneId
-    ) {
-      return;
-    }
-
-    // Avoid duplicate handling
-    if (
-      lastHandledActiveRef.current &&
-      lastHandledActiveRef.current.windowId === activePaneFromEvent.windowId &&
-      lastHandledActiveRef.current.paneId === activePaneFromEvent.paneId
+      shouldIgnoreActivePaneEvent({
+        now,
+        pendingUserSelection,
+        activePaneFromEvent,
+        currentRoute: { windowId, paneId: resolvedPaneId },
+        recentSelectRequests: recentSelectRequestsRef.current,
+        lastHandledActive: lastHandledActiveRef.current,
+      })
     ) {
       return;
     }
 
     lastHandledActiveRef.current = { ...activePaneFromEvent };
+    if (
+      pendingUserSelection &&
+      pendingUserSelection.windowId === activePaneFromEvent.windowId &&
+      pendingUserSelection.paneId === activePaneFromEvent.paneId
+    ) {
+      userInitiatedSelectionRef.current = null;
+    }
 
     // Send selectPane to gateway first
-    const size = terminalRef.current?.calculateSizeFromContainer() ?? undefined;
+    const size = getSelectSize(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
     recordSelectRequest(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
     selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId, size);
 
@@ -552,6 +617,8 @@ export default function DevicePage() {
     windowId,
     resolvedPaneId,
     activePaneFromEvent,
+    recordSelectRequest,
+    getSelectSize,
     selectPane,
     navigate,
   ]);
@@ -563,19 +630,8 @@ export default function DevicePage() {
     if (!deviceConnected) return;
     if (!windows || windows.length === 0) return;
 
-    // Skip if user just manually selected a different window/pane
-    if (userInitiatedSelectionRef.current) {
-      return;
-    }
-
     // Avoid snapshot-driven "bounce back" shortly after we send TMUX_SELECT.
     const recentRequests = recentSelectRequestsRef.current;
-    const lastRequest =
-      recentRequests.length > 0 ? recentRequests[recentRequests.length - 1] : null;
-    if (lastRequest && Date.now() - lastRequest.at < 1200) {
-      return;
-    }
-
     const activeWindow = windows.find((w) => w.active);
     if (!activeWindow) return;
 
@@ -583,6 +639,23 @@ export default function DevicePage() {
     if (!activePane) return;
 
     const currentActive = { windowId: activeWindow.id, paneId: activePane.id };
+    const now = Date.now();
+    const pendingUserSelection = resolvePendingUserSelection(
+      userInitiatedSelectionRef.current,
+      now
+    );
+    userInitiatedSelectionRef.current = pendingUserSelection;
+
+    if (
+      shouldSkipSnapshotFollow({
+        now,
+        pendingUserSelection,
+        snapshotActive: currentActive,
+        recentSelectRequests: recentRequests,
+      })
+    ) {
+      return;
+    }
 
     // Only follow when active actually changes
     if (
@@ -595,6 +668,13 @@ export default function DevicePage() {
 
     // Update ref
     lastSnapshotActiveRef.current = { ...currentActive };
+    if (
+      pendingUserSelection &&
+      pendingUserSelection.windowId === currentActive.windowId &&
+      pendingUserSelection.paneId === currentActive.paneId
+    ) {
+      userInitiatedSelectionRef.current = null;
+    }
 
     // If current URL matches, no need to navigate
     if (windowId === currentActive.windowId && resolvedPaneId === currentActive.paneId) {
@@ -602,14 +682,24 @@ export default function DevicePage() {
     }
 
     // Send selectPane and navigate
-    const size = terminalRef.current?.calculateSizeFromContainer() ?? undefined;
+    const size = getSelectSize(currentActive.windowId, currentActive.paneId);
     recordSelectRequest(currentActive.windowId, currentActive.paneId);
     selectPane(deviceId, currentActive.windowId, currentActive.paneId, size);
     navigate(
       `/devices/${deviceId}/windows/${currentActive.windowId}/panes/${encodePaneIdForUrl(currentActive.paneId)}`,
       { replace: true }
     );
-  }, [deviceId, deviceConnected, windows, windowId, resolvedPaneId, selectPane, navigate]);
+  }, [
+    deviceId,
+    deviceConnected,
+    windows,
+    windowId,
+    resolvedPaneId,
+    recordSelectRequest,
+    getSelectSize,
+    selectPane,
+    navigate,
+  ]);
 
   // Sync pane size from remote
   useEffect(() => {
@@ -631,6 +721,7 @@ export default function DevicePage() {
 
   // Scroll to bottom on input mode change
   useEffect(() => {
+    void inputMode;
     const rafId = window.requestAnimationFrame(() => {
       terminalRef.current?.scrollToBottom();
     });
@@ -682,7 +773,7 @@ export default function DevicePage() {
       // Only track if it's for the current device
       // Note: when switching devices, refs are reset in the deviceId effect above
       if (eventDeviceId === deviceId) {
-        userInitiatedSelectionRef.current = { windowId, paneId };
+        userInitiatedSelectionRef.current = { windowId, paneId, at: Date.now() };
       }
     };
 
@@ -820,19 +911,17 @@ export default function DevicePage() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
       <div
-        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-1' : ''
-          }`}
+        className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${
+          isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-1' : ''
+        }`}
         style={{
-          paddingBottom: shouldDockEditor
-            ? `${editorDockHeight + 60}px`
-            : undefined
+          paddingBottom: shouldDockEditor ? `${editorDockHeight + 60}px` : undefined,
         }}
       >
         <div
           className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
           style={{ backgroundColor: terminalTheme.background }}
         >
-
           {deviceConnected && resolvedPaneId ? (
             <div ref={terminalContainerRef} className="flex-1 w-full">
               <TerminalComponent
@@ -846,7 +935,8 @@ export default function DevicePage() {
                 isSelectionInvalid={isSelectionInvalid}
                 onResize={handleResize}
                 onSync={handleSync}
-              /></div>
+              />
+            </div>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="max-w-sm space-y-4">
@@ -911,8 +1001,9 @@ export default function DevicePage() {
       {inputMode === 'editor' && (
         <div
           ref={editorContainerRef}
-          className={`editor-mode-input bg-card/85 backdrop-blur-sm ${shouldDockEditor ? 'fixed left-0 right-0 z-50' : ''
-            }`}
+          className={`editor-mode-input bg-card/85 backdrop-blur-sm ${
+            shouldDockEditor ? 'fixed left-0 right-0 z-50' : ''
+          }`}
           style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
         >
           {/* 移动端 editor 模式：快捷键栏在编辑器上方 */}

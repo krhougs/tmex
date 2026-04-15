@@ -151,6 +151,10 @@ export class SwitchBarrier {
   ): void {
     const pending = this.getPending(ws, deviceId);
     if (!pending) return;
+    const selectState = sessionStateStore.getOrCreateSelectTransaction(ws, deviceId)?.state;
+    if (selectState !== 'SELECTING') {
+      return;
+    }
 
     const { context } = pending;
     const borshState = ws.data?.borshState;
@@ -161,7 +165,9 @@ export class SwitchBarrier {
     if (ackTimer) clearTimeout(ackTimer);
 
     // 更新状态机
-    sessionStateStore.transitionSelectState(ws, deviceId, 'ACKED');
+    if (!sessionStateStore.transitionSelectState(ws, deviceId, 'ACKED')) {
+      return;
+    }
 
     // 发送 ACK
     const seq = borshState.seqGen();
@@ -208,6 +214,10 @@ export class SwitchBarrier {
   ): void {
     const pending = this.getPending(ws, deviceId);
     if (!pending) return;
+    const selectState = sessionStateStore.getOrCreateSelectTransaction(ws, deviceId)?.state;
+    if (selectState !== 'ACKED') {
+      return;
+    }
 
     const { context } = pending;
     if (context.paneId !== paneId) {
@@ -220,8 +230,10 @@ export class SwitchBarrier {
     const historyTimer = pending.timers.shift();
     if (historyTimer) clearTimeout(historyTimer);
 
-    // 更新状态机
-    sessionStateStore.transitionSelectState(ws, deviceId, 'HISTORY_APPLIED');
+    // 更新状态机。重复 history 直接丢弃，避免重复发包。
+    if (!sessionStateStore.transitionSelectState(ws, deviceId, 'HISTORY_APPLIED')) {
+      return;
+    }
 
     // 发送 HISTORY
     const historyMessages = encodeTermHistory(
@@ -259,6 +271,10 @@ export class SwitchBarrier {
   ): void {
     const pending = this.getPending(ws, deviceId);
     if (!pending) return;
+    const selectState = sessionStateStore.getOrCreateSelectTransaction(ws, deviceId)?.state;
+    if (selectState !== 'ACKED' && selectState !== 'HISTORY_APPLIED') {
+      return;
+    }
 
     const { context } = pending;
     if (expectedToken && !this.tokensEqual(context.selectToken, expectedToken)) {
@@ -274,7 +290,9 @@ export class SwitchBarrier {
     pending.timers = [];
 
     // 更新状态机到 LIVE
-    sessionStateStore.transitionSelectState(ws, deviceId, 'LIVE');
+    if (!sessionStateStore.transitionSelectState(ws, deviceId, 'LIVE')) {
+      return;
+    }
 
     // 获取缓冲的输出
     const bufferedOutput = sessionStateStore.stopOutputBuffering(ws, deviceId);
@@ -407,7 +425,9 @@ export class SwitchBarrier {
    */
   private completeTransaction(ws: ServerWebSocket<unknown>, deviceId: string): void {
     // 更新状态机为 STABLE
-    sessionStateStore.transitionSelectState(ws, deviceId, 'STABLE');
+    if (!sessionStateStore.transitionSelectState(ws, deviceId, 'STABLE')) {
+      return;
+    }
 
     // 清理
     this.cleanupTransaction(ws, deviceId);

@@ -5,6 +5,7 @@ import { ensureSiteSettingsInitialized, getSiteSettings } from './db';
 import { runMigrations } from './db/migrate';
 import { pushSupervisor } from './push/supervisor';
 import { telegramService } from './telegram/service';
+import { tmuxRuntimeRegistry } from './tmux-client/registry';
 import { primeLocalShellPath } from './tmux/local-shell-path';
 import { WebSocketServer } from './ws';
 
@@ -91,6 +92,7 @@ export async function createGatewayRuntime(
     async stop() {
       wsServer.closeAll();
       await pushSupervisor.stopAll();
+      await tmuxRuntimeRegistry.shutdownAll();
       await telegramService.stopAll();
     },
   };

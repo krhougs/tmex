@@ -1,21 +1,22 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useXTerm } from 'react-xtermjs';
 import '@xterm/xterm/css/xterm.css';
-import type { TerminalProps, TerminalRef } from './types';
-import {
-  XTERM_FONT_FAMILY,
-  XTERM_THEME_DARK,
-  XTERM_THEME_LIGHT,
-} from './theme';
 import { useTmuxStore } from '@/stores/tmux';
-import { getSelectStateMachine, type SelectCallbacks } from '@/ws-borsh';
+import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
 import { FitAddon } from 'xterm-addon-fit';
-import { useTerminalResize } from './useTerminalResize';
+import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
+import type { TerminalProps, TerminalRef } from './types';
 import { useMobileTouch } from './useMobileTouch';
+import { useTerminalResize } from './useTerminalResize';
 
 function normalizeHistoryForXterm(data: string): string {
   if (!data) return data;
-  return data.replace(/\r?\n/g, '\r\n');
+  const normalized = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n');
+  while (lines.length > 0 && lines.at(-1)?.trim() === '') {
+    lines.pop();
+  }
+  return lines.join('\r\n');
 }
 
 function normalizeLiveOutputForXterm(
@@ -67,7 +68,10 @@ const TERMINAL_OPTIONS = {
 };
 
 export const Terminal = forwardRef<TerminalRef, TerminalProps>(
-  ({ deviceId, paneId, theme, inputMode, deviceConnected, isSelectionInvalid, onResize, onSync }, ref) => {
+  (
+    { deviceId, paneId, theme, inputMode, deviceConnected, isSelectionInvalid, onResize, onSync },
+    ref
+  ) => {
     const { instance, ref: xtermRef } = useXTerm({
       options: TERMINAL_OPTIONS,
     });
@@ -76,7 +80,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       switch (theme) {
         case 'light':
           return XTERM_THEME_LIGHT;
-        case 'dark':
         default:
           return XTERM_THEME_DARK;
       }
@@ -94,6 +97,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const imeFallbackDataRef = useRef('');
     const imeLastSentRef = useRef<{ data: string; at: number } | null>(null);
     const liveOutputEndedWithCR = useRef(false);
+    const keepShortHistoryVisibleRef = useRef(false);
     const lastXtermInstanceRef = useRef<typeof instance>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
 
@@ -103,6 +107,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       imeIsComposingRef.current = false;
       imeFallbackDataRef.current = '';
       imeLastSentRef.current = null;
+      keepShortHistoryVisibleRef.current = false;
     }, [deviceId, paneId]);
 
     useEffect(() => {
@@ -135,12 +140,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       [inputMode, sendInput]
     );
 
-    const {
-      scheduleResize,
-      runPostSelectResize,
-      setFitAddon,
-      setTerminal,
-    } = useTerminalResize({
+    const { scheduleResize, runPostSelectResize, setFitAddon, setTerminal } = useTerminalResize({
       deviceId,
       paneId,
       deviceConnected,
@@ -229,44 +229,54 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       };
     }, [instance, sendInputWithImeDedup]);
 
-    const callbacks: SelectCallbacks = useMemo(
-      () => {
-        // xterm 实例未就绪时不注册回调，让状态机走 deferred 重放，避免 history/live 被“消费掉”。
-        if (!instance) {
-          return {};
-        }
+    const callbacks: SelectCallbacks = useMemo(() => {
+      // xterm 实例未就绪时不注册回调，让状态机走 deferred 重放，避免 history/live 被“消费掉”。
+      if (!instance) {
+        return {};
+      }
 
-        return {
-          onResetTerminal: (targetDeviceId) => {
-            if (currentDeviceIdRef.current !== targetDeviceId) return;
-            instance.reset();
-            liveOutputEndedWithCR.current = false;
-            runPostSelectResize();
-          },
-          onApplyHistory: (targetDeviceId, data) => {
-            if (currentDeviceIdRef.current !== targetDeviceId) return;
-            instance.write(normalizeHistoryForXterm(data));
-          },
-          onFlushBuffer: (targetDeviceId, buffer) => {
-            if (currentDeviceIdRef.current !== targetDeviceId) return;
-            for (const chunk of buffer) {
-              const normalized = normalizeLiveOutputForXterm(chunk, liveOutputEndedWithCR.current);
-              liveOutputEndedWithCR.current = normalized.endedWithCR;
-              instance.write(normalized.normalized);
-            }
-          },
-          onOutput: (targetDeviceId, targetPaneId, data) => {
-            if (currentDeviceIdRef.current !== targetDeviceId) return;
-            if (currentPaneIdRef.current !== targetPaneId) return;
-            if (!canWriteRef.current) return;
-            const normalized = normalizeLiveOutputForXterm(data, liveOutputEndedWithCR.current);
+      return {
+        onResetTerminal: (targetDeviceId) => {
+          if (currentDeviceIdRef.current !== targetDeviceId) return;
+          instance.reset();
+          liveOutputEndedWithCR.current = false;
+          runPostSelectResize();
+        },
+        onApplyHistory: (targetDeviceId, data) => {
+          if (currentDeviceIdRef.current !== targetDeviceId) return;
+          keepShortHistoryVisibleRef.current = true;
+          instance.write(normalizeHistoryForXterm(data));
+        },
+        onFlushBuffer: (targetDeviceId, buffer) => {
+          if (currentDeviceIdRef.current !== targetDeviceId) return;
+          for (const chunk of buffer) {
+            const normalized = normalizeLiveOutputForXterm(chunk, liveOutputEndedWithCR.current);
             liveOutputEndedWithCR.current = normalized.endedWithCR;
             instance.write(normalized.normalized);
-          },
-        };
-      },
-      [instance, runPostSelectResize]
-    );
+          }
+          if (keepShortHistoryVisibleRef.current) {
+            if (instance.buffer.active.baseY <= 1) {
+              instance.scrollToTop();
+            }
+            keepShortHistoryVisibleRef.current = false;
+          }
+        },
+        onOutput: (targetDeviceId, targetPaneId, data) => {
+          if (currentDeviceIdRef.current !== targetDeviceId) return;
+          if (currentPaneIdRef.current !== targetPaneId) return;
+          if (!canWriteRef.current) return;
+          const normalized = normalizeLiveOutputForXterm(data, liveOutputEndedWithCR.current);
+          liveOutputEndedWithCR.current = normalized.endedWithCR;
+          instance.write(normalized.normalized);
+          if (keepShortHistoryVisibleRef.current) {
+            if (instance.buffer.active.baseY <= 1) {
+              instance.scrollToTop();
+            }
+            keepShortHistoryVisibleRef.current = false;
+          }
+        },
+      };
+    }, [instance, runPostSelectResize]);
 
     useEffect(() => {
       if (!instance) {
@@ -280,9 +290,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     }, [instance]);
 
     useEffect(() => {
-      if (!import.meta.env.DEV) return;
       const g = globalThis as any;
-      if (!g.__TMEX_E2E_DEBUG) return;
       if (instance) {
         g.__tmexE2eXterm = instance;
       }
@@ -385,7 +393,15 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         disposable.dispose();
         instance.attachCustomKeyEventHandler(() => true);
       };
-    }, [instance, deviceConnected, isSelectionInvalid, inputMode, sendInputWithImeDedup]);
+    }, [
+      instance,
+      deviceConnected,
+      isSelectionInvalid,
+      inputMode,
+      sendInputWithImeDedup,
+      deviceId,
+      paneId,
+    ]);
 
     useImperativeHandle(
       ref,

@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-tmex 是一个通过网页接入多个设备（本地或 SSH）的 tmux -CC 终端控制平台。用户可以在浏览器中像 VS Code 终端一样管理设备、窗口和分屏，并特别优化了移动端 CKJ（中日韩）输入体验。
+tmex 是一个通过网页接入多个设备（本地或 SSH）的 tmux 终端控制平台。Gateway 通过外部 tmux CLI、`pipe-pane` 和最小 hook 与 tmux server 交互。用户可以在浏览器中像 VS Code 终端一样管理设备、窗口和分屏，并特别优化了移动端 CKJ（中日韩）输入体验。
 
 ## 技术栈
 
@@ -32,7 +32,8 @@ tmex/
 │   │   │   ├── crypto/   # 加密/解密层
 │   │   │   ├── db/       # SQLite 数据库
 │   │   │   ├── events/   # Webhook + Telegram
-│   │   │   ├── tmux/     # tmux -CC 连接与解析
+│   │   │   ├── tmux/     # tmux 辅助能力
+│   │   │   ├── tmux-client/ # external tmux CLI runtime
 │   │   │   ├── ws/       # WebSocket 服务器
 │   │   │   ├── config.ts # 配置管理
 │   │   │   └── index.ts  # 入口
@@ -71,11 +72,11 @@ tmex/
 - SSH 认证方式：密码、私钥、SSH Agent、SSH Config
 - 设备状态监控（在线/离线、tmux 可用性）
 
-### 2. tmux -CC 协议处理
-- 状态机解析 tmux 控制模式输出
-- 支持 window/pane 增删、layout 变化、bell 等事件
-- **忽略 iTerm2 窗口位置信息**，避免影响其他客户端
-- 终端输出通过 WebSocket 转发
+### 2. tmux external CLI 运行时
+- Gateway 通过外部 `tmux` CLI 执行命令，而不是进入 control mode
+- 选中 pane 的实时输出通过 `pipe-pane -O` + FIFO 转发
+- bell、pane-exited、pane-died 通过 session 级 hook 写入 FIFO，再由 Gateway 转为事件
+- 状态快照、历史捕获和窗口尺寸同步都由命令驱动刷新完成
 
 #### WebSocket 协议（规划）
 
@@ -154,7 +155,7 @@ cd apps/fe && bun dev
 
 ## 已知限制
 
-1. tmux -CC 解析器需要更多真实场景测试
+1. SSH external tmux runtime 仍需补充真实远端环境回归测试
 2. 前端侧边栏树状结构目前为静态展示，需要接入 WebSocket 状态
 3. SSH Agent 转发在容器环境需要额外配置
 4. 缺少完善的错误处理和重连机制

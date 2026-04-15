@@ -2,16 +2,18 @@ import type { Device, SiteSettings, StateSnapshotPayload, TmuxBellEventData } fr
 import { getAllDevices, getDeviceById, getSiteSettings } from '../db';
 import { eventNotifier } from '../events';
 import { t } from '../i18n';
-import { TmuxConnection, type TmuxConnectionOptions } from '../tmux/connection';
+import type { DeviceSessionRuntime } from '../tmux-client/device-session-runtime';
+import type { TmuxEvent } from '../tmux-client/events';
+import { tmuxRuntimeRegistry } from '../tmux-client/registry';
 import { resolveBellContext } from '../tmux/bell-context';
-import type { TmuxEvent } from '../tmux/parser';
 
 interface PushConnectionEntry {
   deviceId: string;
   generation: number;
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
-  connection: TmuxConnection | null;
+  runtime: DeviceSessionRuntime | null;
+  detachRuntime: (() => void) | null;
   lastSnapshot: StateSnapshotPayload | null;
 }
 
@@ -25,7 +27,8 @@ interface PushSupervisorDeps {
   listDevices: () => Device[];
   getDevice: (deviceId: string) => Device | null;
   getSettings: () => SiteSettings;
-  createConnection: (options: TmuxConnectionOptions) => TmuxConnection;
+  acquireRuntime: (deviceId: string) => Promise<DeviceSessionRuntime>;
+  releaseRuntime: (deviceId: string, runtime: DeviceSessionRuntime) => Promise<void> | void;
   notifyBell: (context: BellNotificationContext) => Promise<void>;
   fallbackReconnectDelayMs: number;
 }
@@ -34,7 +37,10 @@ const defaultDeps: PushSupervisorDeps = {
   listDevices: () => getAllDevices(),
   getDevice: (deviceId) => getDeviceById(deviceId),
   getSettings: () => getSiteSettings(),
-  createConnection: (options) => new TmuxConnection(options),
+  acquireRuntime: async (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
+  releaseRuntime: async (deviceId, _runtime) => {
+    await tmuxRuntimeRegistry.release(deviceId);
+  },
   async notifyBell(context) {
     const { device, settings, bell } = context;
     await eventNotifier.notify('terminal_bell', {
@@ -96,7 +102,7 @@ export class PushSupervisor {
 
     for (const [deviceId, entry] of this.entries) {
       this.clearReconnectTimer(entry);
-      entry.connection?.disconnect();
+      this.teardownEntry(entry);
       this.entries.delete(deviceId);
     }
   }
@@ -115,7 +121,8 @@ export class PushSupervisor {
       generation: 1,
       reconnectAttempts: 0,
       reconnectTimer: null,
-      connection: null,
+      runtime: null,
+      detachRuntime: null,
       lastSnapshot: null,
     };
 
@@ -149,8 +156,13 @@ export class PushSupervisor {
 
   private teardownEntry(entry: PushConnectionEntry): void {
     this.clearReconnectTimer(entry);
-    entry.connection?.disconnect();
-    entry.connection = null;
+    const runtime = entry.runtime;
+    entry.detachRuntime?.();
+    entry.detachRuntime = null;
+    entry.runtime = null;
+    if (runtime) {
+      void this.deps.releaseRuntime(entry.deviceId, runtime);
+    }
   }
 
   private clearReconnectTimer(entry: PushConnectionEntry): void {
@@ -179,39 +191,40 @@ export class PushSupervisor {
     }
 
     const generation = entry.generation;
-    let connection: TmuxConnection;
-    connection = this.deps.createConnection({
-      deviceId: entry.deviceId,
+    const runtime = await this.deps.acquireRuntime(entry.deviceId);
+    const detachRuntime = runtime.subscribe({
       onEvent: (event) => {
-        void this.handleTmuxEvent(entry.deviceId, generation, connection, event);
+        void this.handleTmuxEvent(entry.deviceId, generation, runtime, event);
       },
-      onTerminalOutput: () => {},
-      onTerminalHistory: () => {},
       onSnapshot: (payload) => {
-        this.handleSnapshot(entry.deviceId, generation, connection, payload);
+        this.handleSnapshot(entry.deviceId, generation, runtime, payload);
       },
-      onError: (err) => {
-        console.error(`[push] tmux error on device ${entry.deviceId}:`, err);
+      onError: (error) => {
+        console.error(`[push] tmux error on device ${entry.deviceId}:`, error);
       },
       onClose: () => {
-        void this.handleClose(entry.deviceId, generation, connection);
+        void this.handleClose(entry.deviceId, generation, runtime);
       },
     });
 
-    entry.connection = connection;
+    entry.runtime = runtime;
+    entry.detachRuntime = detachRuntime;
 
     try {
-      await connection.connect();
+      await runtime.connect();
 
       const latest = this.entries.get(entry.deviceId);
       if (!this.running || latest !== entry || entry.generation !== generation) {
-        connection.disconnect();
+        detachRuntime();
+        entry.detachRuntime = null;
+        entry.runtime = null;
+        await this.deps.releaseRuntime(entry.deviceId, runtime);
         return;
       }
 
       entry.reconnectAttempts = 0;
       entry.lastSnapshot = null;
-      connection.requestSnapshot();
+      runtime.requestSnapshot();
     } catch (err) {
       const latest = this.entries.get(entry.deviceId);
       if (!this.running || latest !== entry || entry.generation !== generation) {
@@ -219,7 +232,10 @@ export class PushSupervisor {
       }
 
       console.error(`[push] failed connecting device ${entry.deviceId}:`, err);
-      entry.connection = null;
+      detachRuntime();
+      entry.detachRuntime = null;
+      entry.runtime = null;
+      await this.deps.releaseRuntime(entry.deviceId, runtime);
       this.scheduleReconnect(entry);
     }
   }
@@ -252,7 +268,8 @@ export class PushSupervisor {
     }
 
     this.clearReconnectTimer(entry);
-    entry.connection = null;
+    entry.runtime = null;
+    entry.detachRuntime = null;
     entry.generation += 1;
 
     entry.reconnectTimer = setTimeout(() => {
@@ -261,24 +278,31 @@ export class PushSupervisor {
     }, delayMs);
   }
 
-  private async handleClose(deviceId: string, generation: number, connection: TmuxConnection): Promise<void> {
+  private async handleClose(
+    deviceId: string,
+    generation: number,
+    runtime: DeviceSessionRuntime
+  ): Promise<void> {
     const entry = this.entries.get(deviceId);
-    if (!entry || entry.generation !== generation || entry.connection !== connection) {
+    if (!entry || entry.generation !== generation || entry.runtime !== runtime) {
       return;
     }
 
-    entry.connection = null;
+    entry.detachRuntime?.();
+    entry.detachRuntime = null;
+    entry.runtime = null;
+    await this.deps.releaseRuntime(deviceId, runtime);
     this.scheduleReconnect(entry);
   }
 
   private handleSnapshot(
     deviceId: string,
     generation: number,
-    connection: TmuxConnection,
+    runtime: DeviceSessionRuntime,
     payload: StateSnapshotPayload
   ): void {
     const entry = this.entries.get(deviceId);
-    if (!entry || entry.generation !== generation || entry.connection !== connection) {
+    if (!entry || entry.generation !== generation || entry.runtime !== runtime) {
       return;
     }
 
@@ -288,11 +312,11 @@ export class PushSupervisor {
   private async handleTmuxEvent(
     deviceId: string,
     generation: number,
-    connection: TmuxConnection,
+    runtime: DeviceSessionRuntime,
     event: TmuxEvent
   ): Promise<void> {
     const entry = this.entries.get(deviceId);
-    if (!entry || entry.generation !== generation || entry.connection !== connection) {
+    if (!entry || entry.generation !== generation || entry.runtime !== runtime) {
       return;
     }
 

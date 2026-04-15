@@ -239,7 +239,7 @@
       "connectionTimeout": "Connection timeout: Unable to connect to device. Please check network or firewall settings.",
       "hostNotFound": "Host not found: Unable to resolve hostname. Please check DNS or hostname configuration.",
       "handshakeFailed": "Handshake failed: Unable to establish secure connection. Possibly incompatible key exchange algorithm.",
-      "tmuxUnavailable": "Remote tmux unavailable or failed to start. Please ensure tmux is installed and supports -CC mode.",
+      "tmuxUnavailable": "Remote tmux unavailable or failed to start. Please ensure tmux is installed and available in the remote shell PATH.",
       "unknown": "Connection failed: {{message}}",
       "reconnecting": "Connection interrupted, reconnecting in {{delay}} seconds ({{attempt}}/{{maxRetries}})",
       "reconnectFailed": "Auto-reconnect failed, please retry manually",

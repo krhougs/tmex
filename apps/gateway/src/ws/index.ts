@@ -3,20 +3,25 @@ import { wsBorsh } from '@tmex/shared';
 import type { Server, ServerWebSocket } from 'bun';
 import { getSiteSettings } from '../db';
 import { t } from '../i18n';
+import type {
+  DeviceSessionRuntime,
+  DeviceSessionRuntimeListener,
+} from '../tmux-client/device-session-runtime';
+import type { TmuxEvent } from '../tmux-client/events';
+import { tmuxRuntimeRegistry } from '../tmux-client/registry';
 import { resolveBellContext } from '../tmux/bell-context';
-import { TmuxConnection } from '../tmux/connection';
-import type { TmuxEvent } from '../tmux/parser';
-import { classifySshError } from './error-classify';
-import { createBorshClientState, type BorshClientState } from './borsh/codec-borsh';
+import { type BorshClientState, createBorshClientState } from './borsh/codec-borsh';
 import { sessionStateStore } from './borsh/session-state';
 import { switchBarrier } from './borsh/switch-barrier';
+import { classifySshError } from './error-classify';
 
 interface ClientState {
   borshState: BorshClientState;
 }
 
 interface DeviceConnectionEntry {
-  connection: TmuxConnection;
+  runtime: DeviceSessionRuntime;
+  detachRuntime: (() => void) | null;
   clients: Set<ServerWebSocket<ClientState>>;
   lastSnapshot: StateSnapshotPayload | null;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
@@ -25,9 +30,33 @@ interface DeviceConnectionEntry {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
+interface WebSocketServerDeps {
+  acquireRuntime: (deviceId: string) => Promise<DeviceSessionRuntime>;
+  releaseRuntime: (deviceId: string, runtime: DeviceSessionRuntime) => Promise<void> | void;
+}
+
+const defaultDeps: WebSocketServerDeps = {
+  acquireRuntime: async (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
+  releaseRuntime: async (deviceId) => {
+    await tmuxRuntimeRegistry.release(deviceId);
+  },
+};
+
+interface WebSocketServerOptions {
+  deps?: Partial<WebSocketServerDeps>;
+}
+
 export class WebSocketServer {
   connections = new Map<string, DeviceConnectionEntry>();
   pendingConnectionEntries = new Map<string, Promise<DeviceConnectionEntry | null>>();
+  private readonly deps: WebSocketServerDeps;
+
+  constructor(options: WebSocketServerOptions = {}) {
+    this.deps = {
+      ...defaultDeps,
+      ...(options.deps ?? {}),
+    };
+  }
 
   private clearSnapshotTimer(entry: DeviceConnectionEntry): void {
     if (!entry.snapshotTimer) return;
@@ -45,6 +74,40 @@ export class WebSocketServer {
     if (!entry.reconnectTimer) return;
     clearTimeout(entry.reconnectTimer);
     entry.reconnectTimer = null;
+  }
+
+  private releaseConnectionEntry(deviceId: string, entry: DeviceConnectionEntry): void {
+    this.clearSnapshotTimer(entry);
+    this.clearSnapshotPollTimer(entry);
+    this.clearReconnectTimer(entry);
+    entry.detachRuntime?.();
+    entry.detachRuntime = null;
+    void this.deps.releaseRuntime(deviceId, entry.runtime);
+  }
+
+  private attachRuntime(deviceId: string, runtime: DeviceSessionRuntime): () => void {
+    const listener: DeviceSessionRuntimeListener = {
+      onEvent: (event) => {
+        void this.broadcastTmuxEvent(deviceId, event);
+      },
+      onTerminalOutput: (paneId, data) => {
+        this.broadcastTerminalOutput(deviceId, paneId, data);
+      },
+      onTerminalHistory: (paneId, data) => {
+        this.broadcastTerminalHistory(deviceId, paneId, data);
+      },
+      onSnapshot: (payload) => {
+        this.broadcastStateSnapshot(deviceId, payload);
+      },
+      onError: (error) => {
+        this.broadcastError(deviceId, error);
+      },
+      onClose: () => {
+        void this.handleConnectionClose(deviceId);
+      },
+    };
+
+    return runtime.subscribe(listener);
   }
 
   private refreshSnapshotPolling(deviceId: string): void {
@@ -70,7 +133,7 @@ export class WebSocketServer {
       }
 
       try {
-        entry.connection.requestSnapshot();
+        entry.runtime.requestSnapshot();
       } catch (err) {
         console.error('[ws] polling snapshot failed:', err);
       }
@@ -88,7 +151,7 @@ export class WebSocketServer {
       }
       entry.snapshotTimer = null;
       try {
-        entry.connection.requestSnapshot();
+        entry.runtime.requestSnapshot();
       } catch (err) {
         console.error('[ws] failed to request snapshot:', err);
       }
@@ -185,10 +248,7 @@ export class WebSocketServer {
 
       if (entry.clients.size === 0) {
         console.log(`[ws] no more clients for device ${deviceId}, disconnecting`);
-        this.clearSnapshotTimer(entry);
-        this.clearSnapshotPollTimer(entry);
-        this.clearReconnectTimer(entry);
-        entry.connection.disconnect();
+        this.releaseConnectionEntry(deviceId, entry);
         toDelete.push(deviceId);
       } else {
         this.refreshSnapshotPolling(deviceId);
@@ -202,10 +262,7 @@ export class WebSocketServer {
 
   closeAll(): void {
     for (const [deviceId, entry] of this.connections) {
-      this.clearSnapshotTimer(entry);
-      this.clearSnapshotPollTimer(entry);
-      this.clearReconnectTimer(entry);
-      entry.connection.disconnect();
+      this.releaseConnectionEntry(deviceId, entry);
       this.connections.delete(deviceId);
     }
     this.pendingConnectionEntries.clear();
@@ -425,8 +482,10 @@ export class WebSocketServer {
       return pending;
     }
 
-    let creationPromise: Promise<DeviceConnectionEntry | null>;
-    creationPromise = this.createDeviceConnectionEntry(deviceId, ws)
+    const creationPromise: Promise<DeviceConnectionEntry | null> = this.createDeviceConnectionEntry(
+      deviceId,
+      ws
+    )
       .then((createdEntry) => {
         if (createdEntry) {
           this.connections.set(deviceId, createdEntry);
@@ -443,21 +502,26 @@ export class WebSocketServer {
     return creationPromise;
   }
 
-  private async handleDeviceConnect(ws: ServerWebSocket<ClientState>, deviceId: string): Promise<void> {
+  private async handleDeviceConnect(
+    ws: ServerWebSocket<ClientState>,
+    deviceId: string
+  ): Promise<void> {
     const entry = await this.getOrCreateConnectionEntry(deviceId, ws);
     if (!entry) return;
 
     entry.clients.add(ws);
     ws.data.borshState.selectedPanes[deviceId] ??= null;
 
-    const connectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceConnectedSchema, { deviceId });
+    const connectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceConnectedSchema, {
+      deviceId,
+    });
     this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_CONNECTED, connectedPayload);
 
     if (entry.lastSnapshot) {
       const snapshotBytes = wsBorsh.encodeStateSnapshot(entry.lastSnapshot);
       this.sendChunked(ws, wsBorsh.KIND_STATE_SNAPSHOT, snapshotBytes);
     } else {
-      entry.connection.requestSnapshot();
+      entry.runtime.requestSnapshot();
     }
   }
 
@@ -468,17 +532,16 @@ export class WebSocketServer {
       this.refreshSnapshotPolling(deviceId);
 
       if (entry.clients.size === 0) {
-        this.clearSnapshotTimer(entry);
-        this.clearSnapshotPollTimer(entry);
-        this.clearReconnectTimer(entry);
-        entry.connection.disconnect();
+        this.releaseConnectionEntry(deviceId, entry);
         this.connections.delete(deviceId);
       }
     }
 
     delete ws.data.borshState.selectedPanes[deviceId];
 
-    const disconnectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceDisconnectedSchema, { deviceId });
+    const disconnectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceDisconnectedSchema, {
+      deviceId,
+    });
     this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_DISCONNECTED, disconnectedPayload);
   }
 
@@ -511,37 +574,43 @@ export class WebSocketServer {
     });
 
     if (!started) {
-      this.sendError(ws, null, wsBorsh.ERROR_SELECT_CONFLICT, 'Failed to start select transaction', false);
+      this.sendError(
+        ws,
+        null,
+        wsBorsh.ERROR_SELECT_CONFLICT,
+        'Failed to start select transaction',
+        false
+      );
       return;
     }
 
     switchBarrier.sendSwitchAck(ws as any, deviceId);
 
-    entry.connection.selectPane(windowId, paneId);
+    entry.runtime.selectPane(windowId, paneId);
 
     const cols = data.cols ?? null;
     const rows = data.rows ?? null;
     if (cols !== null && rows !== null) {
-      entry.connection.resizePane(paneId, cols, rows);
+      entry.runtime.resizePane(paneId, cols, rows);
     }
   }
 
   private handleTmuxSelectWindow(deviceId: string, windowId: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.selectWindow(windowId);
+    entry.runtime.selectWindow(windowId);
   }
 
   private handleTermInput(deviceId: string, paneId: string, data: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.sendInput(paneId, data);
+    entry.runtime.sendInput(paneId, data);
   }
 
   private handleTermResize(deviceId: string, paneId: string, cols: number, rows: number): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.resizePane(paneId, cols, rows);
+    entry.runtime.resizePane(paneId, cols, rows);
   }
 
   private handleTermPaste(deviceId: string, paneId: string, data: string): void {
@@ -551,56 +620,49 @@ export class WebSocketServer {
     const chunkSize = 1024;
     for (let i = 0; i < data.length; i += chunkSize) {
       const chunk = data.slice(i, i + chunkSize);
-      entry.connection.sendInput(paneId, chunk);
+      entry.runtime.sendInput(paneId, chunk);
     }
   }
 
   private handleCreateWindow(deviceId: string, name?: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.createWindow(name);
+    entry.runtime.createWindow(name);
   }
 
   private handleCloseWindow(deviceId: string, windowId: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.closeWindow(windowId);
+    entry.runtime.closeWindow(windowId);
   }
 
   private handleClosePane(deviceId: string, paneId: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.closePane(paneId);
+    entry.runtime.closePane(paneId);
   }
 
   private handleRenameWindow(deviceId: string, windowId: string, name: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.connection.renameWindow(windowId, name);
+    entry.runtime.renameWindow(windowId, name);
   }
 
   private async createDeviceConnectionEntry(
     deviceId: string,
     ws: ServerWebSocket<ClientState>
   ): Promise<DeviceConnectionEntry | null> {
-    const connection = new TmuxConnection({
-      deviceId,
-      onEvent: (event) => {
-        void this.broadcastTmuxEvent(deviceId, event);
-      },
-      onTerminalOutput: (paneId, data) => this.broadcastTerminalOutput(deviceId, paneId, data),
-      onTerminalHistory: (paneId, data) => this.broadcastTerminalHistory(deviceId, paneId, data),
-      onSnapshot: (payload) => this.broadcastStateSnapshot(deviceId, payload),
-      onError: (err) => this.broadcastError(deviceId, err),
-      onClose: () => {
-        void this.handleConnectionClose(deviceId);
-      },
-    });
+    let runtime: DeviceSessionRuntime | null = null;
+    let detachRuntime: (() => void) | null = null;
 
     try {
-      await connection.connect();
+      runtime = await this.deps.acquireRuntime(deviceId);
+      detachRuntime = this.attachRuntime(deviceId, runtime);
+
+      await runtime.connect();
       return {
-        connection,
+        runtime,
+        detachRuntime,
         clients: new Set(),
         lastSnapshot: null,
         snapshotTimer: null,
@@ -609,6 +671,10 @@ export class WebSocketServer {
         reconnectTimer: null,
       };
     } catch (err) {
+      detachRuntime?.();
+      if (runtime) {
+        void this.deps.releaseRuntime(deviceId, runtime);
+      }
       const errorInfo = classifySshError(err instanceof Error ? err : new Error(String(err)));
       ws.send(
         wsBorsh.encodeEnvelope(
@@ -647,7 +713,9 @@ export class WebSocketServer {
       const paneId = typeof data.paneId === 'string' && data.paneId ? data.paneId : '-';
 
       for (const client of entry.clients) {
-        if (!sessionStateStore.shouldAllowBell(client, deviceId, paneId, settings.bellThrottleSeconds)) {
+        if (
+          !sessionStateStore.shouldAllowBell(client, deviceId, paneId, settings.bellThrottleSeconds)
+        ) {
           continue;
         }
         this.sendEnvelope(client, wsBorsh.KIND_TMUX_EVENT, payloadBytes);
@@ -765,6 +833,10 @@ export class WebSocketServer {
 
     this.clearSnapshotTimer(entry);
     this.clearSnapshotPollTimer(entry);
+    entry.detachRuntime?.();
+    entry.detachRuntime = null;
+    const closedRuntime = entry.runtime;
+    void this.deps.releaseRuntime(deviceId, closedRuntime);
 
     const { sshReconnectMaxRetries, sshReconnectDelaySeconds } = getSiteSettings();
 
@@ -793,7 +865,10 @@ export class WebSocketServer {
           return;
         }
 
-        const retryConnection = await this.createDeviceConnectionEntry(deviceId, Array.from(entry.clients)[0]);
+        const retryConnection = await this.createDeviceConnectionEntry(
+          deviceId,
+          Array.from(entry.clients)[0]
+        );
         if (!retryConnection) {
           if (entry.reconnectAttempts < sshReconnectMaxRetries) {
             await this.handleConnectionClose(deviceId);
@@ -821,7 +896,7 @@ export class WebSocketServer {
         };
         this.broadcastDeviceEvent(retryConnection, reconnected);
 
-        retryConnection.connection.requestSnapshot();
+        retryConnection.runtime.requestSnapshot();
       }, delay);
 
       return;

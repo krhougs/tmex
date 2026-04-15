@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Device, SiteSettings, StateSnapshotPayload } from '@tmex/shared';
+import type { DeviceSessionRuntimeListener } from '../tmux-client/device-session-runtime';
 import { PushSupervisor } from './supervisor';
 
 const now = '2026-02-11T00:00:00.000Z';
@@ -31,9 +32,9 @@ function createSettings(): SiteSettings {
 }
 
 describe('PushSupervisor', () => {
-  test('start should connect all devices and request snapshots', async () => {
+  test('start should acquire all runtimes and request snapshots', async () => {
     const devices = [createDevice('d1'), createDevice('d2')];
-    const connectCalls: string[] = [];
+    const acquireCalls: string[] = [];
     const snapshotCalls: string[] = [];
 
     const supervisor = new PushSupervisor({
@@ -41,98 +42,86 @@ describe('PushSupervisor', () => {
         listDevices: () => devices,
         getDevice: (deviceId) => devices.find((item) => item.id === deviceId) ?? null,
         getSettings: () => createSettings(),
-        createConnection: (options) =>
-          ({
-            async connect() {
-              connectCalls.push(options.deviceId);
+        acquireRuntime: async (deviceId) => {
+          acquireCalls.push(deviceId);
+
+          return {
+            async connect() {},
+            subscribe() {
+              return () => {};
             },
             requestSnapshot() {
-              snapshotCalls.push(options.deviceId);
+              snapshotCalls.push(deviceId);
             },
             disconnect() {},
-          }) as any,
+          } as any;
+        },
+        releaseRuntime: async () => {},
       },
     });
 
     await supervisor.start();
 
-    expect(connectCalls.sort()).toEqual(['d1', 'd2']);
+    expect(acquireCalls.sort()).toEqual(['d1', 'd2']);
     expect(snapshotCalls.sort()).toEqual(['d1', 'd2']);
 
     await supervisor.stopAll();
   });
 
-  test('remove should disconnect existing connection', async () => {
+  test('remove should release existing runtime', async () => {
     const devices = [createDevice('d1')];
-    let disconnected = false;
+    const released: string[] = [];
 
     const supervisor = new PushSupervisor({
       deps: {
         listDevices: () => devices,
         getDevice: (deviceId) => devices.find((item) => item.id === deviceId) ?? null,
         getSettings: () => createSettings(),
-        createConnection: () =>
+        acquireRuntime: async () =>
           ({
             async connect() {},
-            requestSnapshot() {},
-            disconnect() {
-              disconnected = true;
+            subscribe() {
+              return () => {};
             },
+            requestSnapshot() {},
+            disconnect() {},
           }) as any,
+        releaseRuntime: async (deviceId) => {
+          released.push(deviceId);
+        },
       },
     });
 
     await supervisor.start();
     supervisor.remove('d1');
 
-    expect(disconnected).toBe(true);
+    expect(released).toEqual(['d1']);
     await supervisor.stopAll();
   });
 
   test('bell event should notify with resolved pane context', async () => {
     const device = createDevice('d1');
     const notifications: Array<{ paneId?: string; windowId?: string; paneUrl?: string }> = [];
+    let listener: DeviceSessionRuntimeListener | null = null;
 
     const supervisor = new PushSupervisor({
       deps: {
         listDevices: () => [device],
         getDevice: () => device,
         getSettings: () => createSettings(),
-        createConnection: (options) =>
+        acquireRuntime: async () =>
           ({
-            async connect() {
-              const snapshot: StateSnapshotPayload = {
-                deviceId: device.id,
-                session: {
-                  id: '$1',
-                  name: 'tmex',
-                  windows: [
-                    {
-                      id: '@1',
-                      name: 'main',
-                      index: 0,
-                      active: true,
-                      panes: [
-                        {
-                          id: '%1',
-                          windowId: '@1',
-                          index: 0,
-                          active: true,
-                          width: 80,
-                          height: 24,
-                        },
-                      ],
-                    },
-                  ],
-                },
+            subscribe(next: DeviceSessionRuntimeListener) {
+              listener = next;
+              return () => {
+                listener = null;
               };
-
-              options.onSnapshot(snapshot);
-              options.onEvent({ type: 'bell', data: { paneId: '%1' } });
             },
+            async connect() {},
             requestSnapshot() {},
             disconnect() {},
           }) as any,
+        releaseRuntime: async () => {},
         async notifyBell(context) {
           notifications.push({
             paneId: context.bell.paneId,
@@ -144,6 +133,35 @@ describe('PushSupervisor', () => {
     });
 
     await supervisor.start();
+
+    const snapshot: StateSnapshotPayload = {
+      deviceId: device.id,
+      session: {
+        id: '$1',
+        name: 'tmex',
+        windows: [
+          {
+            id: '@1',
+            name: 'main',
+            index: 0,
+            active: true,
+            panes: [
+              {
+                id: '%1',
+                windowId: '@1',
+                index: 0,
+                active: true,
+                width: 80,
+                height: 24,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    listener?.onSnapshot?.(snapshot);
+    listener?.onEvent?.({ type: 'bell', data: { paneId: '%1' } });
 
     expect(notifications).toEqual([
       {

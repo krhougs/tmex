@@ -1,4 +1,8 @@
-export function classifySshError(error: Error): { type: string; messageKey: string; messageParams?: Record<string, unknown> } {
+export function classifySshError(error: Error): {
+  type: string;
+  messageKey: string;
+  messageParams?: Record<string, unknown>;
+} {
   const msg = error.message.toLowerCase();
 
   if (msg.includes('ssh_config_ref_not_supported')) {
@@ -37,7 +41,11 @@ export function classifySshError(error: Error): { type: string; messageKey: stri
       messageKey: 'sshError.networkUnreachable',
     };
   }
-  if (msg.includes('connect refused') || msg.includes('connection refused') || msg.includes('econnrefused')) {
+  if (
+    msg.includes('connect refused') ||
+    msg.includes('connection refused') ||
+    msg.includes('econnrefused')
+  ) {
     return {
       type: 'connection_refused',
       messageKey: 'sshError.connectionRefused',
@@ -62,6 +70,8 @@ export function classifySshError(error: Error): { type: string; messageKey: stri
     };
   }
   if (
+    msg.includes('remote tmux unavailable') ||
+    msg.includes('tmux_not_found') ||
     msg.includes('tmux: command not found') ||
     msg.includes('tmux control mode not ready') ||
     msg.includes('tmux exited') ||

@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { ensureSiteSettingsInitialized } from '../db';
 import { runMigrations } from '../db/migrate';
-import { WebSocketServer } from './index';
 import { createBorshClientState } from './borsh/codec-borsh';
 import { sessionStateStore } from './borsh/session-state';
+import { WebSocketServer } from './index';
 
 function createMockWs() {
   return {
@@ -19,27 +19,24 @@ describe('WebSocketServer connection entry dedup', () => {
   test('deduplicates concurrent creation for same device', async () => {
     const server = new WebSocketServer() as any;
     const ws = createMockWs() as any;
-    let createCalls = 0;
+    let acquireCalls = 0;
 
     let release: ((value: unknown) => void) | null = null;
     const gate = new Promise((resolve) => {
       release = resolve;
     });
 
-    const fakeEntry = {
-      connection: {},
-      clients: new Set(),
-      lastSnapshot: null,
-      snapshotTimer: null,
-      snapshotPollTimer: null,
-      reconnectAttempts: 0,
-      reconnectTimer: null,
-    };
-
-    server.createDeviceConnectionEntry = async () => {
-      createCalls += 1;
+    server.deps.acquireRuntime = async () => {
+      acquireCalls += 1;
       await gate;
-      return fakeEntry;
+      return {
+        async connect() {},
+        subscribe() {
+          return () => {};
+        },
+        requestSnapshot() {},
+        disconnect() {},
+      };
     };
 
     const p1 = server.getOrCreateConnectionEntry('device-a', ws);
@@ -49,21 +46,21 @@ describe('WebSocketServer connection entry dedup', () => {
     release?.(null);
     const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
 
-    expect(createCalls).toBe(1);
-    expect(r1).toBe(fakeEntry);
-    expect(r2).toBe(fakeEntry);
-    expect(r3).toBe(fakeEntry);
+    expect(acquireCalls).toBe(1);
+    expect(r1).toBe(r2);
+    expect(r2).toBe(r3);
     expect(server.pendingConnectionEntries.size).toBe(0);
-    expect(server.connections.get('device-a')).toBe(fakeEntry);
+    expect(server.connections.get('device-a')).toBe(r1);
   });
 
   test('clears pending state on failure and allows retry', async () => {
     const server = new WebSocketServer() as any;
     const ws = createMockWs() as any;
-    let createCalls = 0;
+    let acquireCalls = 0;
 
     const fakeEntry = {
-      connection: {},
+      runtime: {},
+      detachRuntime: () => {},
       clients: new Set(),
       lastSnapshot: null,
       snapshotTimer: null,
@@ -73,8 +70,8 @@ describe('WebSocketServer connection entry dedup', () => {
     };
 
     server.createDeviceConnectionEntry = async () => {
-      createCalls += 1;
-      if (createCalls === 1) {
+      acquireCalls += 1;
+      if (acquireCalls === 1) {
         return null;
       }
       return fakeEntry;
@@ -86,9 +83,44 @@ describe('WebSocketServer connection entry dedup', () => {
 
     const second = await server.getOrCreateConnectionEntry('device-b', ws);
     expect(second).toBe(fakeEntry);
-    expect(createCalls).toBe(2);
+    expect(acquireCalls).toBe(2);
     expect(server.pendingConnectionEntries.size).toBe(0);
     expect(server.connections.get('device-b')).toBe(fakeEntry);
+  });
+
+  test('releases runtime when last websocket client disconnects from device', async () => {
+    const released: string[] = [];
+    const server = new WebSocketServer({
+      deps: {
+        acquireRuntime: async () =>
+          ({
+            async connect() {},
+            subscribe() {
+              return () => {};
+            },
+            requestSnapshot() {},
+            disconnect() {},
+          }) as any,
+        releaseRuntime: async (deviceId) => {
+          released.push(deviceId);
+        },
+      },
+    }) as any;
+
+    const ws = {
+      data: { borshState: createBorshClientState() },
+      send() {},
+    } as any;
+
+    sessionStateStore.create(ws);
+
+    const entry = await server.getOrCreateConnectionEntry('device-c', ws);
+    entry.clients.add(ws);
+    ws.data.borshState.selectedPanes['device-c'] = '%1';
+
+    server.handleDeviceDisconnect(ws, 'device-c');
+
+    expect(released).toEqual(['device-c']);
   });
 });
 
@@ -102,7 +134,8 @@ describe('WebSocketServer bell extension', () => {
     const server = new WebSocketServer() as any;
 
     server.connections.set('device-a', {
-      connection: {},
+      runtime: {},
+      detachRuntime: () => {},
       clients: new Set(),
       lastSnapshot: {
         deviceId: 'device-a',
@@ -157,6 +190,12 @@ describe('WebSocketServer bell extension', () => {
   test('throttles bell events per client', async () => {
     const server = new WebSocketServer() as any;
     server.scheduleSnapshot = () => {};
+    let shouldAllowCalls = 0;
+    const originalShouldAllowBell = sessionStateStore.shouldAllowBell.bind(sessionStateStore);
+    sessionStateStore.shouldAllowBell = (() => {
+      shouldAllowCalls += 1;
+      return shouldAllowCalls === 1;
+    }) as any;
 
     const ws = {
       data: { borshState: createBorshClientState() },
@@ -169,7 +208,8 @@ describe('WebSocketServer bell extension', () => {
     sessionStateStore.create(ws);
 
     server.connections.set('device-a', {
-      connection: {},
+      runtime: {},
+      detachRuntime: () => {},
       clients: new Set([ws]),
       lastSnapshot: null,
       snapshotTimer: null,
@@ -182,5 +222,7 @@ describe('WebSocketServer bell extension', () => {
     await server.broadcastTmuxEvent('device-a', { type: 'bell', data: { paneId: '%1' } });
 
     expect(ws.sent).toHaveLength(1);
+
+    sessionStateStore.shouldAllowBell = originalShouldAllowBell;
   });
 });

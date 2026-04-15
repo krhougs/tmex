@@ -12,7 +12,7 @@ export function ensureCleanSession(sessionName: string): void {
   }
 }
 
-export function createTwoPaneSession(sessionName: string): { paneIds: string[] } {
+export function createTwoPaneSession(sessionName: string): { paneIds: string[]; windowId: string } {
   ensureCleanSession(sessionName);
   tmux(`new-session -d -s ${sessionName} "sh -lc 'echo PANE0_READY; exec sh'"`);
   tmux(`split-window -h -t ${sessionName} "sh -lc 'echo PANE1_READY; exec sh'"`);
@@ -23,6 +23,7 @@ export function createTwoPaneSession(sessionName: string): { paneIds: string[] }
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return { paneIds };
-}
+  const windowId = tmux(`display-message -p -t ${sessionName}:0 '#{window_id}'`);
 
+  return { paneIds, windowId };
+}

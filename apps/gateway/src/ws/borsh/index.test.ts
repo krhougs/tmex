@@ -218,6 +218,53 @@ describe('switch barrier', () => {
     switchBarrier.cleanupClient(mockWs);
   });
 
+  it('重复 TERM_HISTORY 不应重复发包', () => {
+    const sentFrames: Uint8Array[] = [];
+    const mockWs = {
+      remoteAddress: '127.0.0.1',
+      data: { borshState: createBorshClientState() },
+      send: (data: Uint8Array) => {
+        sentFrames.push(data);
+      },
+    } as any;
+
+    sessionStateStore.create(mockWs);
+
+    const deviceId = 'device-history';
+    const selectToken = crypto.getRandomValues(new Uint8Array(16));
+
+    expect(
+      switchBarrier.startTransaction(mockWs, {
+        deviceId,
+        windowId: '@1',
+        paneId: '%1',
+        selectToken,
+        wantHistory: true,
+        cols: null,
+        rows: null,
+      })
+    ).toBe(true);
+
+    switchBarrier.sendSwitchAck(mockWs, deviceId);
+    switchBarrier.sendTermHistory(
+      mockWs,
+      deviceId,
+      '%1',
+      new TextEncoder().encode('READY_MARKER\n')
+    );
+    const firstCount = sentFrames.length;
+
+    switchBarrier.sendTermHistory(
+      mockWs,
+      deviceId,
+      '%1',
+      new TextEncoder().encode('READY_MARKER\n')
+    );
+
+    expect(sentFrames.length).toBe(firstCount);
+    switchBarrier.cleanupClient(mockWs);
+  });
+
   it('不应因相同 remoteAddress 导致不同客户端事务冲突', () => {
     const ws1 = {
       remoteAddress: '127.0.0.1',

@@ -153,7 +153,8 @@ tmex/
 │   │   │   ├── crypto/   # 加密/解密层 / Encryption layer
 │   │   │   ├── db/       # SQLite 数据库 / SQLite database
 │   │   │   ├── events/   # Webhook + Telegram
-│   │   │   ├── tmux/     # tmux -CC 连接与解析 / tmux -CC connection & parser
+│   │   │   ├── tmux/     # tmux 辅助能力 / tmux helpers
+│   │   │   ├── tmux-client/ # external tmux CLI runtime / 外部 tmux CLI 运行时
 │   │   │   └── ws/       # WebSocket 服务器 / WebSocket server
 │   │   └── Dockerfile
 │   └── fe/               # React 前端 / React frontend
@@ -177,7 +178,7 @@ tmex/
 | --------------------- | --------------------------------------------------------------------------- |
 | **后端 / Backend**    | Bun.js, SQLite, ssh2, Web Crypto API, gramio (Telegram)                     |
 | **前端 / Frontend**   | React 19, TypeScript, Vite, xterm.js, Tailwind CSS, TanStack Query, Zustand |
-| **协议 / Protocol**   | tmux -CC (Control Mode), WebSocket（legacy JSON + binary output；规划：Borsh 全二进制） |
+| **协议 / Protocol**   | external tmux CLI + WebSocket（legacy JSON + binary output；规划：Borsh 全二进制） |
 | **部署 / Deployment** | Docker Compose, Nginx                                                       |
 
 ## 开发 / Development
