@@ -17,6 +17,16 @@ test('device: terminal ui renders and editor input toggles', async ({ page, requ
   await page.goto(`/devices/${created.device.id}`);
   await expect(page.getByTestId('device-page')).toBeVisible();
   await expect(page.getByTestId('terminal-shortcuts-strip')).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          return (window as any).__tmexE2eTerminalEngine ?? null;
+        }),
+      { timeout: 20_000 }
+    )
+    .toBe('ghostty-official');
+  await expect(page.locator('[data-terminal-engine="ghostty-official"]')).toBeVisible();
 
   await page.getByTestId('terminal-input-mode-toggle').click();
   await expect(page.getByTestId('editor-input')).toBeVisible();
@@ -24,4 +34,3 @@ test('device: terminal ui renders and editor input toggles', async ({ page, requ
   // Cleanup.
   await request.delete(`/api/devices/${created.device.id}`);
 });
-

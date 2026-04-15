@@ -16,6 +16,21 @@ async function readTerminalSize(page: Parameters<typeof test>[0]['page']): Promi
   });
 }
 
+async function readTerminalPaneMatchState(
+  page: Parameters<typeof test>[0]['page'],
+  paneId: string
+): Promise<string> {
+  const terminalSize = await readTerminalSize(page);
+  const paneSize = getPaneSize(paneId);
+  if (!terminalSize) {
+    return 'terminal-unavailable';
+  }
+
+  const terminalKey = `${terminalSize.cols}x${terminalSize.rows}`;
+  const paneKey = `${paneSize.cols}x${paneSize.rows}`;
+  return terminalKey === paneKey ? 'match' : `terminal=${terminalKey};pane=${paneKey}`;
+}
+
 async function readTerminalLayout(page: Parameters<typeof test>[0]['page']): Promise<{
   hostHeight: number;
   xtermHeight: number;
@@ -135,46 +150,14 @@ test('ws-borsh: initial load and browser resize converge to tmux pane size', asy
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
     await expect
-      .poll(
-        async () => {
-          const terminalSize = await readTerminalSize(page);
-          const paneSize = getPaneSize(targetPaneId);
-          if (!terminalSize) {
-            return null;
-          }
-          return {
-            terminalSize,
-            paneSize,
-          };
-        },
-        { timeout: 20_000 }
-      )
-      .toEqual({
-        terminalSize: getPaneSize(targetPaneId),
-        paneSize: getPaneSize(targetPaneId),
-      });
+      .poll(() => readTerminalPaneMatchState(page, targetPaneId), { timeout: 20_000 })
+      .toBe('match');
 
     await page.setViewportSize({ width: 900, height: 700 });
 
     await expect
-      .poll(
-        async () => {
-          const terminalSize = await readTerminalSize(page);
-          const paneSize = getPaneSize(targetPaneId);
-          if (!terminalSize) {
-            return null;
-          }
-          return {
-            terminalSize,
-            paneSize,
-          };
-        },
-        { timeout: 20_000 }
-      )
-      .toEqual({
-        terminalSize: getPaneSize(targetPaneId),
-        paneSize: getPaneSize(targetPaneId),
-      });
+      .poll(() => readTerminalPaneMatchState(page, targetPaneId), { timeout: 20_000 })
+      .toBe('match');
   } finally {
     await request.delete(`/api/devices/${deviceId}`);
     ensureCleanSession(sessionName);
@@ -204,46 +187,14 @@ test('ws-borsh: growing viewport converges to latest tmux pane size instead of s
     await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
     await expect
-      .poll(
-        async () => {
-          const terminalSize = await readTerminalSize(page);
-          const paneSize = getPaneSize(targetPaneId);
-          if (!terminalSize) {
-            return null;
-          }
-          return {
-            terminalSize,
-            paneSize,
-          };
-        },
-        { timeout: 20_000 }
-      )
-      .toEqual({
-        terminalSize: getPaneSize(targetPaneId),
-        paneSize: getPaneSize(targetPaneId),
-      });
+      .poll(() => readTerminalPaneMatchState(page, targetPaneId), { timeout: 20_000 })
+      .toBe('match');
 
     await page.setViewportSize({ width: 3840, height: 2160 });
 
     await expect
-      .poll(
-        async () => {
-          const terminalSize = await readTerminalSize(page);
-          const paneSize = getPaneSize(targetPaneId);
-          if (!terminalSize) {
-            return null;
-          }
-          return {
-            terminalSize,
-            paneSize,
-          };
-        },
-        { timeout: 20_000 }
-      )
-      .toEqual({
-        terminalSize: getPaneSize(targetPaneId),
-        paneSize: getPaneSize(targetPaneId),
-      });
+      .poll(() => readTerminalPaneMatchState(page, targetPaneId), { timeout: 20_000 })
+      .toBe('match');
   } finally {
     await request.delete(`/api/devices/${deviceId}`);
     ensureCleanSession(sessionName);

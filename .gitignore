@@ -43,3 +43,6 @@ data/
 
 # Git worktrees
 .worktrees/
+
+# 本地工具缓存
+.cache/

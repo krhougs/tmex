@@ -80,6 +80,7 @@ export class LocalExternalTmuxConnection {
   private currentPipePaneId: string | null = null;
   private pipeReadAbort: (() => void) | null = null;
   private pipeTransition: Promise<void> = Promise.resolve();
+  private inputTransition: Promise<void> = Promise.resolve();
   private hookReadAbort: (() => void) | null = null;
   private hookBuffer = '';
   private bellDedup = new Map<string, number>();
@@ -152,11 +153,17 @@ export class LocalExternalTmuxConnection {
       return;
     }
 
-    for (const chunk of encodeInputToHexChunks(data)) {
-      void this.runTmux(['send-keys', '-H', '-t', paneId, ...chunk]).catch((error) => {
-        this.callbacks.onError(error);
-      });
-    }
+    const task = async () => {
+      for (const chunk of encodeInputToHexChunks(data)) {
+        await this.runTmux(['send-keys', '-H', '-t', paneId, ...chunk]);
+      }
+    };
+
+    const next = this.inputTransition.catch(() => undefined).then(task);
+    this.inputTransition = next;
+    void next.catch((error) => {
+      this.callbacks.onError(error);
+    });
   }
 
   resizePane(paneId: string, cols: number, rows: number): void {

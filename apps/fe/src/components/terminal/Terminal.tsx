@@ -1,25 +1,36 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
-import { useXTerm } from 'react-xtermjs';
-import '@xterm/xterm/css/xterm.css';
+import {
+  FitAddon,
+  TERMINAL_ENGINE,
+  createTerminalController,
+  type CompatibleTerminalLike,
+} from '@tmex/ghostty-terminal';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTmuxStore } from '@/stores/tmux';
 import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
-import { FitAddon } from 'xterm-addon-fit';
 import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
 import type { TerminalProps, TerminalRef } from './types';
 import { useMobileTouch } from './useMobileTouch';
 import { useTerminalResize } from './useTerminalResize';
 
-function normalizeHistoryForXterm(data: string): string {
+function normalizeHistoryForTerminal(data: string): string {
   if (!data) return data;
   const normalized = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = normalized.split('\n');
-  while (lines.length > 0 && lines.at(-1)?.trim() === '') {
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
     lines.pop();
   }
   return lines.join('\r\n');
 }
 
-function normalizeLiveOutputForXterm(
+function normalizeLiveOutputForTerminal(
   data: Uint8Array,
   previousEndedWithCR: boolean
 ): { normalized: Uint8Array; endedWithCR: boolean } {
@@ -55,28 +66,43 @@ function normalizeLiveOutputForXterm(
   return { normalized, endedWithCR };
 }
 
-const TERMINAL_OPTIONS = {
+const TERMINAL_CONFIG = {
   fontFamily: XTERM_FONT_FAMILY,
   fontSize: 13,
-  convertEol: true,
-  scrollSensitivity: 2,
-  smoothScrollDuration: 120,
-  letterSpacing: 0,
-  cursorBlink: true,
-  allowProposedApi: true,
   scrollback: 10000,
 };
+
+function setE2eTerminalProbe(terminal: CompatibleTerminalLike): void {
+  const g = globalThis as any;
+  g.__tmexE2eXterm = terminal;
+  g.__tmexE2eTerminal = terminal;
+  g.__tmexE2eTerminalEngine = TERMINAL_ENGINE;
+}
+
+function clearE2eTerminalProbe(terminal: CompatibleTerminalLike | null): void {
+  if (!terminal) {
+    return;
+  }
+
+  const g = globalThis as any;
+  if (g.__tmexE2eTerminal !== terminal && g.__tmexE2eXterm !== terminal) {
+    return;
+  }
+
+  g.__tmexE2eXterm = null;
+  g.__tmexE2eTerminal = null;
+  g.__tmexE2eTerminalEngine = null;
+}
 
 export const Terminal = forwardRef<TerminalRef, TerminalProps>(
   (
     { deviceId, paneId, theme, inputMode, deviceConnected, isSelectionInvalid, onResize, onSync },
     ref
   ) => {
-    const { instance, ref: xtermRef } = useXTerm({
-      options: TERMINAL_OPTIONS,
-    });
+    const [instance, setInstance] = useState<CompatibleTerminalLike | null>(null);
+    const sendInput = useTmuxStore((state) => state.sendInput);
 
-    const xtermTheme = useMemo(() => {
+    const terminalTheme = useMemo(() => {
       switch (theme) {
         case 'light':
           return XTERM_THEME_LIGHT;
@@ -85,28 +111,22 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       }
     }, [theme]);
 
-    const sendInput = useTmuxStore((state) => state.sendInput);
-
     const containerRef = useRef<HTMLDivElement>(null);
-    const getTerminalForTouch = useCallback(() => (instance as any) ?? null, [instance]);
-    useMobileTouch(containerRef, getTerminalForTouch);
+    const mountRef = useRef<HTMLDivElement>(null);
+    const fitAddonRef = useRef<FitAddon | null>(null);
     const currentDeviceIdRef = useRef(deviceId);
     const currentPaneIdRef = useRef(paneId);
     const canWriteRef = useRef(deviceConnected && !isSelectionInvalid);
-    const imeIsComposingRef = useRef(false);
-    const imeFallbackDataRef = useRef('');
-    const imeLastSentRef = useRef<{ data: string; at: number } | null>(null);
     const liveOutputEndedWithCR = useRef(false);
     const keepShortHistoryVisibleRef = useRef(false);
-    const lastXtermInstanceRef = useRef<typeof instance>(null);
-    const fitAddonRef = useRef<FitAddon | null>(null);
+    const lastTerminalInstanceRef = useRef<CompatibleTerminalLike | null>(null);
+
+    const getTerminalForTouch = useCallback(() => instance, [instance]);
+    useMobileTouch(containerRef, getTerminalForTouch);
 
     useEffect(() => {
       currentDeviceIdRef.current = deviceId;
       currentPaneIdRef.current = paneId;
-      imeIsComposingRef.current = false;
-      imeFallbackDataRef.current = '';
-      imeLastSentRef.current = null;
       keepShortHistoryVisibleRef.current = false;
     }, [deviceId, paneId]);
 
@@ -114,7 +134,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       canWriteRef.current = deviceConnected && !isSelectionInvalid;
     }, [deviceConnected, isSelectionInvalid]);
 
-    const sendInputWithImeDedup = useCallback(
+    const sendTerminalInput = useCallback(
       (data: string) => {
         if (!data || inputMode !== 'direct') {
           return;
@@ -129,12 +149,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           return;
         }
 
-        const now = Date.now();
-        const lastSent = imeLastSentRef.current;
-        if (lastSent && lastSent.data === data && now - lastSent.at < 40) {
-          return;
-        }
-        imeLastSentRef.current = { data, at: now };
         sendInput(activeDeviceId, activePaneId, data, false);
       },
       [inputMode, sendInput]
@@ -157,81 +171,52 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       });
 
     useEffect(() => {
-      if (!instance) return;
-      instance.options.theme = xtermTheme;
-    }, [instance, xtermTheme]);
+      let cancelled = false;
+      let createdTerminal: Awaited<ReturnType<typeof createTerminalController>> | null = null;
 
-    useEffect(() => {
-      if (!instance) return;
-      instance.options.disableStdin = inputMode === 'editor';
-    }, [instance, inputMode]);
-
-    useEffect(() => {
-      if (!instance) {
-        imeIsComposingRef.current = false;
-        imeFallbackDataRef.current = '';
-        return;
-      }
-
-      const textarea = instance.textarea;
-      if (!textarea) {
-        imeIsComposingRef.current = false;
-        imeFallbackDataRef.current = '';
-        return;
-      }
-
-      const handleCompositionStart = () => {
-        imeIsComposingRef.current = true;
-        imeFallbackDataRef.current = '';
-      };
-      const handleCompositionEnd = (event: CompositionEvent) => {
-        imeIsComposingRef.current = false;
-        const dataFromEvent = typeof event.data === 'string' ? event.data : '';
-        const finalData = dataFromEvent || imeFallbackDataRef.current;
-        imeFallbackDataRef.current = '';
-        if (finalData) {
-          sendInputWithImeDedup(finalData);
-        }
-      };
-      const handleBeforeInput = (event: InputEvent) => {
-        const inputType = typeof event.inputType === 'string' ? event.inputType : '';
-        const data = typeof event.data === 'string' ? event.data : '';
-        if (inputType === 'insertFromPaste') {
-          return;
-        }
-        if (!data) {
-          if (imeIsComposingRef.current && inputType === 'deleteCompositionText') {
-            imeFallbackDataRef.current = '';
-          }
+      void createTerminalController({
+        ...TERMINAL_CONFIG,
+        theme: terminalTheme,
+        disableStdin: inputMode === 'editor',
+      }).then((terminal) => {
+        if (cancelled) {
+          terminal.dispose();
           return;
         }
 
-        if (event.isComposing || imeIsComposingRef.current) {
-          if (inputType === 'insertText' || inputType === 'insertFromComposition') {
-            imeFallbackDataRef.current = data;
-          }
-          return;
+        createdTerminal = terminal;
+        if (mountRef.current) {
+          terminal.open(mountRef.current);
         }
-
-        // iOS 某些输入法路径不会触发 onData，beforeinput 兜底。
-        sendInputWithImeDedup(data);
-      };
-
-      textarea.addEventListener('compositionstart', handleCompositionStart);
-      textarea.addEventListener('compositionend', handleCompositionEnd);
-      textarea.addEventListener('beforeinput', handleBeforeInput);
+        setE2eTerminalProbe(terminal);
+        setInstance(terminal);
+      });
 
       return () => {
-        textarea.removeEventListener('compositionstart', handleCompositionStart);
-        textarea.removeEventListener('compositionend', handleCompositionEnd);
-        textarea.removeEventListener('beforeinput', handleBeforeInput);
-        imeIsComposingRef.current = false;
-        imeFallbackDataRef.current = '';
+        cancelled = true;
+        setInstance(null);
+        clearE2eTerminalProbe(createdTerminal);
+        createdTerminal?.dispose();
       };
-    }, [instance, sendInputWithImeDedup]);
+    }, []);
+
+    useEffect(() => {
+      if (!instance || !('setTheme' in instance)) {
+        return;
+      }
+
+      (instance as any).setTheme(terminalTheme);
+    }, [instance, terminalTheme]);
+
+    useEffect(() => {
+      if (!instance || !('setDisableStdin' in instance)) {
+        return;
+      }
+
+      (instance as any).setDisableStdin(inputMode === 'editor');
+    }, [instance, inputMode]);
 
     const callbacks: SelectCallbacks = useMemo(() => {
-      // xterm 实例未就绪时不注册回调，让状态机走 deferred 重放，避免 history/live 被“消费掉”。
       if (!instance) {
         return {};
       }
@@ -246,12 +231,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         onApplyHistory: (targetDeviceId, data) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
           keepShortHistoryVisibleRef.current = true;
-          instance.write(normalizeHistoryForXterm(data));
+          instance.write(normalizeHistoryForTerminal(data));
         },
         onFlushBuffer: (targetDeviceId, buffer) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
           for (const chunk of buffer) {
-            const normalized = normalizeLiveOutputForXterm(chunk, liveOutputEndedWithCR.current);
+            const normalized = normalizeLiveOutputForTerminal(chunk, liveOutputEndedWithCR.current);
             liveOutputEndedWithCR.current = normalized.endedWithCR;
             instance.write(normalized.normalized);
           }
@@ -266,7 +251,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           if (currentDeviceIdRef.current !== targetDeviceId) return;
           if (currentPaneIdRef.current !== targetPaneId) return;
           if (!canWriteRef.current) return;
-          const normalized = normalizeLiveOutputForXterm(data, liveOutputEndedWithCR.current);
+          const normalized = normalizeLiveOutputForTerminal(data, liveOutputEndedWithCR.current);
           liveOutputEndedWithCR.current = normalized.endedWithCR;
           instance.write(normalized.normalized);
           if (keepShortHistoryVisibleRef.current) {
@@ -281,25 +266,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
     useEffect(() => {
       if (!instance) {
-        lastXtermInstanceRef.current = null;
-      } else if (lastXtermInstanceRef.current !== instance) {
-        // 先 reset，再注册回调，确保 deferred history 重放不会被后续 reset 清掉。
+        lastTerminalInstanceRef.current = null;
+      } else if (lastTerminalInstanceRef.current !== instance) {
         liveOutputEndedWithCR.current = false;
         instance.reset();
-        lastXtermInstanceRef.current = instance;
+        lastTerminalInstanceRef.current = instance;
       }
-    }, [instance]);
-
-    useEffect(() => {
-      const g = globalThis as any;
-      if (instance) {
-        g.__tmexE2eXterm = instance;
-      }
-      return () => {
-        if (g.__tmexE2eXterm === instance) {
-          g.__tmexE2eXterm = null;
-        }
-      };
     }, [instance]);
 
     useEffect(() => {
@@ -308,8 +280,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
     useEffect(() => {
       return () => {
-        // Terminal 卸载时清空回调，避免把 in-flight history/output 写入已销毁的 xterm。
-        // 状态/事务不在这里 cleanup，cleanup 由“真实断连路径”负责。
         getSelectStateMachine({});
       };
     }, []);
@@ -346,7 +316,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       if (!el) return;
       let rafId: number | null = null;
       const ro = new ResizeObserver(() => {
-        // 使用 requestAnimationFrame 确保在布局完成后执行
         if (rafId !== null) {
           cancelAnimationFrame(rafId);
         }
@@ -369,21 +338,17 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       const disposable = instance.onData((data) => {
         if (!deviceConnected || isSelectionInvalid) return;
-        if (imeIsComposingRef.current) {
-          return;
-        }
-        sendInputWithImeDedup(data);
+        sendTerminalInput(data);
       });
 
       instance.attachCustomKeyEventHandler((domEvent) => {
         if (!deviceConnected || isSelectionInvalid) return true;
         if (domEvent.type !== 'keydown') return true;
-        if (imeIsComposingRef.current) return true;
         if (inputMode !== 'direct') return true;
 
         if (domEvent.shiftKey && domEvent.key === 'Enter') {
           domEvent.preventDefault();
-          sendInputWithImeDedup('\x1b[13;2u');
+          sendTerminalInput('\x1b[13;2u');
           return false;
         }
 
@@ -399,7 +364,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       deviceConnected,
       isSelectionInvalid,
       inputMode,
-      sendInputWithImeDedup,
+      sendTerminalInput,
       deviceId,
       paneId,
     ]);
@@ -407,7 +372,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     useImperativeHandle(
       ref,
       () => ({
-        write: (data) => instance?.write(data as any),
+        write: (data) => instance?.write(data),
         reset: () => {
           instance?.reset();
           liveOutputEndedWithCR.current = false;
@@ -430,9 +395,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           const rect = container.getBoundingClientRect();
           if (rect.width === 0 || rect.height === 0) return null;
 
-          const core = (term as any)._core;
-
-          // 宽度：信任 fitAddon
+          const core = term._core;
           let cols: number;
           if (fitAddon) {
             try {
@@ -452,7 +415,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             cols = Math.max(2, Math.floor(rect.width / cellWidth));
           }
 
-          // 高度：永远信任容器
           const cellHeight = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
           const rows = Math.max(2, Math.floor(rect.height / cellHeight));
 
@@ -467,9 +429,10 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       <div
         ref={containerRef}
         className="h-full w-full relative"
-        style={{ backgroundColor: xtermTheme.background }}
+        style={{ backgroundColor: terminalTheme.background }}
+        data-terminal-engine={TERMINAL_ENGINE}
       >
-        <div ref={xtermRef} className="absolute inset-0" />
+        <div ref={mountRef} className="absolute inset-0" />
       </div>
     );
   }

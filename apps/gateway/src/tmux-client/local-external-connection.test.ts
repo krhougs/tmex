@@ -182,6 +182,68 @@ describe('LocalExternalTmuxConnection', () => {
     ]);
   });
 
+  test('sendInput serializes tmux send-keys calls to preserve character order', async () => {
+    const commands: string[][] = [];
+    const sendResolvers: Array<() => void> = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-input-serial'),
+        run: async (argv) => {
+          commands.push(argv);
+          const command = argv.slice(1).join(' ');
+          if (command === 'has-session -t tmex-input-serial') {
+            return { exitCode: 1, stdout: '', stderr: "can't find session: tmex-input-serial" };
+          }
+          if (command === 'new-session -d -c /Users/krhougs -s tmex-input-serial') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (command.startsWith('display-message -p -t tmex-input-serial #{session_id}')) {
+            return { exitCode: 0, stdout: '$1\ttmex-input-serial\n', stderr: '' };
+          }
+          if (command.startsWith('list-windows -t tmex-input-serial')) {
+            return { exitCode: 0, stdout: '@1\t0\tmain\t1\n', stderr: '' };
+          }
+          if (command.startsWith('list-panes -t tmex-input-serial')) {
+            return { exitCode: 0, stdout: '%1\t@1\t0\tbash\t1\t80\t24\n', stderr: '' };
+          }
+          if (command === 'send-keys -H -t %1 41' || command === 'send-keys -H -t %1 42') {
+            await new Promise<void>((resolve) => {
+              sendResolvers.push(resolve);
+            });
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          throw new Error(`unexpected command: ${argv.join(' ')}`);
+        },
+      }
+    );
+
+    await connection.connect();
+    connection.sendInput('%1', 'A');
+    connection.sendInput('%1', 'B');
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(commands.map((argv) => argv.slice(1).join(' '))).toContain('send-keys -H -t %1 41');
+    expect(commands.map((argv) => argv.slice(1).join(' '))).not.toContain('send-keys -H -t %1 42');
+
+    sendResolvers.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(commands.map((argv) => argv.slice(1).join(' '))).toContain('send-keys -H -t %1 42');
+
+    sendResolvers.shift()?.();
+  });
+
   test('resizePane keeps window-size in manual mode instead of forcing latest', async () => {
     const commands: string[][] = [];
     const connection = new LocalExternalTmuxConnection(

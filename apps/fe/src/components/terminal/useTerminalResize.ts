@@ -1,7 +1,7 @@
 import { shouldSyncOnViewportRestore } from '@/utils/resizeSyncGuards';
-import type { Terminal as XTermTerminal } from '@xterm/xterm';
+import type { CompatibleTerminalLike } from '@tmex/ghostty-terminal';
+import type { FitAddon } from '@tmex/ghostty-terminal';
 import { useCallback, useEffect, useRef } from 'react';
-import type { FitAddon } from 'xterm-addon-fit';
 
 interface UseTerminalResizeOptions {
   deviceId: string;
@@ -30,7 +30,7 @@ export function useTerminalResize({
   const suppressLocalResizeUntil = useRef(0);
   const postSelectResizeTimers = useRef<number[]>([]);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const terminalRef = useRef<XTermTerminal | null>(null);
+  const terminalRef = useRef<CompatibleTerminalLike | null>(null);
   const getContainerRectRef = useRef(getContainerRect);
 
   // Use refs to store callbacks to avoid dependency cycles
@@ -290,7 +290,7 @@ export function useTerminalResize({
     fitAddonRef.current = addon;
   }, []);
 
-  const setTerminal = useCallback((terminal: XTermTerminal | null) => {
+  const setTerminal = useCallback((terminal: CompatibleTerminalLike | null) => {
     terminalRef.current = terminal;
   }, []);
 

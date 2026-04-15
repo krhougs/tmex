@@ -1,4 +1,4 @@
-import type { Terminal as XTermTerminal } from '@xterm/xterm';
+import type { CompatibleTerminalLike } from '@tmex/ghostty-terminal';
 
 export type TerminalTheme = 'light' | 'dark';
 
@@ -19,7 +19,7 @@ export interface TerminalRef {
   reset: () => void;
   scrollToBottom: () => void;
   resize: (cols: number, rows: number) => void;
-  getTerminal: () => XTermTerminal | null;
+  getTerminal: () => CompatibleTerminalLike | null;
   getSize: () => { cols: number; rows: number } | null;
   runPostSelectResize: () => void;
   scheduleResize: (

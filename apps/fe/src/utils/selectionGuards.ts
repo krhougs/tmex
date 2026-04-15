@@ -20,17 +20,6 @@ function matchesPaneSelection(
   return left.windowId === right.windowId && left.paneId === right.paneId;
 }
 
-function hasRecentSelectRequest(
-  recentSelectRequests: TimedPaneSelection[],
-  target: PaneSelection,
-  now: number
-): boolean {
-  return recentSelectRequests.some(
-    (request) =>
-      matchesPaneSelection(request, target) && now - request.at < RECENT_SELECT_REQUEST_TTL_MS
-  );
-}
-
 function getLatestRecentSelectRequest(
   recentSelectRequests: TimedPaneSelection[],
   now: number
