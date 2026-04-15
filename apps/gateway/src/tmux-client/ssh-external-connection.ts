@@ -1,4 +1,3 @@
-import { basename, dirname } from 'node:path';
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
 
@@ -57,7 +56,11 @@ export class SshExternalTmuxConnection {
   private hookReadAbort: (() => void) | null = null;
   private hookBuffer = '';
   private bellDedup = new Map<string, number>();
-  private fsPaths = createRuntimeFsPaths({ deviceId: 'pending', gatewayPid: process.pid });
+  private fsPaths = createRuntimeFsPaths({
+    deviceId: 'pending',
+    sessionName: 'pending',
+    gatewayPid: process.pid,
+  });
   private sshClient: Client | null = null;
   private commandStream: ClientChannel | null = null;
   private commandStdoutBuffer = '';
@@ -91,11 +94,14 @@ export class SshExternalTmuxConnection {
     }
 
     this.sessionName = this.device.session?.trim() || 'tmex';
-    this.fsPaths = createRuntimeFsPaths({ deviceId: this.deviceId, gatewayPid: process.pid });
+    this.fsPaths = createRuntimeFsPaths({
+      deviceId: this.deviceId,
+      sessionName: this.sessionName,
+      gatewayPid: process.pid,
+    });
 
     await this.connectSshClient();
     await this.openCommandChannel();
-    await this.cleanupRemoteRuntimeDirs();
     await this.ensureRemoteRuntimeDirs();
     await this.ensureSession();
     await this.startHooks();
@@ -394,17 +400,6 @@ export class SshExternalTmuxConnection {
     this.remoteHomeDir = parsed.homeDir;
   }
 
-  private async cleanupRemoteRuntimeDirs(): Promise<void> {
-    const parentDir = dirname(this.fsPaths.rootDir);
-    const currentDir = basename(this.fsPaths.rootDir);
-    const prefix = currentDir.replace(/-\d+$/, '-');
-    await this.runShell(
-      `find ${quoteShellArg(parentDir)} -mindepth 1 -maxdepth 1 -type d -name ${quoteShellArg(
-        `${prefix}*`
-      )} ! -name ${quoteShellArg(currentDir)} -exec rm -rf {} + 2>/dev/null || true`
-    );
-  }
-
   private async ensureRemoteRuntimeDirs(): Promise<void> {
     await this.runShell(
       [
@@ -428,6 +423,7 @@ export class SshExternalTmuxConnection {
   }
 
   private async startHooks(): Promise<void> {
+    await this.ensureRemoteRuntimeDirs();
     const fifoPath = this.fsPaths.hookFifoPath;
     await this.runShell(
       `rm -f ${quoteShellArg(fifoPath)} && mkfifo ${quoteShellArg(fifoPath)} && chmod 600 ${quoteShellArg(fifoPath)}`
@@ -764,6 +760,7 @@ export class SshExternalTmuxConnection {
       await this.stopPipeNow();
 
       const fifoPath = this.fsPaths.paneFifoPath(paneId);
+      await this.ensureRemoteRuntimeDirs();
       await this.runShell(
         `rm -f ${quoteShellArg(fifoPath)} && mkfifo ${quoteShellArg(fifoPath)} && chmod 600 ${quoteShellArg(fifoPath)}`
       );

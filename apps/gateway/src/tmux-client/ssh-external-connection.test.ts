@@ -283,4 +283,77 @@ describe('SshExternalTmuxConnection', () => {
       )
     ).toBe(false);
   });
+
+  test('connect does not issue remote cleanup that can delete sibling gateway runtime dirs', async () => {
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+
+    fakeClient.commandChannel.onWrite = (payload) => {
+      writes.push(payload);
+      const commandId = extractCommandId(payload);
+
+      let stdout = '';
+      let exitCode = 0;
+      if (payload.includes('command -v tmux')) {
+        stdout = 'TMEX_BOOT_OK\t/usr/bin/tmux\ttmux 3.4\t/home/alice\n';
+      } else if (payload.includes('mkdir -p')) {
+        stdout = '';
+      } else if (payload.includes("mkfifo '/tmp/tmex/device-ssh-")) {
+        stdout = '';
+      } else if (payload.includes("'has-session' '-t' 'tmex-ssh-no-cleanup'")) {
+        stdout = "can't find session: tmex-ssh-no-cleanup\n";
+        exitCode = 1;
+      } else if (
+        payload.includes("'new-session' '-d' '-c' '/home/alice' '-s' 'tmex-ssh-no-cleanup'")
+      ) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'alert-bell'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'pane-exited'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'pane-died'")) {
+        stdout = '';
+      } else if (
+        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-no-cleanup' '#{session_id}")
+      ) {
+        stdout = '$1\ttmex-ssh-no-cleanup\n';
+      } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-no-cleanup'")) {
+        stdout = '@1\t0\tmain\t1\n';
+      } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-no-cleanup'")) {
+        stdout = '%1\t@1\t0\tbash\t1\t80\t24\n';
+      } else {
+        throw new Error(`unexpected command payload: ${payload}`);
+      }
+
+      fakeClient.commandChannel.emit(
+        'data',
+        Buffer.from(`${stdout}\x1eTMEX_END ${commandId} ${exitCode}\x1e\n`)
+      );
+    };
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-no-cleanup'),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    await connection.connect();
+
+    expect(writes.some((payload) => payload.includes('find ') && payload.includes('/tmp/tmex'))).toBe(
+      false
+    );
+  });
 });

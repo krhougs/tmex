@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
 
 import {
   LocalExternalTmuxConnection,
   shouldIgnoreReaderAbortError,
 } from './local-external-connection';
+import { toSafePathSegment } from './fs-paths';
 
 const now = '2026-04-14T00:00:00.000Z';
 
@@ -242,6 +245,58 @@ describe('LocalExternalTmuxConnection', () => {
     expect(commands.map((argv) => argv.slice(1).join(' '))).toContain('send-keys -H -t %1 42');
 
     sendResolvers.shift()?.();
+  });
+
+  test('connect keeps sibling runtime dirs that belong to another gateway instance', async () => {
+    const deviceId = `device local cleanup ${Date.now()}`;
+    const safeDeviceId = toSafePathSegment(deviceId);
+    const foreignRuntimeDir = join('/tmp/tmex', `${safeDeviceId}-foreign-runtime`);
+    mkdirSync(foreignRuntimeDir, { recursive: true, mode: 0o700 });
+
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId,
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => ({ ...createDevice('tmex-cleanup-safe'), id: deviceId }),
+        run: async (argv) => {
+          const command = argv.slice(1).join(' ');
+          if (command === 'has-session -t tmex-cleanup-safe') {
+            return { exitCode: 1, stdout: '', stderr: "can't find session: tmex-cleanup-safe" };
+          }
+          if (command === 'new-session -d -c /Users/krhougs -s tmex-cleanup-safe') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (command.startsWith('display-message -p -t tmex-cleanup-safe #{session_id}')) {
+            return { exitCode: 0, stdout: '$1\ttmex-cleanup-safe\n', stderr: '' };
+          }
+          if (command.startsWith('list-windows -t tmex-cleanup-safe')) {
+            return { exitCode: 0, stdout: '@1\t0\tmain\t1\n', stderr: '' };
+          }
+          if (command.startsWith('list-panes -t tmex-cleanup-safe')) {
+            return { exitCode: 0, stdout: '%1\t@1\t0\tbash\t1\t80\t24\n', stderr: '' };
+          }
+          throw new Error(`unexpected command: ${argv.join(' ')}`);
+        },
+      }
+    );
+
+    try {
+      await connection.connect();
+      expect(existsSync(foreignRuntimeDir)).toBe(true);
+    } finally {
+      connection.disconnect();
+      rmSync(foreignRuntimeDir, { recursive: true, force: true });
+    }
   });
 
   test('resizePane keeps window-size in manual mode instead of forcing latest', async () => {

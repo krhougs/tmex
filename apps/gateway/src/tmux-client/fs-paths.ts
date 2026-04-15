@@ -1,10 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 const DEFAULT_ROOT_DIR = '/tmp/tmex';
+const DEFAULT_GATEWAY_RUNTIME_ID = randomUUID();
 
 export interface RuntimeFsPathsOptions {
   deviceId: string;
+  sessionName?: string;
   gatewayPid: number;
+  gatewayRuntimeId?: string;
   rootDir?: string;
 }
 
@@ -29,7 +33,11 @@ export function toSafePathSegment(value: string): string {
 
 export function createRuntimeFsPaths(options: RuntimeFsPathsOptions): RuntimeFsPaths {
   const baseRootDir = options.rootDir ?? DEFAULT_ROOT_DIR;
-  const runtimeDirName = `${toSafePathSegment(options.deviceId)}-${options.gatewayPid}`;
+  const safeSessionName = toSafePathSegment(options.sessionName?.trim() || 'tmex');
+  const safeGatewayRuntimeId = toSafePathSegment(
+    options.gatewayRuntimeId?.trim() || DEFAULT_GATEWAY_RUNTIME_ID
+  );
+  const runtimeDirName = `${toSafePathSegment(options.deviceId)}-${safeGatewayRuntimeId}-${options.gatewayPid}`;
   const runtimeRootDir = join(baseRootDir, runtimeDirName);
   const panesDir = join(runtimeRootDir, 'panes');
   const hooksDir = join(runtimeRootDir, 'hooks');
@@ -40,7 +48,7 @@ export function createRuntimeFsPaths(options: RuntimeFsPathsOptions): RuntimeFsP
     hooksDir,
     hookFifoPath: join(hooksDir, 'events.fifo'),
     paneFifoPath(paneId) {
-      return join(panesDir, `${toSafePathSegment(paneId)}.fifo`);
+      return join(panesDir, `${safeSessionName}-${toSafePathSegment(paneId)}.fifo`);
     },
   };
 }

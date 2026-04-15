@@ -1,12 +1,11 @@
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname } from 'node:path';
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { buildLocalTmuxEnv, getLocalShellPath } from '../tmux/local-shell-path';
 import { quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
-import { createRuntimeFsPaths, toSafePathSegment } from './fs-paths';
+import { createRuntimeFsPaths } from './fs-paths';
 import { encodeInputToHexChunks } from './input-encoder';
 import { createPaneTitleParser } from './pane-title-parser';
 
@@ -84,7 +83,11 @@ export class LocalExternalTmuxConnection {
   private hookReadAbort: (() => void) | null = null;
   private hookBuffer = '';
   private bellDedup = new Map<string, number>();
-  private fsPaths = createRuntimeFsPaths({ deviceId: 'pending', gatewayPid: process.pid });
+  private fsPaths = createRuntimeFsPaths({
+    deviceId: 'pending',
+    sessionName: 'pending',
+    gatewayPid: process.pid,
+  });
 
   constructor(
     options: TmuxConnectionOptions,
@@ -110,12 +113,12 @@ export class LocalExternalTmuxConnection {
     }
 
     this.sessionName = this.device.session?.trim() || 'tmex';
-    this.fsPaths = createRuntimeFsPaths({ deviceId: this.deviceId, gatewayPid: process.pid });
-
-    this.cleanupStaleRuntimeDirs();
-    mkdirSync(this.fsPaths.rootDir, { recursive: true, mode: 0o700 });
-    mkdirSync(this.fsPaths.panesDir, { recursive: true, mode: 0o700 });
-    mkdirSync(this.fsPaths.hooksDir, { recursive: true, mode: 0o700 });
+    this.fsPaths = createRuntimeFsPaths({
+      deviceId: this.deviceId,
+      sessionName: this.sessionName,
+      gatewayPid: process.pid,
+    });
+    this.ensureRuntimeDirs();
 
     await this.ensureSession();
     if (this.deps.enableHooks) {
@@ -246,7 +249,14 @@ export class LocalExternalTmuxConnection {
     await this.runTmux(['new-session', '-d', '-c', homedir(), '-s', this.sessionName]);
   }
 
+  private ensureRuntimeDirs(): void {
+    mkdirSync(this.fsPaths.rootDir, { recursive: true, mode: 0o700 });
+    mkdirSync(this.fsPaths.panesDir, { recursive: true, mode: 0o700 });
+    mkdirSync(this.fsPaths.hooksDir, { recursive: true, mode: 0o700 });
+  }
+
   private async startHooks(): Promise<void> {
+    this.ensureRuntimeDirs();
     const fifoPath = this.fsPaths.hookFifoPath;
     rmSync(fifoPath, { force: true });
     await this.runShell(`mkfifo ${quoteShellArg(fifoPath)}`);
@@ -592,6 +602,7 @@ export class LocalExternalTmuxConnection {
       await this.stopPipeNow();
 
       const fifoPath = this.fsPaths.paneFifoPath(paneId);
+      this.ensureRuntimeDirs();
       rmSync(fifoPath, { force: true });
       await this.runShell(`mkfifo ${quoteShellArg(fifoPath)}`);
 
@@ -717,17 +728,5 @@ export class LocalExternalTmuxConnection {
       this.activePaneId = null;
     }
     this.requestSnapshot();
-  }
-
-  private cleanupStaleRuntimeDirs(): void {
-    const parentDir = dirname(this.fsPaths.rootDir);
-    const currentDir = basename(this.fsPaths.rootDir);
-    const prefix = `${toSafePathSegment(this.deviceId)}-`;
-    for (const entry of readdirSync(parentDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith(prefix) || entry.name === currentDir) {
-        continue;
-      }
-      rmSync(`${parentDir}/${entry.name}`, { recursive: true, force: true });
-    }
   }
 }
