@@ -2,6 +2,12 @@ import { useEffect, useRef } from 'react';
 
 interface TerminalScroller {
   scrollLines: (amount: number) => void;
+  handleViewportGesture?: (gesture: {
+    source: 'touch';
+    deltaY: number;
+    clientX: number;
+    clientY: number;
+  }) => boolean;
   buffer?: {
     active?: {
       viewportY?: number;
@@ -132,13 +138,25 @@ export function useMobileTouch(
             ? Math.floor(pendingPixelDelta / lineHeight)
             : Math.ceil(pendingPixelDelta / lineHeight);
 
-        if (linesToScroll !== 0) {
-          const beforeViewportY = terminal.buffer?.active?.viewportY ?? 0;
-          terminal.scrollLines(linesToScroll);
-          const afterViewportY = terminal.buffer?.active?.viewportY ?? 0;
-          didScroll = beforeViewportY !== afterViewportY;
-          atTopWhilePullingDown = linesToScroll < 0 && beforeViewportY <= 0 && afterViewportY <= 0;
-          pendingPixelDelta -= linesToScroll * lineHeight;
+        if (typeof terminal.handleViewportGesture === 'function') {
+          if (linesToScroll !== 0) {
+            didScroll = terminal.handleViewportGesture({
+              source: 'touch',
+              deltaY: linesToScroll * lineHeight,
+              clientX: touch.clientX,
+              clientY: touch.clientY,
+            });
+            pendingPixelDelta -= linesToScroll * lineHeight;
+          }
+        } else {
+          if (linesToScroll !== 0) {
+            const beforeViewportY = terminal.buffer?.active?.viewportY ?? 0;
+            terminal.scrollLines(linesToScroll);
+            const afterViewportY = terminal.buffer?.active?.viewportY ?? 0;
+            didScroll = beforeViewportY !== afterViewportY;
+            atTopWhilePullingDown = linesToScroll < 0 && beforeViewportY <= 0 && afterViewportY <= 0;
+            pendingPixelDelta -= linesToScroll * lineHeight;
+          }
         }
       } else {
         const scrollTargets = findScrollTargets();
