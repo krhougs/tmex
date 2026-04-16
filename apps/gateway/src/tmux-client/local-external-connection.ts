@@ -444,13 +444,13 @@ export class LocalExternalTmuxConnection {
     const alternateScreen = mode === '1';
     const normal = (
       await this.runTmux(
-        ['capture-pane', '-t', paneId, '-S', '-', '-E', '-', '-e', '-p'],
+        ['capture-pane', '-t', paneId, '-S', '-', '-E', '-', '-e', '-N', '-p'],
         true
       )
     ).stdout;
     const alternate = (
       await this.runTmux(
-        ['capture-pane', '-t', paneId, '-a', '-S', '-', '-E', '-', '-e', '-p', '-q'],
+        ['capture-pane', '-t', paneId, '-a', '-S', '-', '-E', '-', '-e', '-N', '-p', '-q'],
         true
       )
     ).stdout;

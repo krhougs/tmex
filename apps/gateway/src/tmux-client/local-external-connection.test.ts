@@ -376,10 +376,10 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === "display-message -p -t %1 #{alternate_on}") {
             return { exitCode: 0, stdout: '1\n', stderr: '' };
           }
-          if (command === 'capture-pane -t %1 -S - -E - -e -p') {
+          if (command === 'capture-pane -t %1 -S - -E - -e -N -p') {
             return { exitCode: 0, stdout: 'VIM SCREEN\n', stderr: '' };
           }
-          if (command === 'capture-pane -t %1 -a -S - -E - -e -p -q') {
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -N -p -q') {
             return { exitCode: 0, stdout: '\n\n\n', stderr: '' };
           }
           throw new Error(`unexpected command: ${command}`);
@@ -422,10 +422,10 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === "display-message -p -t %1 #{alternate_on}") {
             return { exitCode: 0, stdout: '1\n', stderr: '' };
           }
-          if (command === 'capture-pane -t %1 -S - -E - -e -p') {
+          if (command === 'capture-pane -t %1 -S - -E - -e -N -p') {
             return { exitCode: 0, stdout: 'VISIBLE TUI\n', stderr: '' };
           }
-          if (command === 'capture-pane -t %1 -a -S - -E - -e -p -q') {
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -N -p -q') {
             return { exitCode: 0, stdout: 'sh-3.2$ opencode .\n', stderr: '' };
           }
           throw new Error(`unexpected command: ${command}`);
