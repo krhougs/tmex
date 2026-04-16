@@ -495,7 +495,7 @@ describe('GhosttyTerminalController canvas baseline', () => {
     terminal.dispose();
 
     expect(dom.cancelledFrames.length).toBeGreaterThan(0);
-    expect(findElementsByTag(dom.document.body, 'textarea').length).toBe(0);
+    expect(findElementsByTag(dom.document.body, 'div').some((el) => el.className === 'xterm-helper-textarea')).toBeFalse();
   });
 
   test('input event should emit committed text when compositionend data is empty', async () => {
@@ -520,13 +520,17 @@ describe('GhosttyTerminalController canvas baseline', () => {
       received.push(data);
     });
 
-    const textarea = findElementsByTag(dom.document.body, 'textarea')[0];
+    const textarea = findElementsByTag(dom.document.body, 'div').find(
+      (el) => el.className === 'xterm-helper-textarea'
+    );
     expect(textarea).toBeDefined();
 
-    textarea.dispatchEvent({ type: 'compositionstart' });
-    textarea.value = '你';
-    textarea.dispatchEvent({ type: 'compositionend', data: '' });
-    textarea.dispatchEvent({ type: 'input' });
+    if (textarea) {
+      textarea.dispatchEvent({ type: 'compositionstart' });
+      textarea.textContent = '你';
+      textarea.dispatchEvent({ type: 'compositionend', data: '' });
+      textarea.dispatchEvent({ type: 'input' });
+    }
 
     expect(received).toEqual(['你']);
 

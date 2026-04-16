@@ -146,7 +146,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   readonly options: GhosttyTerminalInitOptions;
 
   element: HTMLElement | null = null;
-  textarea: HTMLTextAreaElement | null = null;
+  textarea: HTMLElement | null = null;
   cols = DEFAULT_COLS;
   rows = DEFAULT_ROWS;
 
@@ -261,28 +261,35 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     screen.style.webkitUserSelect = 'none';
     screen.style.backgroundColor = this.options.theme.background;
 
-    const textarea = document.createElement('textarea');
+    const textarea = document.createElement('div');
     textarea.className = 'xterm-helper-textarea';
     textarea.setAttribute('aria-label', 'Terminal Input');
-    textarea.autocapitalize = 'off';
-    textarea.autocomplete = 'off';
+    textarea.setAttribute('role', 'textbox');
+    textarea.setAttribute('contenteditable', 'true');
     textarea.setAttribute('autocorrect', 'off');
-    textarea.spellcheck = false;
+    textarea.setAttribute('autocapitalize', 'off');
+    textarea.setAttribute('spellcheck', 'false');
     textarea.style.position = 'absolute';
     textarea.style.opacity = '1';
     textarea.style.pointerEvents = 'none';
     textarea.style.left = '0';
     textarea.style.top = '0';
-    textarea.style.width = '1px';
-    textarea.style.height = '1px';
-    textarea.style.resize = 'none';
+    textarea.style.minWidth = '1px';
+    textarea.style.minHeight = '1px';
+    textarea.style.whiteSpace = 'pre';
     textarea.style.border = '0';
     textarea.style.padding = '0';
     textarea.style.margin = '0';
-    textarea.style.color = 'transparent';
+    textarea.style.color = this.options.theme.foreground;
     textarea.style.backgroundColor = 'transparent';
     textarea.style.caretColor = 'transparent';
-    textarea.style.overflow = 'hidden';
+    textarea.style.overflow = 'visible';
+    textarea.style.outline = 'none';
+    textarea.style.boxShadow = 'none';
+    textarea.style.fontFamily = this.options.fontFamily;
+    textarea.style.fontSize = `${this.options.fontSize}px`;
+    textarea.style.userSelect = 'text';
+    textarea.style.webkitUserSelect = 'text';
 
     const scrollbarTrack = document.createElement('div');
     scrollbarTrack.className = 'xterm-scrollbar-track';
@@ -527,7 +534,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
-    this.textarea.readOnly = this.disableStdin;
+    (this.textarea as any).readOnly = this.disableStdin;
     this.textarea.tabIndex = this.disableStdin ? -1 : 0;
     if (this.disableStdin && document.activeElement === this.textarea) {
       this.textarea.blur();
@@ -749,7 +756,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         return;
       }
 
-      const data = textarea.value;
+      const data = textarea.textContent ?? '';
       if (!data) {
         this.clearTextarea();
         return;
@@ -802,7 +809,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
   private clearTextarea(): void {
     if (this.textarea) {
-      this.textarea.value = '';
+      this.textarea.textContent = '';
     }
   }
 

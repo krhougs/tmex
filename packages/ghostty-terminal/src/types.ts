@@ -133,7 +133,7 @@ export interface CompatibleTerminalLike {
   readonly cols: number;
   readonly rows: number;
   readonly element: HTMLElement | null;
-  readonly textarea: HTMLTextAreaElement | null;
+  readonly textarea: HTMLElement | null;
   readonly buffer: CompatibleTerminalBuffer;
   readonly _core: {
     _renderService: {
