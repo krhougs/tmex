@@ -9,6 +9,7 @@ import type { TmuxConnectionOptions } from './connection-types';
 import { createRuntimeFsPaths } from './fs-paths';
 import { encodeInputToHexChunks } from './input-encoder';
 import { createPaneTitleParser } from './pane-title-parser';
+import { resolveSshConnectConfig } from './ssh-connect-config';
 import { buildSshBootstrapScript, parseSshBootstrapOutput } from './ssh-bootstrap';
 
 interface CommandResult {
@@ -38,6 +39,36 @@ function hasRenderableTerminalContent(value: string): boolean {
 const DEFAULT_HISTORY_LINES = '-1000';
 const BELL_DEDUP_WINDOW_MS = 200;
 const COMMAND_SENTINEL = '\x1eTMEX_END ';
+const SNAPSHOT_FIELD_SEPARATOR = '|';
+
+function splitSnapshotFields(line: string, fieldCount: number): string[] {
+  const parts = line.split(SNAPSHOT_FIELD_SEPARATOR);
+  if (parts.length <= fieldCount) {
+    return parts;
+  }
+
+  if (fieldCount === 2) {
+    return [parts[0] ?? '', parts.slice(1).join(SNAPSHOT_FIELD_SEPARATOR)];
+  }
+
+  if (fieldCount === 4) {
+    return [parts[0] ?? '', parts[1] ?? '', parts.slice(2, -1).join(SNAPSHOT_FIELD_SEPARATOR), parts.at(-1) ?? ''];
+  }
+
+  if (fieldCount === 7) {
+    return [
+      parts[0] ?? '',
+      parts[1] ?? '',
+      parts[2] ?? '',
+      parts.slice(3, -3).join(SNAPSHOT_FIELD_SEPARATOR),
+      parts.at(-3) ?? '',
+      parts.at(-2) ?? '',
+      parts.at(-1) ?? '',
+    ];
+  }
+
+  return parts;
+}
 
 export class SshExternalTmuxConnection {
   private readonly deviceId: string;
@@ -228,92 +259,7 @@ export class SshExternalTmuxConnection {
     if (!this.device) {
       throw new Error('SSH device not loaded');
     }
-    const host = this.device.host;
-    const port = this.device.port ?? 22;
-    const username = resolveSshUsername(this.device.username, this.device.authMode);
-    if (this.device.authMode === 'configRef' || (!host && this.device.sshConfigRef)) {
-      throw new Error(
-        'ssh_config_ref_not_supported: 当前版本暂不支持 SSH Config 引用，请改为填写 host + username，并选择 Agent/私钥/密码认证'
-      );
-    }
-    if (!host) {
-      throw new Error('SSH device missing host');
-    }
-
-    const authConfig: ConnectConfig = {
-      host,
-      port,
-      username,
-    };
-
-    switch (this.device.authMode) {
-      case 'password': {
-        if (!this.device.passwordEnc) {
-          throw new Error('auth_password_missing: 密码认证未提供密码');
-        }
-        authConfig.password = await this.deps.decrypt(this.device.passwordEnc, {
-          scope: 'device',
-          entityId: this.device.id,
-          field: 'password_enc',
-        });
-        break;
-      }
-      case 'key': {
-        if (!this.device.privateKeyEnc) {
-          throw new Error('auth_key_missing: 私钥认证未提供私钥');
-        }
-        authConfig.privateKey = await this.deps.decrypt(this.device.privateKeyEnc, {
-          scope: 'device',
-          entityId: this.device.id,
-          field: 'private_key_enc',
-        });
-        if (this.device.privateKeyPassphraseEnc) {
-          authConfig.passphrase = await this.deps.decrypt(this.device.privateKeyPassphraseEnc, {
-            scope: 'device',
-            entityId: this.device.id,
-            field: 'private_key_passphrase_enc',
-          });
-        }
-        break;
-      }
-      case 'agent': {
-        authConfig.agent = resolveSshAgentSocket('agent');
-        break;
-      }
-      case 'auto': {
-        const agentSocket = resolveSshAgentSocket('auto');
-        if (agentSocket) {
-          authConfig.agent = agentSocket;
-        }
-        if (this.device.privateKeyEnc) {
-          authConfig.privateKey = await this.deps.decrypt(this.device.privateKeyEnc, {
-            scope: 'device',
-            entityId: this.device.id,
-            field: 'private_key_enc',
-          });
-        } else if (this.device.passwordEnc) {
-          authConfig.password = await this.deps.decrypt(this.device.passwordEnc, {
-            scope: 'device',
-            entityId: this.device.id,
-            field: 'password_enc',
-          });
-        }
-        break;
-      }
-      case 'configRef':
-        break;
-    }
-
-    if (
-      this.device.authMode === 'auto' &&
-      !authConfig.agent &&
-      !authConfig.privateKey &&
-      !authConfig.password
-    ) {
-      throw new Error(
-        'auth_auto_missing: auto 模式下未找到可用认证方式（SSH_AUTH_SOCK / 私钥 / 密码）'
-      );
-    }
+    const authConfig = await resolveSshConnectConfig(this.device, this.deps.decrypt);
 
     const client = this.deps.createClient();
     this.sshClient = client;
@@ -633,21 +579,21 @@ export class SshExternalTmuxConnection {
         '-p',
         '-t',
         this.sessionName,
-        '#{session_id}\t#{session_name}',
+        '#{session_id}|#{session_name}',
       ]),
       this.runTmuxAllowFailure([
         'list-windows',
         '-t',
         this.sessionName,
         '-F',
-        '#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
+        '#{window_id}|#{window_index}|#{window_name}|#{window_active}',
       ]),
       this.runTmuxAllowFailure([
         'list-panes',
         '-t',
         this.sessionName,
         '-F',
-        '#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}',
+        '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}',
       ]),
     ]);
 
@@ -668,7 +614,7 @@ export class SshExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [id, name] = line.split('\t');
+      const [id, name] = splitSnapshotFields(line, 2);
       if (id) {
         this.snapshotSession = { id, name: name ?? '' };
       }
@@ -682,7 +628,7 @@ export class SshExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [id, indexRaw, name, activeRaw] = line.split('\t');
+      const [id, indexRaw, name, activeRaw] = splitSnapshotFields(line, 4);
       if (!id) {
         continue;
       }
@@ -711,7 +657,7 @@ export class SshExternalTmuxConnection {
         continue;
       }
       const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw] =
-        line.split('\t');
+        splitSnapshotFields(line, 7);
       if (!paneId || !windowId) {
         continue;
       }

@@ -94,6 +94,105 @@ class FakeClient extends EventEmitter {
 }
 
 describe('SshExternalTmuxConnection', () => {
+  test('connect parses real tmux snapshot output that is pipe-delimited', async () => {
+    const snapshots: StateSnapshotPayload[] = [];
+    const fakeClient = new FakeClient();
+
+    fakeClient.commandChannel.onWrite = (payload) => {
+      const commandId = extractCommandId(payload);
+
+      let stdout = '';
+      let exitCode = 0;
+      if (payload.includes('command -v tmux')) {
+        stdout = 'TMEX_BOOT_OK\t/usr/bin/tmux\ttmux 3.4\t/home/alice\n';
+      } else if (payload.includes('mkdir -p')) {
+        stdout = '';
+      } else if (payload.includes("mkfifo '/tmp/tmex/device-ssh-")) {
+        stdout = '';
+      } else if (payload.includes("'has-session' '-t' 'tmex-ssh-pipe'")) {
+        stdout = "can't find session: tmex-ssh-pipe\n";
+        exitCode = 1;
+      } else if (payload.includes("'new-session' '-d' '-c' '/home/alice' '-s' 'tmex-ssh-pipe'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'alert-bell'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'pane-exited'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'pane-died'")) {
+        stdout = '';
+      } else if (
+        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-pipe' '#{session_id}|#{session_name}'")
+      ) {
+        stdout = '$1|tmex-ssh-pipe\n';
+      } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-pipe' '-F' '#{window_id}|#{window_index}|#{window_name}|#{window_active}'")) {
+        stdout = '@1|0|main|1\n';
+      } else if (
+        payload.includes(
+          "'list-panes' '-t' 'tmex-ssh-pipe' '-F' '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}'"
+        )
+      ) {
+        stdout = '%1|@1|0|bash|1|80|24\n';
+      } else {
+        throw new Error(`unexpected command payload: ${payload}`);
+      }
+
+      fakeClient.commandChannel.emit(
+        'data',
+        Buffer.from(`${stdout}\x1eTMEX_END ${commandId} ${exitCode}\x1e\n`)
+      );
+    };
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: (payload) => snapshots.push(payload),
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-pipe'),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    await connection.connect();
+
+    expect(snapshots).toEqual([
+      {
+        deviceId: 'device-ssh',
+        session: {
+          id: '$1',
+          name: 'tmex-ssh-pipe',
+          windows: [
+            {
+              id: '@1',
+              index: 0,
+              name: 'main',
+              active: true,
+              panes: [
+                {
+                  id: '%1',
+                  windowId: '@1',
+                  index: 0,
+                  title: 'bash',
+                  active: true,
+                  width: 80,
+                  height: 24,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
   test('connect bootstraps remote tmux and emits parsed snapshot', async () => {
     const snapshots: StateSnapshotPayload[] = [];
     const fakeClient = new FakeClient();
@@ -125,13 +224,13 @@ describe('SshExternalTmuxConnection', () => {
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-snapshot' 'pane-died'")) {
         stdout = '';
       } else if (
-        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-snapshot' '#{session_id}")
+        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-snapshot' '#{session_id}|#{session_name}'")
       ) {
-        stdout = '$1\ttmex-ssh-snapshot\n';
+        stdout = '$1|tmex-ssh-snapshot\n';
       } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-snapshot'")) {
-        stdout = '@1\t0\tmain\t1\n';
+        stdout = '@1|0|main|1\n';
       } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-snapshot'")) {
-        stdout = '%1\t@1\t0\tbash\t1\t80\t24\n';
+        stdout = '%1|@1|0|bash|1|80|24\n';
       } else {
         throw new Error(`unexpected command payload: ${payload}`);
       }
@@ -236,12 +335,12 @@ describe('SshExternalTmuxConnection', () => {
         stdout = '';
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'pane-died'")) {
         stdout = '';
-      } else if (payload.includes("'display-message' '-p' '-t' 'tmex-ssh-resize' '#{session_id}")) {
-        stdout = '$1\ttmex-ssh-resize\n';
+      } else if (payload.includes("'display-message' '-p' '-t' 'tmex-ssh-resize' '#{session_id}|#{session_name}'")) {
+        stdout = '$1|tmex-ssh-resize\n';
       } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-resize'")) {
-        stdout = '@1\t0\tmain\t1\n';
+        stdout = '@1|0|main|1\n';
       } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-resize'")) {
-        stdout = '%1\t@1\t0\tbash\t1\t80\t24\n';
+        stdout = '%1|@1|0|bash|1|80|24\n';
       } else if (payload.includes("'resize-window' '-t' '@1' '-x' '137' '-y' '41'")) {
         stdout = '';
       } else {
@@ -314,13 +413,15 @@ describe('SshExternalTmuxConnection', () => {
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'pane-died'")) {
         stdout = '';
       } else if (
-        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-no-cleanup' '#{session_id}")
+        payload.includes(
+          "'display-message' '-p' '-t' 'tmex-ssh-no-cleanup' '#{session_id}|#{session_name}'"
+        )
       ) {
-        stdout = '$1\ttmex-ssh-no-cleanup\n';
+        stdout = '$1|tmex-ssh-no-cleanup\n';
       } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-no-cleanup'")) {
-        stdout = '@1\t0\tmain\t1\n';
+        stdout = '@1|0|main|1\n';
       } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-no-cleanup'")) {
-        stdout = '%1\t@1\t0\tbash\t1\t80\t24\n';
+        stdout = '%1|@1|0|bash|1|80|24\n';
       } else {
         throw new Error(`unexpected command payload: ${payload}`);
       }
