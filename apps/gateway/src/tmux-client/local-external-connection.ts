@@ -184,7 +184,17 @@ export class LocalExternalTmuxConnection {
       return;
     }
 
-    void this.selectPaneInternal(windowId, paneId).catch((error) => {
+    void this.selectPaneInternal(windowId, paneId, null).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  selectPaneWithSize(windowId: string, paneId: string, cols: number, rows: number): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.selectPaneInternal(windowId, paneId, { cols, rows }).catch((error) => {
       this.callbacks.onError(error);
     });
   }
@@ -397,13 +407,22 @@ export class LocalExternalTmuxConnection {
     await this.requestSnapshotInternal();
   }
 
-  private async selectPaneInternal(windowId: string, paneId: string): Promise<void> {
+  private async selectPaneInternal(
+    windowId: string,
+    paneId: string,
+    size: { cols: number; rows: number } | null
+  ): Promise<void> {
     this.activeWindowId = windowId;
     this.activePaneId = paneId;
 
     await this.runTmux(['select-window', '-t', windowId], true);
     await this.runTmux(['select-pane', '-t', paneId], true);
     await this.startPipeForPane(paneId);
+
+    if (size) {
+      await this.resizePaneInternal(paneId, size.cols, size.rows);
+    }
+
     this.callbacks.onEvent({
       type: 'pane-active',
       data: { windowId, paneId },
@@ -429,14 +448,8 @@ export class LocalExternalTmuxConnection {
       )
     ).stdout;
 
-    const preferAlternate = mode === '1';
-    const history = preferAlternate
-      ? alternate || normal
-      : mode === '0'
-        ? normal || alternate
-        : alternate.length > normal.length
-          ? alternate
-          : normal;
+    void mode;
+    const history = normal || alternate;
 
     if (history) {
       this.callbacks.onTerminalHistory(paneId, history);
