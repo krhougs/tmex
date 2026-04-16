@@ -3,6 +3,7 @@ export type {
   CompatibleTerminalBuffer,
   CompatibleTerminalLike,
   GhosttyCellDimensions,
+  GhosttyTerminalModeSnapshot,
   GhosttyTerminalInitOptions,
   GhosttyTerminalSize,
   GhosttyTheme,

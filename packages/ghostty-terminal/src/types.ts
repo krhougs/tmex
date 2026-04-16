@@ -39,6 +39,32 @@ export interface GhosttyCellDimensions {
   height: number;
 }
 
+export interface GhosttyViewportGesture {
+  source: 'wheel' | 'touch';
+  deltaY: number;
+  deltaMode?: number;
+  clientX: number;
+  clientY: number;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+  metaKey?: boolean;
+}
+
+export interface GhosttyTerminalModeSnapshot {
+  mouseX10: boolean;
+  mouseNormal: boolean;
+  mouseButton: boolean;
+  mouseAny: boolean;
+  mouseUtf8: boolean;
+  mouseSgr: boolean;
+  mouseSgrPixels: boolean;
+  mouseUrxvt: boolean;
+  altScroll: boolean;
+  altScreen1047: boolean;
+  altScreen1049: boolean;
+}
+
 export interface GhosttyColorRgb {
   r: number;
   g: number;
@@ -150,6 +176,9 @@ export interface CompatibleTerminalLike {
   scrollLines: (amount: number) => void;
   scrollToTop: () => void;
   scrollToBottom: () => void;
+  handleViewportGesture?: (gesture: GhosttyViewportGesture) => boolean;
+  exportModeSnapshot?: () => GhosttyTerminalModeSnapshot;
+  restoreModeSnapshot?: (snapshot: GhosttyTerminalModeSnapshot) => void;
   paste: (data: string) => void;
   focus: () => void;
   onData: (callback: (data: string) => void) => TerminalDisposable;
