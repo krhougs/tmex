@@ -39,6 +39,7 @@ import {
 import { t } from '../i18n';
 import { pushSupervisor } from '../push/supervisor';
 import { telegramService } from '../telegram/service';
+import { handleDeviceTestConnection } from './test-connection';
 
 function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device>): boolean {
   if (updates.type !== undefined && updates.type !== existing.type) return true;
@@ -309,16 +310,7 @@ async function handleDeleteDevice(id: string): Promise<Response> {
 }
 
 async function handleTestConnection(id: string): Promise<Response> {
-  const device = getDeviceById(id);
-  if (!device) {
-    return json({ error: t('apiError.deviceNotFound') }, 404);
-  }
-
-  return json({
-    success: true,
-    tmuxAvailable: false,
-    message: 'Connection test not fully implemented yet',
-  });
+  return handleDeviceTestConnection(id);
 }
 
 async function handleGetSiteSettings(): Promise<Response> {

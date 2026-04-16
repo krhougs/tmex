@@ -328,7 +328,10 @@ export interface UpdateDeviceRequest {
 export interface TestConnectionResult {
   success: boolean;
   tmuxAvailable: boolean;
-  error?: string;
+  phase: 'connect' | 'bootstrap' | 'ready';
+  errorType?: string;
+  message?: string;
+  rawMessage?: string;
 }
 
 export interface GetSiteSettingsResponse {
