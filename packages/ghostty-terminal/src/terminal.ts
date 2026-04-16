@@ -36,8 +36,10 @@ import type {
   CompatibleTerminalLike,
   GhosttyCellDimensions,
   GhosttyRenderRow,
+  GhosttyTerminalModeSnapshot,
   GhosttyTerminalInitOptions,
   GhosttyTerminalSize,
+  GhosttyViewportGesture,
   TerminalDisposable,
 } from './types';
 
@@ -48,12 +50,31 @@ const DEFAULT_CELL_HEIGHT = 17;
 const AUTO_SCROLL_INTERVAL_MS = 48;
 const TERMINAL_ENGINE = 'ghostty-official';
 
+const GHOSTTY_MODE_X10_MOUSE = 9;
+const GHOSTTY_MODE_NORMAL_MOUSE = 1000;
+const GHOSTTY_MODE_BUTTON_MOUSE = 1002;
+const GHOSTTY_MODE_ANY_MOUSE = 1003;
+const GHOSTTY_MODE_ALT_SCROLL = 1007;
+const GHOSTTY_MODE_ALT_SCREEN = 1047;
+const GHOSTTY_MODE_ALT_SCREEN_SAVE = 1049;
+
+const GHOSTTY_MOUSE_BUTTON_LEFT = 1;
+const GHOSTTY_MOUSE_BUTTON_MIDDLE = 3;
+const GHOSTTY_MOUSE_BUTTON_RIGHT = 2;
+const GHOSTTY_MOUSE_BUTTON_FOUR = 4;
+const GHOSTTY_MOUSE_BUTTON_FIVE = 5;
+
 type PointerDragState = {
   active: boolean;
   moved: boolean;
   mode: SelectionMode;
   lastClientX: number | null;
   lastClientY: number | null;
+};
+
+type InputRoutingState = {
+  mouseReporting: boolean;
+  altScroll: boolean;
 };
 
 class BufferLine implements CompatibleBufferLine {
@@ -101,6 +122,21 @@ function normalizeVisibleLines(rows: GhosttyRenderRow[], expectedRows: number): 
     lines.push('');
   }
   return lines;
+}
+
+function pointerLikeEventToGhosttyMods(event: {
+  shiftKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+}): number {
+  return keyboardEventToGhosttyMods({
+    shiftKey: Boolean(event.shiftKey),
+    ctrlKey: Boolean(event.ctrlKey),
+    altKey: Boolean(event.altKey),
+    metaKey: Boolean(event.metaKey),
+    getModifierState: () => false,
+  } as unknown as KeyboardEvent);
 }
 
 export class FitAddon {
@@ -153,6 +189,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private readonly bindings: GhosttyBindings;
   private readonly terminalHandle: number;
   private readonly keyEncoderHandle: number;
+  private readonly mouseEncoderHandle: number;
   private readonly renderState: GhosttyRenderStateResources;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly addons = new Set<{ dispose: () => void }>();
@@ -181,17 +218,21 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private copyShortcutSuppressed = false;
   private scrollbarThumb: HTMLDivElement | null = null;
   private scrollbarFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly pressedMouseButtons = new Set<number>();
+  private wheelPixelDelta = 0;
 
   private constructor(
     bindings: GhosttyBindings,
     terminalHandle: number,
     keyEncoderHandle: number,
+    mouseEncoderHandle: number,
     renderState: GhosttyRenderStateResources,
     options: GhosttyTerminalInitOptions
   ) {
     this.bindings = bindings;
     this.terminalHandle = terminalHandle;
     this.keyEncoderHandle = keyEncoderHandle;
+    this.mouseEncoderHandle = mouseEncoderHandle;
     this.renderState = renderState;
     this.options = options;
     this.disableStdin = Boolean(options.disableStdin);
@@ -201,26 +242,32 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const bindings = await getGhosttyBindings();
     const terminalHandle = bindings.createTerminal(DEFAULT_COLS, DEFAULT_ROWS, options.scrollback);
     let keyEncoderHandle = 0;
+    let mouseEncoderHandle = 0;
     let renderState: GhosttyRenderStateResources | null = null;
 
     try {
       bindings.setTerminalTheme(terminalHandle, options.theme);
       keyEncoderHandle = bindings.createKeyEncoder();
+      mouseEncoderHandle = bindings.createMouseEncoder();
       renderState = createRenderState(bindings);
 
       return new GhosttyTerminalController(
-        bindings,
-        terminalHandle,
-        keyEncoderHandle,
-        renderState,
-        options
-      );
+          bindings,
+          terminalHandle,
+          keyEncoderHandle,
+          mouseEncoderHandle,
+          renderState,
+          options
+        );
     } catch (error) {
       if (renderState) {
         disposeRenderStateResources(renderState);
       }
       if (keyEncoderHandle !== 0) {
         bindings.freeKeyEncoder(keyEncoderHandle);
+      }
+      if (mouseEncoderHandle !== 0) {
+        bindings.freeMouseEncoder(mouseEncoderHandle);
       }
       bindings.freeTerminal(terminalHandle);
       throw error;
@@ -394,6 +441,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.rows = nextRows;
     this.clearSelectionState(false);
     this.bindings.resizeTerminal(this.terminalHandle, nextCols, nextRows, this.cellDimensions());
+    this.bindings.resetMouseEncoder(this.mouseEncoderHandle);
     this.scheduleRender();
   }
 
@@ -422,6 +470,73 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     this.bindings.scrollViewportBottom(this.terminalHandle);
     this.render();
+  }
+
+  exportModeSnapshot(): GhosttyTerminalModeSnapshot {
+    return {
+      mouseX10: this.isModeEnabled(GHOSTTY_MODE_X10_MOUSE),
+      mouseNormal: this.isModeEnabled(GHOSTTY_MODE_NORMAL_MOUSE),
+      mouseButton: this.isModeEnabled(GHOSTTY_MODE_BUTTON_MOUSE),
+      mouseAny: this.isModeEnabled(GHOSTTY_MODE_ANY_MOUSE),
+      mouseUtf8: this.isModeEnabled(1005),
+      mouseSgr: this.isModeEnabled(1006),
+      mouseSgrPixels: this.isModeEnabled(1016),
+      mouseUrxvt: this.isModeEnabled(1015),
+      altScroll: this.isModeEnabled(GHOSTTY_MODE_ALT_SCROLL),
+      altScreen1047: this.isModeEnabled(GHOSTTY_MODE_ALT_SCREEN),
+      altScreen1049: this.isModeEnabled(GHOSTTY_MODE_ALT_SCREEN_SAVE),
+    };
+  }
+
+  restoreModeSnapshot(snapshot: GhosttyTerminalModeSnapshot): void {
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_X10_MOUSE, snapshot.mouseX10);
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_NORMAL_MOUSE, snapshot.mouseNormal);
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_BUTTON_MOUSE, snapshot.mouseButton);
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ANY_MOUSE, snapshot.mouseAny);
+    this.bindings.setTerminalMode(this.terminalHandle, 1005, snapshot.mouseUtf8);
+    this.bindings.setTerminalMode(this.terminalHandle, 1006, snapshot.mouseSgr);
+    this.bindings.setTerminalMode(this.terminalHandle, 1016, snapshot.mouseSgrPixels);
+    this.bindings.setTerminalMode(this.terminalHandle, 1015, snapshot.mouseUrxvt);
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ALT_SCROLL, snapshot.altScroll);
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ALT_SCREEN, snapshot.altScreen1047);
+    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ALT_SCREEN_SAVE, snapshot.altScreen1049);
+    this.bindings.resetMouseEncoder(this.mouseEncoderHandle);
+  }
+
+  handleViewportGesture(gesture: GhosttyViewportGesture): boolean {
+    if (this.disposed || gesture.deltaY === 0) {
+      return false;
+    }
+
+    const lines = this.gestureToLines(gesture);
+    if (lines === 0) {
+      return false;
+    }
+
+    const routing = this.getInputRoutingState();
+    if (routing.mouseReporting) {
+      const button = lines < 0 ? GHOSTTY_MOUSE_BUTTON_FOUR : GHOSTTY_MOUSE_BUTTON_FIVE;
+      let consumed = false;
+      for (let index = 0; index < Math.abs(lines); index += 1) {
+        consumed =
+          this.emitMouseInput({
+            action: 'press',
+            button,
+            clientX: gesture.clientX,
+            clientY: gesture.clientY,
+            mods: pointerLikeEventToGhosttyMods(gesture),
+            anyButtonPressed: this.pressedMouseButtons.size > 0,
+          }) || consumed;
+      }
+      return consumed;
+    }
+
+    if (routing.altScroll) {
+      return this.emitAltScrollInput(lines);
+    }
+
+    this.scrollLines(lines);
+    return true;
   }
 
   paste(data: string): void {
@@ -521,6 +636,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.scrollbarThumb = null;
 
     disposeRenderStateResources(this.renderState);
+    this.bindings.freeMouseEncoder(this.mouseEncoderHandle);
     this.bindings.freeKeyEncoder(this.keyEncoderHandle);
     this.bindings.freeTerminal(this.terminalHandle);
   }
@@ -556,12 +672,35 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     const selectSurface = this.screenElement ?? root;
     selectSurface.addEventListener('mousedown', (event) => {
-      if (!(event instanceof MouseEvent) || event.button !== 0) {
+      if (!(event instanceof MouseEvent)) {
         return;
       }
 
       if (!this.disableStdin) {
         this.focus();
+      }
+
+      if (this.getInputRoutingState().mouseReporting) {
+        const button = this.mouseButtonFromEvent(event);
+        if (button === null) {
+          return;
+        }
+        this.clearSelectionState();
+        this.pressedMouseButtons.add(button);
+        this.emitMouseInput({
+          action: 'press',
+          button,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          mods: pointerLikeEventToGhosttyMods(event),
+          anyButtonPressed: true,
+        });
+        event.preventDefault();
+        return;
+      }
+
+      if (event.button !== 0) {
+        return;
       }
 
       this.beginPointerSelection(event);
@@ -571,17 +710,21 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     root.addEventListener(
       'wheel',
       (event) => {
-        const cellHeight = this.cellDimensions().height || DEFAULT_CELL_HEIGHT;
-        const amount =
-          event.deltaY > 0
-            ? Math.ceil(event.deltaY / cellHeight)
-            : Math.floor(event.deltaY / cellHeight);
-        if (amount === 0) {
-          return;
+        if (
+          this.handleViewportGesture({
+            source: 'wheel',
+            deltaY: event.deltaY,
+            deltaMode: event.deltaMode,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            shiftKey: event.shiftKey,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            metaKey: event.metaKey,
+          })
+        ) {
+          event.preventDefault();
         }
-
-        event.preventDefault();
-        this.scrollLines(amount);
       },
       { passive: false }
     );
@@ -592,9 +735,35 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         : null;
     if (dragEventTarget) {
       const moveListener = (event: MouseEvent) => {
+        if (this.getInputRoutingState().mouseReporting) {
+          this.emitMouseInput({
+            action: 'motion',
+            button: this.mouseButtonFromButtons(event.buttons),
+            clientX: event.clientX,
+            clientY: event.clientY,
+            mods: pointerLikeEventToGhosttyMods(event),
+            anyButtonPressed: this.pressedMouseButtons.size > 0 || event.buttons > 0,
+          });
+          return;
+        }
         this.updatePointerSelection(event);
       };
       const upListener = (event: MouseEvent) => {
+        if (this.getInputRoutingState().mouseReporting) {
+          const button = this.mouseButtonFromEvent(event);
+          if (button !== null) {
+            this.pressedMouseButtons.delete(button);
+          }
+          this.emitMouseInput({
+            action: 'release',
+            button,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            mods: pointerLikeEventToGhosttyMods(event),
+            anyButtonPressed: this.pressedMouseButtons.size > 0,
+          });
+          return;
+        }
         this.finishPointerSelection(event);
       };
       dragEventTarget.addEventListener('mousemove', moveListener);
@@ -801,6 +970,168 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     });
   }
 
+  private getInputRoutingState(): InputRoutingState {
+    const mouseReporting =
+      this.isModeEnabled(GHOSTTY_MODE_X10_MOUSE) ||
+      this.isModeEnabled(GHOSTTY_MODE_NORMAL_MOUSE) ||
+      this.isModeEnabled(GHOSTTY_MODE_BUTTON_MOUSE) ||
+      this.isModeEnabled(GHOSTTY_MODE_ANY_MOUSE);
+    const altScreen =
+      this.isModeEnabled(GHOSTTY_MODE_ALT_SCREEN) ||
+      this.isModeEnabled(GHOSTTY_MODE_ALT_SCREEN_SAVE);
+
+    return {
+      mouseReporting,
+      altScroll: !mouseReporting && altScreen && this.isModeEnabled(GHOSTTY_MODE_ALT_SCROLL),
+    };
+  }
+
+  private gestureToLines(gesture: GhosttyViewportGesture): number {
+    const cellHeight = this.cellDimensions().height || DEFAULT_CELL_HEIGHT;
+
+    if (gesture.source === 'wheel') {
+      if (gesture.deltaMode === 1) {
+        this.wheelPixelDelta = 0;
+        return gesture.deltaY > 0 ? Math.ceil(gesture.deltaY) : Math.floor(gesture.deltaY);
+      }
+
+      if (gesture.deltaMode === 2) {
+        this.wheelPixelDelta = 0;
+        const pageLines = Math.max(1, this.rows);
+        const scaled = gesture.deltaY * pageLines;
+        return scaled > 0 ? Math.ceil(scaled) : Math.floor(scaled);
+      }
+
+      this.wheelPixelDelta += gesture.deltaY;
+      const lines =
+        this.wheelPixelDelta > 0
+          ? Math.floor(this.wheelPixelDelta / cellHeight)
+          : Math.ceil(this.wheelPixelDelta / cellHeight);
+      if (lines !== 0) {
+        this.wheelPixelDelta -= lines * cellHeight;
+      }
+      return lines;
+    }
+
+    return gesture.deltaY > 0
+      ? Math.ceil(gesture.deltaY / cellHeight)
+      : Math.floor(gesture.deltaY / cellHeight);
+  }
+
+  private isModeEnabled(mode: number): boolean {
+    return this.bindings.isTerminalModeEnabled(this.terminalHandle, mode);
+  }
+
+  private mouseButtonFromEvent(event: MouseEvent): number | null {
+    switch (event.button) {
+      case 0:
+        return GHOSTTY_MOUSE_BUTTON_LEFT;
+      case 1:
+        return GHOSTTY_MOUSE_BUTTON_MIDDLE;
+      case 2:
+        return GHOSTTY_MOUSE_BUTTON_RIGHT;
+      default:
+        return null;
+    }
+  }
+
+  private mouseButtonFromButtons(buttons: number): number | null {
+    if (buttons & 1) {
+      return GHOSTTY_MOUSE_BUTTON_LEFT;
+    }
+    if (buttons & 4) {
+      return GHOSTTY_MOUSE_BUTTON_MIDDLE;
+    }
+    if (buttons & 2) {
+      return GHOSTTY_MOUSE_BUTTON_RIGHT;
+    }
+
+    return null;
+  }
+
+  private pointerPositionFromClient(clientX: number, clientY: number): { x: number; y: number } | null {
+    const rect = this.screenElement?.getBoundingClientRect();
+    if (!rect) {
+      return null;
+    }
+
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
+    return {
+      x: Math.max(0, Math.min(width - 1, clientX - rect.left)),
+      y: Math.max(0, Math.min(height - 1, clientY - rect.top)),
+    };
+  }
+
+  private emitMouseInput(options: {
+    action: 'press' | 'release' | 'motion';
+    button?: number | null;
+    clientX: number;
+    clientY: number;
+    mods: number;
+    anyButtonPressed: boolean;
+  }): boolean {
+    if (this.disableStdin) {
+      return false;
+    }
+
+    const position = this.pointerPositionFromClient(options.clientX, options.clientY);
+    if (!position) {
+      return false;
+    }
+
+    const cell = this.cellDimensions();
+    const rect = this.screenElement?.getBoundingClientRect();
+    if (!rect) {
+      return false;
+    }
+
+    const payload = this.bindings.encodeMouseEvent(this.mouseEncoderHandle, this.terminalHandle, {
+      action: options.action,
+      button: options.button,
+      mods: options.mods,
+      x: position.x,
+      y: position.y,
+      anyButtonPressed: options.anyButtonPressed,
+      screenWidth: Math.max(1, Math.round(rect.width)),
+      screenHeight: Math.max(1, Math.round(rect.height)),
+      cellWidth: Math.max(1, Math.round(cell.width || DEFAULT_CELL_WIDTH)),
+      cellHeight: Math.max(1, Math.round(cell.height || DEFAULT_CELL_HEIGHT)),
+    });
+    if (!payload) {
+      return false;
+    }
+
+    this.emitData(payload);
+    return true;
+  }
+
+  private emitAltScrollInput(lines: number): boolean {
+    const keyCode = getGhosttyKeyCode(lines < 0 ? 'ArrowUp' : 'ArrowDown');
+    if (keyCode === 0) {
+      return false;
+    }
+
+    let consumed = false;
+    for (let index = 0; index < Math.abs(lines); index += 1) {
+      const payload = this.bindings.encodeKeyEvent(this.keyEncoderHandle, this.terminalHandle, {
+        action: 'press',
+        keyCode,
+        mods: 0,
+        composing: false,
+        utf8: null,
+        unshiftedCodepoint: null,
+      });
+      if (!payload) {
+        continue;
+      }
+      this.emitData(payload);
+      consumed = true;
+    }
+
+    return consumed;
+  }
+
   private emitData(data: string): void {
     for (const listener of this.dataListeners) {
       listener(data);
@@ -962,6 +1293,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
   private clearSelectionState(repaint = true): void {
     this.selectionState = resetSelectionData();
+    this.pressedMouseButtons.clear();
+    this.wheelPixelDelta = 0;
     this.pointerDrag = {
       active: false,
       moved: false,

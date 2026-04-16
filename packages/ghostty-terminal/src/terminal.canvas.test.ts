@@ -4,6 +4,24 @@ import type { GhosttyTheme } from './types';
 type FakeEvent = {
   type: string;
   data?: string;
+  button?: number;
+  buttons?: number;
+  clientX?: number;
+  clientY?: number;
+  deltaY?: number;
+  deltaMode?: number;
+  detail?: number;
+  key?: string;
+  code?: string;
+  repeat?: boolean;
+  shiftKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  cancelable?: boolean;
+  defaultPrevented?: boolean;
+  target?: EventTarget | null;
+  currentTarget?: EventTarget | null;
   preventDefault?: () => void;
 };
 
@@ -113,11 +131,27 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatchEvent(event: FakeEvent): void {
+  removeEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter((current) => current !== listener)
+    );
+  }
+
+  dispatchEvent(event: FakeEvent): boolean {
+    event.target ??= this as unknown as EventTarget;
+    event.currentTarget = this as unknown as EventTarget;
+    event.defaultPrevented ??= false;
+    event.preventDefault ??= () => {
+      event.defaultPrevented = true;
+    };
     const listeners = this.listeners.get(event.type) ?? [];
     for (const listener of listeners) {
       listener(event);
     }
+
+    return !event.defaultPrevented;
   }
 
   focus(): void {
@@ -130,8 +164,19 @@ class FakeElement {
     }
   }
 
-  getBoundingClientRect(): { width: number; height: number; left: number; top: number } {
-    return this.rect;
+  getBoundingClientRect(): {
+    width: number;
+    height: number;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  } {
+    return {
+      ...this.rect,
+      right: this.rect.left + this.rect.width,
+      bottom: this.rect.top + this.rect.height,
+    };
   }
 
   setBoundingClientRect(rect: { width: number; height: number; left?: number; top?: number }): void {
@@ -144,12 +189,111 @@ class FakeElement {
   }
 }
 
+class FakeMouseEvent {
+  readonly type: string;
+  readonly button: number;
+  readonly buttons: number;
+  readonly clientX: number;
+  readonly clientY: number;
+  readonly detail: number;
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly metaKey: boolean;
+  readonly cancelable: boolean;
+  defaultPrevented = false;
+  target: EventTarget | null = null;
+  currentTarget: EventTarget | null = null;
+
+  constructor(
+    type: string,
+    init: Partial<
+      Pick<
+        FakeEvent,
+        'button' | 'buttons' | 'clientX' | 'clientY' | 'detail' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey' | 'cancelable'
+      >
+    > = {}
+  ) {
+    this.type = type;
+    this.button = init.button ?? 0;
+    this.buttons = init.buttons ?? (this.button === 0 ? 1 : 0);
+    this.clientX = init.clientX ?? 0;
+    this.clientY = init.clientY ?? 0;
+    this.detail = init.detail ?? 1;
+    this.shiftKey = init.shiftKey ?? false;
+    this.ctrlKey = init.ctrlKey ?? false;
+    this.altKey = init.altKey ?? false;
+    this.metaKey = init.metaKey ?? false;
+    this.cancelable = init.cancelable ?? true;
+  }
+
+  preventDefault(): void {
+    this.defaultPrevented = true;
+  }
+}
+
+class FakeWheelEvent extends FakeMouseEvent {
+  static readonly DOM_DELTA_PIXEL = 0;
+  static readonly DOM_DELTA_LINE = 1;
+  static readonly DOM_DELTA_PAGE = 2;
+  readonly deltaY: number;
+  readonly deltaMode: number;
+
+  constructor(
+    type: string,
+    init: Partial<Pick<FakeEvent, 'deltaY' | 'deltaMode' | 'clientX' | 'clientY' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey' | 'cancelable'>> = {}
+  ) {
+    super(type, init);
+    this.deltaY = init.deltaY ?? 0;
+    this.deltaMode = init.deltaMode ?? 0;
+  }
+}
+
+class FakeWindowTarget {
+  document: FakeDocument;
+  innerWidth = 1280;
+  private listeners = new Map<string, EventListener[]>();
+
+  constructor(document: FakeDocument) {
+    this.document = document;
+  }
+
+  addEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter((current) => current !== listener)
+    );
+  }
+
+  dispatchEvent(event: FakeEvent): boolean {
+    event.target ??= this as unknown as EventTarget;
+    event.currentTarget = this as unknown as EventTarget;
+    event.defaultPrevented ??= false;
+    event.preventDefault ??= () => {
+      event.defaultPrevented = true;
+    };
+    const listeners = this.listeners.get(event.type) ?? [];
+    for (const listener of listeners) {
+      listener(event);
+    }
+
+    return !event.defaultPrevented;
+  }
+}
+
 class FakeCanvasElement extends FakeElement {
   width = 0;
   height = 0;
   readonly context = new FakeCanvasContext2D();
 
-  getContext(_kind: string): Record<string, unknown> {
+  getContext(_kind: string): FakeCanvasContext2D {
     return this.context;
   }
 }
@@ -175,19 +319,29 @@ type FakeBindings = {
   createTerminal: (...args: any[]) => number;
   setTerminalTheme: (...args: any[]) => void;
   createKeyEncoder: () => number;
+  createMouseEncoder: () => number;
   freeKeyEncoder: (...args: any[]) => void;
+  freeMouseEncoder: (...args: any[]) => void;
   freeTerminal: (...args: any[]) => void;
   resizeTerminal: (...args: any[]) => void;
   writeVt: (...args: any[]) => void;
   resetTerminal: (...args: any[]) => void;
+  resetMouseEncoder: (...args: any[]) => void;
   readScrollbar: (...args: any[]) => { total: number; offset: number; len: number };
   scrollViewportDelta: (...args: any[]) => void;
   scrollViewportTop: (...args: any[]) => void;
   scrollViewportBottom: (...args: any[]) => void;
+  isTerminalModeEnabled: (...args: any[]) => boolean;
+  setTerminalMode: (...args: any[]) => void;
   encodePaste: (...args: any[]) => string;
   encodeKeyEvent: (...args: any[]) => string;
+  encodeMouseEvent: (...args: any[]) => string | null;
   formatViewport: (...args: any[]) => string;
   formatViewportCalls: number;
+  modeState?: Set<number>;
+  scrollDeltaCalls?: number[];
+  mouseEventCalls?: any[];
+  keyEventCalls?: any[];
 };
 
 function findElementsByTag(root: FakeElement | null, tagName: string): FakeElement[] {
@@ -222,24 +376,71 @@ function findCanvasByLayer(root: FakeElement | null, layer: string): FakeCanvasE
   ) ?? null;
 }
 
+function findElementByClass(root: FakeElement | null, className: string): FakeElement | null {
+  if (!root) {
+    return null;
+  }
+
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+
+    if (current.className === className) {
+      return current;
+    }
+
+    stack.push(...current.children);
+  }
+
+  return null;
+}
+
 function createFakeBindings(): FakeBindings {
   let formatViewportCalls = 0;
+  const modeState = new Set<number>();
+  const scrollDeltaCalls: number[] = [];
+  const mouseEventCalls: any[] = [];
+  const keyEventCalls: any[] = [];
 
   return {
     createTerminal: () => 1,
     setTerminalTheme: () => {},
     createKeyEncoder: () => 2,
+    createMouseEncoder: () => 3,
     freeKeyEncoder: () => {},
+    freeMouseEncoder: () => {},
     freeTerminal: () => {},
     resizeTerminal: () => {},
     writeVt: () => {},
     resetTerminal: () => {},
+    resetMouseEncoder: () => {},
     readScrollbar: () => ({ total: 24, offset: 0, len: 24 }),
-    scrollViewportDelta: () => {},
+    scrollViewportDelta: (_terminal: number, amount: number) => {
+      scrollDeltaCalls.push(amount);
+    },
     scrollViewportTop: () => {},
     scrollViewportBottom: () => {},
+    isTerminalModeEnabled: (_terminal: number, mode: number) => modeState.has(mode),
+    setTerminalMode: (_terminal: number, mode: number, enabled: boolean) => {
+      if (enabled) modeState.add(mode);
+      else modeState.delete(mode);
+    },
     encodePaste: () => '',
-    encodeKeyEvent: () => '',
+    encodeKeyEvent: (
+      _encoder: number,
+      _terminal: number,
+      options: { action: string; keyCode: number; mods: number }
+    ) => {
+      keyEventCalls.push(options);
+      return `key:${options.action}:${options.keyCode}:${options.mods}`;
+    },
+    encodeMouseEvent: (_encoder: number, _terminal: number, options: Record<string, unknown>) => {
+      mouseEventCalls.push(options);
+      return `mouse:${String(options.action)}:${String(options.button ?? 'none')}`;
+    },
     formatViewport: () => {
       formatViewportCalls += 1;
       return '';
@@ -247,6 +448,10 @@ function createFakeBindings(): FakeBindings {
     get formatViewportCalls() {
       return formatViewportCalls;
     },
+    modeState,
+    scrollDeltaCalls,
+    mouseEventCalls,
+    keyEventCalls,
   };
 }
 
@@ -258,6 +463,7 @@ function installFakeDom(): {
   restore: () => void;
 } {
   const document = new FakeDocument();
+  const windowTarget = new FakeWindowTarget(document);
   const previousDocument = (globalThis as any).document;
   const previousWindow = (globalThis as any).window;
   const previousNavigator = (globalThis as any).navigator;
@@ -265,6 +471,8 @@ function installFakeDom(): {
   const previousHTMLCanvasElement = (globalThis as any).HTMLCanvasElement;
   const previousHTMLTextAreaElement = (globalThis as any).HTMLTextAreaElement;
   const previousHTMLDivElement = (globalThis as any).HTMLDivElement;
+  const previousMouseEvent = (globalThis as any).MouseEvent;
+  const previousWheelEvent = (globalThis as any).WheelEvent;
   const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
   const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
 
@@ -273,7 +481,7 @@ function installFakeDom(): {
   let nextAnimationFrameId = 1;
 
   (globalThis as any).document = document;
-  (globalThis as any).window = globalThis;
+  (globalThis as any).window = windowTarget;
   (globalThis as any).navigator = {
     clipboard: {
       readText: async () => '',
@@ -284,6 +492,8 @@ function installFakeDom(): {
   (globalThis as any).HTMLCanvasElement = FakeCanvasElement;
   (globalThis as any).HTMLTextAreaElement = FakeElement;
   (globalThis as any).HTMLDivElement = FakeElement;
+  (globalThis as any).MouseEvent = FakeMouseEvent;
+  (globalThis as any).WheelEvent = FakeWheelEvent;
   globalThis.requestAnimationFrame = ((callback: RafCallback) => {
     const id = nextAnimationFrameId;
     nextAnimationFrameId += 1;
@@ -318,6 +528,8 @@ function installFakeDom(): {
       (globalThis as any).HTMLCanvasElement = previousHTMLCanvasElement;
       (globalThis as any).HTMLTextAreaElement = previousHTMLTextAreaElement;
       (globalThis as any).HTMLDivElement = previousHTMLDivElement;
+      (globalThis as any).MouseEvent = previousMouseEvent;
+      (globalThis as any).WheelEvent = previousWheelEvent;
       globalThis.requestAnimationFrame = previousRequestAnimationFrame;
       globalThis.cancelAnimationFrame = previousCancelAnimationFrame;
     },
@@ -536,6 +748,298 @@ describe('GhosttyTerminalController canvas baseline', () => {
 
     disposable.dispose();
   });
+
+  test('wheel should keep local viewport scrolling when mouse and alt-scroll modes are disabled', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    (terminal.element as unknown as FakeElement).dispatchEvent(
+      new FakeWheelEvent('wheel', { deltaY: 48 }) as unknown as FakeEvent
+    );
+
+    expect(received).toEqual([]);
+    expect(bindings.scrollDeltaCalls).toHaveLength(1);
+    disposable.dispose();
+  });
+
+  test('pixel wheel should accumulate before local viewport scrolling', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const root = terminal.element as unknown as FakeElement;
+    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 8 }) as unknown as FakeEvent);
+    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 8 }) as unknown as FakeEvent);
+
+    expect(bindings.scrollDeltaCalls).toEqual([]);
+
+    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 8 }) as unknown as FakeEvent);
+    expect(bindings.scrollDeltaCalls).toEqual([1]);
+  });
+
+  test('line wheel delta should be used directly for viewport scrolling', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    (terminal.element as unknown as FakeElement).dispatchEvent(
+      new FakeWheelEvent('wheel', { deltaY: 3, deltaMode: FakeWheelEvent.DOM_DELTA_LINE }) as unknown as FakeEvent
+    );
+
+    expect(bindings.scrollDeltaCalls).toEqual([3]);
+  });
+
+  test('wheel should emit mouse input when mouse reporting is enabled', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.modeState?.add(1000);
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const screen = findElementByClass(terminal.element as unknown as FakeElement, 'xterm-screen');
+    screen?.setBoundingClientRect({ width: 960, height: 480, left: 0, top: 0 });
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    (terminal.element as unknown as FakeElement).dispatchEvent(
+      new FakeWheelEvent('wheel', { deltaY: 48, clientX: 40, clientY: 30 }) as unknown as FakeEvent
+    );
+
+    expect(received.some((item) => item.startsWith('mouse:'))).toBeTrue();
+    expect(bindings.scrollDeltaCalls).toEqual([]);
+    disposable.dispose();
+  });
+
+  test('wheel should emit app scroll input when alt-screen and alt-scroll are enabled without mouse reporting', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.modeState?.add(1007);
+    bindings.modeState?.add(1049);
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    (terminal.element as unknown as FakeElement).dispatchEvent(
+      new FakeWheelEvent('wheel', { deltaY: -48, clientX: 40, clientY: 30 }) as unknown as FakeEvent
+    );
+
+    expect(received.some((item) => item.startsWith('key:'))).toBeTrue();
+    expect(bindings.scrollDeltaCalls).toEqual([]);
+    disposable.dispose();
+  });
+
+  test('mouse reporting should win over alt-scroll for wheel routing', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.modeState?.add(1000);
+    bindings.modeState?.add(1007);
+    bindings.modeState?.add(1049);
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const screen = findElementByClass(terminal.element as unknown as FakeElement, 'xterm-screen');
+    screen?.setBoundingClientRect({ width: 960, height: 480, left: 0, top: 0 });
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    (terminal.element as unknown as FakeElement).dispatchEvent(
+      new FakeWheelEvent('wheel', { deltaY: 48, clientX: 40, clientY: 30 }) as unknown as FakeEvent
+    );
+
+    expect(received.some((item) => item.startsWith('mouse:'))).toBeTrue();
+    expect(received.some((item) => item.startsWith('key:'))).toBeFalse();
+    expect(bindings.scrollDeltaCalls).toEqual([]);
+    disposable.dispose();
+  });
+
+  test('mouse drag should emit app mouse input instead of local selection when mouse reporting is enabled', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.modeState?.add(1000);
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+    await dom.flushAnimationFrames();
+
+    const screen = findElementByClass(terminal.element as unknown as FakeElement, 'xterm-screen');
+    expect(screen).toBeTruthy();
+    screen?.setBoundingClientRect({ width: 960, height: 480, left: 0, top: 0 });
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    screen?.dispatchEvent(
+      new FakeMouseEvent('mousedown', { clientX: 10, clientY: 10, button: 0, buttons: 1 }) as unknown as FakeEvent
+    );
+    ((globalThis as any).window as FakeWindowTarget).dispatchEvent(
+      new FakeMouseEvent('mousemove', { clientX: 80, clientY: 10, button: 0, buttons: 1 }) as unknown as FakeEvent
+    );
+    ((globalThis as any).window as FakeWindowTarget).dispatchEvent(
+      new FakeMouseEvent('mouseup', { clientX: 80, clientY: 10, button: 0, buttons: 0 }) as unknown as FakeEvent
+    );
+
+    expect(received.some((item) => item.startsWith('mouse:'))).toBeTrue();
+    expect((globalThis as any).__tmexE2eTerminalSelectionText ?? null).toBeNull();
+    disposable.dispose();
+  });
+
+  test('middle and right mouse press should emit app mouse input when mouse reporting is enabled', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.modeState?.add(1000);
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+    await dom.flushAnimationFrames();
+
+    const screen = findElementByClass(terminal.element as unknown as FakeElement, 'xterm-screen');
+    screen?.setBoundingClientRect({ width: 960, height: 480, left: 0, top: 0 });
+
+    screen?.dispatchEvent(
+      new FakeMouseEvent('mousedown', { clientX: 10, clientY: 10, button: 1, buttons: 4 }) as unknown as FakeEvent
+    );
+    screen?.dispatchEvent(
+      new FakeMouseEvent('mousedown', { clientX: 20, clientY: 20, button: 2, buttons: 2 }) as unknown as FakeEvent
+    );
+
+    expect(bindings.mouseEventCalls?.map((item) => item.button)).toEqual([3, 2]);
+  });
+
+  test('exported terminal modes can be restored after reset', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.modeState?.add(1000);
+    bindings.modeState?.add(1006);
+    bindings.modeState?.add(1049);
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const snapshot = terminal.exportModeSnapshot?.();
+
+    expect(snapshot).toBeTruthy();
+    if (!snapshot) {
+      return;
+    }
+
+    bindings.modeState?.clear();
+    terminal.restoreModeSnapshot?.(snapshot);
+
+    expect(bindings.modeState?.has(1000)).toBeTrue();
+    expect(bindings.modeState?.has(1006)).toBeTrue();
+    expect(bindings.modeState?.has(1049)).toBeTrue();
+  });
 });
 
 describe('ghostty render-state bindings', () => {
@@ -594,6 +1098,97 @@ describe('ghostty render-state bindings', () => {
           disposeRenderStateResources(renderState);
         }
       } finally {
+        bindings.freeTerminal(terminal);
+      }
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+describe('ghostty mouse protocol bindings', () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test('encodes middle press and right release with correct sgr button codes', async () => {
+    const restoreFetch = installLocalFileFetch();
+
+    try {
+      const { getGhosttyBindings } = await import(`./ghostty-wasm.ts?mouse-sgr=${Date.now()}`);
+      const bindings = await getGhosttyBindings();
+      const terminal = bindings.createTerminal(80, 24, 1000);
+      const mouseEncoder = bindings.createMouseEncoder();
+
+      try {
+        bindings.exports.ghostty_terminal_mode_set(terminal, 1000, 1);
+        bindings.exports.ghostty_terminal_mode_set(terminal, 1006, 1);
+
+        const middlePress = bindings.encodeMouseEvent(mouseEncoder, terminal, {
+          action: 'press',
+          button: 3,
+          mods: 0,
+          x: 50,
+          y: 40,
+          anyButtonPressed: true,
+          screenWidth: 800,
+          screenHeight: 600,
+          cellWidth: 10,
+          cellHeight: 20,
+        });
+        const rightRelease = bindings.encodeMouseEvent(mouseEncoder, terminal, {
+          action: 'release',
+          button: 2,
+          mods: 0,
+          x: 50,
+          y: 40,
+          anyButtonPressed: false,
+          screenWidth: 800,
+          screenHeight: 600,
+          cellWidth: 10,
+          cellHeight: 20,
+        });
+
+        expect(middlePress).toBe('\u001b[<1;6;3M'.replace('\\u001b', ''));
+        expect(rightRelease).toBe('\u001b[<2;6;3m'.replace('\\u001b', ''));
+      } finally {
+        bindings.freeMouseEncoder(mouseEncoder);
+        bindings.freeTerminal(terminal);
+      }
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test('encodes sgr pixels using pixel coordinates instead of cell coordinates', async () => {
+    const restoreFetch = installLocalFileFetch();
+
+    try {
+      const { getGhosttyBindings } = await import(`./ghostty-wasm.ts?mouse-pixels=${Date.now()}`);
+      const bindings = await getGhosttyBindings();
+      const terminal = bindings.createTerminal(80, 24, 1000);
+      const mouseEncoder = bindings.createMouseEncoder();
+
+      try {
+        bindings.exports.ghostty_terminal_mode_set(terminal, 1000, 1);
+        bindings.exports.ghostty_terminal_mode_set(terminal, 1016, 1);
+
+        const encoded = bindings.encodeMouseEvent(mouseEncoder, terminal, {
+          action: 'press',
+          button: 1,
+          mods: 0,
+          x: 50,
+          y: 40,
+          anyButtonPressed: true,
+          screenWidth: 800,
+          screenHeight: 600,
+          cellWidth: 10,
+          cellHeight: 20,
+        });
+
+        expect(encoded).toBe('\u001b[<0;51;41M'.replace('\\u001b', ''));
+      } finally {
+        bindings.freeMouseEncoder(mouseEncoder);
         bindings.freeTerminal(terminal);
       }
     } finally {
