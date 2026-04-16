@@ -5,6 +5,7 @@
 - 本项目的开发人员均使用简体中文（中国大陆）交流，请使用简体中文（中国大陆）回答。变量命名原则上应使用标准英语，涉及到中国大陆特有的业务场景时，可以适当使用拼音。
 - 代码中除非对应业务逻辑或算法过于复杂，否则请避免出现不必要的注释。
 - LLM思考过程应尽量用中文展示。
+- **永远不要对生成文件跑 lint / format / fix**：包括但不限于 `packages/shared/src/i18n/resources.ts`、`packages/shared/src/i18n/types.ts`、任何 `resources/fe-dist/*`、`dist/*`、`node_modules/*`、`.wasm` 产物。生成文件由对应脚本重建（如 `bun run build:i18n`），人为 lint/format 只会和下一次生成结果打架。如果看到这些文件在 `git status` 里变化，要么是脚本刚跑过，要么是上游源文件被改了——先判断是否属于当前任务范围，不属于就 revert。
 - 在需要用户交互之前（包括提问、任务完成、等待确认等）输出 `\a`（注意此处应该输出 `0x07` 的 ASCII 字符，而不是 `\a` 两个字符），tmex 通过捕获 bell 事件来触发通知推送。
 - 必要的skills:
   - using-superpowers
