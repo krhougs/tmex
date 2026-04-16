@@ -1,6 +1,6 @@
 const decoder = new TextDecoder();
 
-type Phase = 'normal' | 'esc' | 'osc' | 'osc-data' | 'osc-st';
+type Phase = 'normal' | 'esc' | 'osc' | 'osc-data' | 'osc-st' | 'screen-title' | 'screen-title-st';
 
 interface PaneTitleParserOptions {
   onTitle: (title: string) => void;
@@ -33,6 +33,11 @@ export function createPaneTitleParser(options: PaneTitleParserOptions): PaneTitl
           if (byte === 0x5d) {
             phase = 'osc';
             oscKind = '';
+            titleBytes = [];
+            continue;
+          }
+          if (byte === 0x6b) {
+            phase = 'screen-title';
             titleBytes = [];
             continue;
           }
@@ -70,6 +75,33 @@ export function createPaneTitleParser(options: PaneTitleParserOptions): PaneTitl
           continue;
         }
 
+        if (phase === 'osc-st') {
+          if (byte === 0x5c) {
+            emitTitle(options.onTitle, titleBytes);
+            phase = 'normal';
+            continue;
+          }
+
+          titleBytes.push(0x1b, byte);
+          phase = 'osc-data';
+          continue;
+        }
+
+        if (phase === 'screen-title') {
+          if (byte === 0x07) {
+            emitTitle(options.onTitle, titleBytes);
+            phase = 'normal';
+            continue;
+          }
+          if (byte === 0x1b) {
+            phase = 'screen-title-st';
+            continue;
+          }
+
+          titleBytes.push(byte);
+          continue;
+        }
+
         if (byte === 0x5c) {
           emitTitle(options.onTitle, titleBytes);
           phase = 'normal';
@@ -77,7 +109,7 @@ export function createPaneTitleParser(options: PaneTitleParserOptions): PaneTitl
         }
 
         titleBytes.push(0x1b, byte);
-        phase = 'osc-data';
+        phase = 'screen-title';
       }
 
       return new Uint8Array(output);
