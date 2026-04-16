@@ -3,6 +3,7 @@ import {
   TERMINAL_ENGINE,
   createTerminalController,
   type CompatibleTerminalLike,
+  type GhosttyTerminalModeSnapshot,
 } from 'ghostty-terminal';
 import {
   forwardRef,
@@ -26,6 +27,86 @@ const TERMINAL_CONFIG = {
   fontSize: 13,
   scrollback: 10000,
 };
+
+const TERMINAL_MODE_CACHE_KEY = 'tmex:terminal-mode-cache';
+
+function readTerminalModeCache(
+  deviceId: string,
+  paneId: string
+): GhosttyTerminalModeSnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(TERMINAL_MODE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, GhosttyTerminalModeSnapshot | undefined>;
+    return parsed[`${deviceId}:${paneId}`] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeTerminalModeCache(
+  deviceId: string,
+  paneId: string,
+  snapshot: GhosttyTerminalModeSnapshot | null
+): void {
+  try {
+    const raw = sessionStorage.getItem(TERMINAL_MODE_CACHE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, GhosttyTerminalModeSnapshot | undefined>) : {};
+    const key = `${deviceId}:${paneId}`;
+    if (snapshot) {
+      parsed[key] = snapshot;
+    } else {
+      delete parsed[key];
+    }
+    sessionStorage.setItem(TERMINAL_MODE_CACHE_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function createAlternateScreenFallbackSnapshot(): GhosttyTerminalModeSnapshot {
+  return {
+    mouseX10: false,
+    mouseNormal: true,
+    mouseButton: false,
+    mouseAny: false,
+    mouseUtf8: false,
+    mouseSgr: true,
+    mouseSgrPixels: false,
+    mouseUrxvt: false,
+    altScroll: true,
+    altScreen1047: false,
+    altScreen1049: true,
+  };
+}
+
+function reconcileRecoveredModes(
+  cached: GhosttyTerminalModeSnapshot | null,
+  alternateScreen: boolean
+): GhosttyTerminalModeSnapshot | null {
+  if (!alternateScreen) {
+    return cached;
+  }
+
+  const fallback = createAlternateScreenFallbackSnapshot();
+  if (!cached) {
+    return fallback;
+  }
+
+  const hasTrackingMode = cached.mouseNormal || cached.mouseButton || cached.mouseAny;
+
+  return {
+    ...cached,
+    mouseX10: false,
+    mouseUtf8: false,
+    mouseSgr: true,
+    mouseSgrPixels: false,
+    mouseUrxvt: false,
+    altScroll: true,
+    altScreen1049: true,
+    mouseNormal: hasTrackingMode ? cached.mouseNormal : fallback.mouseNormal,
+  };
+}
 
 function setE2eTerminalProbe(terminal: CompatibleTerminalLike): void {
   const g = globalThis as any;
@@ -74,10 +155,25 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const fitAddonRef = useRef<FitAddon | null>(null);
     const currentDeviceIdRef = useRef(deviceId);
     const currentPaneIdRef = useRef(paneId);
+    const attachedDeviceIdRef = useRef(deviceId);
+    const attachedPaneIdRef = useRef(paneId);
     const canWriteRef = useRef(deviceConnected && !isSelectionInvalid);
+    const currentInputModeRef = useRef(inputMode);
+    const currentTerminalThemeRef = useRef(terminalTheme);
     const liveOutputEndedWithCR = useRef(false);
     const keepShortHistoryVisibleRef = useRef(false);
     const lastTerminalInstanceRef = useRef<CompatibleTerminalLike | null>(null);
+    const skipNextDetachPersistRef = useRef(false);
+
+    const persistTerminalModes = useCallback(
+      (terminal: CompatibleTerminalLike | null, targetDeviceId: string, targetPaneId: string) => {
+        if (!terminal?.exportModeSnapshot || !targetDeviceId || !targetPaneId) {
+          return;
+        }
+        writeTerminalModeCache(targetDeviceId, targetPaneId, terminal.exportModeSnapshot());
+      },
+      []
+    );
 
     const getTerminalForTouch = useCallback(() => instance, [instance]);
     useMobileTouch(containerRef, getTerminalForTouch);
@@ -91,6 +187,14 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     useEffect(() => {
       canWriteRef.current = deviceConnected && !isSelectionInvalid;
     }, [deviceConnected, isSelectionInvalid]);
+
+    useEffect(() => {
+      currentInputModeRef.current = inputMode;
+    }, [inputMode]);
+
+    useEffect(() => {
+      currentTerminalThemeRef.current = terminalTheme;
+    }, [terminalTheme]);
 
     const sendTerminalInput = useCallback(
       (data: string) => {
@@ -134,8 +238,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       void createTerminalController({
         ...TERMINAL_CONFIG,
-        theme: terminalTheme,
-        disableStdin: inputMode === 'editor',
+        theme: currentTerminalThemeRef.current,
+        disableStdin: currentInputModeRef.current === 'editor',
       }).then((terminal) => {
         if (cancelled) {
           terminal.dispose();
@@ -182,14 +286,27 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       return {
         onResetTerminal: (targetDeviceId) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
+          persistTerminalModes(instance, attachedDeviceIdRef.current, attachedPaneIdRef.current);
+          skipNextDetachPersistRef.current = true;
           instance.reset();
           liveOutputEndedWithCR.current = false;
           runPostSelectResize();
         },
-        onApplyHistory: (targetDeviceId, data) => {
+        onApplyHistory: (targetDeviceId, data, alternateScreen) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
+          const recoveredModes = reconcileRecoveredModes(
+            readTerminalModeCache(currentDeviceIdRef.current, currentPaneIdRef.current),
+            alternateScreen
+          );
+          if (recoveredModes) {
+            instance.restoreModeSnapshot?.(recoveredModes);
+          }
           keepShortHistoryVisibleRef.current = true;
           instance.write(normalizeHistoryForTerminal(data));
+          skipNextDetachPersistRef.current = false;
+          attachedDeviceIdRef.current = currentDeviceIdRef.current;
+          attachedPaneIdRef.current = currentPaneIdRef.current;
+          persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
         },
         onFlushBuffer: (targetDeviceId, buffer) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
@@ -204,6 +321,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             }
             keepShortHistoryVisibleRef.current = false;
           }
+          attachedDeviceIdRef.current = currentDeviceIdRef.current;
+          attachedPaneIdRef.current = currentPaneIdRef.current;
+          persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
         },
         onOutput: (targetDeviceId, targetPaneId, data) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
@@ -218,9 +338,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             }
             keepShortHistoryVisibleRef.current = false;
           }
+          attachedDeviceIdRef.current = currentDeviceIdRef.current;
+          attachedPaneIdRef.current = currentPaneIdRef.current;
+          persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
         },
       };
-    }, [instance, runPostSelectResize]);
+    }, [instance, persistTerminalModes, runPostSelectResize]);
 
     useEffect(() => {
       if (!instance) {
@@ -228,9 +351,29 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       } else if (lastTerminalInstanceRef.current !== instance) {
         liveOutputEndedWithCR.current = false;
         instance.reset();
+        const cachedModes = readTerminalModeCache(currentDeviceIdRef.current, currentPaneIdRef.current);
+        if (cachedModes) {
+          instance.restoreModeSnapshot?.(cachedModes);
+        }
+        attachedDeviceIdRef.current = currentDeviceIdRef.current;
+        attachedPaneIdRef.current = currentPaneIdRef.current;
         lastTerminalInstanceRef.current = instance;
       }
     }, [instance]);
+
+    useEffect(() => {
+      if (!instance || !deviceId || !paneId) {
+        return;
+      }
+
+      return () => {
+        if (skipNextDetachPersistRef.current) {
+          skipNextDetachPersistRef.current = false;
+          return;
+        }
+        persistTerminalModes(instance, attachedDeviceIdRef.current, attachedPaneIdRef.current);
+      };
+    }, [deviceId, instance, paneId, persistTerminalModes]);
 
     useEffect(() => {
       getSelectStateMachine(callbacks);
