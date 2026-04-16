@@ -80,6 +80,7 @@ export class DeviceSessionRuntime {
         }
         this.closeEmitted = true;
         this.terminated = true;
+        this.connectPromise = null;
         this.broadcast((listener) => listener.onClose?.());
       },
     });
@@ -93,7 +94,7 @@ export class DeviceSessionRuntime {
   }
 
   async connect(): Promise<void> {
-    if (this.terminated && !this.connectPromise) {
+    if (this.terminated) {
       return Promise.reject(
         new Error(`Device session runtime already terminated: ${this.deviceId}`)
       );
@@ -105,6 +106,7 @@ export class DeviceSessionRuntime {
 
     this.connectPromise = this.connection.connect().catch((error) => {
       this.terminated = true;
+      this.connectPromise = null;
       throw error;
     });
 
@@ -118,6 +120,7 @@ export class DeviceSessionRuntime {
 
     this.terminated = true;
     this.manualDisconnect = true;
+    this.connectPromise = null;
     this.connection.disconnect();
   }
 

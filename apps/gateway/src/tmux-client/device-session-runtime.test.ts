@@ -171,7 +171,7 @@ describe('DeviceSessionRuntime', () => {
 
     options?.onEvent({ type: 'bell', data: { paneId: '%1' } });
     options?.onTerminalOutput('%1', new Uint8Array([0x41, 0x42]));
-    options?.onTerminalHistory('%1', 'history-data');
+    options?.onTerminalHistory('%1', 'history-data', false);
     options?.onSnapshot({
       deviceId: 'device-a',
       session: null,
@@ -208,5 +208,30 @@ describe('DeviceSessionRuntime', () => {
     runtime.disconnect();
 
     expect(recorder.state.disconnectCalls).toBe(1);
+  });
+
+  test('rejects reconnect attempts after the runtime has been closed', async () => {
+    const recorder = createStubConnectionRecorder();
+    const runtime = createDeviceSessionRuntime({
+      deviceId: 'device-a',
+      createConnection(options) {
+        recorder.state.options = options;
+        return recorder.connection;
+      },
+    });
+
+    recorder.releaseConnect();
+    await runtime.connect();
+
+    recorder.state.options?.onClose();
+
+    let caught: Error | null = null;
+    try {
+      await runtime.connect();
+    } catch (error) {
+      caught = error instanceof Error ? error : new Error(String(error));
+    }
+
+    expect(caught?.message ?? '').toContain('Device session runtime already terminated');
   });
 });

@@ -21,9 +21,9 @@ describe('WebSocketServer connection entry dedup', () => {
     const ws = createMockWs() as any;
     let acquireCalls = 0;
 
-    let release: ((value: unknown) => void) | null = null;
-    const gate = new Promise((resolve) => {
-      release = resolve;
+    const releaseRef: { current: (() => void) | null } = { current: null };
+    const gate = new Promise<void>((resolve) => {
+      releaseRef.current = resolve;
     });
 
     server.deps.acquireRuntime = async () => {
@@ -43,7 +43,9 @@ describe('WebSocketServer connection entry dedup', () => {
     const p2 = server.getOrCreateConnectionEntry('device-a', ws);
     const p3 = server.getOrCreateConnectionEntry('device-a', ws);
 
-    release?.(null);
+    if (releaseRef.current) {
+      releaseRef.current();
+    }
     const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
 
     expect(acquireCalls).toBe(1);
@@ -121,6 +123,53 @@ describe('WebSocketServer connection entry dedup', () => {
     server.handleDeviceDisconnect(ws, 'device-c');
 
     expect(released).toEqual(['device-c']);
+  });
+
+  test('reuses the same runtime when a second websocket client connects to the same device', async () => {
+    let acquireCalls = 0;
+    let connectCalls = 0;
+    const server = new WebSocketServer({
+      deps: {
+        acquireRuntime: async () => {
+          acquireCalls += 1;
+          return {
+            async connect() {
+              connectCalls += 1;
+            },
+            subscribe() {
+              return () => {};
+            },
+            requestSnapshot() {},
+            disconnect() {},
+          } as any;
+        },
+      },
+    }) as any;
+
+    const ws1 = {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+    const ws2 = {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+
+    sessionStateStore.create(ws1);
+    sessionStateStore.create(ws2);
+
+    await server.handleDeviceConnect(ws1, 'device-shared');
+    await server.handleDeviceConnect(ws2, 'device-shared');
+
+    expect(acquireCalls).toBe(1);
+    expect(connectCalls).toBe(1);
+    expect(server.connections.get('device-shared')?.clients.size).toBe(2);
   });
 });
 
