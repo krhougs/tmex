@@ -9,6 +9,10 @@ GHOSTTY_DIR="$REPO_ROOT/vendor/ghostty"
 TOOLS_DIR="$REPO_ROOT/.cache/tools"
 ZIG_VERSION="0.15.2"
 
+read_locked_ghostty_commit() {
+  git -C "$REPO_ROOT" ls-tree HEAD vendor/ghostty | awk '{print $3}'
+}
+
 detect_zig_target() {
   local os arch
   os="$(uname -s)"
@@ -60,6 +64,21 @@ if ! git -C "$GHOSTTY_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
+LOCKED_GHOSTTY_COMMIT="$(read_locked_ghostty_commit)"
+SUBMODULE_HEAD="$(git -C "$GHOSTTY_DIR" rev-parse HEAD)"
+
+if [[ -z "$LOCKED_GHOSTTY_COMMIT" ]]; then
+  printf 'failed to read locked vendor/ghostty commit from superproject\n' >&2
+  exit 1
+fi
+
+if [[ "$LOCKED_GHOSTTY_COMMIT" != "$SUBMODULE_HEAD" ]]; then
+  printf 'vendor/ghostty HEAD %s does not match locked superproject commit %s\n' \
+    "$SUBMODULE_HEAD" \
+    "$LOCKED_GHOSTTY_COMMIT" >&2
+  exit 1
+fi
+
 ZIG_BIN="$(ensure_zig)"
 
 cd "$GHOSTTY_DIR"
@@ -67,7 +86,9 @@ cd "$GHOSTTY_DIR"
 
 cp "$GHOSTTY_DIR/zig-out/bin/ghostty-vt.wasm" "$PKG_DIR/src/assets/ghostty-vt.wasm"
 
+bun "$PKG_DIR/scripts/ghostty-wasm.ts" write-metadata
+
 printf 'built %s from ghostty %s with %s\n' \
   "$PKG_DIR/src/assets/ghostty-vt.wasm" \
-  "$(git rev-parse HEAD)" \
+  "$SUBMODULE_HEAD" \
   "$("$ZIG_BIN" version)"
