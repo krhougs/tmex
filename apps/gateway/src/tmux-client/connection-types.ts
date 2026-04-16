@@ -6,7 +6,7 @@ export interface TmuxConnectionOptions {
   deviceId: string;
   onEvent: (event: TmuxEvent) => void;
   onTerminalOutput: (paneId: string, data: Uint8Array) => void;
-  onTerminalHistory: (paneId: string, data: string) => void;
+  onTerminalHistory: (paneId: string, data: string, alternateScreen: boolean) => void;
   onSnapshot: (payload: StateSnapshotPayload) => void;
   onError: (error: Error) => void;
   onClose: () => void;

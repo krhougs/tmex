@@ -24,7 +24,7 @@ export interface DeviceSessionRuntimeConnection {
 export interface DeviceSessionRuntimeListener {
   onEvent?: (event: TmuxEvent) => void;
   onTerminalOutput?: (paneId: string, data: Uint8Array) => void;
-  onTerminalHistory?: (paneId: string, data: string) => void;
+  onTerminalHistory?: (paneId: string, data: string, alternateScreen: boolean) => void;
   onSnapshot?: (payload: StateSnapshotPayload) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
@@ -65,8 +65,8 @@ export class DeviceSessionRuntime {
       onTerminalOutput: (paneId, data) => {
         this.broadcast((listener) => listener.onTerminalOutput?.(paneId, data));
       },
-      onTerminalHistory: (paneId, data) => {
-        this.broadcast((listener) => listener.onTerminalHistory?.(paneId, data));
+      onTerminalHistory: (paneId, data, alternateScreen) => {
+        this.broadcast((listener) => listener.onTerminalHistory?.(paneId, data, alternateScreen));
       },
       onSnapshot: (payload) => {
         this.broadcast((listener) => listener.onSnapshot?.(payload));

@@ -93,8 +93,8 @@ export class WebSocketServer {
       onTerminalOutput: (paneId, data) => {
         this.broadcastTerminalOutput(deviceId, paneId, data);
       },
-      onTerminalHistory: (paneId, data) => {
-        this.broadcastTerminalHistory(deviceId, paneId, data);
+      onTerminalHistory: (paneId, data, alternateScreen) => {
+        this.broadcastTerminalHistory(deviceId, paneId, data, alternateScreen);
       },
       onSnapshot: (payload) => {
         this.broadcastStateSnapshot(deviceId, payload);
@@ -784,7 +784,12 @@ export class WebSocketServer {
     }
   }
 
-  private broadcastTerminalHistory(deviceId: string, paneId: string, data: string): void {
+  private broadcastTerminalHistory(
+    deviceId: string,
+    paneId: string,
+    data: string,
+    alternateScreen: boolean
+  ): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
@@ -794,7 +799,7 @@ export class WebSocketServer {
       if (client.data.borshState.selectedPanes[deviceId] !== paneId) {
         continue;
       }
-      switchBarrier.sendTermHistory(client as any, deviceId, paneId, historyBytes);
+      switchBarrier.sendTermHistory(client as any, deviceId, paneId, historyBytes, alternateScreen);
     }
   }
 

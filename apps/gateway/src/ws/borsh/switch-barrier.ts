@@ -210,7 +210,8 @@ export class SwitchBarrier {
     ws: ServerWebSocket<unknown & { borshState?: BorshClientState }>,
     deviceId: string,
     paneId: string,
-    historyData: Uint8Array
+    historyData: Uint8Array,
+    alternateScreen: boolean
   ): void {
     const pending = this.getPending(ws, deviceId);
     if (!pending) return;
@@ -242,6 +243,7 @@ export class SwitchBarrier {
         paneId: context.paneId,
         selectToken: context.selectToken,
         encoding: 2, // utf8-bytes
+        alternateScreen,
         data: historyData,
       },
       borshState.seqGen,
