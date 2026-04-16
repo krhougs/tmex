@@ -47,6 +47,10 @@ function createStubConnectionRecorder() {
     selectPane(windowId, paneId) {
       state.selectPaneCalls.push([windowId, paneId]);
     },
+    selectPaneWithSize(windowId, paneId, cols, rows) {
+      state.selectPaneCalls.push([windowId, paneId]);
+      state.resizePaneCalls.push([paneId, cols, rows]);
+    },
     selectWindow(windowId) {
       state.selectWindowCalls.push(windowId);
     },

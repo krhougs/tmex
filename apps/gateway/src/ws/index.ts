@@ -586,12 +586,12 @@ export class WebSocketServer {
 
     switchBarrier.sendSwitchAck(ws as any, deviceId);
 
-    entry.runtime.selectPane(windowId, paneId);
-
     const cols = data.cols ?? null;
     const rows = data.rows ?? null;
     if (cols !== null && rows !== null) {
-      entry.runtime.resizePane(paneId, cols, rows);
+      entry.runtime.selectPaneWithSize(windowId, paneId, cols, rows);
+    } else {
+      entry.runtime.selectPane(windowId, paneId);
     }
   }
 

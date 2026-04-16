@@ -13,6 +13,7 @@ export interface DeviceSessionRuntimeConnection {
   sendInput(paneId: string, data: string): void;
   resizePane(paneId: string, cols: number, rows: number): void;
   selectPane(windowId: string, paneId: string): void;
+  selectPaneWithSize(windowId: string, paneId: string, cols: number, rows: number): void;
   selectWindow(windowId: string): void;
   createWindow(name?: string): void;
   closeWindow(windowId: string): void;
@@ -138,6 +139,10 @@ export class DeviceSessionRuntime {
 
   selectPane(windowId: string, paneId: string): void {
     this.connection.selectPane(windowId, paneId);
+  }
+
+  selectPaneWithSize(windowId: string, paneId: string, cols: number, rows: number): void {
+    this.connection.selectPaneWithSize(windowId, paneId, cols, rows);
   }
 
   selectWindow(windowId: string): void {
