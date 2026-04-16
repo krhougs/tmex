@@ -46,3 +46,6 @@ data/
 
 # 本地工具缓存
 .cache/
+
+# 本地代理状态
+.sisyphus/
