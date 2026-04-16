@@ -158,6 +158,7 @@ export const TermHistorySchema = b.struct({
   paneId: b.string(),
   selectToken: b.bytes(16),
   encoding: b.u8(),
+  alternateScreen: b.bool(),
   data: b.bytes(),
 });
 

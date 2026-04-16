@@ -207,6 +207,7 @@ export interface TermHistoryPayload {
   paneId: string;
   selectToken: Buffer;
   encoding: number;
+  alternateScreen: boolean;
   data: Buffer;
 }
 
@@ -216,8 +217,9 @@ export function decodeTermHistory(payload: Buffer): TermHistoryPayload {
   const paneId = c.readString();
   const selectToken = c.readFixedBytes(16);
   const encoding = c.readU8();
+  const alternateScreen = c.readBool();
   const data = c.readVecBytes();
-  return { deviceId, paneId, selectToken, encoding, data };
+  return { deviceId, paneId, selectToken, encoding, alternateScreen, data };
 }
 
 export interface TermResizePayload {
@@ -235,4 +237,3 @@ export function decodeTermResize(payload: Buffer): TermResizePayload {
   const rows = c.readU16();
   return { deviceId, paneId, cols, rows };
 }
-

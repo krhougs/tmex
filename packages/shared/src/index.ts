@@ -168,6 +168,7 @@ export interface TermHistoryPayload {
   deviceId: string;
   paneId: string;
   data: string;
+  alternateScreen?: boolean;
 }
 
 export interface CreateWindowPayload {
@@ -375,4 +376,3 @@ export interface RestartGatewayResponse {
   success: boolean;
   message: string;
 }
-
