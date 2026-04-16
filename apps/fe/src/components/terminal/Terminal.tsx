@@ -22,12 +22,7 @@ import { useTerminalResize } from './useTerminalResize';
 
 function normalizeHistoryForTerminal(data: string): string {
   if (!data) return data;
-  const normalized = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = normalized.split('\n');
-  while (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
-    lines.pop();
-  }
-  return lines.join('\r\n');
+  return data.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
 }
 
 function normalizeLiveOutputForTerminal(
