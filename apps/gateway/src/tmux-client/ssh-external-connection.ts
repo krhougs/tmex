@@ -31,6 +31,10 @@ interface SshExternalTmuxConnectionDeps {
   createClient: () => Client;
 }
 
+function hasRenderableTerminalContent(value: string): boolean {
+  return value.trim().length > 0;
+}
+
 const DEFAULT_HISTORY_LINES = '-1000';
 const BELL_DEDUP_WINDOW_MS = 200;
 const COMMAND_SENTINEL = '\x1eTMEX_END ';
@@ -591,26 +595,30 @@ export class SshExternalTmuxConnection {
     const mode = (
       await this.runTmux(['display-message', '-p', '-t', paneId, '#{alternate_on}'], true)
     ).stdout.trim();
+    const alternateScreen = mode === '1';
     const normal = (
       await this.runTmux(
-        ['capture-pane', '-t', paneId, '-S', DEFAULT_HISTORY_LINES, '-e', '-p'],
+        ['capture-pane', '-t', paneId, '-S', '-', '-E', '-', '-e', '-p'],
         true,
         30000
       )
     ).stdout;
     const alternate = (
       await this.runTmux(
-        ['capture-pane', '-t', paneId, '-a', '-S', DEFAULT_HISTORY_LINES, '-e', '-p', '-q'],
+        ['capture-pane', '-t', paneId, '-a', '-S', '-', '-E', '-', '-e', '-p', '-q'],
         true,
         30000
       )
     ).stdout;
 
-    void mode;
-    const history = normal || alternate;
+    const history = alternateScreen
+      ? hasRenderableTerminalContent(normal)
+        ? normal
+        : alternate
+      : normal || alternate;
 
     if (history) {
-      this.callbacks.onTerminalHistory(paneId, history);
+      this.callbacks.onTerminalHistory(paneId, history, alternateScreen);
     }
   }
 

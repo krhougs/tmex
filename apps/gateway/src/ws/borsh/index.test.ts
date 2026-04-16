@@ -250,7 +250,8 @@ describe('switch barrier', () => {
       mockWs,
       deviceId,
       '%1',
-      new TextEncoder().encode('READY_MARKER\n')
+      new TextEncoder().encode('READY_MARKER\n'),
+      false
     );
     const firstCount = sentFrames.length;
 
@@ -258,7 +259,8 @@ describe('switch barrier', () => {
       mockWs,
       deviceId,
       '%1',
-      new TextEncoder().encode('READY_MARKER\n')
+      new TextEncoder().encode('READY_MARKER\n'),
+      false
     );
 
     expect(sentFrames.length).toBe(firstCount);

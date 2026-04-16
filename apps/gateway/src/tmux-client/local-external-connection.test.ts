@@ -351,4 +351,96 @@ describe('LocalExternalTmuxConnection', () => {
       'set-window-option -t @1 window-size latest'
     );
   });
+
+  test('capturePaneHistory falls back to normal capture when alternate capture is visually empty', async () => {
+    const histories: Array<{ paneId: string; data: string; alternateScreen: boolean }> = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: (paneId, data, alternateScreen) => {
+          histories.push({ paneId, data, alternateScreen });
+        },
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-alt-fallback'),
+        run: async (argv) => {
+          const command = argv.slice(1).join(' ');
+          if (command === "display-message -p -t %1 #{alternate_on}") {
+            return { exitCode: 0, stdout: '1\n', stderr: '' };
+          }
+          if (command === 'capture-pane -t %1 -S - -E - -e -p') {
+            return { exitCode: 0, stdout: 'VIM SCREEN\n', stderr: '' };
+          }
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -p -q') {
+            return { exitCode: 0, stdout: '\n\n\n', stderr: '' };
+          }
+          throw new Error(`unexpected command: ${command}`);
+        },
+      }
+    );
+
+    await (connection as any).capturePaneHistory('%1');
+
+    expect(histories).toEqual([
+      {
+        paneId: '%1',
+        data: 'VIM SCREEN\n',
+        alternateScreen: true,
+      },
+    ]);
+  });
+
+  test('capturePaneHistory prefers current visible capture when pane is in alternate screen', async () => {
+    const histories: Array<{ paneId: string; data: string; alternateScreen: boolean }> = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: (paneId, data, alternateScreen) => {
+          histories.push({ paneId, data, alternateScreen });
+        },
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-alt-visible'),
+        run: async (argv) => {
+          const command = argv.slice(1).join(' ');
+          if (command === "display-message -p -t %1 #{alternate_on}") {
+            return { exitCode: 0, stdout: '1\n', stderr: '' };
+          }
+          if (command === 'capture-pane -t %1 -S - -E - -e -p') {
+            return { exitCode: 0, stdout: 'VISIBLE TUI\n', stderr: '' };
+          }
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -p -q') {
+            return { exitCode: 0, stdout: 'sh-3.2$ opencode .\n', stderr: '' };
+          }
+          throw new Error(`unexpected command: ${command}`);
+        },
+      }
+    );
+
+    await (connection as any).capturePaneHistory('%1');
+
+    expect(histories).toEqual([
+      {
+        paneId: '%1',
+        data: 'VISIBLE TUI\n',
+        alternateScreen: true,
+      },
+    ]);
+  });
 });
