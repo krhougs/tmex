@@ -1,12 +1,20 @@
 {
-  "name": "@tmex/ghostty-terminal",
-  "version": "0.1.0",
+  "name": "ghostty-terminal",
+  "version": "0.3.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build:wasm": "bash ./scripts/build-wasm.sh",
+    "update:wasm": "bash ./scripts/build-wasm.sh",
+    "build:wasm": "bun run update:wasm",
+    "verify:wasm": "bun ./scripts/ghostty-wasm.ts verify",
     "test": "bun test"
   },
   "devDependencies": {

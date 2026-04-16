@@ -15,7 +15,7 @@
     "@base-ui/react": "^1.2.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@tanstack/react-query": "^5.66.0",
-    "@tmex/ghostty-terminal": "workspace:*",
+    "ghostty-terminal": "workspace:*",
     "@tmex/shared": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

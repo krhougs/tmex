@@ -3,7 +3,7 @@ import {
   TERMINAL_ENGINE,
   createTerminalController,
   type CompatibleTerminalLike,
-} from '@tmex/ghostty-terminal';
+} from 'ghostty-terminal';
 import {
   forwardRef,
   useCallback,

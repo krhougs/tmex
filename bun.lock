@@ -17,10 +17,10 @@
         "@base-ui/react": "^1.2.0",
         "@fontsource-variable/geist": "^5.2.8",
         "@tanstack/react-query": "^5.66.0",
-        "@tmex/ghostty-terminal": "workspace:*",
         "@tmex/shared": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "ghostty-terminal": "workspace:*",
         "i18next": "^25.8.5",
         "lucide-react": "^0.564.0",
         "react": "^19.0.0",
@@ -68,7 +68,7 @@
     },
     "packages/app": {
       "name": "tmex-cli",
-      "version": "0.2.6",
+      "version": "0.3.0",
       "bin": {
         "tmex": "./bin/tmex.js",
         "tmex-cli": "./bin/tmex.js",
@@ -79,8 +79,8 @@
       },
     },
     "packages/ghostty-terminal": {
-      "name": "@tmex/ghostty-terminal",
-      "version": "0.1.0",
+      "name": "ghostty-terminal",
+      "version": "0.3.0",
       "devDependencies": {
         "typescript": "^5.7.3",
       },
@@ -431,8 +431,6 @@
 
     "@tmex/gateway": ["@tmex/gateway@workspace:apps/gateway"],
 
-    "@tmex/ghostty-terminal": ["@tmex/ghostty-terminal@workspace:packages/ghostty-terminal"],
-
     "@tmex/shared": ["@tmex/shared@workspace:packages/shared"],
 
     "@ts-morph/common": ["@ts-morph/common@0.27.0", "", { "dependencies": { "fast-glob": "^3.3.3", "minimatch": "^10.0.1", "path-browserify": "^1.0.1" } }, "sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ=="],
@@ -680,6 +678,8 @@
     "get-stream": ["get-stream@9.0.1", "", { "dependencies": { "@sec-ant/readable-stream": "^0.4.1", "is-stream": "^4.0.1" } }, "sha512-kVCxPF3vQM/N0B1PmoqVUqgHP+EeVjmZSQn+1oCRPxd2P21P2F19lIgbR3HBosbB1PUhOAoctJnfEn2GbN2eZA=="],
 
     "get-tsconfig": ["get-tsconfig@4.13.6", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-shZT/QMiSHc/YBLxxOkMtgSid5HFoauqCE3/exfsEcwg1WkeqjG+V40yBbBrsD+jW2HDXcs28xOfcbm2jI8Ddw=="],
+
+    "ghostty-terminal": ["ghostty-terminal@workspace:packages/ghostty-terminal"],
 
     "glob-parent": ["glob-parent@5.1.2", "", { "dependencies": { "is-glob": "^4.0.1" } }, "sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow=="],
 

@@ -1,4 +1,4 @@
-import type { CompatibleTerminalLike } from '@tmex/ghostty-terminal';
+import type { CompatibleTerminalLike } from 'ghostty-terminal';
 
 export type TerminalTheme = 'light' | 'dark';
 
