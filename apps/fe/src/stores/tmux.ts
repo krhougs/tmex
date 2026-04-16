@@ -174,6 +174,7 @@ function setupClientHandlers(
           deviceId: decoded.deviceId,
           selectToken: decoded.selectToken,
           data: text,
+          alternateScreen: decoded.alternateScreen,
         });
         return;
       }

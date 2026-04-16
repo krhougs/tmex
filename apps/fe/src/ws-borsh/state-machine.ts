@@ -29,6 +29,11 @@ export interface OutputGate {
   buffer: Uint8Array[];
 }
 
+interface DeferredHistory {
+  data: string;
+  alternateScreen: boolean;
+}
+
 // ========== 事件定义 ==========
 
 export interface SelectStartEvent {
@@ -51,6 +56,7 @@ export interface HistoryEvent {
   deviceId: string;
   selectToken: Uint8Array;
   data: string;
+  alternateScreen: boolean;
 }
 
 export interface LiveResumeEvent {
@@ -83,7 +89,7 @@ export type SelectEvent =
 
 export interface SelectCallbacks {
   onResetTerminal?: (deviceId: string) => void;
-  onApplyHistory?: (deviceId: string, data: string) => void;
+  onApplyHistory?: (deviceId: string, data: string, alternateScreen: boolean) => void;
   onFlushBuffer?: (deviceId: string, buffer: Uint8Array[]) => void;
   onOutput?: (deviceId: string, paneId: string, data: Uint8Array) => void;
   onSelectFailed?: (deviceId: string) => void;
@@ -94,7 +100,7 @@ export interface SelectCallbacks {
 export class SelectStateMachine {
   private transactions = new Map<string, SelectTransaction>();
   private outputGates = new Map<string, OutputGate>();
-  private deferredHistories = new Map<string, string>();
+  private deferredHistories = new Map<string, DeferredHistory>();
   private deferredFlushes = new Map<string, Uint8Array[]>();
   private deferredOutputs = new Map<string, Array<{ paneId: string; data: Uint8Array }>>();
   private callbacks: SelectCallbacks;
@@ -251,9 +257,12 @@ export class SelectStateMachine {
     transaction.state = 'HISTORY_APPLIED';
 
     if (this.callbacks.onApplyHistory) {
-      this.callbacks.onApplyHistory(deviceId, data);
+      this.callbacks.onApplyHistory(deviceId, data, event.alternateScreen);
     } else {
-      this.deferredHistories.set(deviceId, data);
+      this.deferredHistories.set(deviceId, {
+        data,
+        alternateScreen: event.alternateScreen,
+      });
     }
 
     // 继续等待 LIVE_RESUME（重置超时窗口，避免长 history 导致误判）
@@ -418,7 +427,7 @@ export class SelectStateMachine {
   private replayDeferred(deviceId: string): void {
     const history = this.deferredHistories.get(deviceId);
     if (history !== undefined && this.callbacks.onApplyHistory) {
-      this.callbacks.onApplyHistory(deviceId, history);
+      this.callbacks.onApplyHistory(deviceId, history.data, history.alternateScreen);
       this.deferredHistories.delete(deviceId);
     }
 
