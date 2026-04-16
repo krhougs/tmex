@@ -24,6 +24,9 @@ const DEFAULT_FE_PORT = 9883;
 const gatewayPort = Number(process.env.TMEX_E2E_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT;
 const fePort = Number(process.env.TMEX_E2E_FE_PORT) || DEFAULT_FE_PORT;
 const bunExecutable = resolveBunExecutable();
+const forceFreshServers = Boolean(
+  process.env.TMEX_E2E_DATABASE_URL || process.env.TMEX_E2E_SSH_DEVICE_NAME
+);
 
 export default defineConfig({
   testDir: './tests',
@@ -51,7 +54,7 @@ export default defineConfig({
     {
       name: 'gateway',
       cwd: '../../',
-      command: `${bunExecutable} apps/gateway/src/index.ts`,
+      command: './apps/gateway/scripts/run-with-ssh-agent.sh ./apps/gateway/src/index.ts',
       env: {
         NODE_ENV: 'development',
         TMEX_MASTER_KEY: 'tGd9gPmdUkJrpRQK+db60sc+NkxymxgGqKrReDU4Kus=',
@@ -61,7 +64,7 @@ export default defineConfig({
       },
       url: `http://localhost:${gatewayPort}/healthz`,
       timeout: 60_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: !process.env.CI && !forceFreshServers,
       stdout: 'pipe',
       stderr: 'pipe',
       gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
@@ -77,7 +80,7 @@ export default defineConfig({
       },
       url: `http://localhost:${fePort}`,
       timeout: 60_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: !process.env.CI && !forceFreshServers,
       stdout: 'pipe',
       stderr: 'pipe',
       gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
