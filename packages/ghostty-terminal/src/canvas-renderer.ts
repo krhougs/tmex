@@ -154,7 +154,7 @@ export class CanvasRenderer {
     this.cursorBlinkTimer = setInterval(() => {
       this.cursorBlinkVisible = !this.cursorBlinkVisible;
       this.cursorCanvas.style.opacity = this.cursorBlinkVisible ? '1' : '0';
-    }, 530);
+    }, 1000);
   }
 
   private stopCursorBlink(): void {
@@ -294,6 +294,7 @@ export class CanvasRenderer {
 
     if (!cursor.visible || cursor.x === null || cursor.y === null) {
       this.lastCursor = null;
+      this.stopCursorBlink();
       return;
     }
 
@@ -305,35 +306,16 @@ export class CanvasRenderer {
 
     this.cursorContext.fillStyle = cssColor;
     this.cursorContext.strokeStyle = cssColor;
+    this.cursorContext.globalAlpha = 0.7;
+    this.cursorContext.fillRect(
+      x,
+      y + this.cellDimensions.height - 2,
+      Math.max(width - 1, 1),
+      2
+    );
+    this.cursorContext.globalAlpha = 1;
 
-    switch (cursor.style) {
-      case 'bar':
-        this.cursorContext.fillRect(x, y, Math.max(2, this.cellDimensions.width * 0.12), this.cellDimensions.height);
-        break;
-      case 'underline':
-        this.cursorContext.fillRect(
-          x,
-          y + this.cellDimensions.height - 2,
-          Math.max(width - 1, 1),
-          2
-        );
-        break;
-      case 'block-hollow':
-        this.cursorContext.lineWidth = 1;
-        this.cursorContext.strokeRect(x + 0.5, y + 0.5, Math.max(width - 1, 1), Math.max(this.cellDimensions.height - 1, 1));
-        break;
-      default:
-        this.cursorContext.globalAlpha = cursor.blinking ? 0.85 : 1;
-        this.cursorContext.fillRect(x, y, width, this.cellDimensions.height);
-        this.cursorContext.globalAlpha = 1;
-        break;
-    }
-
-    if (cursor.blinking) {
-      this.startCursorBlink();
-    } else {
-      this.stopCursorBlink();
-    }
+    this.startCursorBlink();
 
     this.lastCursor = {
       x: cursor.x,
