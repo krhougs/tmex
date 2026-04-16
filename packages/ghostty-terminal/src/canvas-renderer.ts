@@ -67,6 +67,8 @@ export class CanvasRenderer {
   private lastDrawnRows: number[] = [];
   private readonly colorCache = new Map<string, string>();
   private readonly fontCache = new Map<string, string>();
+  private cursorBlinkVisible = true;
+  private cursorBlinkTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: CanvasRendererOptions) {
     this.theme = options.theme;
@@ -142,6 +144,26 @@ export class CanvasRenderer {
     this.colorCache.clear();
     this.fontCache.clear();
     this.lastCursor = null;
+    this.stopCursorBlink();
+  }
+
+  private startCursorBlink(): void {
+    if (this.cursorBlinkTimer) {
+      return;
+    }
+    this.cursorBlinkTimer = setInterval(() => {
+      this.cursorBlinkVisible = !this.cursorBlinkVisible;
+      this.cursorCanvas.style.opacity = this.cursorBlinkVisible ? '1' : '0';
+    }, 530);
+  }
+
+  private stopCursorBlink(): void {
+    if (this.cursorBlinkTimer) {
+      clearInterval(this.cursorBlinkTimer);
+      this.cursorBlinkTimer = null;
+    }
+    this.cursorBlinkVisible = true;
+    this.cursorCanvas.style.opacity = '1';
   }
 
   private resize(cols: number, rows: number): void {
@@ -305,6 +327,12 @@ export class CanvasRenderer {
         this.cursorContext.fillRect(x, y, width, this.cellDimensions.height);
         this.cursorContext.globalAlpha = 1;
         break;
+    }
+
+    if (cursor.blinking) {
+      this.startCursorBlink();
+    } else {
+      this.stopCursorBlink();
     }
 
     this.lastCursor = {
