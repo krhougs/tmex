@@ -5,6 +5,12 @@ export function normalizeHistoryForTerminal(data: string): string {
   return trimmed.replace(/\n/g, '\r\n');
 }
 
+const ALT_SCREEN_HISTORY_PREAMBLE = '\x1b[?1049h\x1b[H\x1b[2J';
+
+export function wrapAlternateScreenHistory(data: string): string {
+  return ALT_SCREEN_HISTORY_PREAMBLE + normalizeHistoryForTerminal(data);
+}
+
 export function normalizeLiveOutputForTerminal(
   data: Uint8Array,
   previousEndedWithCR: boolean

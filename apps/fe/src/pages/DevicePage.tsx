@@ -702,6 +702,65 @@ export default function DevicePage() {
     navigate,
   ]);
 
+  // Force-follow snapshot active after a user-initiated createWindow.
+  // Wait for a snapshot whose active differs from the URL (proving the new
+  // window is reflected), then navigate there.
+  const pendingCreateWindowAt = useTmuxStore((state) =>
+    deviceId ? state.pendingCreateWindowAt[deviceId] : undefined
+  );
+  useEffect(() => {
+    if (!deviceId) return;
+    if (!deviceConnected) return;
+    if (!pendingCreateWindowAt) return;
+
+    const ttlMs = 5000;
+    const elapsed = Date.now() - pendingCreateWindowAt;
+    if (elapsed > ttlMs) {
+      useTmuxStore.getState().clearPendingCreateWindow(deviceId);
+      return;
+    }
+
+    if (!snapshotActiveSelection) {
+      const timer = window.setTimeout(() => {
+        useTmuxStore.getState().clearPendingCreateWindow(deviceId);
+      }, ttlMs - elapsed);
+      return () => window.clearTimeout(timer);
+    }
+
+    const target = snapshotActiveSelection;
+    if (windowId === target.windowId && resolvedPaneId === target.paneId) {
+      const timer = window.setTimeout(() => {
+        useTmuxStore.getState().clearPendingCreateWindow(deviceId);
+      }, ttlMs - elapsed);
+      return () => window.clearTimeout(timer);
+    }
+
+    userInitiatedSelectionRef.current = {
+      windowId: target.windowId,
+      paneId: target.paneId,
+      at: Date.now(),
+    };
+    const size = getSelectSize(target.windowId, target.paneId);
+    recordSelectRequest(target.windowId, target.paneId);
+    selectPane(deviceId, target.windowId, target.paneId, size);
+    navigate(
+      `/devices/${deviceId}/windows/${target.windowId}/panes/${encodePaneIdForUrl(target.paneId)}`,
+      { replace: true }
+    );
+    useTmuxStore.getState().clearPendingCreateWindow(deviceId);
+  }, [
+    deviceId,
+    deviceConnected,
+    pendingCreateWindowAt,
+    snapshotActiveSelection,
+    windowId,
+    resolvedPaneId,
+    recordSelectRequest,
+    getSelectSize,
+    selectPane,
+    navigate,
+  ]);
+
   // Sync pane size from remote
   useEffect(() => {
     if (!canInteractWithPane || !selectedPane || isLoading) return;

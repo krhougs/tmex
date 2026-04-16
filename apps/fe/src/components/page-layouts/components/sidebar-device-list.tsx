@@ -308,6 +308,9 @@ function DeviceSection({
           {/* New Window Button */}
           <button
             type="button"
+            data-testid={`window-create-${device.id}`}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
             onClick={() => onCreateWindow(device.id)}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/30 border border-dashed border-border/50 hover:border-border"
           >

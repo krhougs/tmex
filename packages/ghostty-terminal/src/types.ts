@@ -172,6 +172,7 @@ export interface CompatibleTerminalLike {
   };
   write: (data: string | Uint8Array) => void;
   reset: () => void;
+  refresh?: () => void;
   resize: (cols: number, rows: number) => void;
   scrollLines: (amount: number) => void;
   scrollToTop: () => void;
@@ -179,6 +180,7 @@ export interface CompatibleTerminalLike {
   handleViewportGesture?: (gesture: GhosttyViewportGesture) => boolean;
   exportModeSnapshot?: () => GhosttyTerminalModeSnapshot;
   restoreModeSnapshot?: (snapshot: GhosttyTerminalModeSnapshot) => void;
+  clearMouseTrackingModes?: () => void;
   paste: (data: string) => void;
   focus: () => void;
   onData: (callback: (data: string) => void) => TerminalDisposable;

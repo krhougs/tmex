@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { createTwoPaneSession, ensureCleanSession, getPaneSize } from './helpers/tmux';
 import { KIND, decodeEnvelope } from './helpers/ws-borsh';
 
-async function readTerminalSize(page: Parameters<typeof test>[0]['page']): Promise<{
+async function readTerminalSize(page: Page): Promise<{
   cols: number;
   rows: number;
 } | null> {
@@ -17,7 +17,7 @@ async function readTerminalSize(page: Parameters<typeof test>[0]['page']): Promi
 }
 
 async function readTerminalPaneMatchState(
-  page: Parameters<typeof test>[0]['page'],
+  page: Page,
   paneId: string
 ): Promise<string> {
   const terminalSize = await readTerminalSize(page);
@@ -31,7 +31,7 @@ async function readTerminalPaneMatchState(
   return terminalKey === paneKey ? 'match' : `terminal=${terminalKey};pane=${paneKey}`;
 }
 
-async function readTerminalLayout(page: Parameters<typeof test>[0]['page']): Promise<{
+async function readTerminalLayout(page: Page): Promise<{
   hostHeight: number;
   xtermHeight: number;
   cellHeight: number;
@@ -54,7 +54,7 @@ async function readTerminalLayout(page: Parameters<typeof test>[0]['page']): Pro
   });
 }
 
-function attachResizeFrameCounter(page: Parameters<typeof test>[0]['page']): {
+function attachResizeFrameCounter(page: Page): {
   reset: () => void;
   read: () => { resize: number; sync: number };
 } {
@@ -248,55 +248,92 @@ test('ws-borsh: remote tmux resize does not trigger resize echo from another bro
   }
 });
 
-test('ws-borsh: focus restore resyncs one stale terminal without reintroducing resize loop', async ({
-  browser,
+test('ws-borsh: focus restore does not emit TERM_SYNC_SIZE when terminal size is already current', async ({
+  page,
   request,
 }) => {
-  const sessionName = `tmex-e2e-resize-focus-${Date.now()}`;
+  const sessionName = `tmex-e2e-resize-focus-stable-${Date.now()}`;
   createTwoPaneSession(sessionName);
 
-  const name = `e2e-borsh-resize-focus-${Date.now()}`;
+  const name = `e2e-borsh-resize-focus-stable-${Date.now()}`;
   const createRes = await request.post('/api/devices', {
     data: { name, type: 'local', session: sessionName, authMode: 'auto' },
   });
   expect(createRes.ok()).toBeTruthy();
   const created = (await createRes.json()) as { device: { id: string } };
   const deviceId = created.device.id;
-
-  const contextA = await browser.newContext({ viewport: { width: 1200, height: 800 } });
-  const pageA = await contextA.newPage();
-  const contextB = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
-  const pageB = await contextB.newPage();
-  const counterB = attachResizeFrameCounter(pageB);
+  const counter = attachResizeFrameCounter(page);
 
   try {
-    await Promise.all([pageA.goto(`/devices/${deviceId}`), pageB.goto(`/devices/${deviceId}`)]);
+    await page.goto(`/devices/${deviceId}`);
     await Promise.all([
-      expect(pageA.getByTestId('device-page')).toBeVisible(),
-      expect(pageB.getByTestId('device-page')).toBeVisible(),
-      expect(pageA.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
-      expect(pageB.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
+      expect(page.getByTestId('device-page')).toBeVisible(),
+      expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
     ]);
 
-    await pageA.bringToFront();
-    await pageA.waitForTimeout(1_200);
+    await page.waitForTimeout(1_200);
+    counter.reset();
 
-    await pageA.setViewportSize({ width: 900, height: 700 });
-    await pageA.waitForTimeout(1_500);
-
-    counterB.reset();
-    await pageB.evaluate(() => {
+    await page.evaluate(() => {
       window.dispatchEvent(new Event('focus'));
     });
-    await pageB.waitForTimeout(800);
+    await page.waitForTimeout(800);
 
-    const pageBCounts = counterB.read();
-    expect(pageBCounts.sync).toBeGreaterThanOrEqual(1);
-    expect(pageBCounts.resize).toBe(0);
-    expect(pageBCounts.sync).toBeLessThanOrEqual(2);
+    expect(counter.read()).toEqual({ resize: 0, sync: 0 });
   } finally {
-    await contextA.close();
-    await contextB.close();
+    await request.delete(`/api/devices/${deviceId}`);
+    ensureCleanSession(sessionName);
+  }
+});
+
+test('ws-borsh: focus restore resyncs one stale terminal without reintroducing resize loop', async ({
+  page,
+  request,
+}) => {
+  const sessionName = `tmex-e2e-resize-focus-stale-${Date.now()}`;
+  createTwoPaneSession(sessionName);
+
+  const name = `e2e-borsh-resize-focus-stale-${Date.now()}`;
+  const createRes = await request.post('/api/devices', {
+    data: { name, type: 'local', session: sessionName, authMode: 'auto' },
+  });
+  expect(createRes.ok()).toBeTruthy();
+  const created = (await createRes.json()) as { device: { id: string } };
+  const deviceId = created.device.id;
+  const counter = attachResizeFrameCounter(page);
+
+  try {
+    await page.goto(`/devices/${deviceId}`);
+    await Promise.all([
+      expect(page.getByTestId('device-page')).toBeVisible(),
+      expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
+    ]);
+
+    await page.waitForTimeout(1_200);
+
+    await page.evaluate(() => {
+      const term = (window as any).__tmexE2eXterm;
+      if (!term) {
+        throw new Error('missing e2e terminal');
+      }
+      const nextCols = Math.max(2, term.cols - 10);
+      const nextRows = Math.max(2, term.rows - 5);
+      term.resize(nextCols, nextRows);
+      window.dispatchEvent(new Event('blur'));
+    });
+    await page.waitForTimeout(50);
+
+    counter.reset();
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(800);
+
+    const counts = counter.read();
+    expect(counts.sync).toBeGreaterThanOrEqual(1);
+    expect(counts.resize).toBe(0);
+    expect(counts.sync).toBeLessThanOrEqual(2);
+  } finally {
     await request.delete(`/api/devices/${deviceId}`);
     ensureCleanSession(sessionName);
   }

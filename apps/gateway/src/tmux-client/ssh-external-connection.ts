@@ -219,7 +219,9 @@ export class SshExternalTmuxConnection {
       return;
     }
 
-    const argv = name ? ['new-window', '-n', name] : ['new-window'];
+    const argv = name
+      ? ['new-window', '-t', this.sessionName, '-n', name]
+      : ['new-window', '-t', this.sessionName];
     void this.runAndRefresh(argv).catch((error) => {
       this.callbacks.onError(error);
     });

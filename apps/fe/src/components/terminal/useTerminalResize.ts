@@ -32,6 +32,7 @@ export function useTerminalResize({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalRef = useRef<CompatibleTerminalLike | null>(null);
   const getContainerRectRef = useRef(getContainerRect);
+  const viewportRestorePendingRef = useRef(false);
 
   // Use refs to store callbacks to avoid dependency cycles
   const onResizeRef = useRef(onResize);
@@ -244,9 +245,9 @@ export function useTerminalResize({
       const shouldSync = shouldSyncOnViewportRestore({
         currentSize: { cols: Math.max(2, term.cols), rows: Math.max(2, term.rows) },
         containerSize,
-        force: true,
       });
       if (!shouldSync) {
+        term.refresh?.();
         return;
       }
 
@@ -255,20 +256,35 @@ export function useTerminalResize({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') {
+        viewportRestorePendingRef.current = true;
         return;
       }
+      if (!viewportRestorePendingRef.current) {
+        return;
+      }
+      viewportRestorePendingRef.current = false;
       handleViewportRestore();
     };
 
+    const handleWindowBlur = () => {
+      viewportRestorePendingRef.current = true;
+    };
+
     const handleWindowFocus = () => {
+      if (!viewportRestorePendingRef.current) {
+        return;
+      }
+      viewportRestorePendingRef.current = false;
       handleViewportRestore();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, [measureTerminalSize, scheduleResize]);

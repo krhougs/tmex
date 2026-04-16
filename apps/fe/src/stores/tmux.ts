@@ -34,6 +34,7 @@ interface TmuxState {
   deviceErrors: Record<string, DeviceError | undefined>;
   selectedPanes: Record<string, { windowId: string; paneId: string } | undefined>;
   activePaneFromEvent: Record<string, { windowId: string; paneId: string } | undefined>;
+  pendingCreateWindowAt: Record<string, number | undefined>;
 
   ensureSocketConnected: () => void;
   connectDevice: (deviceId: string) => void;
@@ -51,6 +52,7 @@ interface TmuxState {
   syncPaneSize: (deviceId: string, paneId: string, cols: number, rows: number) => void;
   paste: (deviceId: string, paneId: string, data: string) => void;
   createWindow: (deviceId: string, name?: string) => void;
+  clearPendingCreateWindow: (deviceId: string) => void;
   closeWindow: (deviceId: string, windowId: string) => void;
   closePane: (deviceId: string, paneId: string) => void;
 }
@@ -323,6 +325,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   deviceErrors: {},
   selectedPanes: {},
   activePaneFromEvent: {},
+  pendingCreateWindowAt: {},
 
   ensureSocketConnected() {
     setupClientHandlers(set, get);
@@ -443,6 +446,19 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     if (!deviceId) return;
     const msg = buildTmuxCreateWindow(deviceId, name);
     getBorshClient().send(msg.kind, msg.payload);
+    set((prev) => ({
+      pendingCreateWindowAt: { ...prev.pendingCreateWindowAt, [deviceId]: Date.now() },
+    }));
+  },
+
+  clearPendingCreateWindow(deviceId) {
+    if (!deviceId) return;
+    set((prev) => {
+      if (prev.pendingCreateWindowAt[deviceId] === undefined) return prev;
+      const next = { ...prev.pendingCreateWindowAt };
+      delete next[deviceId];
+      return { pendingCreateWindowAt: next };
+    });
   },
 
   closeWindow(deviceId, windowId) {

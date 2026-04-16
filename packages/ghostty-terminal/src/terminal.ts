@@ -58,6 +58,13 @@ const GHOSTTY_MODE_ALT_SCROLL = 1007;
 const GHOSTTY_MODE_ALT_SCREEN = 1047;
 const GHOSTTY_MODE_ALT_SCREEN_SAVE = 1049;
 
+const MOUSE_TRACKING_MODES: readonly number[] = [
+  GHOSTTY_MODE_X10_MOUSE,
+  GHOSTTY_MODE_NORMAL_MOUSE,
+  GHOSTTY_MODE_BUTTON_MOUSE,
+  GHOSTTY_MODE_ANY_MOUSE,
+];
+
 const GHOSTTY_MOUSE_BUTTON_LEFT = 1;
 const GHOSTTY_MOUSE_BUTTON_MIDDLE = 3;
 const GHOSTTY_MOUSE_BUTTON_RIGHT = 2;
@@ -220,6 +227,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private scrollbarFadeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pressedMouseButtons = new Set<number>();
   private wheelPixelDelta = 0;
+  private mouseDragActive = false;
 
   private constructor(
     bindings: GhosttyBindings,
@@ -415,8 +423,32 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    const prevAltScreen = this.isAltScreenActive();
     this.bindings.writeVt(this.terminalHandle, data);
+    const nextAltScreen = this.isAltScreenActive();
+    if (prevAltScreen && !nextAltScreen) {
+      this.clearMouseTrackingModes();
+    }
     this.scheduleRender();
+  }
+
+  clearMouseTrackingModes(): void {
+    if (this.disposed) {
+      return;
+    }
+    for (const mode of MOUSE_TRACKING_MODES) {
+      this.bindings.setTerminalMode(this.terminalHandle, mode, false);
+    }
+    this.bindings.resetMouseEncoder(this.mouseEncoderHandle);
+    this.pressedMouseButtons.clear();
+    this.mouseDragActive = false;
+  }
+
+  private isAltScreenActive(): boolean {
+    return (
+      this.isModeEnabled(GHOSTTY_MODE_ALT_SCREEN) ||
+      this.isModeEnabled(GHOSTTY_MODE_ALT_SCREEN_SAVE)
+    );
   }
 
   reset(): void {
@@ -428,6 +460,14 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.clearSelectionState(false);
     this.bindings.resetTerminal(this.terminalHandle);
     this.scheduleRender();
+  }
+
+  refresh(): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.render();
   }
 
   resize(cols: number, rows: number): void {
@@ -687,6 +727,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         }
         this.clearSelectionState();
         this.pressedMouseButtons.add(button);
+        this.mouseDragActive = true;
         this.emitMouseInput({
           action: 'press',
           button,
@@ -703,6 +744,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         return;
       }
 
+      this.mouseDragActive = true;
       this.beginPointerSelection(event);
       event.preventDefault();
     });
@@ -735,6 +777,9 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         : null;
     if (dragEventTarget) {
       const moveListener = (event: MouseEvent) => {
+        if (!this.mouseDragActive) {
+          return;
+        }
         if (this.getInputRoutingState().mouseReporting) {
           this.emitMouseInput({
             action: 'motion',
@@ -749,6 +794,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         this.updatePointerSelection(event);
       };
       const upListener = (event: MouseEvent) => {
+        if (!this.mouseDragActive) {
+          return;
+        }
+        this.mouseDragActive = false;
         if (this.getInputRoutingState().mouseReporting) {
           const button = this.mouseButtonFromEvent(event);
           if (button !== null) {

@@ -17,7 +17,11 @@ import {
 import { useTmuxStore } from '@/stores/tmux';
 import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
 import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
-import { normalizeHistoryForTerminal, normalizeLiveOutputForTerminal } from './normalization';
+import {
+  normalizeHistoryForTerminal,
+  normalizeLiveOutputForTerminal,
+  wrapAlternateScreenHistory,
+} from './normalization';
 import type { TerminalProps, TerminalRef } from './types';
 import { useMobileTouch } from './useMobileTouch';
 import { useTerminalResize } from './useTerminalResize';
@@ -76,7 +80,7 @@ function createAlternateScreenFallbackSnapshot(): GhosttyTerminalModeSnapshot {
     mouseUrxvt: false,
     altScroll: true,
     altScreen1047: false,
-    altScreen1049: true,
+    altScreen1049: false,
   };
 }
 
@@ -85,7 +89,19 @@ function reconcileRecoveredModes(
   alternateScreen: boolean
 ): GhosttyTerminalModeSnapshot | null {
   if (!alternateScreen) {
-    return cached;
+    if (!cached) return null;
+    return {
+      ...cached,
+      mouseX10: false,
+      mouseNormal: false,
+      mouseButton: false,
+      mouseAny: false,
+      mouseUtf8: false,
+      mouseSgrPixels: false,
+      mouseUrxvt: false,
+      altScreen1047: false,
+      altScreen1049: false,
+    };
   }
 
   const fallback = createAlternateScreenFallbackSnapshot();
@@ -103,7 +119,8 @@ function reconcileRecoveredModes(
     mouseSgrPixels: false,
     mouseUrxvt: false,
     altScroll: true,
-    altScreen1049: true,
+    altScreen1047: false,
+    altScreen1049: false,
     mouseNormal: hasTrackingMode ? cached.mouseNormal : fallback.mouseNormal,
   };
 }
@@ -301,8 +318,11 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           if (recoveredModes) {
             instance.restoreModeSnapshot?.(recoveredModes);
           }
+          const payload = alternateScreen
+            ? wrapAlternateScreenHistory(data)
+            : normalizeHistoryForTerminal(data);
           keepShortHistoryVisibleRef.current = true;
-          instance.write(normalizeHistoryForTerminal(data));
+          instance.write(payload);
           skipNextDetachPersistRef.current = false;
           attachedDeviceIdRef.current = currentDeviceIdRef.current;
           attachedPaneIdRef.current = currentPaneIdRef.current;
@@ -351,10 +371,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       } else if (lastTerminalInstanceRef.current !== instance) {
         liveOutputEndedWithCR.current = false;
         instance.reset();
-        const cachedModes = readTerminalModeCache(currentDeviceIdRef.current, currentPaneIdRef.current);
-        if (cachedModes) {
-          instance.restoreModeSnapshot?.(cachedModes);
-        }
         attachedDeviceIdRef.current = currentDeviceIdRef.current;
         attachedPaneIdRef.current = currentPaneIdRef.current;
         lastTerminalInstanceRef.current = instance;
