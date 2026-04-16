@@ -22,7 +22,17 @@ const GHOSTTY_KEY_ACTION_RELEASE = 0;
 const GHOSTTY_KEY_ACTION_PRESS = 1;
 const GHOSTTY_KEY_ACTION_REPEAT = 2;
 
+const GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL = 4;
+
 const GHOSTTY_MODE_BRACKETED_PASTE = 2004;
+const GHOSTTY_MODE_X10_MOUSE = 9;
+const GHOSTTY_MODE_NORMAL_MOUSE = 1000;
+const GHOSTTY_MODE_BUTTON_MOUSE = 1002;
+const GHOSTTY_MODE_ANY_MOUSE = 1003;
+const GHOSTTY_MODE_UTF8_MOUSE = 1005;
+const GHOSTTY_MODE_SGR_MOUSE = 1006;
+const GHOSTTY_MODE_URXVT_MOUSE = 1015;
+const GHOSTTY_MODE_SGR_PIXELS_MOUSE = 1016;
 
 const GHOSTTY_FORMATTER_FORMAT_PLAIN = 0;
 const GHOSTTY_FORMATTER_FORMAT_HTML = 2;
@@ -41,6 +51,19 @@ type LayoutType = {
 };
 
 type LayoutMap = Record<string, LayoutType>;
+
+type GhosttyMouseEncodeOptions = {
+  action: 'press' | 'release' | 'motion';
+  button?: number | null;
+  mods: number;
+  x: number;
+  y: number;
+  anyButtonPressed: boolean;
+  screenWidth: number;
+  screenHeight: number;
+  cellWidth: number;
+  cellHeight: number;
+};
 
 type GhosttyExports = WebAssembly.Exports & {
   memory: WebAssembly.Memory;
@@ -70,6 +93,7 @@ type GhosttyExports = WebAssembly.Exports & {
   ghostty_terminal_set: (terminal: number, option: number, valuePtr: number) => number;
   ghostty_terminal_get: (terminal: number, data: number, outPtr: number) => number;
   ghostty_terminal_mode_get: (terminal: number, mode: number, outValuePtr: number) => number;
+  ghostty_terminal_mode_set: (terminal: number, mode: number, enabled: number) => number;
   ghostty_terminal_grid_ref: (terminal: number, pointPtr: number, outRefPtr: number) => number;
   ghostty_render_state_new: (allocatorPtr: number, outStatePtr: number) => number;
   ghostty_render_state_free: (state: number) => void;
@@ -105,6 +129,25 @@ type GhosttyExports = WebAssembly.Exports & {
   ghostty_key_encoder_new: (allocatorPtr: number, outEncoderPtr: number) => number;
   ghostty_key_encoder_free: (encoder: number) => void;
   ghostty_key_encoder_setopt_from_terminal: (encoder: number, terminal: number) => void;
+  ghostty_mouse_encoder_new: (allocatorPtr: number, outEncoderPtr: number) => number;
+  ghostty_mouse_encoder_free: (encoder: number) => void;
+  ghostty_mouse_encoder_reset: (encoder: number) => void;
+  ghostty_mouse_encoder_setopt: (encoder: number, option: number, valuePtr: number) => void;
+  ghostty_mouse_encoder_setopt_from_terminal: (encoder: number, terminal: number) => void;
+  ghostty_mouse_encoder_encode: (
+    encoder: number,
+    event: number,
+    outBufPtr: number,
+    outBufLen: number,
+    outWrittenPtr: number
+  ) => number;
+  ghostty_mouse_event_new: (allocatorPtr: number, outEventPtr: number) => number;
+  ghostty_mouse_event_free: (event: number) => void;
+  ghostty_mouse_event_set_action: (event: number, action: number) => void;
+  ghostty_mouse_event_set_button: (event: number, button: number) => void;
+  ghostty_mouse_event_clear_button: (event: number) => void;
+  ghostty_mouse_event_set_mods: (event: number, mods: number) => void;
+  ghostty_mouse_event_set_position: (event: number, positionPtr: number) => void;
   ghostty_key_event_new: (allocatorPtr: number, outEventPtr: number) => number;
   ghostty_key_event_free: (event: number) => void;
   ghostty_key_event_set_action: (event: number, action: number) => void;
@@ -191,6 +234,50 @@ function createAnsi256Palette(theme: GhosttyTheme): Array<[number, number, numbe
   }
 
   return palette;
+}
+
+function encodeMouseModifierBits(mods: number): number {
+  let encoded = 0;
+  if (mods & (1 << 0)) encoded += 4;
+  if (mods & (1 << 2)) encoded += 8;
+  if (mods & (1 << 1)) encoded += 16;
+  return encoded;
+}
+
+function encodeX10Byte(value: number): string | null {
+  if (value < 0 || value > 223) {
+    return null;
+  }
+
+  return String.fromCharCode(value + 32);
+}
+
+function mouseButtonCode(button: number | null | undefined): number | null {
+  switch (button) {
+    case 1:
+      return 0;
+    case 3:
+      return 1;
+    case 2:
+      return 2;
+    case 4:
+      return 64;
+    case 5:
+      return 65;
+    case 6:
+      return 66;
+    case 7:
+      return 67;
+    case 8:
+      return 128;
+    case 9:
+      return 129;
+    case null:
+    case undefined:
+      return 3;
+    default:
+      return null;
+  }
 }
 
 export function keyboardEventToGhosttyMods(event: KeyboardEvent): number {
@@ -626,6 +713,13 @@ export class GhosttyBindings {
     }
   }
 
+  setTerminalMode(terminal: number, mode: number, enabled: boolean): void {
+    assertResult(
+      this.exports.ghostty_terminal_mode_set(terminal, mode, enabled ? 1 : 0),
+      'ghostty_terminal_mode_set'
+    );
+  }
+
   createFormatter(
     terminal: number,
     emit: number,
@@ -1013,6 +1107,115 @@ export class GhosttyBindings {
 
   freeKeyEncoder(encoder: number): void {
     this.exports.ghostty_key_encoder_free(encoder);
+  }
+
+  createMouseEncoder(): number {
+    const outEncoderPtr = this.allocOpaque();
+    const trackLastCellPtr = this.allocU8();
+
+    try {
+      assertResult(
+        this.exports.ghostty_mouse_encoder_new(0, outEncoderPtr),
+        'ghostty_mouse_encoder_new'
+      );
+      const encoder = this.readPointer(outEncoderPtr);
+      this.view().setUint8(trackLastCellPtr, 1);
+      this.exports.ghostty_mouse_encoder_setopt(
+        encoder,
+        GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL,
+        trackLastCellPtr
+      );
+      return encoder;
+    } finally {
+      this.freeU8(trackLastCellPtr);
+      this.freeOpaque(outEncoderPtr);
+    }
+  }
+
+  freeMouseEncoder(encoder: number): void {
+    this.exports.ghostty_mouse_encoder_free(encoder);
+  }
+
+  resetMouseEncoder(encoder: number): void {
+    this.exports.ghostty_mouse_encoder_reset(encoder);
+  }
+
+  encodeMouseEvent(
+    encoder: number,
+    terminal: number,
+    options: GhosttyMouseEncodeOptions
+  ): string | null {
+    void encoder;
+
+    const trackingAny = this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_ANY_MOUSE);
+    const trackingButton = this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_BUTTON_MOUSE);
+    const trackingNormal = this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_NORMAL_MOUSE);
+    const trackingX10 = this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_X10_MOUSE);
+
+    if (!trackingAny && !trackingButton && !trackingNormal && !trackingX10) {
+      return null;
+    }
+
+    if (options.action === 'motion' && !(trackingAny || (trackingButton && options.anyButtonPressed))) {
+      return null;
+    }
+
+    if (trackingX10 && options.action !== 'press') {
+      return null;
+    }
+
+    if (!trackingAny && !trackingButton && !trackingX10 && options.action === 'motion') {
+      return null;
+    }
+
+    const baseCode = mouseButtonCode(options.button);
+    if (baseCode === null) {
+      return null;
+    }
+
+    const column = Math.max(1, Math.floor(options.x / Math.max(1, options.cellWidth)) + 1);
+    const row = Math.max(1, Math.floor(options.y / Math.max(1, options.cellHeight)) + 1);
+    const pixelX = Math.round(options.x + 1);
+    const pixelY = Math.round(options.y + 1);
+
+    let code =
+      options.action === 'release' &&
+      !this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_SGR_MOUSE) &&
+      !this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_SGR_PIXELS_MOUSE)
+        ? 3
+        : baseCode;
+
+    if (options.action === 'motion') {
+      code += 32;
+    }
+
+    code += encodeMouseModifierBits(options.mods);
+
+    if (this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_SGR_PIXELS_MOUSE)) {
+      const suffix = options.action === 'release' ? 'm' : 'M';
+      return `\u001b[<${code};${pixelX};${pixelY}${suffix}`;
+    }
+
+    if (this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_SGR_MOUSE)) {
+      const suffix = options.action === 'release' ? 'm' : 'M';
+      return `\u001b[<${code};${column};${row}${suffix}`;
+    }
+
+    if (this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_URXVT_MOUSE)) {
+      return `\u001b[${code};${column};${row}M`;
+    }
+
+    if (this.isTerminalModeEnabled(terminal, GHOSTTY_MODE_UTF8_MOUSE) || trackingNormal || trackingButton || trackingAny || trackingX10) {
+      const encodedCode = encodeX10Byte(code);
+      const encodedColumn = encodeX10Byte(column);
+      const encodedRow = encodeX10Byte(row);
+      if (!encodedCode || !encodedColumn || !encodedRow) {
+        return null;
+      }
+      return `\u001b[M${encodedCode}${encodedColumn}${encodedRow}`;
+    }
+
+    return null;
   }
 
   encodeKeyEvent(
