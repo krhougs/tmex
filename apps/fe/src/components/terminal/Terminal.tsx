@@ -348,7 +348,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         onOutput: (targetDeviceId, targetPaneId, data) => {
           if (currentDeviceIdRef.current !== targetDeviceId) return;
           if (currentPaneIdRef.current !== targetPaneId) return;
-          if (!canWriteRef.current) return;
           const normalized = normalizeLiveOutputForTerminal(data, liveOutputEndedWithCR.current);
           liveOutputEndedWithCR.current = normalized.endedWithCR;
           instance.write(normalized.normalized);
@@ -370,7 +369,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         lastTerminalInstanceRef.current = null;
       } else if (lastTerminalInstanceRef.current !== instance) {
         liveOutputEndedWithCR.current = false;
-        instance.reset();
         attachedDeviceIdRef.current = currentDeviceIdRef.current;
         attachedPaneIdRef.current = currentPaneIdRef.current;
         lastTerminalInstanceRef.current = instance;

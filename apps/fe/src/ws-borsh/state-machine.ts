@@ -100,6 +100,7 @@ export interface SelectCallbacks {
 export class SelectStateMachine {
   private transactions = new Map<string, SelectTransaction>();
   private outputGates = new Map<string, OutputGate>();
+  private deferredResets = new Set<string>();
   private deferredHistories = new Map<string, DeferredHistory>();
   private deferredFlushes = new Map<string, Uint8Array[]>();
   private deferredOutputs = new Map<string, Array<{ paneId: string; data: Uint8Array }>>();
@@ -119,6 +120,9 @@ export class SelectStateMachine {
   setCallbacks(callbacks: SelectCallbacks): void {
     this.callbacks = callbacks;
     for (const deviceId of this.transactions.keys()) {
+      this.replayDeferred(deviceId);
+    }
+    for (const deviceId of this.deferredResets) {
       this.replayDeferred(deviceId);
     }
     for (const deviceId of this.deferredHistories.keys()) {
@@ -228,8 +232,11 @@ export class SelectStateMachine {
     // 更新状态
     transaction.state = 'ACKED';
 
-    // 重置终端
-    this.callbacks.onResetTerminal?.(deviceId);
+    if (this.callbacks.onResetTerminal) {
+      this.callbacks.onResetTerminal(deviceId);
+    } else {
+      this.deferredResets.add(deviceId);
+    }
 
     // ACK 后进入等待 LIVE_RESUME。history 可选且不会阻塞 live。
     this.setTimer(
@@ -425,6 +432,11 @@ export class SelectStateMachine {
   }
 
   private replayDeferred(deviceId: string): void {
+    if (this.deferredResets.has(deviceId)) {
+      this.deferredResets.delete(deviceId);
+      this.callbacks.onResetTerminal?.(deviceId);
+    }
+
     const history = this.deferredHistories.get(deviceId);
     if (history !== undefined && this.callbacks.onApplyHistory) {
       this.callbacks.onApplyHistory(deviceId, history.data, history.alternateScreen);
@@ -447,6 +459,7 @@ export class SelectStateMachine {
   }
 
   private clearDeferred(deviceId: string): void {
+    this.deferredResets.delete(deviceId);
     this.deferredHistories.delete(deviceId);
     this.deferredFlushes.delete(deviceId);
     this.deferredOutputs.delete(deviceId);
@@ -480,6 +493,7 @@ export class SelectStateMachine {
     }
     this.transactions.clear();
     this.outputGates.clear();
+    this.deferredResets.clear();
     this.deferredHistories.clear();
     this.deferredFlushes.clear();
     this.deferredOutputs.clear();
