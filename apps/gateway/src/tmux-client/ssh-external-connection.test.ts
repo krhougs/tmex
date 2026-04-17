@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
 import type { Client, ClientChannel, ConnectConfig } from 'ssh2';
 
+import { runMigrations } from '../db/migrate';
 import { SshExternalTmuxConnection } from './ssh-external-connection';
 
 const now = '2026-04-14T00:00:00.000Z';
@@ -30,6 +31,19 @@ function extractCommandId(command: string): string {
   }
   return match[1];
 }
+
+function isConfigureSessionOptionPayload(payload: string, session: string): boolean {
+  return (
+    payload.includes(`'set-option' '-t' '${session}' '-s' 'allow-passthrough' 'off'`) ||
+    payload.includes(`'set-option' '-t' '${session}' '-g' 'extended-keys' 'on'`) ||
+    payload.includes(`'set-option' '-t' '${session}' '-s' 'extended-keys-format' 'csi-u'`) ||
+    payload.includes(`'set-option' '-t' '${session}' '-g' 'focus-events' 'on'`)
+  );
+}
+
+beforeAll(() => {
+  runMigrations();
+});
 
 class FakeChannel extends EventEmitter {
   readonly stderr = new EventEmitter();
@@ -94,6 +108,272 @@ class FakeClient extends EventEmitter {
 }
 
 describe('SshExternalTmuxConnection', () => {
+  test('connect configures session options and syncs pipe readers after snapshot refresh', async () => {
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    let syncCalls = 0;
+
+    fakeClient.commandChannel.onWrite = (payload) => {
+      writes.push(payload);
+      const commandId = extractCommandId(payload);
+
+      let stdout = '';
+      let exitCode = 0;
+      if (payload.includes('command -v tmux')) {
+        stdout = 'TMEX_BOOT_OK\t/usr/bin/tmux\ttmux 3.4\t/home/alice\n';
+      } else if (payload.includes('mkdir -p')) {
+        stdout = '';
+      } else if (payload.includes("'has-session' '-t' 'tmex-ssh-configure'")) {
+        stdout = "can't find session: tmex-ssh-configure\n";
+        exitCode = 1;
+      } else if (
+        payload.includes("'new-session' '-d' '-c' '/home/alice' '-s' 'tmex-ssh-configure'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-s' 'allow-passthrough' 'off'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'extended-keys' 'on'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-s' 'extended-keys-format' 'csi-u'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'focus-events' 'on'")
+      ) {
+        stdout = '';
+      } else if (
+        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-configure' '#{session_id}|#{session_name}'")
+      ) {
+        stdout = '$1|tmex-ssh-configure\n';
+      } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-configure'")) {
+        stdout = '@1|0|main|1\n';
+      } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-configure'")) {
+        stdout = '%1|@1|0|bash|1|80|24\n%2|@1|1|logs|0|80|24\n';
+      } else {
+        throw new Error(`unexpected command payload: ${payload}`);
+      }
+
+      fakeClient.commandChannel.emit(
+        'data',
+        Buffer.from(`${stdout}\x1eTMEX_END ${commandId} ${exitCode}\x1e\n`)
+      );
+    };
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-configure'),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+    (connection as any).syncPipeReaders = async () => {
+      syncCalls += 1;
+    };
+    (connection as any).startHooks = async () => {};
+
+    await connection.connect();
+
+    expect(
+      writes.some((payload) =>
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-s' 'allow-passthrough' 'off'")
+      )
+    ).toBe(true);
+    expect(
+      writes.some((payload) =>
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'extended-keys' 'on'")
+      )
+    ).toBe(true);
+    expect(
+      writes.some((payload) =>
+        payload.includes(
+          "'set-option' '-t' 'tmex-ssh-configure' '-s' 'extended-keys-format' 'csi-u'"
+        )
+      )
+    ).toBe(true);
+    expect(
+      writes.some((payload) =>
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'focus-events' 'on'")
+      )
+    ).toBe(true);
+    expect(syncCalls).toBe(1);
+  });
+
+  test('selectPane no longer restarts ssh pipe readers', async () => {
+    const fakeClient = new FakeClient();
+    let startPipeCalls = 0;
+
+    fakeClient.commandChannel.onWrite = (payload) => {
+      const commandId = extractCommandId(payload);
+
+      let stdout = '';
+      const exitCode = 0;
+      if (payload.includes('command -v tmux')) {
+        stdout = 'TMEX_BOOT_OK\t/usr/bin/tmux\ttmux 3.4\t/home/alice\n';
+      } else if (payload.includes('mkdir -p')) {
+        stdout = '';
+      } else if (payload.includes("'has-session' '-t' 'tmex-ssh-select-pane'")) {
+        stdout = '';
+      } else if (
+        payload.includes("'set-option' '-t' 'tmex-ssh-select-pane' '-s' 'allow-passthrough' 'off'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-select-pane' '-g' 'extended-keys' 'on'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-select-pane' '-s' 'extended-keys-format' 'csi-u'") ||
+        payload.includes("'set-option' '-t' 'tmex-ssh-select-pane' '-g' 'focus-events' 'on'")
+      ) {
+        stdout = '';
+      } else if (
+        payload.includes("'display-message' '-p' '-t' 'tmex-ssh-select-pane' '#{session_id}|#{session_name}'")
+      ) {
+        stdout = '$1|tmex-ssh-select-pane\n';
+      } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-select-pane'")) {
+        stdout = '@1|0|main|1\n';
+      } else if (payload.includes("'list-panes' '-t' 'tmex-ssh-select-pane'")) {
+        stdout = '%1|@1|0|bash|1|80|24\n';
+      } else if (
+        payload.includes("'select-window' '-t' '@1'") ||
+        payload.includes("'select-pane' '-t' '%1'") ||
+        payload.includes("'display-message' '-p' '-t' '%1' '#{alternate_on}'")
+      ) {
+        stdout = payload.includes("'display-message' '-p' '-t' '%1' '#{alternate_on}'") ? '0\n' : '';
+      } else if (payload.includes("'capture-pane' '-t' '%1' '-S' '-' '-E' '-' '-e' '-N' '-p'")) {
+        stdout = 'history\n';
+      } else if (
+        payload.includes("'capture-pane' '-t' '%1' '-a' '-S' '-' '-E' '-' '-e' '-N' '-p' '-q'")
+      ) {
+        stdout = '';
+      } else {
+        throw new Error(`unexpected command payload: ${payload}`);
+      }
+
+      fakeClient.commandChannel.emit(
+        'data',
+        Buffer.from(`${stdout}\x1eTMEX_END ${commandId} ${exitCode}\x1e\n`)
+      );
+    };
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-select-pane'),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+    (connection as any).syncPipeReaders = async () => {};
+    (connection as any).startPipeForPane = async () => {
+      startPipeCalls += 1;
+    };
+    (connection as any).startHooks = async () => {};
+
+    await connection.connect();
+    connection.selectPane('@1', '%1');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(startPipeCalls).toBe(0);
+  });
+
+  test('syncPipeReaders starts every pane from snapshot and stops stale ssh readers', async () => {
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-sync-readers'),
+        decrypt: async () => 'secret',
+        createClient: () => new FakeClient() as unknown as Client,
+      }
+    );
+    const started: string[] = [];
+    const stopped: string[] = [];
+
+    (connection as any).snapshotWindows = new Map([
+      [
+        '@1',
+        {
+          id: '@1',
+          name: 'main',
+          index: 0,
+          active: true,
+          panes: [
+            { id: '%1', windowId: '@1', index: 0, active: true, width: 80, height: 24 },
+            { id: '%2', windowId: '@1', index: 1, active: false, width: 80, height: 24 },
+          ],
+        },
+      ],
+    ]);
+    (connection as any).paneReaders.set('%stale', {
+      paneId: '%stale',
+      fifoPath: '/tmp/stale',
+      stopReader: () => {},
+    });
+    (connection as any).startPipeForPaneNow = async (paneId: string) => {
+      started.push(paneId);
+      (connection as any).paneReaders.set(paneId, {
+        paneId,
+        fifoPath: `/tmp/${paneId}`,
+        stopReader: () => {},
+      });
+    };
+    (connection as any).stopPipeForPaneNow = async (paneId: string) => {
+      stopped.push(paneId);
+      (connection as any).paneReaders.delete(paneId);
+    };
+
+    await (connection as any).syncPipeReaders();
+
+    expect(stopped).toEqual(['%stale']);
+    expect(started).toEqual(['%1', '%2']);
+  });
+
+  test('ssh hook bell lines should not emit bell events', () => {
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const connection = new SshExternalTmuxConnection(
+      {
+        deviceId: 'device-ssh',
+        onEvent: (event) => {
+          events.push(event);
+        },
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-hook-bell'),
+        decrypt: async () => 'secret',
+        createClient: () => new FakeClient() as unknown as Client,
+      }
+    );
+
+    (connection as any).handleHookChunk('bell\t@1\t%1\n');
+
+    expect(events).toEqual([]);
+  });
+
   test('connect parses real tmux snapshot output that is pipe-delimited', async () => {
     const snapshots: StateSnapshotPayload[] = [];
     const fakeClient = new FakeClient();
@@ -119,6 +399,12 @@ describe('SshExternalTmuxConnection', () => {
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'pane-exited'")) {
         stdout = '';
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'pane-died'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'after-new-window'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-pipe' 'after-split-window'")) {
+        stdout = '';
+      } else if (isConfigureSessionOptionPayload(payload, 'tmex-ssh-pipe')) {
         stdout = '';
       } else if (
         payload.includes("'display-message' '-p' '-t' 'tmex-ssh-pipe' '#{session_id}|#{session_name}'")
@@ -160,6 +446,7 @@ describe('SshExternalTmuxConnection', () => {
         createClient: () => fakeClient as unknown as Client,
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
 
@@ -223,6 +510,12 @@ describe('SshExternalTmuxConnection', () => {
         stdout = '';
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-snapshot' 'pane-died'")) {
         stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-snapshot' 'after-new-window'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-snapshot' 'after-split-window'")) {
+        stdout = '';
+      } else if (isConfigureSessionOptionPayload(payload, 'tmex-ssh-snapshot')) {
+        stdout = '';
       } else if (
         payload.includes("'display-message' '-p' '-t' 'tmex-ssh-snapshot' '#{session_id}|#{session_name}'")
       ) {
@@ -259,6 +552,7 @@ describe('SshExternalTmuxConnection', () => {
         createClient: () => fakeClient as unknown as Client,
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
 
@@ -335,6 +629,12 @@ describe('SshExternalTmuxConnection', () => {
         stdout = '';
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'pane-died'")) {
         stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'after-new-window'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-resize' 'after-split-window'")) {
+        stdout = '';
+      } else if (isConfigureSessionOptionPayload(payload, 'tmex-ssh-resize')) {
+        stdout = '';
       } else if (payload.includes("'display-message' '-p' '-t' 'tmex-ssh-resize' '#{session_id}|#{session_name}'")) {
         stdout = '$1|tmex-ssh-resize\n';
       } else if (payload.includes("'list-windows' '-t' 'tmex-ssh-resize'")) {
@@ -371,6 +671,7 @@ describe('SshExternalTmuxConnection', () => {
         createClient: () => fakeClient as unknown as Client,
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
     connection.resizePane('%1', 137, 41);
@@ -412,6 +713,12 @@ describe('SshExternalTmuxConnection', () => {
         stdout = '';
       } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'pane-died'")) {
         stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'after-new-window'")) {
+        stdout = '';
+      } else if (payload.includes("'set-hook' '-t' 'tmex-ssh-no-cleanup' 'after-split-window'")) {
+        stdout = '';
+      } else if (isConfigureSessionOptionPayload(payload, 'tmex-ssh-no-cleanup')) {
+        stdout = '';
       } else if (
         payload.includes(
           "'display-message' '-p' '-t' 'tmex-ssh-no-cleanup' '#{session_id}|#{session_name}'"
@@ -450,6 +757,7 @@ describe('SshExternalTmuxConnection', () => {
         createClient: () => fakeClient as unknown as Client,
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
 

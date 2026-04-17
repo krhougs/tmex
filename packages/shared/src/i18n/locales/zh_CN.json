@@ -135,8 +135,11 @@
       "siteUrl": "站点访问 URL",
       "siteUrlPlaceholder": "http://localhost:3000",
       "bellThrottle": "Bell 频控（秒）",
+      "notificationThrottle": "通知频控（秒）",
       "enableBrowserBellToast": "开启浏览器 Bell Toast",
+      "enableBrowserNotificationToast": "开启浏览器通知 Toast",
       "enableTelegramBellPush": "开启 Telegram Bell 推送",
+      "enableTelegramNotificationPush": "开启 Telegram 通知推送",
       "sshReconnectRetries": "SSH 重连次数",
       "sshReconnectDelay": "SSH 重连等待（秒）",
       "language": "语言",
@@ -276,6 +279,7 @@
       "clickToJump": "点击跳转到对应 Pane",
       "eventType": {
         "terminal_bell": "🔔 终端 Bell",
+        "terminal_notification": "🔔 终端通知",
         "tmux_window_close": "🪟 窗口关闭",
         "tmux_pane_close": "📱 Pane 关闭",
         "device_tmux_missing": "⚠️ Tmux 不可用",
@@ -294,7 +298,8 @@
         "title": "🔔 来自 {{siteName}} 的 Bell：{{terminalTopbarLabel}}",
         "viewLink": "点击查看",
         "terminalTopbarLabel": "窗口 {{window}} · Pane {{pane}} @ {{device}}"
-      }
+      },
+      "telegramNotification": {}
     },
     "sidebar": {
       "noWindows": "暂无窗口",

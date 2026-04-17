@@ -135,8 +135,11 @@
       "siteUrl": "Site URL",
       "siteUrlPlaceholder": "http://localhost:3000",
       "bellThrottle": "Bell Throttle (seconds)",
+      "notificationThrottle": "Notification Throttle (seconds)",
       "enableBrowserBellToast": "Enable Browser Bell Toast",
+      "enableBrowserNotificationToast": "Enable Browser Notification Toast",
       "enableTelegramBellPush": "Enable Telegram Bell Push",
+      "enableTelegramNotificationPush": "Enable Telegram Notification Push",
       "sshReconnectRetries": "SSH Reconnect Retries",
       "sshReconnectDelay": "SSH Reconnect Delay (seconds)",
       "language": "Language",
@@ -276,6 +279,7 @@
       "clickToJump": "Click to jump to corresponding pane",
       "eventType": {
         "terminal_bell": "🔔 Terminal Bell",
+        "terminal_notification": "🔔 Terminal Notification",
         "tmux_window_close": "🪟 Window Closed",
         "tmux_pane_close": "📱 Pane Closed",
         "device_tmux_missing": "⚠️ Tmux Missing",
@@ -294,7 +298,8 @@
         "title": "🔔 Bell from {{siteName}}: {{terminalTopbarLabel}}",
         "viewLink": "Click to view",
         "terminalTopbarLabel": "Window {{window}} · Pane {{pane}} @ {{device}}"
-      }
+      },
+      "telegramNotification": {}
     },
     "sidebar": {
       "noWindows": "No windows",

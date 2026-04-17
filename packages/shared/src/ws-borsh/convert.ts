@@ -6,6 +6,7 @@ import type {
   DeviceEventType,
   EventDevicePayload,
   EventTmuxPayload,
+  NotificationSource,
   StateSnapshotPayload,
   TmuxEventType,
   TmuxPane,
@@ -13,6 +14,18 @@ import type {
   TmuxWindow,
 } from '../index';
 import * as schema from './schema';
+
+const notificationSourceToU8: Record<NotificationSource, number> = {
+  osc9: 1,
+  osc777: 2,
+  osc1337: 3,
+};
+
+const notificationSourceFromU8: Record<number, NotificationSource> = {
+  1: 'osc9',
+  2: 'osc777',
+  3: 'osc1337',
+};
 
 // ========== Domain -> Wire 编码 ==========
 
@@ -47,6 +60,7 @@ export function encodeTmuxEventPayload(payload: EventTmuxPayload): Uint8Array {
     'layout-change': 8,
     bell: 9,
     output: 10,
+    notification: 11,
   };
 
   const eventData = encodeEventData(payload.type, payload.data);
@@ -124,6 +138,28 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
     }
     case 'output':
       return new Uint8Array();
+    case 'notification': {
+      const d = data as {
+        source: NotificationSource;
+        title?: string;
+        body: string;
+        windowId?: string;
+        paneId?: string;
+        windowIndex?: number;
+        paneIndex?: number;
+        paneUrl?: string;
+      };
+      return schema.NotificationEventSchema.serialize({
+        source: notificationSourceToU8[d.source],
+        title: d.title ?? null,
+        body: d.body,
+        windowId: d.windowId ?? null,
+        paneId: d.paneId ?? null,
+        windowIndex: d.windowIndex ?? null,
+        paneIndex: d.paneIndex ?? null,
+        paneUrl: d.paneUrl ?? null,
+      });
+    }
     default:
       return new Uint8Array();
   }
@@ -201,9 +237,13 @@ export function decodeTmuxEventPayload(data: Uint8Array): EventTmuxPayload {
     8: 'layout-change',
     9: 'bell',
     10: 'output',
+    11: 'notification',
   };
 
-  const type = eventTypeMap[wire.eventType] ?? 'output';
+  const type = eventTypeMap[wire.eventType];
+  if (!type) {
+    throw new Error(`Unknown tmux event type: ${wire.eventType}`);
+  }
 
   return {
     deviceId: wire.deviceId,
@@ -241,6 +281,19 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
           windowIndex: bell.windowIndex ?? undefined,
           paneIndex: bell.paneIndex ?? undefined,
           paneUrl: bell.paneUrl ?? undefined,
+        };
+      }
+      case 'notification': {
+        const notification = schema.NotificationEventSchema.deserialize(data);
+        return {
+          source: notificationSourceFromU8[notification.source] ?? 'osc9',
+          title: notification.title ?? undefined,
+          body: notification.body,
+          windowId: notification.windowId ?? undefined,
+          paneId: notification.paneId ?? undefined,
+          windowIndex: notification.windowIndex ?? undefined,
+          paneIndex: notification.paneIndex ?? undefined,
+          paneUrl: notification.paneUrl ?? undefined,
         };
       }
       default:

@@ -135,8 +135,11 @@
       "siteUrl": "サイト URL",
       "siteUrlPlaceholder": "http://localhost:3000",
       "bellThrottle": "ベル制限（秒）",
+      "notificationThrottle": "通知制限（秒）",
       "enableBrowserBellToast": "ブラウザベル Toast を有効にする",
+      "enableBrowserNotificationToast": "ブラウザ通知 Toast を有効にする",
       "enableTelegramBellPush": "Telegram ベルプッシュを有効にする",
+      "enableTelegramNotificationPush": "Telegram 通知プッシュを有効にする",
       "sshReconnectRetries": "SSH 再接続試行回数",
       "sshReconnectDelay": "SSH 再接続待機（秒）",
       "language": "言語",
@@ -276,6 +279,7 @@
       "clickToJump": "対応するペインにジャンプ",
       "eventType": {
         "terminal_bell": "🔔 ターミナルベル",
+        "terminal_notification": "🔔 ターミナル通知",
         "tmux_window_close": "🪟 ウィンドウ閉じる",
         "tmux_pane_close": "📱 ペイン閉じる",
         "device_tmux_missing": "⚠️ Tmux がありません",
@@ -294,7 +298,8 @@
         "title": "🔔 {{siteName}} からのベル：{{terminalTopbarLabel}}",
         "viewLink": "表示",
         "terminalTopbarLabel": "ウィンドウ {{window}} · ペイン {{pane}} @ {{device}}"
-      }
+      },
+      "telegramNotification": {}
     },
     "sidebar": {
       "noWindows": "ウィンドウがありません",

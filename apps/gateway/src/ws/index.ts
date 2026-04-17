@@ -9,7 +9,7 @@ import type {
 } from '../tmux-client/device-session-runtime';
 import type { TmuxEvent } from '../tmux-client/events';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
-import { resolveBellContext } from '../tmux/bell-context';
+import { resolvePaneContext } from '../tmux/bell-context';
 import { type BorshClientState, createBorshClientState } from './borsh/codec-borsh';
 import { sessionStateStore } from './borsh/session-state';
 import { switchBarrier } from './borsh/switch-barrier';
@@ -700,6 +700,16 @@ export class WebSocketServer {
     this.scheduleSnapshot(deviceId);
 
     const extendedEvent = await this.extendTmuxEvent(deviceId, event);
+    const settings = getSiteSettings();
+
+    if (extendedEvent.type === 'notification') {
+      const data = (extendedEvent.data ?? {}) as Record<string, unknown>;
+      const title = typeof data.title === 'string' && data.title ? data.title : '';
+      const body = typeof data.body === 'string' ? data.body : '';
+      if (!title && !body) {
+        return;
+      }
+    }
 
     const payloadBytes = wsBorsh.encodeTmuxEventPayload({
       deviceId,
@@ -708,7 +718,6 @@ export class WebSocketServer {
     });
 
     if (extendedEvent.type === 'bell') {
-      const settings = getSiteSettings();
       const data = (extendedEvent.data ?? {}) as Record<string, unknown>;
       const paneId = typeof data.paneId === 'string' && data.paneId ? data.paneId : '-';
 
@@ -723,28 +732,70 @@ export class WebSocketServer {
       return;
     }
 
+    if (extendedEvent.type === 'notification') {
+      const data = (extendedEvent.data ?? {}) as Record<string, unknown>;
+      const paneId = typeof data.paneId === 'string' && data.paneId ? data.paneId : '-';
+      const source = typeof data.source === 'string' && data.source ? data.source : 'osc9';
+
+      for (const client of entry.clients) {
+        if (
+          !sessionStateStore.shouldAllowNotification(
+            client,
+            deviceId,
+            paneId,
+            source,
+            settings.notificationThrottleSeconds
+          )
+        ) {
+          continue;
+        }
+        this.sendEnvelope(client, wsBorsh.KIND_TMUX_EVENT, payloadBytes);
+      }
+      return;
+    }
+
     for (const client of entry.clients) {
       this.sendEnvelope(client, wsBorsh.KIND_TMUX_EVENT, payloadBytes);
     }
   }
 
   private async extendTmuxEvent(deviceId: string, event: TmuxEvent): Promise<TmuxEvent> {
-    if (event.type !== 'bell') {
+    if (event.type !== 'bell' && event.type !== 'notification') {
       return event;
     }
 
     const settings = getSiteSettings();
     const snapshot = this.connections.get(deviceId)?.lastSnapshot ?? null;
-    const data = resolveBellContext({
+    const paneContext = resolvePaneContext({
       deviceId,
       siteUrl: settings.siteUrl,
       snapshot,
       rawData: event.data,
     });
 
+    if (event.type === 'bell') {
+      return {
+        type: 'bell',
+        data: paneContext,
+      };
+    }
+
+    const raw = (event.data as Record<string, unknown> | undefined) ?? {};
+    const source =
+      raw.source === 'osc9' || raw.source === 'osc777' || raw.source === 'osc1337'
+        ? raw.source
+        : 'osc9';
+    const title = typeof raw.title === 'string' && raw.title ? raw.title : undefined;
+    const body = typeof raw.body === 'string' ? raw.body : '';
+
     return {
-      type: 'bell',
-      data,
+      type: 'notification',
+      data: {
+        ...paneContext,
+        source,
+        title,
+        body,
+      },
     };
   }
 

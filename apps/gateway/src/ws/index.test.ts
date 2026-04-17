@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
-import { ensureSiteSettingsInitialized } from '../db';
+import { ensureSiteSettingsInitialized, getSiteSettings, updateSiteSettings } from '../db';
 import { runMigrations } from '../db/migrate';
 import { createBorshClientState } from './borsh/codec-borsh';
 import { sessionStateStore } from './borsh/session-state';
@@ -223,6 +223,7 @@ describe('WebSocketServer bell extension', () => {
         paneId: '%1',
       },
     });
+    const baseUrl = getSiteSettings().siteUrl;
 
     expect(result).toEqual({
       type: 'bell',
@@ -231,7 +232,7 @@ describe('WebSocketServer bell extension', () => {
         paneId: '%1',
         windowIndex: 0,
         paneIndex: 0,
-        paneUrl: 'http://127.0.0.1:8085/devices/device-a/windows/%401/panes/%251',
+        paneUrl: `${baseUrl}/devices/device-a/windows/%401/panes/%251`,
       },
     });
   });
@@ -273,5 +274,151 @@ describe('WebSocketServer bell extension', () => {
     expect(ws.sent).toHaveLength(1);
 
     sessionStateStore.shouldAllowBell = originalShouldAllowBell;
+  });
+
+  test('extends notification event with pane context from snapshot', async () => {
+    const server = new WebSocketServer() as any;
+
+    server.connections.set('device-a', {
+      runtime: {},
+      detachRuntime: () => {},
+      clients: new Set(),
+      lastSnapshot: {
+        deviceId: 'device-a',
+        session: {
+          id: '$1',
+          name: 'tmex',
+          windows: [
+            {
+              id: '@1',
+              name: 'main',
+              index: 0,
+              active: true,
+              panes: [
+                {
+                  id: '%1',
+                  windowId: '@1',
+                  index: 0,
+                  active: true,
+                  width: 80,
+                  height: 24,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
+
+    const result = await server.extendTmuxEvent('device-a', {
+      type: 'notification',
+      data: {
+        paneId: '%1',
+        source: 'osc777',
+        title: 'Build finished',
+        body: 'OK',
+      },
+    });
+    const baseUrl = getSiteSettings().siteUrl;
+
+    expect(result).toEqual({
+      type: 'notification',
+      data: {
+        windowId: '@1',
+        paneId: '%1',
+        windowIndex: 0,
+        paneIndex: 0,
+        paneUrl: `${baseUrl}/devices/device-a/windows/%401/panes/%251`,
+        source: 'osc777',
+        title: 'Build finished',
+        body: 'OK',
+      },
+    });
+  });
+
+  test('drops empty notification events before broadcast', async () => {
+    const server = new WebSocketServer() as any;
+    server.scheduleSnapshot = () => {};
+
+    const ws = {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+
+    sessionStateStore.create(ws);
+
+    server.connections.set('device-a', {
+      runtime: {},
+      detachRuntime: () => {},
+      clients: new Set([ws]),
+      lastSnapshot: null,
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
+
+    await server.broadcastTmuxEvent('device-a', {
+      type: 'notification',
+      data: { source: 'osc9', body: '' },
+    });
+
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  test('throttles notification events per client and source', async () => {
+    const server = new WebSocketServer() as any;
+    server.scheduleSnapshot = () => {};
+    updateSiteSettings({ notificationThrottleSeconds: 3 });
+    let shouldAllowCalls = 0;
+    const originalShouldAllowNotification = sessionStateStore.shouldAllowNotification.bind(
+      sessionStateStore
+    );
+    sessionStateStore.shouldAllowNotification = (() => {
+      shouldAllowCalls += 1;
+      return shouldAllowCalls === 1;
+    }) as any;
+
+    const ws = {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+
+    sessionStateStore.create(ws);
+
+    server.connections.set('device-a', {
+      runtime: {},
+      detachRuntime: () => {},
+      clients: new Set([ws]),
+      lastSnapshot: null,
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
+
+    await server.broadcastTmuxEvent('device-a', {
+      type: 'notification',
+      data: { paneId: '%1', source: 'osc777', title: 'Build', body: 'OK' },
+    });
+    await server.broadcastTmuxEvent('device-a', {
+      type: 'notification',
+      data: { paneId: '%1', source: 'osc777', title: 'Build', body: 'OK' },
+    });
+
+    expect(ws.sent).toHaveLength(1);
+
+    sessionStateStore.shouldAllowNotification = originalShouldAllowNotification;
+    updateSiteSettings({ notificationThrottleSeconds: 3 });
   });
 });

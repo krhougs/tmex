@@ -22,8 +22,11 @@ function createSettings(): SiteSettings {
     siteName: 'tmex',
     siteUrl: 'https://tmex.example.com',
     bellThrottleSeconds: 6,
+    notificationThrottleSeconds: 3,
     enableBrowserBellToast: true,
+    enableBrowserNotificationToast: true,
     enableTelegramBellPush: true,
+    enableTelegramNotificationPush: true,
     sshReconnectMaxRetries: 2,
     sshReconnectDelaySeconds: 1,
     language: 'zh_CN',
@@ -168,6 +171,102 @@ describe('PushSupervisor', () => {
         paneId: '%1',
         windowId: '@1',
         paneUrl: 'https://tmex.example.com/devices/d1/windows/%401/panes/%251',
+      },
+    ]);
+
+    await supervisor.stopAll();
+  });
+
+  test('notification event should notify with resolved pane context and payload', async () => {
+    const device = createDevice('d2');
+    const notifications: Array<{
+      paneId?: string;
+      windowId?: string;
+      paneUrl?: string;
+      source: string;
+      title?: string;
+      body: string;
+    }> = [];
+    let listener: DeviceSessionRuntimeListener | null = null;
+
+    const supervisor = new PushSupervisor({
+      deps: {
+        listDevices: () => [device],
+        getDevice: () => device,
+        getSettings: () => createSettings(),
+        acquireRuntime: async () =>
+          ({
+            subscribe(next: DeviceSessionRuntimeListener) {
+              listener = next;
+              return () => {
+                listener = null;
+              };
+            },
+            async connect() {},
+            requestSnapshot() {},
+            disconnect() {},
+          }) as any,
+        releaseRuntime: async () => {},
+        async notifyNotification(context) {
+          notifications.push({
+            paneId: context.notification.paneId,
+            windowId: context.notification.windowId,
+            paneUrl: context.notification.paneUrl,
+            source: context.notification.source,
+            title: context.notification.title,
+            body: context.notification.body,
+          });
+        },
+      },
+    });
+
+    await supervisor.start();
+
+    const snapshot: StateSnapshotPayload = {
+      deviceId: device.id,
+      session: {
+        id: '$1',
+        name: 'tmex',
+        windows: [
+          {
+            id: '@1',
+            name: 'main',
+            index: 0,
+            active: true,
+            panes: [
+              {
+                id: '%1',
+                windowId: '@1',
+                index: 0,
+                active: true,
+                width: 80,
+                height: 24,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    listener?.onSnapshot?.(snapshot);
+    listener?.onEvent?.({
+      type: 'notification',
+      data: {
+        paneId: '%1',
+        source: 'osc777',
+        title: 'Build finished',
+        body: 'All 42 tests passed',
+      },
+    });
+
+    expect(notifications).toEqual([
+      {
+        paneId: '%1',
+        windowId: '@1',
+        paneUrl: 'https://tmex.example.com/devices/d2/windows/%401/panes/%251',
+        source: 'osc777',
+        title: 'Build finished',
+        body: 'All 42 tests passed',
       },
     ]);
 

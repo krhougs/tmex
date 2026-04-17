@@ -1,7 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { execSync } from 'node:child_process';
-import type { Device, StateSnapshotPayload, TmuxEvent } from '@tmex/shared';
+import type { Device, StateSnapshotPayload } from '@tmex/shared';
 
+import { runMigrations } from '../db/migrate';
+import type { TmuxEvent } from './events';
 import { LocalExternalTmuxConnection } from './local-external-connection';
 
 const now = '2026-04-14T00:00:00.000Z';
@@ -44,6 +46,10 @@ async function waitFor<T>(fn: () => T | null | undefined, timeoutMs = 10_000): P
   }
   throw new Error('waitFor timeout');
 }
+
+beforeAll(() => {
+  runMigrations();
+});
 
 describe('LocalExternalTmuxConnection integration', () => {
   test('connects to tmux session, captures history, streams live output and bell', async () => {
@@ -173,4 +179,5 @@ describe('LocalExternalTmuxConnection integration', () => {
       ensureCleanSession(sessionName);
     }
   }, 20_000);
+
 });

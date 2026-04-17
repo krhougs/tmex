@@ -299,6 +299,8 @@ export const EnvelopeSchema = b.struct({
   - 7 pane-active
   - 8 layout-change
   - 9 bell
+  - 10 output
+  - 11 notification
 - `eventData: bytes()`（按 eventType 使用子 schema 解码）
 
 子 schema（v1）：
@@ -312,6 +314,16 @@ export const EnvelopeSchema = b.struct({
 - pane-active：`{ windowId: string; paneId: string }`
 - layout-change：`{ windowId: string; layout: string }`
 - bell：
+  - `windowId: option(string)`
+  - `paneId: option(string)`
+  - `windowIndex: option(u16)`
+  - `paneIndex: option(u16)`
+  - `paneUrl: option(string)`
+- output：保留空 schema（`{}`），当前仍通过 `TERM_CHUNK` / `TERM_HISTORY` 传输终端字节流。
+- notification：
+  - `source: u8`（1=`osc9`，2=`osc777`，3=`osc1337`）
+  - `title: option(string)`
+  - `body: string`
   - `windowId: option(string)`
   - `paneId: option(string)`
   - `windowIndex: option(u16)`
@@ -473,4 +485,3 @@ Server 必须按序发送：
   - 新协议：WS binary 且 `magic == TX`。
   - 旧协议：JSON 文本帧 + 旧 output 二进制帧。
 - FE 提供 feature flag：优先使用 borsh，失败则回退旧协议。
-

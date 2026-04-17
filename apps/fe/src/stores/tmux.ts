@@ -16,8 +16,10 @@ import {
 import { getSelectStateMachine } from '@/ws-borsh';
 import type { EventDevicePayload, EventTmuxPayload, StateSnapshotPayload } from '@tmex/shared';
 import { wsBorsh } from '@tmex/shared';
+import { toast } from 'sonner';
 import { create } from 'zustand';
 import { useSiteStore } from './site';
+import { formatTerminalNotificationToast } from './tmux-notification-format';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
 
@@ -212,14 +214,9 @@ function setupClientHandlers(
   client.onError((error) => {
     console.error('[tmux] borsh ws error:', error);
     setState({ socketReady: false });
-    window.dispatchEvent(
-      new CustomEvent('tmex:sonner', {
-        detail: {
-          title: 'WebSocket Connection Error',
-          description: 'Please check Gateway status',
-        },
-      })
-    );
+    toast.error('WebSocket Connection Error', {
+      description: 'Please check Gateway status',
+    });
   });
 
   // 首次 READY 后补发 connect（避免重连后丢失连接）
@@ -279,6 +276,7 @@ function handleTmuxEvent(
   payload: EventTmuxPayload
 ): void {
   if (payload.type === 'bell') {
+    console.log('[tmex] bell', payload.data);
     const settings = useSiteStore.getState().settings;
     if (settings?.enableBrowserBellToast === false) {
       return;
@@ -292,16 +290,41 @@ function handleTmuxEvent(
     ]
       .filter(Boolean)
       .join(' · ');
+    const paneUrl = typeof data.paneUrl === 'string' ? data.paneUrl : undefined;
+    toast(title, {
+      description: description || 'Received tmux bell',
+      action: paneUrl
+        ? {
+            label: 'Open',
+            onClick: () => {
+              window.location.href = paneUrl;
+            },
+          }
+        : undefined,
+    });
+  }
 
-    window.dispatchEvent(
-      new CustomEvent('tmex:sonner', {
-        detail: {
-          title,
-          description: description || 'Received tmux bell',
-          paneUrl: typeof data.paneUrl === 'string' ? data.paneUrl : undefined,
-        },
-      })
-    );
+  if (payload.type === 'notification') {
+    console.log('[tmex] notification', payload.data);
+    const settings = useSiteStore.getState().settings;
+    if (settings?.enableBrowserNotificationToast === false) {
+      return;
+    }
+
+    const data = (payload.data ?? {}) as Record<string, unknown>;
+    const { title, description } = formatTerminalNotificationToast(data);
+    const paneUrl = typeof data.paneUrl === 'string' ? data.paneUrl : undefined;
+    toast(title, {
+      description,
+      action: paneUrl
+        ? {
+            label: 'Open',
+            onClick: () => {
+              window.location.href = paneUrl;
+            },
+          }
+        : undefined,
+    });
   }
 
   if (payload.type === 'pane-active') {

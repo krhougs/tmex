@@ -52,8 +52,11 @@ export interface SiteSettings {
   siteName: string;
   siteUrl: string;
   bellThrottleSeconds: number;
+  notificationThrottleSeconds: number;
   enableBrowserBellToast: boolean;
+  enableBrowserNotificationToast: boolean;
   enableTelegramBellPush: boolean;
+  enableTelegramNotificationPush: boolean;
   sshReconnectMaxRetries: number;
   sshReconnectDelaySeconds: number;
   language: LocaleCode;
@@ -223,6 +226,19 @@ export interface TmuxBellEventData {
   paneUrl?: string;
 }
 
+export type NotificationSource = 'osc9' | 'osc777' | 'osc1337';
+
+export interface TmuxNotificationEventData {
+  source: NotificationSource;
+  title?: string;
+  body: string;
+  windowId?: string;
+  paneId?: string;
+  windowIndex?: number;
+  paneIndex?: number;
+  paneUrl?: string;
+}
+
 export type TmuxEventType =
   | 'window-add'
   | 'window-close'
@@ -233,6 +249,7 @@ export type TmuxEventType =
   | 'pane-active'
   | 'layout-change'
   | 'bell'
+  | 'notification'
   | 'output';
 
 export interface EventTmuxPayload {
@@ -255,6 +272,7 @@ export interface EventDevicePayload {
 
 export type EventType =
   | 'terminal_bell'
+  | 'terminal_notification'
   | 'tmux_window_close'
   | 'tmux_pane_close'
   | 'device_tmux_missing'
@@ -342,8 +360,11 @@ export interface UpdateSiteSettingsRequest {
   siteName?: string;
   siteUrl?: string;
   bellThrottleSeconds?: number;
+  notificationThrottleSeconds?: number;
   enableBrowserBellToast?: boolean;
+  enableBrowserNotificationToast?: boolean;
   enableTelegramBellPush?: boolean;
+  enableTelegramNotificationPush?: boolean;
   sshReconnectMaxRetries?: number;
   sshReconnectDelaySeconds?: number;
   language?: LocaleCode;

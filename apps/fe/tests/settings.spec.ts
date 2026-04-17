@@ -6,6 +6,16 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
   const botName = `e2e-bot-${Date.now()}`;
   const webhookUrl = `https://example.com/e2e-webhook-${Date.now()}`;
   const webhookSecret = `secret-${Date.now()}`;
+  let createdWebhookEventMask: string[] = [];
+  const webhooks: Array<{
+    id: string;
+    enabled: boolean;
+    url: string;
+    secret: string;
+    eventMask: string[];
+    createdAt: string;
+    updatedAt: string;
+  }> = [];
 
   // Telegram endpoints call real Telegram APIs. Mock to keep e2e deterministic.
   const bots: Array<{
@@ -73,6 +83,51 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
     await route.fallback();
   });
 
+  await page.route('**/api/webhooks**', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+
+    if (req.method() === 'GET' && url.pathname === '/api/webhooks') {
+      await route.fulfill({ status: 200, json: { webhooks } });
+      return;
+    }
+
+    if (req.method() === 'POST' && url.pathname === '/api/webhooks') {
+      const body = req.postDataJSON() as { eventMask?: string[] } | null;
+      createdWebhookEventMask = body?.eventMask ?? [];
+      const now = new Date().toISOString();
+      const webhook = {
+        id: `webhook-${Date.now()}`,
+        enabled: true,
+        url: webhookUrl,
+        secret: webhookSecret,
+        eventMask: createdWebhookEventMask,
+        createdAt: now,
+        updatedAt: now,
+      };
+      webhooks.push(webhook);
+      await route.fulfill({
+        status: 201,
+        json: {
+          webhook,
+        },
+      });
+      return;
+    }
+
+    if (req.method() === 'DELETE' && url.pathname.startsWith('/api/webhooks/')) {
+      const webhookId = url.pathname.split('/')[3];
+      const index = webhooks.findIndex((webhook) => webhook.id === webhookId);
+      if (index >= 0) {
+        webhooks.splice(index, 1);
+      }
+      await route.fulfill({ status: 200, json: { success: true } });
+      return;
+    }
+
+    await route.fallback();
+  });
+
   await page.goto('/settings');
   await expect(page.getByTestId('settings-page')).toBeVisible();
 
@@ -102,6 +157,8 @@ test('settings: theme toggle, telegram bot crud, webhook crud, language save/res
   await page.getByTestId('webhook-url-input').fill(webhookUrl);
   await page.getByTestId('webhook-secret-input').fill(webhookSecret);
   await page.getByTestId('webhook-add').click();
+
+  expect(createdWebhookEventMask).toContain('terminal_notification');
 
   const webhookItem = page.locator(
     `[data-testid="webhook-item"][data-webhook-url="${webhookUrl}"]`

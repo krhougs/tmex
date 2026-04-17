@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { StateSnapshotPayload } from '@tmex/shared';
-import { resolveBellContext } from './bell-context';
+import { resolvePaneContext } from './bell-context';
 
 function createSnapshot(): StateSnapshotPayload {
   return {
@@ -57,9 +57,9 @@ function createSnapshot(): StateSnapshotPayload {
   };
 }
 
-describe('resolveBellContext', () => {
+describe('resolvePaneContext', () => {
   test('resolves by paneId first and builds pane url', () => {
-    const bell = resolveBellContext({
+    const bell = resolvePaneContext({
       deviceId: 'device-1',
       siteUrl: 'https://tmex.example.com/',
       snapshot: createSnapshot(),
@@ -78,7 +78,7 @@ describe('resolveBellContext', () => {
   });
 
   test('falls back to active window/pane when raw data is empty', () => {
-    const bell = resolveBellContext({
+    const bell = resolvePaneContext({
       deviceId: 'device-1',
       siteUrl: 'https://tmex.example.com',
       snapshot: createSnapshot(),
@@ -95,7 +95,7 @@ describe('resolveBellContext', () => {
   });
 
   test('returns raw ids when snapshot is unavailable', () => {
-    const bell = resolveBellContext({
+    const bell = resolvePaneContext({
       deviceId: 'device-1',
       siteUrl: 'https://tmex.example.com',
       snapshot: null,

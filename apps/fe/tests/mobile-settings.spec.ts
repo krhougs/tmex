@@ -5,6 +5,16 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 test('mobile: settings tabs + select + webhook crud are tappable', async ({ page }) => {
   const webhookUrl = `https://example.com/e2e-webhook-mobile-${Date.now()}`;
   const webhookSecret = `secret-${Date.now()}`;
+  let createdWebhookEventMask: string[] = [];
+  const webhooks: Array<{
+    id: string;
+    enabled: boolean;
+    url: string;
+    secret: string;
+    eventMask: string[];
+    createdAt: string;
+    updatedAt: string;
+  }> = [];
 
   // Telegram endpoints call real Telegram APIs. Mock to keep e2e deterministic.
   const bots: Array<{
@@ -72,6 +82,51 @@ test('mobile: settings tabs + select + webhook crud are tappable', async ({ page
     await route.fallback();
   });
 
+  await page.route('**/api/webhooks**', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+
+    if (req.method() === 'GET' && url.pathname === '/api/webhooks') {
+      await route.fulfill({ status: 200, json: { webhooks } });
+      return;
+    }
+
+    if (req.method() === 'POST' && url.pathname === '/api/webhooks') {
+      const body = req.postDataJSON() as { eventMask?: string[] } | null;
+      createdWebhookEventMask = body?.eventMask ?? [];
+      const now = new Date().toISOString();
+      const webhook = {
+        id: `webhook-${Date.now()}`,
+        enabled: true,
+        url: webhookUrl,
+        secret: webhookSecret,
+        eventMask: createdWebhookEventMask,
+        createdAt: now,
+        updatedAt: now,
+      };
+      webhooks.push(webhook);
+      await route.fulfill({
+        status: 201,
+        json: {
+          webhook,
+        },
+      });
+      return;
+    }
+
+    if (req.method() === 'DELETE' && url.pathname.startsWith('/api/webhooks/')) {
+      const webhookId = url.pathname.split('/')[3];
+      const index = webhooks.findIndex((webhook) => webhook.id === webhookId);
+      if (index >= 0) {
+        webhooks.splice(index, 1);
+      }
+      await route.fulfill({ status: 200, json: { success: true } });
+      return;
+    }
+
+    await route.fallback();
+  });
+
   await page.goto('/settings');
   await expect(page.getByTestId('settings-page')).toBeVisible();
   await expect(page.getByTestId('mobile-topbar')).toBeVisible();
@@ -94,6 +149,8 @@ test('mobile: settings tabs + select + webhook crud are tappable', async ({ page
   await page.getByTestId('webhook-secret-input').fill(webhookSecret);
   await page.getByTestId('webhook-add').click();
 
+  expect(createdWebhookEventMask).toContain('terminal_notification');
+
   const webhookItem = page.locator(
     `[data-testid="webhook-item"][data-webhook-url="${webhookUrl}"]`
   );
@@ -107,4 +164,3 @@ test('mobile: settings tabs + select + webhook crud are tappable', async ({ page
   await page.locator('[data-slot="select-content"]').getByText('English').click();
   await page.getByTestId('settings-save').click();
 });
-

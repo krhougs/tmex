@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
@@ -7,6 +7,7 @@ import {
   LocalExternalTmuxConnection,
   shouldIgnoreReaderAbortError,
 } from './local-external-connection';
+import { runMigrations } from '../db/migrate';
 import { toSafePathSegment } from './fs-paths';
 
 const now = '2026-04-14T00:00:00.000Z';
@@ -23,6 +24,19 @@ function createDevice(session = 'tmex-test'): Device {
   };
 }
 
+function isConfigureSessionOptionCommand(command: string, session: string): boolean {
+  return (
+    command === `set-option -t ${session} -s allow-passthrough off` ||
+    command === `set-option -t ${session} -g extended-keys on` ||
+    command === `set-option -t ${session} -s extended-keys-format csi-u` ||
+    command === `set-option -t ${session} -g focus-events on`
+  );
+}
+
+beforeAll(() => {
+  runMigrations();
+});
+
 describe('LocalExternalTmuxConnection', () => {
   test('shouldIgnoreReaderAbortError matches releaseLock abort noise', () => {
     expect(
@@ -34,6 +48,235 @@ describe('LocalExternalTmuxConnection', () => {
     ).toBe(true);
 
     expect(shouldIgnoreReaderAbortError(new Error('boom'))).toBe(false);
+  });
+
+  test('connect configures session options and syncs pipe readers after snapshot refresh', async () => {
+    const calls: string[][] = [];
+    let syncCalls = 0;
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-configure'),
+        run: async (argv) => {
+          calls.push(argv);
+          const command = argv.slice(1).join(' ');
+          if (command === 'has-session -t tmex-configure') {
+            return { exitCode: 1, stdout: '', stderr: "can't find session: tmex-configure" };
+          }
+          if (command === 'new-session -d -c /Users/krhougs -s tmex-configure') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (
+            command === 'set-option -t tmex-configure -s allow-passthrough off' ||
+            command === 'set-option -t tmex-configure -g extended-keys on' ||
+            command === 'set-option -t tmex-configure -s extended-keys-format csi-u' ||
+            command === 'set-option -t tmex-configure -g focus-events on'
+          ) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (command.startsWith('display-message -p -t tmex-configure #{session_id}')) {
+            return { exitCode: 0, stdout: '$1\ttmex-configure\n', stderr: '' };
+          }
+          if (command.startsWith('list-windows -t tmex-configure')) {
+            return { exitCode: 0, stdout: '@1\t0\tmain\t1\n', stderr: '' };
+          }
+          if (command.startsWith('list-panes -t tmex-configure')) {
+            return {
+              exitCode: 0,
+              stdout: '%1\t@1\t0\tbash\t1\t80\t24\n%2\t@1\t1\tlogs\t0\t80\t24\n',
+              stderr: '',
+            };
+          }
+          throw new Error(`unexpected command: ${argv.join(' ')}`);
+        },
+      }
+    );
+    (connection as any).syncPipeReaders = async () => {
+      syncCalls += 1;
+    };
+
+    await connection.connect();
+
+    expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
+      'set-option -t tmex-configure -s allow-passthrough off'
+    );
+    expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
+      'set-option -t tmex-configure -g extended-keys on'
+    );
+    expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
+      'set-option -t tmex-configure -s extended-keys-format csi-u'
+    );
+    expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
+      'set-option -t tmex-configure -g focus-events on'
+    );
+    expect(syncCalls).toBe(1);
+  });
+
+  test('selectPane no longer restarts pipe readers', async () => {
+    let startPipeCalls = 0;
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-select-pane'),
+        run: async (argv) => {
+          const command = argv.slice(1).join(' ');
+          if (command === 'has-session -t tmex-select-pane') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (
+            command === 'set-option -t tmex-select-pane -s allow-passthrough off' ||
+            command === 'set-option -t tmex-select-pane -g extended-keys on' ||
+            command === 'set-option -t tmex-select-pane -s extended-keys-format csi-u' ||
+            command === 'set-option -t tmex-select-pane -g focus-events on'
+          ) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (command.startsWith('display-message -p -t tmex-select-pane #{session_id}')) {
+            return { exitCode: 0, stdout: '$1\ttmex-select-pane\n', stderr: '' };
+          }
+          if (command.startsWith('list-windows -t tmex-select-pane')) {
+            return { exitCode: 0, stdout: '@1\t0\tmain\t1\n', stderr: '' };
+          }
+          if (command.startsWith('list-panes -t tmex-select-pane')) {
+            return { exitCode: 0, stdout: '%1\t@1\t0\tbash\t1\t80\t24\n', stderr: '' };
+          }
+          if (command === 'select-window -t @1' || command === 'select-pane -t %1') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          if (command === 'display-message -p -t %1 #{alternate_on}') {
+            return { exitCode: 0, stdout: '0\n', stderr: '' };
+          }
+          if (command === 'capture-pane -t %1 -S - -E - -e -N -p') {
+            return { exitCode: 0, stdout: 'history\n', stderr: '' };
+          }
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -N -p -q') {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          throw new Error(`unexpected command: ${argv.join(' ')}`);
+        },
+      }
+    );
+    (connection as any).syncPipeReaders = async () => {};
+    (connection as any).startPipeForPane = async () => {
+      startPipeCalls += 1;
+    };
+
+    await connection.connect();
+    connection.selectPane('@1', '%1');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(startPipeCalls).toBe(0);
+  });
+
+  test('syncPipeReaders starts every pane from snapshot and stops stale readers', async () => {
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: false,
+        getDevice: () => createDevice('tmex-sync-readers'),
+        run: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      }
+    );
+    const started: string[] = [];
+    const stopped: string[] = [];
+
+    (connection as any).snapshotWindows = new Map([
+      [
+        '@1',
+        {
+          id: '@1',
+          name: 'main',
+          index: 0,
+          active: true,
+          panes: [
+            { id: '%1', windowId: '@1', index: 0, active: true, width: 80, height: 24 },
+            { id: '%2', windowId: '@1', index: 1, active: false, width: 80, height: 24 },
+          ],
+        },
+      ],
+    ]);
+    (connection as any).paneReaders.set('%stale', {
+      paneId: '%stale',
+      fifoPath: '/tmp/stale',
+      stopReader: () => {},
+    });
+    (connection as any).startPipeForPaneNow = async (paneId: string) => {
+      started.push(paneId);
+      (connection as any).paneReaders.set(paneId, {
+        paneId,
+        fifoPath: `/tmp/${paneId}`,
+        stopReader: () => {},
+      });
+    };
+    (connection as any).stopPipeForPaneNow = async (paneId: string) => {
+      stopped.push(paneId);
+      (connection as any).paneReaders.delete(paneId);
+    };
+
+    await (connection as any).syncPipeReaders();
+
+    expect(stopped).toEqual(['%stale']);
+    expect(started).toEqual(['%1', '%2']);
+  });
+
+  test('hook bell lines should not emit bell events', () => {
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: (event) => {
+          events.push(event);
+        },
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableHooks: true,
+        getDevice: () => createDevice('tmex-hook-bell'),
+        run: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      }
+    );
+
+    (connection as any).handleHookChunk('bell\t@1\t%1\n');
+
+    expect(events).toEqual([]);
   });
 
   test('requestSnapshot emits parsed session/windows/panes', async () => {
@@ -63,6 +306,9 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === 'new-session -d -c /Users/krhougs -s tmex-snapshot') {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
+          if (isConfigureSessionOptionCommand(command, 'tmex-snapshot')) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
           if (command.startsWith('display-message -p -t tmex-snapshot #{session_id}')) {
             return { exitCode: 0, stdout: '$1\ttmex-snapshot\n', stderr: '' };
           }
@@ -84,12 +330,17 @@ describe('LocalExternalTmuxConnection', () => {
         },
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
 
     expect(calls.map((argv) => argv.join(' '))).toEqual([
       'tmux has-session -t tmex-snapshot',
       'tmux new-session -d -c /Users/krhougs -s tmex-snapshot',
+      'tmux set-option -t tmex-snapshot -s allow-passthrough off',
+      'tmux set-option -t tmex-snapshot -g extended-keys on',
+      'tmux set-option -t tmex-snapshot -s extended-keys-format csi-u',
+      'tmux set-option -t tmex-snapshot -g focus-events on',
       'tmux display-message -p -t tmex-snapshot #{session_id}\t#{session_name}',
       'tmux list-windows -t tmex-snapshot -F #{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
       'tmux list-panes -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}',
@@ -150,6 +401,9 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === 'new-session -d -c /Users/krhougs -s tmex-input') {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
+          if (isConfigureSessionOptionCommand(command, 'tmex-input')) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
           if (command.startsWith('display-message -p -t tmex-input #{session_id}')) {
             return { exitCode: 0, stdout: '$1\ttmex-input\n', stderr: '' };
           }
@@ -166,6 +420,7 @@ describe('LocalExternalTmuxConnection', () => {
         },
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
     connection.sendInput('%1', 'A中');
@@ -212,6 +467,9 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === 'new-session -d -c /Users/krhougs -s tmex-input-serial') {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
+          if (isConfigureSessionOptionCommand(command, 'tmex-input-serial')) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
           if (command.startsWith('display-message -p -t tmex-input-serial #{session_id}')) {
             return { exitCode: 0, stdout: '$1\ttmex-input-serial\n', stderr: '' };
           }
@@ -231,6 +489,7 @@ describe('LocalExternalTmuxConnection', () => {
         },
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
     connection.sendInput('%1', 'A');
@@ -276,6 +535,9 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === 'new-session -d -c /Users/krhougs -s tmex-cleanup-safe') {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
+          if (isConfigureSessionOptionCommand(command, 'tmex-cleanup-safe')) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
           if (command.startsWith('display-message -p -t tmex-cleanup-safe #{session_id}')) {
             return { exitCode: 0, stdout: '$1\ttmex-cleanup-safe\n', stderr: '' };
           }
@@ -289,6 +551,7 @@ describe('LocalExternalTmuxConnection', () => {
         },
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     try {
       await connection.connect();
@@ -325,6 +588,9 @@ describe('LocalExternalTmuxConnection', () => {
           if (command === 'new-session -d -c /Users/krhougs -s tmex-resize') {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
+          if (isConfigureSessionOptionCommand(command, 'tmex-resize')) {
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
           if (command.startsWith('display-message -p -t tmex-resize #{session_id}')) {
             return { exitCode: 0, stdout: '$1\ttmex-resize\n', stderr: '' };
           }
@@ -341,6 +607,7 @@ describe('LocalExternalTmuxConnection', () => {
         },
       }
     );
+    (connection as any).syncPipeReaders = async () => {};
 
     await connection.connect();
     connection.resizePane('%1', 137, 41);

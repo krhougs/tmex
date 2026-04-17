@@ -272,3 +272,14 @@ export const BellEventSchema = b.struct({
   paneIndex: OptionU16Schema,
   paneUrl: OptionStringSchema,
 });
+
+export const NotificationEventSchema = b.struct({
+  source: b.u8(),
+  title: OptionStringSchema,
+  body: b.string(),
+  windowId: OptionStringSchema,
+  paneId: OptionStringSchema,
+  windowIndex: OptionU16Schema,
+  paneIndex: OptionU16Schema,
+  paneUrl: OptionStringSchema,
+});

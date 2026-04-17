@@ -56,6 +56,7 @@ export class EventNotifier {
   private lastRefresh = 0;
   private readonly REFRESH_INTERVAL = 60_000;
   private bellThrottleMap = new Map<string, number>();
+  private notificationThrottleMap = new Map<string, number>();
 
   refreshConfig(): void {
     const now = Date.now();
@@ -79,8 +80,14 @@ export class EventNotifier {
       timestamp: new Date().toISOString(),
     };
 
-    if (eventType === 'terminal_bell' && !this.shouldPassBellThrottle(fullEvent)) {
-      return;
+    if (eventType === 'terminal_bell') {
+      if (!this.shouldPassBellThrottle(fullEvent)) {
+        return;
+      }
+    } else if (eventType === 'terminal_notification') {
+      if (!this.shouldPassNotificationThrottle(fullEvent)) {
+        return;
+      }
     }
 
     await Promise.all([
@@ -105,6 +112,26 @@ export class EventNotifier {
     }
 
     this.bellThrottleMap.set(key, now);
+    return true;
+  }
+
+  private shouldPassNotificationThrottle(event: WebhookEvent): boolean {
+    const settings = getSiteSettings();
+    const throttleMs = Math.max(0, settings.notificationThrottleSeconds) * 1000;
+    if (throttleMs === 0) {
+      return true;
+    }
+
+    const source = typeof event.payload?.source === 'string' ? event.payload.source : 'unknown';
+    const key = `${event.device.id}:${event.tmux?.paneId ?? '-'}:notification:${source}`;
+    const now = Date.now();
+    const previous = this.notificationThrottleMap.get(key) ?? 0;
+
+    if (now - previous < throttleMs) {
+      return false;
+    }
+
+    this.notificationThrottleMap.set(key, now);
     return true;
   }
 
@@ -157,6 +184,15 @@ export class EventNotifier {
       return;
     }
 
+    if (eventType === 'terminal_notification') {
+      if (!settings.enableTelegramNotificationPush) {
+        return;
+      }
+      const notificationMessage = this.formatTelegramNotificationMessage(event);
+      await telegramService.sendToAuthorizedChats({ text: notificationMessage, parseMode: 'HTML' });
+      return;
+    }
+
     const message = this.formatTelegramMessage(event, settings);
     await telegramService.sendToAuthorizedChats({ text: message });
   }
@@ -198,12 +234,44 @@ export class EventNotifier {
     return lines.join('\n');
   }
 
+  private formatTelegramNotificationMessage(event: WebhookEvent): string {
+    const title = typeof event.payload?.title === 'string' ? event.payload.title : '';
+    const body = typeof event.payload?.message === 'string' ? event.payload.message : '';
+
+    const lines: string[] = [];
+
+    if (title) {
+      lines.push(escapeTelegramHtmlText(title));
+    }
+
+    if (body) {
+      lines.push(escapeTelegramHtmlText(body));
+    }
+
+    const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
+    const topbarLabel = this.buildTerminalTopbarLabel(event);
+    const footer = `from ${event.site.name}: ${topbarLabel}`;
+
+    if (paneUrl) {
+      const tgSafePaneUrl = encodePercentForTelegramUrl(paneUrl);
+      lines.push(
+        '',
+        `<a href="${escapeTelegramHtmlAttribute(tgSafePaneUrl)}">${escapeTelegramHtmlText(footer)}</a>`
+      );
+    } else {
+      lines.push('', escapeTelegramHtmlText(footer));
+    }
+
+    return lines.join('\n');
+  }
+
   private formatTelegramMessage(
     event: WebhookEvent,
     settings: ReturnType<typeof getSiteSettings>
   ): string {
     const emojiMap: Record<EventType, string> = {
       terminal_bell: '🔔',
+      terminal_notification: '🔔',
       tmux_window_close: '🪟',
       tmux_pane_close: '📱',
       device_tmux_missing: '⚠️',

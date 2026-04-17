@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  EventType,
   LocaleCode,
   SiteSettings,
   TelegramBotChat,
@@ -54,6 +55,17 @@ interface WebhooksResponse {
   webhooks: WebhookEndpoint[];
 }
 
+const WEBHOOK_EVENT_OPTIONS: EventType[] = [
+  'terminal_bell',
+  'terminal_notification',
+  'tmux_window_close',
+  'tmux_pane_close',
+  'device_tmux_missing',
+  'device_disconnect',
+  'session_created',
+  'session_closed',
+];
+
 async function parseApiError(res: Response, fallback: string): Promise<string> {
   try {
     const payload = (await res.json()) as { error?: string };
@@ -83,8 +95,11 @@ export default function SettingsPage() {
 
   // Notifications state
   const [bellThrottleSeconds, setBellThrottleSeconds] = useState(6);
+  const [notificationThrottleSeconds, setNotificationThrottleSeconds] = useState(3);
   const [enableBrowserBellToast, setEnableBrowserBellToast] = useState(true);
+  const [enableBrowserNotificationToast, setEnableBrowserNotificationToast] = useState(true);
   const [enableTelegramBellPush, setEnableTelegramBellPush] = useState(true);
+  const [enableTelegramNotificationPush, setEnableTelegramNotificationPush] = useState(true);
   const [sshReconnectMaxRetries, setSshReconnectMaxRetries] = useState(2);
   const [sshReconnectDelaySeconds, setSshReconnectDelaySeconds] = useState(10);
   const [showRefreshNotice, setShowRefreshNotice] = useState(false);
@@ -97,6 +112,7 @@ export default function SettingsPage() {
   // Webhook state
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [newWebhookSecret, setNewWebhookSecret] = useState('');
+  const [newWebhookEventMask, setNewWebhookEventMask] = useState<EventType[]>(WEBHOOK_EVENT_OPTIONS);
 
   const handleThemeChange = (checked: boolean) => {
     const nextTheme = checked ? 'dark' : 'light';
@@ -136,8 +152,11 @@ export default function SettingsPage() {
     setSiteUrl(settings.siteUrl);
     setLanguage(settings.language ?? 'en_US');
     setBellThrottleSeconds(settings.bellThrottleSeconds);
+    setNotificationThrottleSeconds(settings.notificationThrottleSeconds ?? 3);
     setEnableBrowserBellToast(settings.enableBrowserBellToast ?? true);
+    setEnableBrowserNotificationToast(settings.enableBrowserNotificationToast ?? true);
     setEnableTelegramBellPush(settings.enableTelegramBellPush ?? true);
+    setEnableTelegramNotificationPush(settings.enableTelegramNotificationPush ?? true);
     setSshReconnectMaxRetries(settings.sshReconnectMaxRetries);
     setSshReconnectDelaySeconds(settings.sshReconnectDelaySeconds);
   }, [settingsQuery.data?.settings]);
@@ -149,8 +168,11 @@ export default function SettingsPage() {
         siteUrl,
         language,
         bellThrottleSeconds,
+        notificationThrottleSeconds,
         enableBrowserBellToast,
+        enableBrowserNotificationToast,
         enableTelegramBellPush,
+        enableTelegramNotificationPush,
         sshReconnectMaxRetries,
         sshReconnectDelaySeconds,
       };
@@ -236,6 +258,7 @@ export default function SettingsPage() {
         body: JSON.stringify({
           url: newWebhookUrl,
           secret: newWebhookSecret,
+          eventMask: newWebhookEventMask,
         }),
       });
 
@@ -246,6 +269,7 @@ export default function SettingsPage() {
     onSuccess: async () => {
       setNewWebhookUrl('');
       setNewWebhookSecret('');
+      setNewWebhookEventMask(WEBHOOK_EVENT_OPTIONS);
       await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
       toast.success(t('common.success'));
     },
@@ -427,6 +451,32 @@ export default function SettingsPage() {
                   data-testid="settings-enable-telegram-bell-push"
                 />
               </div>
+
+              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                <div className="min-w-0 pr-2">
+                  <div className="text-sm font-medium">
+                    {t('settings.enableBrowserNotificationToast')}
+                  </div>
+                </div>
+                <Switch
+                  checked={enableBrowserNotificationToast}
+                  onCheckedChange={(checked) => setEnableBrowserNotificationToast(Boolean(checked))}
+                  data-testid="settings-enable-browser-notification-toast"
+                />
+              </div>
+
+              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                <div className="min-w-0 pr-2">
+                  <div className="text-sm font-medium">
+                    {t('settings.enableTelegramNotificationPush')}
+                  </div>
+                </div>
+                <Switch
+                  checked={enableTelegramNotificationPush}
+                  onCheckedChange={(checked) => setEnableTelegramNotificationPush(Boolean(checked))}
+                  data-testid="settings-enable-telegram-notification-push"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -441,6 +491,21 @@ export default function SettingsPage() {
                   min={0}
                   max={300}
                   onChange={(event) => setBellThrottleSeconds(Number(event.target.value))}
+                  className="min-h-10"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium" htmlFor="notification-throttle-input">
+                  {t('settings.notificationThrottle')}
+                </label>
+                <Input
+                  id="notification-throttle-input"
+                  type="number"
+                  value={notificationThrottleSeconds}
+                  min={0}
+                  max={300}
+                  onChange={(event) => setNotificationThrottleSeconds(Number(event.target.value))}
                   className="min-h-10"
                 />
               </div>
@@ -603,7 +668,8 @@ export default function SettingsPage() {
                   disabled={
                     createWebhookMutation.isPending ||
                     !newWebhookUrl.trim() ||
-                    !newWebhookSecret.trim()
+                    !newWebhookSecret.trim() ||
+                    newWebhookEventMask.length === 0
                   }
                 >
                   {createWebhookMutation.isPending ? (
@@ -613,6 +679,37 @@ export default function SettingsPage() {
                   )}
                   {t('webhook.add')}
                 </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-border bg-card px-4 py-3">
+              <div className="text-sm font-medium">{t('webhook.eventMask')}</div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {WEBHOOK_EVENT_OPTIONS.map((eventType) => {
+                  const checked = newWebhookEventMask.includes(eventType);
+                  return (
+                    <div
+                      key={eventType}
+                      className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2"
+                    >
+                      <div className="min-w-0 pr-2 text-sm font-medium">
+                        {t(`notification.eventType.${eventType}` as const)}
+                      </div>
+                      <Switch
+                        checked={checked}
+                        data-testid={`webhook-event-${eventType}`}
+                        onCheckedChange={(nextChecked) => {
+                          setNewWebhookEventMask((prev) => {
+                            if (nextChecked) {
+                              return prev.includes(eventType) ? prev : [...prev, eventType];
+                            }
+                            return prev.filter((item) => item !== eventType);
+                          });
+                        }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

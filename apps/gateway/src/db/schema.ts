@@ -9,10 +9,19 @@ export const siteSettings = sqliteTable(
     siteName: text('site_name').notNull(),
     siteUrl: text('site_url').notNull(),
     bellThrottleSeconds: integer('bell_throttle_seconds').notNull(),
+    notificationThrottleSeconds: integer('notification_throttle_seconds').notNull().default(3),
     enableBrowserBellToast: integer('enable_browser_bell_toast', { mode: 'boolean' })
       .notNull()
       .default(true),
+    enableBrowserNotificationToast: integer('enable_browser_notification_toast', { mode: 'boolean' })
+      .notNull()
+      .default(true),
     enableTelegramBellPush: integer('enable_telegram_bell_push', { mode: 'boolean' })
+      .notNull()
+      .default(true),
+    enableTelegramNotificationPush: integer('enable_telegram_notification_push', {
+      mode: 'boolean',
+    })
       .notNull()
       .default(true),
     sshReconnectMaxRetries: integer('ssh_reconnect_max_retries').notNull(),

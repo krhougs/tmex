@@ -1,11 +1,17 @@
-import type { Device, SiteSettings, StateSnapshotPayload, TmuxBellEventData } from '@tmex/shared';
+import type {
+  Device,
+  SiteSettings,
+  StateSnapshotPayload,
+  TmuxBellEventData,
+  TmuxNotificationEventData,
+} from '@tmex/shared';
 import { getAllDevices, getDeviceById, getSiteSettings } from '../db';
 import { eventNotifier } from '../events';
 import { t } from '../i18n';
 import type { DeviceSessionRuntime } from '../tmux-client/device-session-runtime';
 import type { TmuxEvent } from '../tmux-client/events';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
-import { resolveBellContext } from '../tmux/bell-context';
+import { resolvePaneContext } from '../tmux/bell-context';
 
 interface PushConnectionEntry {
   deviceId: string;
@@ -23,6 +29,12 @@ interface BellNotificationContext {
   bell: TmuxBellEventData;
 }
 
+interface NotificationEventContext {
+  device: Device;
+  settings: SiteSettings;
+  notification: TmuxNotificationEventData;
+}
+
 interface PushSupervisorDeps {
   listDevices: () => Device[];
   getDevice: (deviceId: string) => Device | null;
@@ -30,6 +42,7 @@ interface PushSupervisorDeps {
   acquireRuntime: (deviceId: string) => Promise<DeviceSessionRuntime>;
   releaseRuntime: (deviceId: string, runtime: DeviceSessionRuntime) => Promise<void> | void;
   notifyBell: (context: BellNotificationContext) => Promise<void>;
+  notifyNotification: (context: NotificationEventContext) => Promise<void>;
   fallbackReconnectDelayMs: number;
 }
 
@@ -64,6 +77,34 @@ const defaultDeps: PushSupervisorDeps = {
       },
       payload: {
         message: t('notification.eventType.terminal_bell'),
+      },
+    });
+  },
+  async notifyNotification(context) {
+    const { device, settings, notification } = context;
+    await eventNotifier.notify('terminal_notification', {
+      site: {
+        name: settings.siteName,
+        url: settings.siteUrl,
+      },
+      device: {
+        id: device.id,
+        name: device.name,
+        type: device.type,
+        host: device.host,
+      },
+      tmux: {
+        sessionName: device.session,
+        windowId: notification.windowId,
+        paneId: notification.paneId,
+        windowIndex: notification.windowIndex,
+        paneIndex: notification.paneIndex,
+        paneUrl: notification.paneUrl,
+      },
+      payload: {
+        source: notification.source,
+        title: notification.title,
+        message: notification.body,
       },
     });
   },
@@ -320,28 +361,50 @@ export class PushSupervisor {
       return;
     }
 
-    if (event.type !== 'bell') {
-      return;
-    }
-
     const device = this.deps.getDevice(deviceId);
     if (!device) {
       return;
     }
 
     const settings = this.deps.getSettings();
-    const bell = resolveBellContext({
+    const paneContext = resolvePaneContext({
       deviceId,
       siteUrl: settings.siteUrl,
       snapshot: entry.lastSnapshot,
       rawData: event.data,
     });
 
-    await this.deps.notifyBell({
-      device,
-      settings,
-      bell,
-    });
+    if (event.type === 'bell') {
+      await this.deps.notifyBell({
+        device,
+        settings,
+        bell: paneContext,
+      });
+      return;
+    }
+
+    if (event.type === 'notification') {
+      const raw = (event.data as Record<string, unknown> | undefined) ?? {};
+      const title = typeof raw.title === 'string' && raw.title ? raw.title : undefined;
+      const body = typeof raw.body === 'string' ? raw.body : '';
+      if (!title && !body) {
+        return;
+      }
+      const source =
+        raw.source === 'osc9' || raw.source === 'osc777' || raw.source === 'osc1337'
+          ? raw.source
+          : 'osc9';
+      await this.deps.notifyNotification({
+        device,
+        settings,
+        notification: {
+          ...paneContext,
+          source,
+          title,
+          body,
+        },
+      });
+    }
   }
 }
 

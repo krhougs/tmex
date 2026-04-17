@@ -1,6 +1,7 @@
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
 
+import { config } from '../config';
 import { decryptWithContext } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { resolveSshAgentSocket, resolveSshUsername } from '../tmux/ssh-auth';
@@ -8,7 +9,7 @@ import { joinShellArgs, quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
 import { createRuntimeFsPaths } from './fs-paths';
 import { encodeInputToHexChunks } from './input-encoder';
-import { createPaneTitleParser } from './pane-title-parser';
+import { createPaneStreamParser, type PaneStreamNotification } from './pane-stream-parser';
 import { resolveSshConnectConfig } from './ssh-connect-config';
 import { buildSshBootstrapScript, parseSshBootstrapOutput } from './ssh-bootstrap';
 
@@ -30,6 +31,12 @@ interface SshExternalTmuxConnectionDeps {
   getDevice: (deviceId: string) => Device | null;
   decrypt: typeof decryptWithContext;
   createClient: () => Client;
+}
+
+interface PaneReaderHandle {
+  paneId: string;
+  fifoPath: string;
+  stopReader: () => void;
 }
 
 function hasRenderableTerminalContent(value: string): boolean {
@@ -85,8 +92,7 @@ export class SshExternalTmuxConnection {
   private pendingPaneTitles = new Map<string, string>();
   private snapshotSession: Pick<TmuxSession, 'id' | 'name'> | null = null;
   private snapshotWindows = new Map<string, TmuxWindow>();
-  private currentPipePaneId: string | null = null;
-  private pipeReadAbort: (() => void) | null = null;
+  private paneReaders = new Map<string, PaneReaderHandle>();
   private pipeTransition: Promise<void> = Promise.resolve();
   private hookReadAbort: (() => void) | null = null;
   private hookBuffer = '';
@@ -139,6 +145,7 @@ export class SshExternalTmuxConnection {
     await this.openCommandChannel();
     await this.ensureRemoteRuntimeDirs();
     await this.ensureSession();
+    await this.configureSessionOptions();
     await this.startHooks();
 
     this.connected = true;
@@ -384,6 +391,27 @@ export class SshExternalTmuxConnection {
     await this.runTmux(['new-session', '-d', '-c', this.remoteHomeDir, '-s', this.sessionName]);
   }
 
+  private async configureSessionOptions(): Promise<void> {
+    await this.runTmuxAllowFailure([
+      'set-option',
+      '-t',
+      this.sessionName,
+      '-s',
+      'allow-passthrough',
+      config.tmuxAllowPassthrough ? 'on' : 'off',
+    ]);
+    await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'extended-keys', 'on']);
+    await this.runTmuxAllowFailure([
+      'set-option',
+      '-t',
+      this.sessionName,
+      '-s',
+      'extended-keys-format',
+      'csi-u',
+    ]);
+    await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'on']);
+  }
+
   private async startHooks(): Promise<void> {
     await this.ensureRemoteRuntimeDirs();
     const fifoPath = this.fsPaths.hookFifoPath;
@@ -409,15 +437,17 @@ export class SshExternalTmuxConnection {
       void this.runShellAllowFailure(`rm -f ${quoteShellArg(fifoPath)}`);
     };
 
-    await this.installHook('alert-bell', ['bell', '#{window_id}', '#{pane_id}']);
     await this.installHook('pane-exited', ['pane-exited', '#{window_id}', '#{pane_id}']);
     await this.installHook('pane-died', ['pane-died', '#{window_id}', '#{pane_id}']);
+    await this.installHook('after-new-window', ['refresh']);
+    await this.installHook('after-split-window', ['refresh']);
   }
 
   private async stopHooks(): Promise<void> {
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'alert-bell']);
     await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'pane-exited']);
     await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'pane-died']);
+    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'after-new-window']);
+    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'after-split-window']);
     this.hookReadAbort?.();
     this.hookReadAbort = null;
     this.hookBuffer = '';
@@ -454,23 +484,10 @@ export class SshExternalTmuxConnection {
 
       const [type, windowId, paneId] = line.split('\t');
       if (type === 'bell') {
-        const key = paneId || windowId || '-';
-        const previous = this.bellDedup.get(key) ?? 0;
-        const now = Date.now();
-        if (now - previous >= BELL_DEDUP_WINDOW_MS) {
-          this.bellDedup.set(key, now);
-          this.callbacks.onEvent({
-            type: 'bell',
-            data: {
-              windowId: windowId || undefined,
-              paneId: paneId || this.activePaneId || undefined,
-            },
-          });
-        }
         continue;
       }
 
-      if (type === 'pane-exited' || type === 'pane-died') {
+      if (type === 'pane-exited' || type === 'pane-died' || type === 'refresh') {
         this.requestSnapshot();
       }
     }
@@ -525,7 +542,6 @@ export class SshExternalTmuxConnection {
 
     await this.runTmux(['select-window', '-t', windowId], true);
     await this.runTmux(['select-pane', '-t', paneId], true);
-    await this.startPipeForPane(paneId);
 
     if (size) {
       await this.resizePaneInternal(paneId, size.cols, size.rows);
@@ -607,6 +623,7 @@ export class SshExternalTmuxConnection {
     this.parseSnapshotSession(sessionRes.stdout.split(/\r?\n/));
     this.parseSnapshotWindows(windowsRes.stdout.split(/\r?\n/));
     this.parseSnapshotPanes(panesRes.stdout.split(/\r?\n/));
+    await this.syncPipeReaders();
     this.emitSnapshot();
   }
 
@@ -720,68 +737,131 @@ export class SshExternalTmuxConnection {
     return null;
   }
 
-  private async startPipeForPane(paneId: string): Promise<void> {
-    await this.queuePipeTransition(async () => {
-      if (this.currentPipePaneId === paneId) {
-        return;
-      }
-
-      await this.stopPipeNow();
-
-      const fifoPath = this.fsPaths.paneFifoPath(paneId);
-      await this.ensureRemoteRuntimeDirs();
-      await this.runShell(
-        `rm -f ${quoteShellArg(fifoPath)} && mkfifo ${quoteShellArg(fifoPath)} && chmod 600 ${quoteShellArg(fifoPath)}`
-      );
-
-      const parser = createPaneTitleParser({
-        onTitle: (title) => {
-          this.pendingPaneTitles.set(paneId, title);
-          this.requestSnapshot();
-        },
-      });
-
-      const stopReader = await this.openReaderChannel(`exec cat ${quoteShellArg(fifoPath)}`, {
-        onData: (raw) => {
-          const output = parser.push(raw);
-          if (Array.from(raw).includes(0x07)) {
-            this.callbacks.onEvent({ type: 'bell', data: { paneId } });
-          }
-          if (output.length > 0) {
-            this.callbacks.onTerminalOutput(paneId, output);
-          }
-        },
-        onClose: () => {
-          if (!this.manualDisconnect && this.currentPipePaneId === paneId) {
-            this.callbacks.onError(new Error(`SSH pane reader closed unexpectedly: ${paneId}`));
-          }
-        },
-      });
-
-      this.pipeReadAbort = () => {
-        stopReader();
-        void this.runShellAllowFailure(`rm -f ${quoteShellArg(fifoPath)}`);
-      };
-
-      await this.runTmux(['pipe-pane', '-O', '-t', paneId, `cat >${fifoPath}`]);
-      this.currentPipePaneId = paneId;
+  private recordBell(paneId?: string, windowId?: string): void {
+    const key = paneId || windowId || '-';
+    const previous = this.bellDedup.get(key) ?? 0;
+    const now = Date.now();
+    if (now - previous < BELL_DEDUP_WINDOW_MS) {
+      return;
+    }
+    this.bellDedup.set(key, now);
+    this.callbacks.onEvent({
+      type: 'bell',
+      data: {
+        windowId,
+        paneId: paneId || this.activePaneId || undefined,
+      },
     });
   }
 
-  private async stopPipe(): Promise<void> {
-    await this.queuePipeTransition(() => this.stopPipeNow());
+  private emitNotification(paneId: string, notification: PaneStreamNotification): void {
+    this.callbacks.onEvent({
+      type: 'notification',
+      data: {
+        paneId,
+        ...notification,
+      },
+    });
   }
 
-  private async stopPipeNow(): Promise<void> {
-    const paneId = this.currentPipePaneId;
-    this.currentPipePaneId = null;
+  private getExpectedPaneIds(): string[] {
+    return Array.from(this.snapshotWindows.values())
+      .sort((left, right) => left.index - right.index)
+      .flatMap((window) => window.panes.map((pane) => pane.id));
+  }
 
-    if (paneId) {
-      await this.runTmuxAllowFailure(['pipe-pane', '-t', paneId]);
+  private async startPipeForPaneNow(paneId: string): Promise<void> {
+    if (this.paneReaders.has(paneId)) {
+      return;
     }
 
-    this.pipeReadAbort?.();
-    this.pipeReadAbort = null;
+    const fifoPath = this.fsPaths.paneFifoPath(paneId);
+    await this.ensureRemoteRuntimeDirs();
+    await this.runShell(
+      `rm -f ${quoteShellArg(fifoPath)} && mkfifo ${quoteShellArg(fifoPath)} && chmod 600 ${quoteShellArg(fifoPath)}`
+    );
+
+    const parser = createPaneStreamParser({
+      onTitle: (title) => {
+        this.pendingPaneTitles.set(paneId, title);
+        this.requestSnapshot();
+      },
+      onBell: () => {
+        this.recordBell(paneId);
+      },
+      onNotification: (notification) => {
+        this.emitNotification(paneId, notification);
+      },
+    });
+
+    const stopReader = await this.openReaderChannel(`exec cat ${quoteShellArg(fifoPath)}`, {
+      onData: (raw) => {
+        const output = parser.push(raw);
+        if (output.length > 0) {
+          this.callbacks.onTerminalOutput(paneId, output);
+        }
+      },
+      onClose: () => {
+        if (!this.manualDisconnect && this.paneReaders.has(paneId)) {
+          this.callbacks.onError(new Error(`SSH pane reader closed unexpectedly: ${paneId}`));
+        }
+      },
+    });
+
+    const handle: PaneReaderHandle = {
+      paneId,
+      fifoPath,
+      stopReader: () => {
+        stopReader();
+        void this.runShellAllowFailure(`rm -f ${quoteShellArg(fifoPath)}`);
+      },
+    };
+    this.paneReaders.set(paneId, handle);
+
+    try {
+      await this.runTmux(['pipe-pane', '-O', '-t', paneId, `cat >${fifoPath}`]);
+    } catch (error) {
+      this.paneReaders.delete(paneId);
+      handle.stopReader();
+      throw error;
+    }
+  }
+
+  private async stopPipeForPaneNow(paneId: string): Promise<void> {
+    const handle = this.paneReaders.get(paneId);
+    if (!handle) {
+      return;
+    }
+
+    this.paneReaders.delete(paneId);
+    await this.runTmuxAllowFailure(['pipe-pane', '-t', paneId]);
+    handle.stopReader();
+  }
+
+  private async syncPipeReaders(): Promise<void> {
+    const expectedPaneIds = this.getExpectedPaneIds();
+    const expectedSet = new Set(expectedPaneIds);
+
+    await this.queuePipeTransition(async () => {
+      for (const paneId of Array.from(this.paneReaders.keys())) {
+        if (!expectedSet.has(paneId)) {
+          await this.stopPipeForPaneNow(paneId);
+        }
+      }
+      for (const paneId of expectedPaneIds) {
+        if (!this.paneReaders.has(paneId)) {
+          await this.startPipeForPaneNow(paneId);
+        }
+      }
+    });
+  }
+
+  private async stopAllPipeReaders(): Promise<void> {
+    await this.queuePipeTransition(async () => {
+      for (const paneId of Array.from(this.paneReaders.keys())) {
+        await this.stopPipeForPaneNow(paneId);
+      }
+    });
   }
 
   private queuePipeTransition(task: () => Promise<void>): Promise<void> {
@@ -998,7 +1078,7 @@ export class SshExternalTmuxConnection {
 
     this.connected = false;
     this.cleanupPromise = (async () => {
-      await this.stopPipe().catch(() => undefined);
+      await this.stopAllPipeReaders().catch(() => undefined);
       await this.stopHooks().catch(() => undefined);
       await this.runShellAllowFailure(`rm -rf ${quoteShellArg(this.fsPaths.rootDir)}`).catch(
         () => undefined

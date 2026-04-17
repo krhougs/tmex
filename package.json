@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "dev": "bash ./scripts/dev-supervisor.sh",
+    "notify:demo": "bash ./scripts/notify-demo.sh",
     "build": "bun run build:i18n && bun run build:fe && bun run build:tmex:resources && bun run build:tmex",
     "build:i18n": "bun run --filter @tmex/shared build:i18n",
     "build:fe": "bun run --filter @tmex/fe build",

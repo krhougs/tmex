@@ -94,6 +94,9 @@ export interface SessionState {
 
   // Bell 频控 (按 deviceId+paneId)
   bellThrottles: Map<string, BellThrottleContext>;
+
+  // Notification 频控 (按 deviceId+paneId+source)
+  notificationThrottles: Map<string, BellThrottleContext>;
 }
 
 export class SessionStateStore {
@@ -112,6 +115,7 @@ export class SessionStateStore {
       selectTransactions: new Map(),
       outputGates: new Map(),
       bellThrottles: new Map(),
+      notificationThrottles: new Map(),
     };
     this.states.set(ws, state);
     return state;
@@ -425,6 +429,38 @@ export class SessionStateStore {
     return true;
   }
 
+  shouldAllowNotification(
+    ws: ServerWebSocket<unknown>,
+    deviceId: string,
+    paneId: string,
+    source: string,
+    throttleSeconds: number
+  ): boolean {
+    const state = this.states.get(ws);
+    if (!state) return false;
+
+    const key = `${deviceId}:${paneId}:${source}`;
+    const now = Date.now();
+
+    let ctx = state.notificationThrottles.get(key);
+    if (!ctx) {
+      ctx = {
+        lastBellAt: 0,
+        throttleSeconds,
+      };
+      state.notificationThrottles.set(key, ctx);
+    }
+
+    const throttleMs = throttleSeconds * 1000;
+    if (now - ctx.lastBellAt < throttleMs) {
+      return false;
+    }
+
+    ctx.lastBellAt = now;
+    ctx.throttleSeconds = throttleSeconds;
+    return true;
+  }
+
   // ========== 清理操作 ==========
 
   cleanupDevice(ws: ServerWebSocket<unknown>, deviceId: string): void {
@@ -439,6 +475,12 @@ export class SessionStateStore {
     for (const key of state.bellThrottles.keys()) {
       if (key.startsWith(`${deviceId}:`)) {
         state.bellThrottles.delete(key);
+      }
+    }
+
+    for (const key of state.notificationThrottles.keys()) {
+      if (key.startsWith(`${deviceId}:`)) {
+        state.notificationThrottles.delete(key);
       }
     }
   }

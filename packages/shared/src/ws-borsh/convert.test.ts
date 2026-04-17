@@ -10,6 +10,7 @@ import {
   encodeStateSnapshot,
   encodeTmuxEventPayload,
 } from './convert';
+import * as schema from './schema';
 
 describe('convert', () => {
   describe('DeviceEvent', () => {
@@ -132,6 +133,30 @@ describe('convert', () => {
       });
     });
 
+    it('应该正确编解码 notification 事件', () => {
+      const payload: EventTmuxPayload = {
+        deviceId: 'device-1',
+        type: 'notification',
+        data: {
+          source: 'osc777',
+          title: 'Build finished',
+          body: 'All 42 tests passed',
+          windowId: '@1',
+          paneId: '%2',
+          windowIndex: 1,
+          paneIndex: 2,
+          paneUrl: 'https://example.com/build',
+        },
+      };
+
+      const encoded = encodeTmuxEventPayload(payload);
+      const decoded = decodeTmuxEventPayload(encoded);
+
+      expect(decoded.deviceId).toBe(payload.deviceId);
+      expect(decoded.type).toBe('notification');
+      expect(decoded.data).toEqual(payload.data);
+    });
+
     it('应该正确编解码 layout-change 事件', () => {
       const payload: EventTmuxPayload = {
         deviceId: 'device-1',
@@ -159,6 +184,16 @@ describe('convert', () => {
 
       expect(decoded.deviceId).toBe(payload.deviceId);
       expect(decoded.type).toBe('output');
+    });
+
+    it('遇到未知 tmux event tag 时应该抛错而不是回退为 output', () => {
+      const encoded = schema.TmuxEventSchema.serialize({
+        deviceId: 'device-1',
+        eventType: 255,
+        eventData: new Uint8Array(),
+      });
+
+      expect(() => decodeTmuxEventPayload(encoded)).toThrow('Unknown tmux event type: 255');
     });
   });
 

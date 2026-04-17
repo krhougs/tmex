@@ -84,6 +84,14 @@ function normalizeSiteSettingsInput(
     updates.bellThrottleSeconds = value;
   }
 
+  if (body.notificationThrottleSeconds !== undefined) {
+    const value = Math.floor(Number(body.notificationThrottleSeconds));
+    if (Number.isNaN(value) || value < 0 || value > 300) {
+      throw new Error(t('apiError.bellThrottleInvalid'));
+    }
+    updates.notificationThrottleSeconds = value;
+  }
+
   if (body.enableBrowserBellToast !== undefined) {
     if (typeof body.enableBrowserBellToast !== 'boolean') {
       throw new Error(t('apiError.invalidRequest'));
@@ -91,11 +99,25 @@ function normalizeSiteSettingsInput(
     updates.enableBrowserBellToast = body.enableBrowserBellToast;
   }
 
+  if (body.enableBrowserNotificationToast !== undefined) {
+    if (typeof body.enableBrowserNotificationToast !== 'boolean') {
+      throw new Error(t('apiError.invalidRequest'));
+    }
+    updates.enableBrowserNotificationToast = body.enableBrowserNotificationToast;
+  }
+
   if (body.enableTelegramBellPush !== undefined) {
     if (typeof body.enableTelegramBellPush !== 'boolean') {
       throw new Error(t('apiError.invalidRequest'));
     }
     updates.enableTelegramBellPush = body.enableTelegramBellPush;
+  }
+
+  if (body.enableTelegramNotificationPush !== undefined) {
+    if (typeof body.enableTelegramNotificationPush !== 'boolean') {
+      throw new Error(t('apiError.invalidRequest'));
+    }
+    updates.enableTelegramNotificationPush = body.enableTelegramNotificationPush;
   }
 
   if (body.sshReconnectMaxRetries !== undefined) {

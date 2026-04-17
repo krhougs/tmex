@@ -110,6 +110,24 @@ Add an instruction to your `AGENTS.md` (or system prompt) telling the model to e
 
 This falls under the Coding Agent's own responsibility. Most Coding Agents today — both CLI and web — do not emit any alert when output is unexpectedly interrupted, so tmex has no way to detect the agent's internal failure state.
 
+---
+
+**Q: SSH 设备开了很多 pane 以后，为什么通知或输出捕获会异常？**
+
+tmex 会为每个 pane 建立独立的远端读取 channel。OpenSSH 默认 `MaxSessions=10`，pane 数较多时可能触顶，导致部分 pane 的捕获失败。请在 SSH 目标机的 `sshd_config` 中将 `MaxSessions` 调整到至少 `pane 数 + 3`，然后重启 sshd。
+
+**Q: Why do SSH devices with many panes sometimes miss notifications or pane output?**
+
+tmex opens one remote reader channel per pane. OpenSSH defaults `MaxSessions` to `10`, so a larger pane count can exhaust the limit and break capture on some panes. Increase `MaxSessions` in the target host's `sshd_config` to at least `pane count + 3`, then restart sshd.
+
+**Q: 为什么 tmex 默认没有把 OSC passthrough 直接打开？**
+
+tmex 自己解析 Coding Agent 通知不依赖 `allow-passthrough`。默认关闭 passthrough 是为了避免 pane 内程序把终端私有控制序列直接透传到宿主终端，扩大终端逃逸面。如果你明确需要让 iTerm2 等宿主终端也收到 OSC，请手动设置环境变量 `TMEX_TMUX_ALLOW_PASSTHROUGH=true`。
+
+**Q: Why doesn’t tmex enable OSC passthrough by default?**
+
+tmex does not need `allow-passthrough` to parse Coding Agent notifications itself. Passthrough is disabled by default to avoid letting pane processes forward private terminal control sequences directly to the host terminal and expanding the terminal-escape attack surface. If you explicitly want host terminals like iTerm2 to receive OSC sequences too, set `TMEX_TMUX_ALLOW_PASSTHROUGH=true`.
+
 ## 使用说明 / Usage
 
 ### 添加设备 / Adding Devices
@@ -228,6 +246,7 @@ npm pack --dry-run --workspace tmex-cli
 | ------------------------------ | --------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TMEX_MASTER_KEY`              | 是 / Yes        | —                       | 加密主密钥（生产环境必需）/ Master encryption key (required in production)                                                                                             |
 | `TMEX_BASE_URL`                | 否 / No         | `http://127.0.0.1:9883` | 站点访问 URL / Site access URL                                                                                                                                         |
+| `TMEX_TMUX_ALLOW_PASSTHROUGH`  | 否 / No         | `false`                 | 是否在受管 tmux session 上启用 `allow-passthrough`。默认关闭，避免把 pane 内终端私有控制序列直接透传到宿主终端 / Whether to enable tmux `allow-passthrough` on managed sessions. Disabled by default to avoid forwarding private terminal control sequences from panes directly to the host terminal |
 | `TMEX_SITE_NAME`               | 否 / No         | `tmex`                  | 站点名称 / Site name                                                                                                                                                   |
 | `GATEWAY_PORT`                 | 否 / No         | `9663`                  | Gateway 服务端口 / Gateway service port                                                                                                                                |
 | `FE_PORT`                      | 否 / No         | `9883`                  | 前端服务端口 / Frontend service port                                                                                                                                   |

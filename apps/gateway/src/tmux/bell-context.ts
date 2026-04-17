@@ -1,11 +1,16 @@
-import type { StateSnapshotPayload, TmuxBellEventData, TmuxPane, TmuxWindow } from '@tmex/shared';
+import type { StateSnapshotPayload, TmuxBellEventData, TmuxNotificationEventData, TmuxPane, TmuxWindow } from '@tmex/shared';
 
-interface ResolveBellContextOptions {
+interface ResolvePaneContextOptions {
   deviceId: string;
   siteUrl: string;
   snapshot: StateSnapshotPayload | null;
   rawData: unknown;
 }
+
+export type PaneLocationContext = Pick<
+  TmuxBellEventData & TmuxNotificationEventData,
+  'windowId' | 'paneId' | 'windowIndex' | 'paneIndex' | 'paneUrl'
+>;
 
 function pickPaneById(
   windows: TmuxWindow[],
@@ -21,7 +26,7 @@ function pickPaneById(
   return null;
 }
 
-export function resolveBellContext(options: ResolveBellContextOptions): TmuxBellEventData {
+export function resolvePaneContext(options: ResolvePaneContextOptions): PaneLocationContext {
   const { deviceId, snapshot, rawData } = options;
   const raw = (rawData as Record<string, unknown> | undefined) ?? {};
 
