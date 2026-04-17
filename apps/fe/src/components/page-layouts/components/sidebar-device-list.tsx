@@ -242,7 +242,7 @@ function DeviceSection({
       <div className="px-3 py-1 bg-muted/30 border-b">
         <div className="flex items-center gap-2">
           <DeviceIcon className="ml-1 h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="flex-1 truncate text-sm font-medium text-select-none">
+          <span className="flex-1 truncate text-xs font-medium text-select-none">
             {device.name}
           </span>
 

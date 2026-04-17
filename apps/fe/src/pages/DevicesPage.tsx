@@ -258,11 +258,13 @@ export default function DevicesPage() {
       <AlertDialog open={deleteCandidate !== null} onOpenChange={(open) => !open && setDeleteCandidate(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogMedia>
-              <Trash2 className="h-5 w-5 text-muted-foreground" />
+            <AlertDialogMedia className="bg-destructive/10">
+              <Trash2 className="h-5 w-5 text-destructive" />
             </AlertDialogMedia>
             <AlertDialogTitle>{t('device.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>{deleteCandidate?.name ?? ''}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {t('device.deleteDescription', { name: deleteCandidate?.name ?? '' })}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
@@ -294,7 +296,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
   const { t } = useTranslation();
 
   const icon =
-    device.type === 'local' ? <Monitor className="h-5 w-5" /> : <Globe className="h-5 w-5" />;
+    device.type === 'local' ? <Monitor className="h-4 w-4" /> : <Globe className="h-4 w-4" />;
   const subtitle =
     device.type === 'local'
       ? t('device.typeLocal')
@@ -330,17 +332,17 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
 
   return (
     <Card data-testid="device-card" data-device-id={device.id} data-device-name={device.name} className="overflow-hidden">
-      <CardHeader className="space-y-3 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+      <CardHeader className="space-y-2 pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
               {icon}
             </div>
-            <div className="min-w-0 space-y-1">
-              <CardTitle className="line-clamp-1 text-base" title={device.name}>
+            <div className="min-w-0 space-y-0.5">
+              <CardTitle className="line-clamp-1 text-sm" title={device.name}>
                 {device.name}
               </CardTitle>
-              <CardDescription className="line-clamp-1">{subtitle}</CardDescription>
+              <CardDescription className="line-clamp-1 text-xs">{subtitle}</CardDescription>
             </div>
           </div>
 
@@ -391,14 +393,20 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{device.type === 'local' ? t('device.typeLocal') : t('device.typeSSHBadge')}</Badge>
-          {device.session && <Badge variant="outline">{device.session}</Badge>}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline" className="text-[11px] font-normal">
+            {device.type === 'local' ? t('device.typeLocal') : t('device.typeSSHBadge')}
+          </Badge>
+          {device.session && (
+            <Badge variant="outline" className="text-[11px] font-normal">
+              {device.session}
+            </Badge>
+          )}
         </div>
       </CardHeader>
 
       <CardContent className="pt-0">
-        <Separator className="mb-3" />
+        <Separator className="mb-2" />
         <div className="flex items-center justify-end">
           <Link
             to={`/devices/${device.id}`}
@@ -508,232 +516,253 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const privateKeyTextareaId = `${mode}-device-private-key`;
   const privateKeyPassphraseInputId = `${mode}-device-private-key-passphrase`;
 
+  const typeLabels: Record<string, string> = {
+    local: t('device.typeLocal'),
+    ssh: t('device.typeSSH'),
+  };
+  const authLabels: Record<string, string> = {
+    password: t('device.authPassword'),
+    key: t('device.authKey'),
+    agent: t('device.authAgent'),
+    configRef: 'SSH Config',
+  };
+
+  const sectionHeading = (text: string) => (
+    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {text}
+    </div>
+  );
+
+  const fieldLabel = (htmlFor: string, text: string, required?: boolean) => (
+    <label className="block text-xs font-medium text-foreground" htmlFor={htmlFor}>
+      {text}
+      {required && <span className="ml-0.5 text-destructive">*</span>}
+    </label>
+  );
+
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent data-testid="device-dialog" className="w-full max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditMode ? t('device.editDevice') : t('device.addDevice')}</DialogTitle>
           <DialogDescription>
-            {isEditMode ? t('device.editDevice') : t('device.addDevice')}
+            {isEditMode ? t('device.editDeviceDescription') : t('device.addDeviceDescription')}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit}>
-          <div className="max-h-[min(70vh,720px)] space-y-4 overflow-y-auto pr-1">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <label className="block text-sm font-medium" htmlFor={deviceNameInputId}>
-                  {t('device.name')}
-                </label>
-                <Input
-                  id={deviceNameInputId}
-                  data-testid="device-name-input"
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData((d) => ({ ...d, name: e.target.value }))}
-                  placeholder={t('device.namePlaceholder')}
-                  required
-                />
-              </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="-mr-2 max-h-[min(70vh,720px)] space-y-5 overflow-y-auto pr-2">
+            <section className="space-y-2.5">
+              {sectionHeading(t('device.sectionBasic'))}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  {fieldLabel(deviceNameInputId, t('device.name'), true)}
+                  <Input
+                    id={deviceNameInputId}
+                    data-testid="device-name-input"
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData((d) => ({ ...d, name: e.target.value }))}
+                    placeholder={t('device.namePlaceholder')}
+                    required
+                  />
+                </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium" htmlFor={deviceTypeSelectId}>
-                  {t('device.type')}
-                </label>
-                <Select
-                  value={formData.type}
-                  onValueChange={(nextValue) => {
-                    if (!nextValue) return;
-                    const nextType = nextValue as 'local' | 'ssh';
-                    setFormData((d) => ({
-                      ...d,
-                      type: nextType,
-                      authMode:
-                        nextType === 'local'
-                          ? 'auto'
-                          : d.authMode === 'auto'
-                            ? 'password'
-                            : d.authMode,
-                    }));
-                  }}
-                  disabled={isEditMode}
-                >
-                  <SelectTrigger
-                    id={deviceTypeSelectId}
-                    data-testid="device-type-select"
-                    className="w-full"
+                <div className="space-y-1.5">
+                  {fieldLabel(deviceTypeSelectId, t('device.type'))}
+                  <Select
+                    value={formData.type}
+                    onValueChange={(nextValue) => {
+                      if (!nextValue) return;
+                      const nextType = nextValue as 'local' | 'ssh';
+                      setFormData((d) => ({
+                        ...d,
+                        type: nextType,
+                        authMode:
+                          nextType === 'local'
+                            ? 'auto'
+                            : d.authMode === 'auto'
+                              ? 'password'
+                              : d.authMode,
+                      }));
+                    }}
+                    disabled={isEditMode}
                   >
-                    <SelectValue placeholder={t('device.type')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="local">{t('device.typeLocal')}</SelectItem>
-                    <SelectItem value="ssh">SSH {t('device.type')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                    <SelectTrigger
+                      id={deviceTypeSelectId}
+                      data-testid="device-type-select"
+                      className="w-full"
+                    >
+                      <SelectValue placeholder={t('device.type')}>
+                        {(value) => typeLabels[value as string] ?? ''}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="local">{t('device.typeLocal')}</SelectItem>
+                      <SelectItem value="ssh">{t('device.typeSSH')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium" htmlFor={sessionInputId}>
-                  {t('device.session')}
-                </label>
-                <Input
-                  id={sessionInputId}
-                  data-testid="device-session-input"
-                  type="text"
-                  value={formData.session}
-                  onChange={(e) => setFormData((d) => ({ ...d, session: e.target.value }))}
-                  placeholder={t('device.sessionPlaceholder')}
-                />
+                <div className="space-y-1.5">
+                  {fieldLabel(sessionInputId, t('device.session'))}
+                  <Input
+                    id={sessionInputId}
+                    data-testid="device-session-input"
+                    type="text"
+                    value={formData.session}
+                    onChange={(e) => setFormData((d) => ({ ...d, session: e.target.value }))}
+                    placeholder={t('device.sessionPlaceholder')}
+                  />
+                </div>
               </div>
-            </div>
+            </section>
 
             {isSSH && (
               <>
-                <Separator />
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <label className="block text-sm font-medium" htmlFor={sshHostInputId}>
-                      {t('device.host')}
-                    </label>
-                    <Input
-                      id={sshHostInputId}
-                      type="text"
-                      value={formData.host}
-                      onChange={(e) => setFormData((d) => ({ ...d, host: e.target.value }))}
-                      placeholder={t('device.hostPlaceholder')}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-medium" htmlFor={sshPortInputId}>
-                      {t('device.port')}
-                    </label>
-                    <Input
-                      id={sshPortInputId}
-                      type="number"
-                      value={formData.port}
-                      onChange={(e) =>
-                        setFormData((d) => ({
-                          ...d,
-                          port: Number.parseInt(e.target.value || '22', 10),
-                        }))
-                      }
-                      min={1}
-                      max={65535}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <label className="block text-sm font-medium" htmlFor={sshUsernameInputId}>
-                      {t('device.username')}
-                    </label>
-                    <Input
-                      id={sshUsernameInputId}
-                      type="text"
-                      value={formData.username}
-                      onChange={(e) => setFormData((d) => ({ ...d, username: e.target.value }))}
-                      placeholder={t('device.usernamePlaceholder')}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-medium" htmlFor={`${mode}-device-ssh-config-ref`}>
-                      SSH Config
-                    </label>
-                    <Input
-                      id={`${mode}-device-ssh-config-ref`}
-                      type="text"
-                      value={formData.sshConfigRef}
-                      onChange={(e) => setFormData((d) => ({ ...d, sshConfigRef: e.target.value }))}
-                      placeholder="~/.ssh/config"
-                    />
-                  </div>
-                </div>
-
-                <Separator />
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-medium" htmlFor={authModeSelectId}>
-                      {t('device.authMode')}
-                    </label>
-                    <Select
-                      value={formData.authMode}
-                      onValueChange={(nextValue) => {
-                        if (!nextValue) return;
-                        setFormData((d) => ({
-                          ...d,
-                          authMode: nextValue as CreateDeviceRequest['authMode'],
-                        }));
-                      }}
-                    >
-                      <SelectTrigger id={authModeSelectId} className="w-full">
-                        <SelectValue placeholder={t('device.authMode')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="password">{t('device.authPassword')}</SelectItem>
-                        <SelectItem value="key">{t('device.authKey')}</SelectItem>
-                        <SelectItem value="agent">{t('device.authAgent')}</SelectItem>
-                        <SelectItem value="configRef">SSH Config</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {formData.authMode === 'password' && (
-                    <div className="space-y-1.5">
-                      <label className="block text-sm font-medium" htmlFor={passwordInputId}>
-                        {t('device.password')}
-                      </label>
+                <section className="space-y-2.5">
+                  {sectionHeading(t('device.sectionConnection'))}
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      {fieldLabel(sshHostInputId, t('device.host'))}
                       <Input
-                        id={passwordInputId}
-                        type="password"
-                        value={formData.password}
-                        onChange={(e) => setFormData((d) => ({ ...d, password: e.target.value }))}
+                        id={sshHostInputId}
+                        type="text"
+                        value={formData.host}
+                        onChange={(e) => setFormData((d) => ({ ...d, host: e.target.value }))}
+                        placeholder={t('device.hostPlaceholder')}
                       />
                     </div>
-                  )}
 
-                  {formData.authMode === 'key' && (
-                    <>
+                    <div className="space-y-1.5">
+                      {fieldLabel(sshPortInputId, t('device.port'))}
+                      <Input
+                        id={sshPortInputId}
+                        type="number"
+                        value={formData.port}
+                        onChange={(e) =>
+                          setFormData((d) => ({
+                            ...d,
+                            port: Number.parseInt(e.target.value || '22', 10),
+                          }))
+                        }
+                        min={1}
+                        max={65535}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-2">
+                      {fieldLabel(sshUsernameInputId, t('device.username'))}
+                      <Input
+                        id={sshUsernameInputId}
+                        type="text"
+                        value={formData.username}
+                        onChange={(e) => setFormData((d) => ({ ...d, username: e.target.value }))}
+                        placeholder={t('device.usernamePlaceholder')}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {fieldLabel(`${mode}-device-ssh-config-ref`, 'SSH Config')}
+                      <Input
+                        id={`${mode}-device-ssh-config-ref`}
+                        type="text"
+                        value={formData.sshConfigRef}
+                        onChange={(e) =>
+                          setFormData((d) => ({ ...d, sshConfigRef: e.target.value }))
+                        }
+                        placeholder="~/.ssh/config"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="space-y-2.5">
+                  {sectionHeading(t('device.sectionAuth'))}
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      {fieldLabel(authModeSelectId, t('device.authMode'))}
+                      <Select
+                        value={formData.authMode}
+                        onValueChange={(nextValue) => {
+                          if (!nextValue) return;
+                          setFormData((d) => ({
+                            ...d,
+                            authMode: nextValue as CreateDeviceRequest['authMode'],
+                          }));
+                        }}
+                      >
+                        <SelectTrigger id={authModeSelectId} className="w-full">
+                          <SelectValue placeholder={t('device.authMode')}>
+                            {(value) => authLabels[value as string] ?? ''}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="password">{t('device.authPassword')}</SelectItem>
+                          <SelectItem value="key">{t('device.authKey')}</SelectItem>
+                          <SelectItem value="agent">{t('device.authAgent')}</SelectItem>
+                          <SelectItem value="configRef">SSH Config</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {formData.authMode === 'password' && (
                       <div className="space-y-1.5">
-                        <label className="block text-sm font-medium" htmlFor={privateKeyTextareaId}>
-                          {t('device.privateKey')}
-                        </label>
-                        <Textarea
-                          id={privateKeyTextareaId}
-                          value={formData.privateKey}
-                          onChange={(e) => setFormData((d) => ({ ...d, privateKey: e.target.value }))}
-                          className="h-28 font-mono text-xs"
-                          placeholder={t('device.privateKeyPlaceholder')}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-sm font-medium" htmlFor={privateKeyPassphraseInputId}>
-                          {t('device.passphrase')}
-                        </label>
+                        {fieldLabel(passwordInputId, t('device.password'))}
                         <Input
-                          id={privateKeyPassphraseInputId}
+                          id={passwordInputId}
                           type="password"
-                          value={formData.privateKeyPassphrase}
+                          value={formData.password}
                           onChange={(e) =>
-                            setFormData((d) => ({ ...d, privateKeyPassphrase: e.target.value }))
+                            setFormData((d) => ({ ...d, password: e.target.value }))
                           }
                         />
                       </div>
-                    </>
-                  )}
-                </div>
+                    )}
+
+                    {formData.authMode === 'key' && (
+                      <>
+                        <div className="space-y-1.5">
+                          {fieldLabel(privateKeyTextareaId, t('device.privateKey'))}
+                          <Textarea
+                            id={privateKeyTextareaId}
+                            value={formData.privateKey}
+                            onChange={(e) =>
+                              setFormData((d) => ({ ...d, privateKey: e.target.value }))
+                            }
+                            className="h-28 font-mono text-xs"
+                            placeholder={t('device.privateKeyPlaceholder')}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          {fieldLabel(privateKeyPassphraseInputId, t('device.passphrase'))}
+                          <Input
+                            id={privateKeyPassphraseInputId}
+                            type="password"
+                            value={formData.privateKeyPassphrase}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                privateKeyPassphrase: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </section>
               </>
             )}
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose}>
               {t('common.cancel')}
             </Button>
             <Button
               type="submit"
               variant="default"
-              className="flex-1"
               data-testid="device-dialog-save"
               disabled={isSubmitting}
             >
