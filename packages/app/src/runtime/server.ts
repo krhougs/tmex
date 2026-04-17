@@ -106,6 +106,14 @@ async function main(): Promise<void> {
   console.log(`[tmex] ${t('runtime.started', { url: `http://${host}:${port}` })}`);
 }
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[tmex][unhandledRejection]', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[tmex][uncaughtException]', error);
+});
+
 try {
   await main();
 } catch (error) {

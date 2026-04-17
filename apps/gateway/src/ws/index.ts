@@ -873,6 +873,16 @@ export class WebSocketServer {
     }
   }
 
+  broadcastDeviceError(deviceId: string, payload: EventDevicePayload): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+
+    const payloadBytes = wsBorsh.encodeDeviceEventPayload(payload);
+    for (const client of entry.clients) {
+      this.sendEnvelope(client, wsBorsh.KIND_DEVICE_EVENT, payloadBytes);
+    }
+  }
+
   private broadcastDeviceEvent(entry: DeviceConnectionEntry, payload: EventDevicePayload): void {
     const payloadBytes = wsBorsh.encodeDeviceEventPayload(payload);
 

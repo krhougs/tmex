@@ -866,7 +866,7 @@ export class SshExternalTmuxConnection {
 
   private queuePipeTransition(task: () => Promise<void>): Promise<void> {
     const next = this.pipeTransition.catch(() => undefined).then(task);
-    this.pipeTransition = next;
+    this.pipeTransition = next.catch(() => undefined);
     return next;
   }
 
@@ -922,7 +922,10 @@ export class SshExternalTmuxConnection {
     const next = this.commandQueue
       .catch(() => undefined)
       .then(() => this.executeShellCommand(command, timeoutMs));
-    this.commandQueue = next.then(() => undefined);
+    this.commandQueue = next.then(
+      () => undefined,
+      () => undefined
+    );
     return next;
   }
 

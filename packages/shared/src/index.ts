@@ -44,6 +44,7 @@ export interface DeviceRuntimeStatus {
   lastSeenAt: string | null;
   tmuxAvailable: boolean;
   lastError: string | null;
+  lastErrorType: string | null;
 }
 
 // ==================== Site Settings ====================

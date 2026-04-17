@@ -25,7 +25,20 @@ type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
 
 interface DeviceError {
   message: string;
-  type?: string;
+  type: string;
+  rawMessage?: string;
+  at: number;
+}
+
+interface DeviceReconnecting {
+  message: string;
+  at: number;
+}
+
+export interface DeviceInitialErrorInput {
+  deviceId: string;
+  lastError: string | null;
+  lastErrorType: string | null;
 }
 
 interface TmuxState {
@@ -34,6 +47,7 @@ interface TmuxState {
   connectedDevices: Set<string>;
   deviceConnected: Record<string, boolean | undefined>;
   deviceErrors: Record<string, DeviceError | undefined>;
+  deviceReconnecting: Record<string, DeviceReconnecting | undefined>;
   selectedPanes: Record<string, { windowId: string; paneId: string } | undefined>;
   activePaneFromEvent: Record<string, { windowId: string; paneId: string } | undefined>;
   pendingCreateWindowAt: Record<string, number | undefined>;
@@ -42,6 +56,7 @@ interface TmuxState {
   connectDevice: (deviceId: string) => void;
   disconnectDevice: (deviceId: string) => void;
   clearDeviceError: (deviceId: string) => void;
+  hydrateDeviceErrors: (entries: DeviceInitialErrorInput[]) => void;
   selectPane: (
     deviceId: string,
     windowId: string,
@@ -123,6 +138,7 @@ function setupClientHandlers(
         setState((prev) => ({
           deviceConnected: { ...prev.deviceConnected, [decoded.deviceId]: true },
           deviceErrors: { ...prev.deviceErrors, [decoded.deviceId]: undefined },
+          deviceReconnecting: { ...prev.deviceReconnecting, [decoded.deviceId]: undefined },
         }));
         maybeReselectCurrentPane(decoded.deviceId);
         return;
@@ -237,18 +253,37 @@ function handleDeviceEvent(
 ): void {
   if (payload.type === 'error') {
     const summary = payload.message ?? 'Device Error';
+    const errorType = payload.errorType ?? 'unknown';
+
+    if (errorType === 'reconnecting') {
+      setState((prev) => ({
+        deviceReconnecting: {
+          ...prev.deviceReconnecting,
+          [payload.deviceId]: { message: summary, at: Date.now() },
+        },
+      }));
+      return;
+    }
 
     setState((prev) => {
       const previousError = prev.deviceErrors[payload.deviceId];
-      if (previousError?.message === summary && previousError?.type === payload.errorType) {
-        return {};
+      const shouldToast = !previousError || previousError.type !== errorType;
+
+      if (shouldToast) {
+        toast.error(summary);
       }
 
       return {
         deviceErrors: {
           ...prev.deviceErrors,
-          [payload.deviceId]: { message: summary, type: payload.errorType },
+          [payload.deviceId]: {
+            message: summary,
+            type: errorType,
+            rawMessage: payload.rawMessage,
+            at: Date.now(),
+          },
         },
+        deviceReconnecting: { ...prev.deviceReconnecting, [payload.deviceId]: undefined },
       };
     });
 
@@ -267,6 +302,7 @@ function handleDeviceEvent(
     setState((prev) => ({
       deviceConnected: { ...prev.deviceConnected, [payload.deviceId]: true },
       deviceErrors: { ...prev.deviceErrors, [payload.deviceId]: undefined },
+      deviceReconnecting: { ...prev.deviceReconnecting, [payload.deviceId]: undefined },
     }));
   }
 }
@@ -346,6 +382,7 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   connectedDevices: new Set(),
   deviceConnected: {},
   deviceErrors: {},
+  deviceReconnecting: {},
   selectedPanes: {},
   activePaneFromEvent: {},
   pendingCreateWindowAt: {},
@@ -388,7 +425,24 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   clearDeviceError(deviceId) {
     set((prev) => ({
       deviceErrors: { ...prev.deviceErrors, [deviceId]: undefined },
+      deviceReconnecting: { ...prev.deviceReconnecting, [deviceId]: undefined },
     }));
+  },
+
+  hydrateDeviceErrors(entries) {
+    set((prev) => {
+      const next: Record<string, DeviceError | undefined> = { ...prev.deviceErrors };
+      for (const entry of entries) {
+        if (next[entry.deviceId]) continue;
+        if (!entry.lastError || !entry.lastErrorType) continue;
+        next[entry.deviceId] = {
+          message: entry.lastError,
+          type: entry.lastErrorType,
+          at: 0,
+        };
+      }
+      return { deviceErrors: next };
+    });
   },
 
   selectPane(deviceId, windowId, paneId, size) {

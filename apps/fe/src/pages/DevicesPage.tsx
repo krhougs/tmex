@@ -1,5 +1,12 @@
+import { DeviceStatusBadge } from '@/components/device-status-badge';
+import { useTmuxStore } from '@/stores/tmux';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateDeviceRequest, Device, UpdateDeviceRequest } from '@tmex/shared';
+
+type DeviceListItem = Device & {
+  lastError?: string | null;
+  lastErrorType?: string | null;
+};
 import { Globe, Monitor, MoreHorizontal, Pencil, Plus, Trash2, Zap } from 'lucide-react';
 import { type FormEvent, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -188,10 +195,23 @@ export default function DevicesPage() {
     queryFn: async () => {
       const res = await fetch('/api/devices');
       if (!res.ok) throw new Error(t('device.loadFailed'));
-      return res.json() as Promise<{ devices: Device[] }>;
+      return res.json() as Promise<{ devices: DeviceListItem[] }>;
     },
     throwOnError: false,
   });
+
+  const hydrateDeviceErrors = useTmuxStore((state) => state.hydrateDeviceErrors);
+
+  useEffect(() => {
+    if (!data?.devices) return;
+    hydrateDeviceErrors(
+      data.devices.map((d) => ({
+        deviceId: d.id,
+        lastError: d.lastError ?? null,
+        lastErrorType: d.lastErrorType ?? null,
+      }))
+    );
+  }, [data, hydrateDeviceErrors]);
 
   const deleteDevice = useMutation({
     mutationFn: async (id: string) => {
@@ -402,6 +422,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
               {device.session}
             </Badge>
           )}
+          <DeviceStatusBadge deviceId={device.id} />
         </div>
       </CardHeader>
 

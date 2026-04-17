@@ -1,0 +1,1 @@
+ALTER TABLE `device_runtime_status` ADD `last_error_type` text;

@@ -213,6 +213,7 @@
       "chatId": "Chat ID",
       "applyTime": "Application Time",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
+      "deviceConnectionError": "🔴 {{siteName}}: Connection error on device \"{{deviceName}}\" ({{host}}) [{{category}}]\n{{error}}",
       "authSuccess": "✅ Authorized. You will now receive notifications.",
       "authPending": "⏳ Authorization request received. Please approve in tmex settings.",
       "authFailed": "❌ Authorization request failed. Please contact administrator.",
@@ -249,10 +250,29 @@
       "hostNotFound": "Host not found: Unable to resolve hostname. Please check DNS or hostname configuration.",
       "handshakeFailed": "Handshake failed: Unable to establish secure connection. Possibly incompatible key exchange algorithm.",
       "tmuxUnavailable": "Remote tmux unavailable or failed to start. Please ensure tmux is installed and available in the remote shell PATH.",
+      "connectionClosed": "Connection closed, attempting to reconnect",
       "unknown": "Connection failed: {{message}}",
       "reconnecting": "Connection interrupted, reconnecting in {{delay}} seconds ({{attempt}}/{{maxRetries}})",
       "reconnectFailed": "Auto-reconnect failed, please retry manually",
       "reconnected": "Device reconnected automatically"
+    },
+    "deviceStatus": {
+      "reconnecting": "Reconnecting {{delay}}s",
+      "offline": "Offline",
+      "errorBadge": {
+        "authFailed": "Auth failed",
+        "agentUnavailable": "Agent unavailable",
+        "agentNoIdentity": "Agent has no keys",
+        "configRefNotSupported": "SSH Config unsupported",
+        "networkUnreachable": "Network unreachable",
+        "connectionRefused": "Refused",
+        "timeout": "Timeout",
+        "hostNotFound": "Host not found",
+        "handshakeFailed": "Handshake failed",
+        "tmuxUnavailable": "Tmux unavailable",
+        "connectionClosed": "Disconnected",
+        "unknown": "Connection error"
+      }
     },
     "websocket": {
       "error": "WebSocket connection error",

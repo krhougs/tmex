@@ -82,6 +82,18 @@ export function classifySshError(error: Error): {
       messageKey: 'sshError.tmuxUnavailable',
     };
   }
+  if (
+    msg.includes('ssh_connection_closed') ||
+    msg.includes('connection closed') ||
+    msg.includes('ssh command channel not ready') ||
+    msg.includes('ssh connection not ready') ||
+    msg.includes('channel closed')
+  ) {
+    return {
+      type: 'connection_closed',
+      messageKey: 'sshError.connectionClosed',
+    };
+  }
 
   return {
     type: 'unknown',

@@ -213,6 +213,7 @@
       "chatId": "chatId",
       "applyTime": "申请时间",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
+      "deviceConnectionError": "🔴 {{siteName}}：设备「{{deviceName}}」({{host}}) 连接异常 [{{category}}]\n{{error}}",
       "authSuccess": "✅ 已授权，可接收通知。",
       "authPending": "⏳ 已收到授权申请，请在 tmex 设置页审批。",
       "authFailed": "❌ 授权申请失败，请联系管理员。",
@@ -249,10 +250,29 @@
       "hostNotFound": "主机未找到：无法解析主机地址，请检查 DNS 或主机名是否正确",
       "handshakeFailed": "握手失败：无法建立安全连接，可能是密钥交换算法不兼容",
       "tmuxUnavailable": "远端 tmux 不可用或启动失败，请检查远端是否已安装 tmux，且远端 shell PATH 可找到 tmux",
+      "connectionClosed": "连接已断开，尝试重连中",
       "unknown": "连接失败：{{message}}",
       "reconnecting": "连接中断，{{delay}} 秒后自动重连（{{attempt}}/{{maxRetries}}）",
       "reconnectFailed": "自动重连失败，请手动重试",
       "reconnected": "设备已自动重连"
+    },
+    "deviceStatus": {
+      "reconnecting": "重连中 {{delay}}s",
+      "offline": "离线",
+      "errorBadge": {
+        "authFailed": "认证失败",
+        "agentUnavailable": "Agent 不可用",
+        "agentNoIdentity": "Agent 无密钥",
+        "configRefNotSupported": "不支持 SSH Config",
+        "networkUnreachable": "网络不可达",
+        "connectionRefused": "连接被拒",
+        "timeout": "连接超时",
+        "hostNotFound": "主机未找到",
+        "handshakeFailed": "握手失败",
+        "tmuxUnavailable": "tmux 不可用",
+        "connectionClosed": "连接已断开",
+        "unknown": "连接异常"
+      }
     },
     "websocket": {
       "error": "WebSocket 连接错误",

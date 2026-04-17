@@ -68,6 +68,7 @@ export const deviceRuntimeStatus = sqliteTable('device_runtime_status', {
   lastSeenAt: text('last_seen_at'),
   tmuxAvailable: integer('tmux_available', { mode: 'boolean' }).notNull().default(false),
   lastError: text('last_error'),
+  lastErrorType: text('last_error_type'),
 });
 
 export const webhookEndpoints = sqliteTable('webhook_endpoints', {

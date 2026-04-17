@@ -28,6 +28,7 @@ import {
   getAllDevices,
   getAllWebhookEndpoints,
   getDeviceById,
+  getDeviceRuntimeStatus,
   getSiteSettings,
   getTelegramBotById,
   getTelegramBotsWithStats,
@@ -238,8 +239,24 @@ export function handleApiRequest(
   return json({ error: t('apiError.notFound') }, 404);
 }
 
+function enrichDeviceWithRuntime(device: Device): Device & {
+  lastSeenAt: string | null;
+  lastError: string | null;
+  lastErrorType: string | null;
+  tmuxAvailable: boolean;
+} {
+  const status = getDeviceRuntimeStatus(device.id);
+  return {
+    ...device,
+    lastSeenAt: status.lastSeenAt,
+    lastError: status.lastError,
+    lastErrorType: status.lastErrorType,
+    tmuxAvailable: status.tmuxAvailable,
+  };
+}
+
 async function handleGetDevices(): Promise<Response> {
-  const devices = getAllDevices();
+  const devices = getAllDevices().map(enrichDeviceWithRuntime);
   return json({ devices });
 }
 
@@ -248,7 +265,7 @@ async function handleGetDevice(id: string): Promise<Response> {
   if (!device) {
     return json({ error: t('apiError.deviceNotFound') }, 404);
   }
-  return json({ device });
+  return json({ device: enrichDeviceWithRuntime(device) });
 }
 
 async function handleCreateDevice(req: Request): Promise<Response> {

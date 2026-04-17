@@ -12,6 +12,7 @@ import type { DeviceSessionRuntime } from '../tmux-client/device-session-runtime
 import type { TmuxEvent } from '../tmux-client/events';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
 import { resolvePaneContext } from '../tmux/bell-context';
+import { connectionAlertNotifier } from './connection-alerts';
 
 interface PushConnectionEntry {
   deviceId: string;
@@ -242,9 +243,14 @@ export class PushSupervisor {
       },
       onError: (error) => {
         console.error(`[push] tmux error on device ${entry.deviceId}:`, error);
+        void connectionAlertNotifier.notify({
+          device,
+          error,
+          source: 'runtime',
+        });
       },
       onClose: () => {
-        void this.handleClose(entry.deviceId, generation, runtime);
+        void this.handleClose(entry.deviceId, generation, runtime, device);
       },
     });
 
@@ -273,6 +279,11 @@ export class PushSupervisor {
       }
 
       console.error(`[push] failed connecting device ${entry.deviceId}:`, err);
+      await connectionAlertNotifier.notify({
+        device,
+        error: err,
+        source: 'connect',
+      });
       detachRuntime();
       entry.detachRuntime = null;
       entry.runtime = null;
@@ -322,12 +333,19 @@ export class PushSupervisor {
   private async handleClose(
     deviceId: string,
     generation: number,
-    runtime: DeviceSessionRuntime
+    runtime: DeviceSessionRuntime,
+    device: Device
   ): Promise<void> {
     const entry = this.entries.get(deviceId);
     if (!entry || entry.generation !== generation || entry.runtime !== runtime) {
       return;
     }
+
+    await connectionAlertNotifier.notify({
+      device,
+      error: new Error('ssh_connection_closed'),
+      source: 'close',
+    });
 
     entry.detachRuntime?.();
     entry.detachRuntime = null;

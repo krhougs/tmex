@@ -3,6 +3,7 @@ import { config } from './config';
 import { runtimeController } from './control/runtime';
 import { ensureSiteSettingsInitialized, getSiteSettings } from './db';
 import { runMigrations } from './db/migrate';
+import { connectionAlertNotifier } from './push/connection-alerts';
 import { pushSupervisor } from './push/supervisor';
 import { telegramService } from './telegram/service';
 import { tmuxRuntimeRegistry } from './tmux-client/registry';
@@ -43,6 +44,9 @@ export async function createGatewayRuntime(
   primeLocalShellPath();
 
   const wsServer = new WebSocketServer();
+  connectionAlertNotifier.setBroadcaster((deviceId, payload) => {
+    wsServer.broadcastDeviceError(deviceId, payload);
+  });
   await telegramService.refresh();
   await pushSupervisor.start();
 
@@ -90,6 +94,7 @@ export async function createGatewayRuntime(
       runtimeController.onRestart(listener);
     },
     async stop() {
+      connectionAlertNotifier.setBroadcaster(null);
       wsServer.closeAll();
       await pushSupervisor.stopAll();
       await tmuxRuntimeRegistry.shutdownAll();

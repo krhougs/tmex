@@ -219,6 +219,7 @@ export const I18N_RESOURCES = {
       "chatId": "Chat ID",
       "applyTime": "Application Time",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
+      "deviceConnectionError": "🔴 {{siteName}}: Connection error on device \"{{deviceName}}\" ({{host}}) [{{category}}]\n{{error}}",
       "authSuccess": "✅ Authorized. You will now receive notifications.",
       "authPending": "⏳ Authorization request received. Please approve in tmex settings.",
       "authFailed": "❌ Authorization request failed. Please contact administrator.",
@@ -255,10 +256,29 @@ export const I18N_RESOURCES = {
       "hostNotFound": "Host not found: Unable to resolve hostname. Please check DNS or hostname configuration.",
       "handshakeFailed": "Handshake failed: Unable to establish secure connection. Possibly incompatible key exchange algorithm.",
       "tmuxUnavailable": "Remote tmux unavailable or failed to start. Please ensure tmux is installed and available in the remote shell PATH.",
+      "connectionClosed": "Connection closed, attempting to reconnect",
       "unknown": "Connection failed: {{message}}",
       "reconnecting": "Connection interrupted, reconnecting in {{delay}} seconds ({{attempt}}/{{maxRetries}})",
       "reconnectFailed": "Auto-reconnect failed, please retry manually",
       "reconnected": "Device reconnected automatically"
+    },
+    "deviceStatus": {
+      "reconnecting": "Reconnecting {{delay}}s",
+      "offline": "Offline",
+      "errorBadge": {
+        "authFailed": "Auth failed",
+        "agentUnavailable": "Agent unavailable",
+        "agentNoIdentity": "Agent has no keys",
+        "configRefNotSupported": "SSH Config unsupported",
+        "networkUnreachable": "Network unreachable",
+        "connectionRefused": "Refused",
+        "timeout": "Timeout",
+        "hostNotFound": "Host not found",
+        "handshakeFailed": "Handshake failed",
+        "tmuxUnavailable": "Tmux unavailable",
+        "connectionClosed": "Disconnected",
+        "unknown": "Connection error"
+      }
     },
     "websocket": {
       "error": "WebSocket connection error",
@@ -553,6 +573,7 @@ export const I18N_RESOURCES = {
       "chatId": "chatId",
       "applyTime": "申请时间",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
+      "deviceConnectionError": "🔴 {{siteName}}：设备「{{deviceName}}」({{host}}) 连接异常 [{{category}}]\n{{error}}",
       "authSuccess": "✅ 已授权，可接收通知。",
       "authPending": "⏳ 已收到授权申请，请在 tmex 设置页审批。",
       "authFailed": "❌ 授权申请失败，请联系管理员。",
@@ -589,10 +610,29 @@ export const I18N_RESOURCES = {
       "hostNotFound": "主机未找到：无法解析主机地址，请检查 DNS 或主机名是否正确",
       "handshakeFailed": "握手失败：无法建立安全连接，可能是密钥交换算法不兼容",
       "tmuxUnavailable": "远端 tmux 不可用或启动失败，请检查远端是否已安装 tmux，且远端 shell PATH 可找到 tmux",
+      "connectionClosed": "连接已断开，尝试重连中",
       "unknown": "连接失败：{{message}}",
       "reconnecting": "连接中断，{{delay}} 秒后自动重连（{{attempt}}/{{maxRetries}}）",
       "reconnectFailed": "自动重连失败，请手动重试",
       "reconnected": "设备已自动重连"
+    },
+    "deviceStatus": {
+      "reconnecting": "重连中 {{delay}}s",
+      "offline": "离线",
+      "errorBadge": {
+        "authFailed": "认证失败",
+        "agentUnavailable": "Agent 不可用",
+        "agentNoIdentity": "Agent 无密钥",
+        "configRefNotSupported": "不支持 SSH Config",
+        "networkUnreachable": "网络不可达",
+        "connectionRefused": "连接被拒",
+        "timeout": "连接超时",
+        "hostNotFound": "主机未找到",
+        "handshakeFailed": "握手失败",
+        "tmuxUnavailable": "tmux 不可用",
+        "connectionClosed": "连接已断开",
+        "unknown": "连接异常"
+      }
     },
     "websocket": {
       "error": "WebSocket 连接错误",
@@ -887,6 +927,7 @@ export const I18N_RESOURCES = {
       "chatId": "Chat ID",
       "applyTime": "申請時間",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
+      "deviceConnectionError": "🔴 {{siteName}}：デバイス「{{deviceName}}」({{host}}) で接続エラー [{{category}}]\n{{error}}",
       "authSuccess": "✅ 承認されました。通知を受信できます。",
       "authPending": "⏳ 認証リクエストを受信しました。tmex 設定ページで承認してください。",
       "authFailed": "❌ 認証リクエストに失敗しました。管理者に連絡してください。",
@@ -923,10 +964,29 @@ export const I18N_RESOURCES = {
       "hostNotFound": "ホストが見つかりません：ホスト名を解決できません。DNS またはホスト名設定を確認してください。",
       "handshakeFailed": "ハンドシェイクに失敗しました：安全な接続を確立できません。キー交換アルゴリズムが互換性がない可能性があります。",
       "tmuxUnavailable": "リモート tmux が利用できないか起動に失敗しました。tmux がインストールされ、リモート shell の PATH から参照できることを確認してください。",
+      "connectionClosed": "接続が切断されました。再接続を試みています",
       "unknown": "接続に失敗しました：{{message}}",
       "reconnecting": "接続が中断されました。{{delay}} 秒後に再接続します（{{attempt}}/{{maxRetries}}）",
       "reconnectFailed": "自動再接続に失敗しました。手動で再試行してください",
       "reconnected": "デバイスが自動的に再接続されました"
+    },
+    "deviceStatus": {
+      "reconnecting": "再接続中 {{delay}}s",
+      "offline": "オフライン",
+      "errorBadge": {
+        "authFailed": "認証失敗",
+        "agentUnavailable": "Agent 利用不可",
+        "agentNoIdentity": "Agent に鍵なし",
+        "configRefNotSupported": "SSH Config 非対応",
+        "networkUnreachable": "ネットワーク不可達",
+        "connectionRefused": "接続拒否",
+        "timeout": "タイムアウト",
+        "hostNotFound": "ホスト未検出",
+        "handshakeFailed": "ハンドシェイク失敗",
+        "tmuxUnavailable": "tmux 利用不可",
+        "connectionClosed": "切断",
+        "unknown": "接続エラー"
+      }
     },
     "websocket": {
       "error": "WebSocket 接続エラー",

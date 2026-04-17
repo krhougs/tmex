@@ -1,3 +1,4 @@
+import { DeviceStatusBadge } from '@/components/device-status-badge';
 import { useGlobalDevice } from '@/components/global-device-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,11 @@ import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
 import { Globe, Monitor, Plus, Power, PowerOff } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+
+type DeviceListItem = Device & {
+  lastError?: string | null;
+  lastErrorType?: string | null;
+};
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
 import { useSiteStore } from '../../../stores/site';
@@ -42,10 +48,23 @@ export function SideBarDeviceList() {
     queryFn: async () => {
       const res = await fetch('/api/devices');
       if (!res.ok) throw new Error('Failed to fetch devices');
-      return res.json() as Promise<{ devices: Device[] }>;
+      return res.json() as Promise<{ devices: DeviceListItem[] }>;
     },
     throwOnError: false,
   });
+
+  const hydrateDeviceErrors = useTmuxStore((state) => state.hydrateDeviceErrors);
+
+  useEffect(() => {
+    if (!devicesData?.devices) return;
+    hydrateDeviceErrors(
+      devicesData.devices.map((d) => ({
+        deviceId: d.id,
+        lastError: d.lastError ?? null,
+        lastErrorType: d.lastErrorType ?? null,
+      }))
+    );
+  }, [devicesData, hydrateDeviceErrors]);
 
   const handleNavigate = useCallback(
     (to: string, options?: { replace?: boolean }) => {
@@ -245,6 +264,8 @@ function DeviceSection({
           <span className="flex-1 truncate text-xs font-medium text-select-none">
             {device.name}
           </span>
+
+          <DeviceStatusBadge deviceId={device.id} className="shrink-0" />
 
           {/* Connection Status */}
           <div

@@ -172,6 +172,7 @@ export function createDevice(device: Device): void {
         lastSeenAt: null,
         tmuxAvailable: false,
         lastError: null,
+        lastErrorType: null,
       })
       .onConflictDoNothing({ target: deviceRuntimeStatus.deviceId })
       .run();
@@ -251,6 +252,7 @@ export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus {
       lastSeenAt: null,
       tmuxAvailable: false,
       lastError: null,
+      lastErrorType: null,
     };
   }
 
@@ -259,6 +261,7 @@ export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus {
     lastSeenAt: row.lastSeenAt,
     tmuxAvailable: row.tmuxAvailable,
     lastError: row.lastError,
+    lastErrorType: row.lastErrorType,
   };
 }
 
@@ -277,6 +280,9 @@ export function updateDeviceRuntimeStatus(
   }
   if (status.lastError !== undefined) {
     setValues.lastError = status.lastError;
+  }
+  if (status.lastErrorType !== undefined) {
+    setValues.lastErrorType = status.lastErrorType;
   }
 
   if (Object.keys(setValues).length === 0) {

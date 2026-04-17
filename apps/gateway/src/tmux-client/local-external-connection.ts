@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import { config } from '../config';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
+import { connectionAlertNotifier } from '../push/connection-alerts';
 import { buildLocalTmuxEnv, getLocalShellPath } from '../tmux/local-shell-path';
 import { quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
@@ -795,12 +796,26 @@ export class LocalExternalTmuxConnection {
       return result;
     }
 
-    updateDeviceRuntimeStatus(this.deviceId, {
-      lastSeenAt: new Date().toISOString(),
-      tmuxAvailable: false,
-      lastError: message,
-    });
+    void this.notifyRuntimeError(message);
     throw new Error(message);
+  }
+
+  private async notifyRuntimeError(message: string): Promise<void> {
+    const device = getDeviceById(this.deviceId);
+    if (!device) {
+      updateDeviceRuntimeStatus(this.deviceId, {
+        lastSeenAt: new Date().toISOString(),
+        tmuxAvailable: false,
+        lastError: message,
+      });
+      return;
+    }
+    await connectionAlertNotifier.notify({
+      device,
+      error: new Error(message),
+      source: 'runtime',
+      silentTelegram: true,
+    });
   }
 
   private async runTmuxAllowFailure(argv: string[]): Promise<CommandResult> {

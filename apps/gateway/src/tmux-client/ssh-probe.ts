@@ -3,6 +3,7 @@ import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
 
 import { decryptWithContext } from '../crypto';
 import { getDeviceById } from '../db';
+import { connectionAlertNotifier } from '../push/connection-alerts';
 import { buildSshBootstrapScript, parseSshBootstrapOutput } from './ssh-bootstrap';
 import { resolveSshConnectConfig } from './ssh-connect-config';
 
@@ -124,6 +125,12 @@ export async function probeSshDevice(
     const output = await runBootstrap(client);
     const parsed = parseSshBootstrapOutput(output);
     if (!parsed.ok) {
+      await connectionAlertNotifier.notify({
+        device,
+        error: new Error(`remote tmux unavailable: ${parsed.reason}`),
+        source: 'probe',
+        silentTelegram: true,
+      });
       return {
         success: false,
         tmuxAvailable: false,
@@ -138,6 +145,12 @@ export async function probeSshDevice(
       phase: 'ready',
     };
   } catch (error) {
+    await connectionAlertNotifier.notify({
+      device,
+      error,
+      source: 'probe',
+      silentTelegram: true,
+    });
     return {
       success: false,
       tmuxAvailable: false,
