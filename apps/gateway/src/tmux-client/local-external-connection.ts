@@ -94,6 +94,8 @@ export class LocalExternalTmuxConnection {
   private hookReadAbort: (() => void) | null = null;
   private hookBuffer = '';
   private bellDedup = new Map<string, number>();
+  private closeNotified = false;
+  private cleanupPromise: Promise<void> | null = null;
   private fsPaths = createRuntimeFsPaths({
     deviceId: 'pending',
     sessionName: 'pending',
@@ -115,6 +117,7 @@ export class LocalExternalTmuxConnection {
 
   async connect(): Promise<void> {
     this.manualDisconnect = false;
+    this.closeNotified = false;
     this.device = this.deps.getDevice(this.deviceId);
     if (!this.device) {
       throw new Error(`Device not found: ${this.deviceId}`);
@@ -141,6 +144,7 @@ export class LocalExternalTmuxConnection {
       lastSeenAt: new Date().toISOString(),
       tmuxAvailable: true,
       lastError: null,
+      lastErrorType: null,
     });
     await this.requestSnapshotInternal();
   }
@@ -513,6 +517,23 @@ export class LocalExternalTmuxConnection {
     ]);
 
     if (sessionRes.exitCode !== 0 || windowsRes.exitCode !== 0 || panesRes.exitCode !== 0) {
+      const stderrBlob = `${sessionRes.stderr}\n${windowsRes.stderr}\n${panesRes.stderr}`;
+      if (
+        this.connected &&
+        !this.manualDisconnect &&
+        this.isTmuxServerGoneMessage(stderrBlob)
+      ) {
+        const message = stderrBlob.trim().split(/\r?\n/).find((line) => line.trim())?.trim() ??
+          'tmux server gone';
+        console.warn(`[local] tmux server gone during snapshot on ${this.deviceId}: ${message}`);
+        updateDeviceRuntimeStatus(this.deviceId, {
+          lastSeenAt: new Date().toISOString(),
+          tmuxAvailable: false,
+          lastError: message,
+        });
+        void this.shutdownInternal(true);
+        return;
+      }
       this.callbacks.onSnapshot({ deviceId: this.deviceId, session: null });
       return;
     }
@@ -797,6 +818,10 @@ export class LocalExternalTmuxConnection {
     }
 
     void this.notifyRuntimeError(message);
+    if (this.connected && !this.manualDisconnect && this.isTmuxServerGoneMessage(message)) {
+      console.warn(`[local] tmux server gone on ${this.deviceId}: ${message}`);
+      void this.shutdownInternal(true);
+    }
     throw new Error(message);
   }
 
@@ -830,6 +855,50 @@ export class LocalExternalTmuxConnection {
       normalized.includes('no such window') ||
       normalized.includes('no such pane')
     );
+  }
+
+  private isTmuxServerGoneMessage(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('no server running on') ||
+      normalized.includes('no sessions') ||
+      normalized.includes('lost server') ||
+      normalized.includes("can't find session") ||
+      normalized.includes('session not found') ||
+      normalized.includes('no such session')
+    );
+  }
+
+  private async shutdownInternal(notifyClose: boolean): Promise<void> {
+    if (this.cleanupPromise) {
+      await this.cleanupPromise;
+      if (notifyClose && !this.closeNotified && !this.manualDisconnect) {
+        this.closeNotified = true;
+        this.callbacks.onClose();
+      }
+      return;
+    }
+
+    this.connected = false;
+    this.cleanupPromise = (async () => {
+      await this.stopAllPipeReaders().catch(() => undefined);
+      if (this.deps.enableHooks) {
+        await this.stopHooks().catch(() => undefined);
+      }
+      try {
+        rmSync(this.fsPaths.rootDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    await this.cleanupPromise;
+    this.cleanupPromise = null;
+
+    if (notifyClose && !this.closeNotified && !this.manualDisconnect) {
+      this.closeNotified = true;
+      this.callbacks.onClose();
+    }
   }
 
   private recoverFromTargetMissingError(message: string): void {

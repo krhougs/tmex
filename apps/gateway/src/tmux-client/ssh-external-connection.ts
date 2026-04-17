@@ -153,6 +153,7 @@ export class SshExternalTmuxConnection {
       lastSeenAt: new Date().toISOString(),
       tmuxAvailable: true,
       lastError: null,
+      lastErrorType: null,
     });
     await this.requestSnapshotInternal();
   }
@@ -426,9 +427,11 @@ export class SshExternalTmuxConnection {
           this.handleHookChunk(data.toString());
         },
         onClose: () => {
-          if (!this.manualDisconnect) {
-            this.callbacks.onError(new Error('SSH hook reader closed unexpectedly'));
+          if (this.manualDisconnect) {
+            return;
           }
+          console.error('[ssh] hook reader channel closed unexpectedly, tearing down');
+          void this.shutdownInternal(true);
         },
       }
     );
@@ -616,6 +619,23 @@ export class SshExternalTmuxConnection {
     ]);
 
     if (sessionRes.exitCode !== 0 || windowsRes.exitCode !== 0 || panesRes.exitCode !== 0) {
+      const stderrBlob = `${sessionRes.stderr}\n${windowsRes.stderr}\n${panesRes.stderr}`;
+      if (
+        this.connected &&
+        !this.manualDisconnect &&
+        this.isTmuxServerGoneMessage(stderrBlob)
+      ) {
+        const message = stderrBlob.trim().split(/\r?\n/).find((line) => line.trim())?.trim() ??
+          'tmux server gone';
+        console.warn(`[ssh] tmux server gone during snapshot on ${this.deviceId}: ${message}`);
+        updateDeviceRuntimeStatus(this.deviceId, {
+          lastSeenAt: new Date().toISOString(),
+          tmuxAvailable: false,
+          lastError: message,
+        });
+        void this.shutdownInternal(true);
+        return;
+      }
       this.callbacks.onSnapshot({ deviceId: this.deviceId, session: null });
       return;
     }
@@ -802,9 +822,19 @@ export class SshExternalTmuxConnection {
         }
       },
       onClose: () => {
-        if (!this.manualDisconnect && this.paneReaders.has(paneId)) {
-          this.callbacks.onError(new Error(`SSH pane reader closed unexpectedly: ${paneId}`));
+        if (this.manualDisconnect) {
+          return;
         }
+        const existing = this.paneReaders.get(paneId);
+        if (!existing) {
+          return;
+        }
+        console.warn(
+          `[ssh] pane reader channel closed for ${paneId}, resync on next snapshot`
+        );
+        this.paneReaders.delete(paneId);
+        void this.runShellAllowFailure(`rm -f ${quoteShellArg(existing.fifoPath)}`);
+        this.requestSnapshot();
       },
     });
 
@@ -895,6 +925,11 @@ export class SshExternalTmuxConnection {
       tmuxAvailable: false,
       lastError: message,
     });
+
+    if (this.connected && !this.manualDisconnect && this.isTmuxServerGoneMessage(message)) {
+      console.warn(`[ssh] tmux server gone on ${this.deviceId}: ${message}`);
+      void this.shutdownInternal(true);
+    }
     throw new Error(message);
   }
 
@@ -1055,6 +1090,18 @@ export class SshExternalTmuxConnection {
       normalized.includes("can't find pane") ||
       normalized.includes('no such window') ||
       normalized.includes('no such pane')
+    );
+  }
+
+  private isTmuxServerGoneMessage(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('no server running on') ||
+      normalized.includes('no sessions') ||
+      normalized.includes('lost server') ||
+      normalized.includes("can't find session") ||
+      normalized.includes('session not found') ||
+      normalized.includes('no such session')
     );
   }
 

@@ -501,6 +501,13 @@ export default function DevicePage() {
     );
   }, [deviceConnected, deviceId, navigate, resolvedPaneId, windowId, windows]);
 
+  // 跟踪当前 Terminal 实例已下发过的 SELECT_START：device/pane 变化时 Terminal 重挂载，
+  // 需要让下面的 select 效果重新派发（否则切到其他 device 再切回会命中短路、终端空白）
+  const lastDispatchedSelectRef = useRef<string | null>(null);
+  useEffect(() => {
+    lastDispatchedSelectRef.current = null;
+  }, [deviceId, resolvedPaneId]);
+
   // Select pane when ready
   useEffect(() => {
     if (!deviceId || !windowId || !resolvedPaneId) return;
@@ -509,15 +516,11 @@ export default function DevicePage() {
     // the snapshot may not yet reflect the new window, but we should still send the select command.
     if (isLoading || !deviceConnected) return;
 
-    // Short-circuit: if already selected, don't send again
-    const currentSelected = useTmuxStore.getState().selectedPanes[deviceId];
-    if (
-      currentSelected &&
-      currentSelected.windowId === windowId &&
-      currentSelected.paneId === resolvedPaneId
-    ) {
+    const dispatchKey = `${deviceId}:${windowId}:${resolvedPaneId}`;
+    if (lastDispatchedSelectRef.current === dispatchKey) {
       return;
     }
+    lastDispatchedSelectRef.current = dispatchKey;
 
     const size = getSelectSize(windowId, resolvedPaneId);
     recordSelectRequest(windowId, resolvedPaneId);
