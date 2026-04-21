@@ -6,6 +6,13 @@ import { t } from '../i18n';
 import { runCommand } from './process';
 import { compareSemver } from './semver';
 
+const ANSI_ESCAPE_REGEX = /\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]|\x1b\].*?(?:\x07|\x1b\\)/g;
+
+export function stripAnsi(text: string): string {
+  // 移除 CSI 序列 \x1b[... 和 OSC 序列 \x1b]...（以 \x07 或 \x1b\ 结尾）
+  return text.replace(ANSI_ESCAPE_REGEX, '');
+}
+
 export interface BunCheckResult {
   ok: boolean;
   path?: string;
@@ -22,7 +29,7 @@ async function locateBunFromShell(): Promise<string | null> {
     return null;
   }
 
-  const bin = result.stdout.trim();
+  const bin = stripAnsi(result.stdout).trim();
   if (!bin) {
     return null;
   }
