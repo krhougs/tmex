@@ -18,6 +18,21 @@ function createConfigRefDevice(): Device {
   };
 }
 
+function createAgentDevice(): Device {
+  return {
+    id: 'device-agent',
+    name: 'ssh-agent',
+    type: 'ssh',
+    host: '10.110.88.5',
+    port: 22,
+    username: 'root',
+    authMode: 'agent',
+    session: 'tmex',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 describe('resolveSshConnectConfig', () => {
   test('resolves ssh config alias with SSH_AUTH_SOCK agent', async () => {
     const config = await resolveSshConnectConfig(createConfigRefDevice(), async () => '', {
@@ -74,5 +89,139 @@ describe('resolveSshConnectConfig', () => {
       username: 'alice',
       privateKey: 'PRIVATE_KEY_CONTENT',
     });
+  });
+
+  test('agent mode falls back to implicit identity files with auth handler ordering', async () => {
+    const config = await resolveSshConnectConfig(createAgentDevice(), async () => '', {
+      env: {
+        HOME: '/Users/tester',
+        SSH_AUTH_SOCK: '/tmp/test-agent.sock',
+      },
+      runSync: (cmd) => {
+        expect(cmd).toEqual(['ssh', '-G', '-p', '22', 'root@10.110.88.5']);
+        return {
+          exitCode: 0,
+          stdout: [
+            'host 10.110.88.5',
+            'user root',
+            'hostname 10.110.88.5',
+            'port 22',
+            'identityfile ~/.ssh/id_ed25519',
+          ].join('\n'),
+          stderr: '',
+        };
+      },
+      fileExists: (path: string) =>
+        path === '/tmp/test-agent.sock' || path === '/Users/tester/.ssh/id_ed25519',
+      readTextFile: (path: string) => {
+        expect(path).toBe('/Users/tester/.ssh/id_ed25519');
+        return 'PRIVATE_KEY_CONTENT';
+      },
+    });
+
+    expect(config).toMatchObject({
+      host: '10.110.88.5',
+      port: 22,
+      username: 'root',
+      agent: '/tmp/test-agent.sock',
+    });
+    expect(config.privateKey).toBeUndefined();
+    expect(config.authHandler).toEqual([
+      {
+        type: 'agent',
+        username: 'root',
+        agent: '/tmp/test-agent.sock',
+      },
+      {
+        type: 'publickey',
+        username: 'root',
+        key: 'PRIVATE_KEY_CONTENT',
+      },
+    ]);
+  });
+
+  test('agent mode keeps current behavior when implicit identity file discovery fails', async () => {
+    const config = await resolveSshConnectConfig(createAgentDevice(), async () => '', {
+      env: {
+        HOME: '/Users/tester',
+        SSH_AUTH_SOCK: '/tmp/test-agent.sock',
+      },
+      runSync: (cmd) => {
+        expect(cmd).toEqual(['ssh', '-G', '-p', '22', 'root@10.110.88.5']);
+        return {
+          exitCode: 1,
+          stdout: '',
+          stderr: 'ssh lookup failed',
+        };
+      },
+      fileExists: (path: string) => path === '/tmp/test-agent.sock',
+      readTextFile: () => {
+        throw new Error('readTextFile should not be called when ssh -G fails');
+      },
+    });
+
+    expect(config).toMatchObject({
+      host: '10.110.88.5',
+      port: 22,
+      username: 'root',
+      agent: '/tmp/test-agent.sock',
+    });
+    expect(config.privateKey).toBeUndefined();
+    expect(config.authHandler).toBeUndefined();
+  });
+
+  test('agent mode keeps ssh -G identity file order for multiple readable keys', async () => {
+    const config = await resolveSshConnectConfig(createAgentDevice(), async () => '', {
+      env: {
+        HOME: '/Users/tester',
+        SSH_AUTH_SOCK: '/tmp/test-agent.sock',
+      },
+      runSync: (cmd) => {
+        expect(cmd).toEqual(['ssh', '-G', '-p', '22', 'root@10.110.88.5']);
+        return {
+          exitCode: 0,
+          stdout: [
+            'host 10.110.88.5',
+            'user root',
+            'hostname 10.110.88.5',
+            'port 22',
+            'identityfile ~/.ssh/id_rsa',
+            'identityfile ~/.ssh/id_ed25519',
+          ].join('\n'),
+          stderr: '',
+        };
+      },
+      fileExists: (path: string) =>
+        path === '/tmp/test-agent.sock' ||
+        path === '/Users/tester/.ssh/id_rsa' ||
+        path === '/Users/tester/.ssh/id_ed25519',
+      readTextFile: (path: string) => {
+        if (path === '/Users/tester/.ssh/id_rsa') {
+          return 'RSA_PRIVATE_KEY_CONTENT';
+        }
+        if (path === '/Users/tester/.ssh/id_ed25519') {
+          return 'ED25519_PRIVATE_KEY_CONTENT';
+        }
+        throw new Error(`unexpected path: ${path}`);
+      },
+    });
+
+    expect(config.authHandler).toEqual([
+      {
+        type: 'agent',
+        username: 'root',
+        agent: '/tmp/test-agent.sock',
+      },
+      {
+        type: 'publickey',
+        username: 'root',
+        key: 'RSA_PRIVATE_KEY_CONTENT',
+      },
+      {
+        type: 'publickey',
+        username: 'root',
+        key: 'ED25519_PRIVATE_KEY_CONTENT',
+      },
+    ]);
   });
 });

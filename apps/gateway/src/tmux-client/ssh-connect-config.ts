@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Device } from '@tmex/shared';
-import type { ConnectConfig } from 'ssh2';
+import type { AgentAuthMethod, ConnectConfig, PublicKeyAuthMethod } from 'ssh2';
 
 import type { decryptWithContext } from '../crypto';
 import { resolveSshAgentSocket, resolveSshUsername } from '../tmux/ssh-auth';
@@ -149,6 +149,22 @@ function resolvePrivateKeyFromConfig(
   return undefined;
 }
 
+function resolvePrivateKeysFromConfig(
+  identityFiles: readonly string[],
+  deps: ResolveSshConnectConfigDeps
+): string[] {
+  const privateKeys: string[] = [];
+
+  for (const identityFile of identityFiles) {
+    if (!deps.fileExists(identityFile)) {
+      continue;
+    }
+    privateKeys.push(deps.readTextFile(identityFile));
+  }
+
+  return privateKeys;
+}
+
 function resolveSshConfigRef(
   device: Device,
   deps: ResolveSshConnectConfigDeps
@@ -165,6 +181,31 @@ function resolveSshConfigRef(
   }
 
   return parseSshConfigOutput(result.stdout, deps.env);
+}
+
+function resolveImplicitIdentityFilesForAgentAuth(
+  device: Device,
+  host: string,
+  port: number,
+  username: string,
+  deps: ResolveSshConnectConfigDeps
+): string[] {
+  if (device.authMode !== 'agent' || device.sshConfigRef?.trim()) {
+    return [];
+  }
+
+  const target = username ? `${username}@${host}` : host;
+
+  try {
+    const result = deps.runSync(['ssh', '-G', '-p', String(port), target]);
+    if (result.exitCode !== 0) {
+      return [];
+    }
+
+    return parseSshConfigOutput(result.stdout, deps.env).identityFiles;
+  } catch {
+    return [];
+  }
 }
 
 export async function resolveSshConnectConfig(
@@ -198,6 +239,10 @@ export async function resolveSshConnectConfig(
   const configAgent = resolveAgentFromConfig(resolvedConfig?.identityAgent, deps);
   const envAgent = resolveSshAgentSocket('auto', sshEnv);
   const configPrivateKey = resolvePrivateKeyFromConfig(resolvedConfig?.identityFiles ?? [], deps);
+  const implicitAgentFallbackPrivateKeys = resolvePrivateKeysFromConfig(
+    resolveImplicitIdentityFilesForAgentAuth(device, host, port, username, deps),
+    deps
+  );
 
   switch (device.authMode) {
     case 'password': {
@@ -230,7 +275,24 @@ export async function resolveSshConnectConfig(
       break;
     }
     case 'agent': {
-      authConfig.agent = configAgent ?? resolveSshAgentSocket('agent', sshEnv);
+      const agent = configAgent ?? resolveSshAgentSocket('agent', sshEnv);
+      authConfig.agent = agent;
+      if (implicitAgentFallbackPrivateKeys.length > 0) {
+        const publicKeyFallbacks = implicitAgentFallbackPrivateKeys.map<PublicKeyAuthMethod>((key) => ({
+          type: 'publickey',
+          username,
+          key,
+        }));
+        const authHandler: [AgentAuthMethod, ...PublicKeyAuthMethod[]] = [
+          {
+            type: 'agent',
+            username,
+            agent,
+          },
+          ...publicKeyFallbacks,
+        ];
+        authConfig.authHandler = authHandler;
+      }
       break;
     }
     case 'configRef': {
