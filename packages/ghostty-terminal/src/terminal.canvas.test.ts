@@ -23,6 +23,7 @@ type FakeEvent = {
   target?: EventTarget | null;
   currentTarget?: EventTarget | null;
   preventDefault?: () => void;
+  clipboardData?: { getData: (type: string) => string };
 };
 
 type EventListener = (event: FakeEvent) => void;
@@ -1466,5 +1467,127 @@ describe('SelectionModel', () => {
       { row: 1, x: 0, width: 13 },
       { row: 2, x: 0, width: 4 },
     ]);
+  });
+});
+
+describe('GhosttyTerminalController clipboard and selection API', () => {
+  let dom: ReturnType<typeof installFakeDom> | null = null;
+  let importVersion = 1000;
+
+  afterEach(() => {
+    dom?.restore();
+    dom = null;
+    mock.restore();
+  });
+
+  async function setupTerminal(bindings: FakeBindings) {
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom!.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom!.document.body.appendChild(container);
+    terminal.open(container as unknown as HTMLElement);
+
+    const textarea = findElementsByTag(dom!.document.body, 'div').find(
+      (el) => el.className === 'xterm-helper-textarea'
+    );
+    expect(textarea).toBeDefined();
+
+    const received: string[] = [];
+    terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    return { terminal, textarea: textarea as FakeElement, received };
+  }
+
+  test('copy shortcut should copy once, clear selection, then let Ctrl+C reach the terminal', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    const writes: string[] = [];
+    ((globalThis as any).navigator.clipboard as { writeText: (text: string) => Promise<void> }).writeText =
+      async (text: string) => {
+        writes.push(text);
+      };
+
+    const { terminal, textarea, received } = await setupTerminal(bindings);
+
+    expect(terminal.startTouchSelection(4, 4, 'word')).toBeTrue();
+    expect(terminal.getSelection()).toBe('mock-canvas-line');
+
+    const firstCtrlC: FakeEvent = { type: 'keydown', key: 'c', code: 'KeyC', ctrlKey: true };
+    textarea.dispatchEvent(firstCtrlC);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(firstCtrlC.defaultPrevented).toBeTrue();
+    expect(writes).toEqual(['mock-canvas-line']);
+    expect(terminal.hasSelection()).toBeFalse();
+    expect(received).toEqual([]);
+
+    const secondCtrlC: FakeEvent = { type: 'keydown', key: 'c', code: 'KeyC', ctrlKey: true };
+    textarea.dispatchEvent(secondCtrlC);
+
+    expect(secondCtrlC.defaultPrevented).toBeTrue();
+    expect(received).toEqual(['key:press:22:0']);
+  });
+
+  test('paste shortcuts should bypass key encoding so the browser paste event flows through', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    bindings.encodePaste = (_terminal: number, data: string) => `paste:${data}`;
+
+    const { textarea, received } = await setupTerminal(bindings);
+
+    const ctrlV: FakeEvent = { type: 'keydown', key: 'v', code: 'KeyV', ctrlKey: true };
+    textarea.dispatchEvent(ctrlV);
+    expect(ctrlV.defaultPrevented).toBeFalse();
+
+    const shiftInsert: FakeEvent = { type: 'keydown', key: 'Insert', code: 'Insert', shiftKey: true };
+    textarea.dispatchEvent(shiftInsert);
+    expect(shiftInsert.defaultPrevented).toBeFalse();
+
+    expect(received).toEqual([]);
+
+    const pasteEvent: FakeEvent = {
+      type: 'paste',
+      clipboardData: { getData: () => 'hello world' },
+    };
+    textarea.dispatchEvent(pasteEvent);
+
+    expect(pasteEvent.defaultPrevented).toBeTrue();
+    expect(received).toEqual(['paste:hello world']);
+  });
+
+  test('touch selection API should drive selection state and notify listeners', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    const { terminal } = await setupTerminal(bindings);
+
+    const notifications: Array<string | null> = [];
+    const disposable = terminal.onSelectionChange((text: string | null) => {
+      notifications.push(text);
+    });
+
+    expect(terminal.startTouchSelection(4, 4, 'word')).toBeTrue();
+    terminal.updateTouchSelection(40, 4);
+    terminal.endTouchSelection();
+
+    expect(terminal.hasSelection()).toBeTrue();
+    expect(terminal.getSelection()).toBe('mock-canvas-line');
+    expect(notifications).toEqual(['mock-canvas-line']);
+
+    terminal.clearSelection();
+
+    expect(terminal.hasSelection()).toBeFalse();
+    expect(terminal.getSelection()).toBe('');
+    expect(notifications).toEqual(['mock-canvas-line', null]);
+
+    disposable.dispose();
   });
 });

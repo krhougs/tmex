@@ -131,7 +131,13 @@
       "inputModeEditor": "编辑器",
       "newWindow": "新建窗口",
       "closeWindow": "关闭窗口",
-      "closePane": "关闭 pane"
+      "closePane": "关闭 pane",
+      "copy": "复制",
+      "paste": "粘贴",
+      "copied": "已复制到剪贴板",
+      "copyFailed": "复制失败",
+      "pasteFailed": "无法读取剪贴板，请检查浏览器权限",
+      "clearSelection": "取消选择"
     },
     "settings": {
       "title": "系统设置",

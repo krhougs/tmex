@@ -328,3 +328,49 @@ test('desktop: dragging outside viewport should auto scroll and extend canvas se
     ensureCleanSession(sessionName);
   }
 });
+
+test('desktop: selection toolbar copies via GUI and copy shortcut clears selection', async ({
+  page,
+  request,
+}) => {
+  const sessionName = `tmex-e2e-canvas-selection-toolbar-${Date.now()}`;
+  createTwoPaneSession(sessionName);
+
+  const deviceId = await createDevice(
+    request,
+    sessionName,
+    `e2e-canvas-selection-toolbar-${Date.now()}`
+  );
+
+  try {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto(`/devices/${deviceId}`);
+    await waitForCanvasTerminal(page);
+
+    tmux(`send-keys -t ${sessionName}.0 "printf 'toolbartarget\\r\\n'" C-m`);
+    await expect.poll(() => readVisibleTerminalText(page), { timeout: 20_000 }).toContain(
+      'toolbartarget'
+    );
+
+    await dragVisibleText(page, 'toolbartarget');
+    await expect.poll(() => readSelectionText(page), { timeout: 10_000 }).toBe('toolbartarget');
+    await expect(page.getByTestId('terminal-selection-toolbar')).toBeVisible();
+
+    await page.getByTestId('terminal-selection-copy').click();
+    await expect.poll(() => readClipboardText(page), { timeout: 10_000 }).toContain(
+      'toolbartarget'
+    );
+    await expect.poll(() => readSelectionText(page), { timeout: 10_000 }).toBeNull();
+    await expect(page.getByTestId('terminal-selection-toolbar')).toHaveCount(0);
+
+    await dragVisibleText(page, 'toolbartarget');
+    await expect.poll(() => readSelectionText(page), { timeout: 10_000 }).toBe('toolbartarget');
+
+    await page.keyboard.press(COPY_SHORTCUT);
+    await expect.poll(() => readSelectionText(page), { timeout: 10_000 }).toBeNull();
+    await expect(page.getByTestId('terminal-selection-toolbar')).toHaveCount(0);
+  } finally {
+    await request.delete(`/api/devices/${deviceId}`);
+    ensureCleanSession(sessionName);
+  }
+});

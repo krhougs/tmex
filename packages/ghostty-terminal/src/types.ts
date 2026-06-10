@@ -183,6 +183,17 @@ export interface CompatibleTerminalLike {
   clearMouseTrackingModes?: () => void;
   paste: (data: string) => void;
   focus: () => void;
+  getSelection?: () => string;
+  hasSelection?: () => boolean;
+  clearSelection?: () => void;
+  onSelectionChange?: (callback: (text: string | null) => void) => TerminalDisposable;
+  startTouchSelection?: (
+    clientX: number,
+    clientY: number,
+    mode?: 'character' | 'word' | 'line'
+  ) => boolean;
+  updateTouchSelection?: (clientX: number, clientY: number) => void;
+  endTouchSelection?: () => void;
   onData: (callback: (data: string) => void) => TerminalDisposable;
   attachCustomKeyEventHandler: (
     callback: (event: KeyboardEvent) => boolean

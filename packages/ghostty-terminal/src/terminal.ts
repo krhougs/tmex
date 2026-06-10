@@ -22,6 +22,7 @@ import {
 } from './selection-model';
 import {
   isCopyShortcut,
+  isPasteShortcut,
   writeSelectionToClipboard,
   writeSelectionToCopyEvent,
 } from './selection-clipboard';
@@ -199,6 +200,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private readonly mouseEncoderHandle: number;
   private readonly renderState: GhosttyRenderStateResources;
   private readonly dataListeners = new Set<(data: string) => void>();
+  private readonly selectionListeners = new Set<(text: string | null) => void>();
+  private lastNotifiedSelectionText: string | null = null;
   private readonly addons = new Set<{ dispose: () => void }>();
   private screenElement: HTMLDivElement | null = null;
   private renderer: CanvasRenderer | null = null;
@@ -416,6 +419,57 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
   attachCustomKeyEventHandler(callback: (event: KeyboardEvent) => boolean): void {
     this.customKeyEventHandler = callback;
+  }
+
+  onSelectionChange(callback: (text: string | null) => void): TerminalDisposable {
+    this.selectionListeners.add(callback);
+    return {
+      dispose: () => {
+        this.selectionListeners.delete(callback);
+      },
+    };
+  }
+
+  hasSelection(): boolean {
+    return hasSelection(this.selectionState);
+  }
+
+  getSelection(): string {
+    return this.getSelectionText() ?? '';
+  }
+
+  clearSelection(): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.clearSelectionState();
+  }
+
+  startTouchSelection(clientX: number, clientY: number, mode: SelectionMode = 'word'): boolean {
+    if (this.disposed) {
+      return false;
+    }
+
+    return this.beginSelectionAt(clientX, clientY, mode);
+  }
+
+  updateTouchSelection(clientX: number, clientY: number): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.updateSelectionDrag(clientX, clientY);
+  }
+
+  endTouchSelection(): void {
+    if (this.disposed || !this.pointerDrag.active) {
+      return;
+    }
+
+    this.stopAutoScroll();
+    this.pointerDrag.active = false;
+    this.render();
   }
 
   write(data: string | Uint8Array): void {
@@ -826,9 +880,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     textarea.addEventListener('keydown', (event) => {
       const selectionText = this.getSelectionText();
       if (selectionText && isCopyShortcut(event)) {
-        this.copyShortcutSuppressed = true;
         event.preventDefault();
         void writeSelectionToClipboard(selectionText).catch(() => {});
+        this.clearSelectionState();
+        this.copyShortcutSuppressed = true;
         this.clearTextarea();
         return;
       }
@@ -842,6 +897,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       }
 
       if (event.keyCode === 229) {
+        return;
+      }
+
+      if (isPasteShortcut(event)) {
         return;
       }
 
@@ -1360,19 +1419,18 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
   }
 
-  private beginPointerSelection(event: MouseEvent): void {
-    const point = this.hitTest(event.clientX, event.clientY);
+  private beginSelectionAt(clientX: number, clientY: number, mode: SelectionMode): boolean {
+    const point = this.hitTest(clientX, clientY);
     if (!point) {
-      return;
+      return false;
     }
 
-    const mode = this.selectionModeFromClickDetail(event.detail);
     this.pointerDrag = {
       active: true,
       moved: false,
       mode,
-      lastClientX: event.clientX,
-      lastClientY: event.clientY,
+      lastClientX: clientX,
+      lastClientY: clientY,
     };
     this.selectionState = resolvePointerSelection(
       this.selectionState,
@@ -1384,16 +1442,17 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     );
     this.updateAutoScroll();
     this.render();
+    return true;
   }
 
-  private updatePointerSelection(event: MouseEvent): void {
+  private updateSelectionDrag(clientX: number, clientY: number): void {
     if (!this.pointerDrag.active) {
       return;
     }
 
-    const point = this.hitTest(event.clientX, event.clientY);
-    this.pointerDrag.lastClientX = event.clientX;
-    this.pointerDrag.lastClientY = event.clientY;
+    const point = this.hitTest(clientX, clientY);
+    this.pointerDrag.lastClientX = clientX;
+    this.pointerDrag.lastClientY = clientY;
 
     if (point) {
       this.pointerDrag.moved = true;
@@ -1404,6 +1463,18 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.updateAutoScroll();
+  }
+
+  private beginPointerSelection(event: MouseEvent): void {
+    this.beginSelectionAt(
+      event.clientX,
+      event.clientY,
+      this.selectionModeFromClickDetail(event.detail)
+    );
+  }
+
+  private updatePointerSelection(event: MouseEvent): void {
+    this.updateSelectionDrag(event.clientX, event.clientY);
   }
 
   private finishPointerSelection(event: MouseEvent): void {
@@ -1486,6 +1557,13 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private updateSelectionTextProbe(value: string | null): void {
     (globalThis as { __tmexE2eTerminalSelectionText?: string | null }).__tmexE2eTerminalSelectionText =
       value;
+
+    if (value !== this.lastNotifiedSelectionText) {
+      this.lastNotifiedSelectionText = value;
+      for (const listener of this.selectionListeners) {
+        listener(value);
+      }
+    }
   }
 
   private updateAutoScroll(): void {

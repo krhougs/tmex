@@ -131,7 +131,13 @@
       "inputModeEditor": "エディタ",
       "newWindow": "新規ウィンドウ",
       "closeWindow": "ウィンドウを閉じる",
-      "closePane": "ペインを閉じる"
+      "closePane": "ペインを閉じる",
+      "copy": "コピー",
+      "paste": "貼り付け",
+      "copied": "クリップボードにコピーしました",
+      "copyFailed": "コピーに失敗しました",
+      "pasteFailed": "クリップボードを読み取れません。ブラウザの権限を確認してください",
+      "clearSelection": "選択を解除"
     },
     "settings": {
       "title": "システム設定",

@@ -137,7 +137,13 @@ export const I18N_RESOURCES = {
       "inputModeEditor": "Editor",
       "newWindow": "New Window",
       "closeWindow": "Close Window",
-      "closePane": "Close Pane"
+      "closePane": "Close Pane",
+      "copy": "Copy",
+      "paste": "Paste",
+      "copied": "Copied to clipboard",
+      "copyFailed": "Copy failed",
+      "pasteFailed": "Could not read clipboard, check browser permissions",
+      "clearSelection": "Dismiss selection"
     },
     "settings": {
       "title": "System Settings",
@@ -491,7 +497,13 @@ export const I18N_RESOURCES = {
       "inputModeEditor": "编辑器",
       "newWindow": "新建窗口",
       "closeWindow": "关闭窗口",
-      "closePane": "关闭 pane"
+      "closePane": "关闭 pane",
+      "copy": "复制",
+      "paste": "粘贴",
+      "copied": "已复制到剪贴板",
+      "copyFailed": "复制失败",
+      "pasteFailed": "无法读取剪贴板，请检查浏览器权限",
+      "clearSelection": "取消选择"
     },
     "settings": {
       "title": "系统设置",
@@ -845,7 +857,13 @@ export const I18N_RESOURCES = {
       "inputModeEditor": "エディタ",
       "newWindow": "新規ウィンドウ",
       "closeWindow": "ウィンドウを閉じる",
-      "closePane": "ペインを閉じる"
+      "closePane": "ペインを閉じる",
+      "copy": "コピー",
+      "paste": "貼り付け",
+      "copied": "クリップボードにコピーしました",
+      "copyFailed": "コピーに失敗しました",
+      "pasteFailed": "クリップボードを読み取れません。ブラウザの権限を確認してください",
+      "clearSelection": "選択を解除"
     },
     "settings": {
       "title": "システム設定",

@@ -8,6 +8,13 @@ interface TerminalScroller {
     clientX: number;
     clientY: number;
   }) => boolean;
+  startTouchSelection?: (
+    clientX: number,
+    clientY: number,
+    mode?: 'character' | 'word' | 'line'
+  ) => boolean;
+  updateTouchSelection?: (clientX: number, clientY: number) => void;
+  endTouchSelection?: () => void;
   buffer?: {
     active?: {
       viewportY?: number;
@@ -17,6 +24,8 @@ interface TerminalScroller {
 
 const TOUCH_SCROLL_GAIN = 1.3;
 const SCROLLBAR_TOUCH_HOTZONE_PX = 36;
+const LONG_PRESS_SELECT_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 12;
 
 export function useMobileTouch(
   containerRef: React.RefObject<HTMLElement | null>,
@@ -37,6 +46,17 @@ export function useMobileTouch(
     let touchId: number | null = null;
     let bypassCustomScroll = false;
     let pendingPixelDelta = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let selectionDragActive = false;
+
+    const clearLongPressTimer = () => {
+      if (longPressTimer !== null) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    };
 
     const isScrollbarElement = (target: Element | null): boolean => {
       if (!target) return false;
@@ -98,6 +118,7 @@ export function useMobileTouch(
     };
 
     const handleTouchStart = (event: TouchEvent) => {
+      clearLongPressTimer();
       if (event.touches.length !== 1) return;
       const touch = event.touches.item(0);
       if (!touch) return;
@@ -106,11 +127,40 @@ export function useMobileTouch(
       lastTouchY = touch.clientY;
       pendingPixelDelta = 0;
       bypassCustomScroll = shouldBypassCustomScroll(touch.clientX, touch.clientY, event.target);
+
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      selectionDragActive = false;
+      if (!bypassCustomScroll) {
+        longPressTimer = setTimeout(() => {
+          longPressTimer = null;
+          const terminal = getTerminal?.() ?? null;
+          if (terminal?.startTouchSelection?.(touchStartX, touchStartY, 'word')) {
+            selectionDragActive = true;
+          }
+        }, LONG_PRESS_SELECT_MS);
+      }
     };
 
     const handleTouchMove = (event: TouchEvent) => {
       const touch = findTouchById(event.touches) ?? event.touches.item(0);
       if (!touch) return;
+
+      if (selectionDragActive) {
+        const terminal = getTerminal?.() ?? null;
+        terminal?.updateTouchSelection?.(touch.clientX, touch.clientY);
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        return;
+      }
+      if (longPressTimer !== null) {
+        const moved = Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY);
+        if (moved > LONG_PRESS_MOVE_TOLERANCE_PX) {
+          clearLongPressTimer();
+        }
+      }
+
       if (!bypassCustomScroll) {
         bypassCustomScroll = shouldBypassCustomScroll(touch.clientX, touch.clientY, event.target);
         if (bypassCustomScroll) {
@@ -154,7 +204,8 @@ export function useMobileTouch(
             terminal.scrollLines(linesToScroll);
             const afterViewportY = terminal.buffer?.active?.viewportY ?? 0;
             didScroll = beforeViewportY !== afterViewportY;
-            atTopWhilePullingDown = linesToScroll < 0 && beforeViewportY <= 0 && afterViewportY <= 0;
+            atTopWhilePullingDown =
+              linesToScroll < 0 && beforeViewportY <= 0 && afterViewportY <= 0;
             pendingPixelDelta -= linesToScroll * lineHeight;
           }
         }
@@ -196,25 +247,40 @@ export function useMobileTouch(
     };
 
     const handleTouchEnd = (event: TouchEvent) => {
+      clearLongPressTimer();
       if (touchId === null) return;
       const endedTouch = findTouchById(event.changedTouches);
       if (!endedTouch) return;
       touchId = null;
       pendingPixelDelta = 0;
       bypassCustomScroll = false;
+      if (selectionDragActive) {
+        selectionDragActive = false;
+        const terminal = getTerminal?.() ?? null;
+        terminal?.endTouchSelection?.();
+      }
+    };
+
+    const handleContextMenu = (event: Event) => {
+      if (selectionDragActive) {
+        event.preventDefault();
+      }
     };
 
     container.addEventListener('touchstart', handleTouchStart, { passive: true });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
     container.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    container.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       isActiveRef.current = false;
+      clearLongPressTimer();
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
+      container.removeEventListener('contextmenu', handleContextMenu);
     };
   }, [containerRef, getTerminal]);
 

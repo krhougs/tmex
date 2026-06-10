@@ -94,6 +94,13 @@ function SidebarProvider({
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return
+      }
+      // 终端聚焦时按键（含 tmux 前缀 Ctrl+B）归终端，不触发侧栏快捷键
+      if (event.target instanceof HTMLElement && event.target.closest(".xterm")) {
+        return
+      }
       if (
         event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
         (event.metaKey || event.ctrlKey)

@@ -1,9 +1,12 @@
+import { useTmuxStore } from '@/stores/tmux';
+import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
 import {
+  type CompatibleTerminalLike,
   FitAddon,
+  type GhosttyTerminalModeSnapshot,
   TERMINAL_ENGINE,
   createTerminalController,
-  type CompatibleTerminalLike,
-  type GhosttyTerminalModeSnapshot,
+  writeTextToClipboard,
 } from 'ghostty-terminal';
 import {
   forwardRef,
@@ -14,14 +17,15 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useTmuxStore } from '@/stores/tmux';
-import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
-import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { SelectionToolbar } from './SelectionToolbar';
 import {
   normalizeHistoryForTerminal,
   normalizeLiveOutputForTerminal,
   wrapAlternateScreenHistory,
 } from './normalization';
+import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
 import type { TerminalProps, TerminalRef } from './types';
 import { useMobileTouch } from './useMobileTouch';
 import { useTerminalResize } from './useTerminalResize';
@@ -55,7 +59,9 @@ function writeTerminalModeCache(
 ): void {
   try {
     const raw = sessionStorage.getItem(TERMINAL_MODE_CACHE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Record<string, GhosttyTerminalModeSnapshot | undefined>) : {};
+    const parsed = raw
+      ? (JSON.parse(raw) as Record<string, GhosttyTerminalModeSnapshot | undefined>)
+      : {};
     const key = `${deviceId}:${paneId}`;
     if (snapshot) {
       parsed[key] = snapshot;
@@ -156,7 +162,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     ref
   ) => {
     const [instance, setInstance] = useState<CompatibleTerminalLike | null>(null);
+    const [hasSelection, setHasSelection] = useState(false);
     const sendInput = useTmuxStore((state) => state.sendInput);
+    const { t } = useTranslation();
 
     const terminalTheme = useMemo(() => {
       switch (theme) {
@@ -484,6 +492,64 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       paneId,
     ]);
 
+    useEffect(() => {
+      if (!instance?.onSelectionChange) {
+        setHasSelection(false);
+        return;
+      }
+
+      const disposable = instance.onSelectionChange((text) => {
+        setHasSelection(Boolean(text));
+      });
+
+      return () => {
+        disposable.dispose();
+        setHasSelection(false);
+      };
+    }, [instance]);
+
+    const handleCopySelection = useCallback(() => {
+      if (!instance) return;
+      const text = instance.getSelection?.() ?? '';
+      if (!text) return;
+
+      void writeTextToClipboard(text)
+        .then(() => {
+          toast.success(t('terminal.copied'));
+        })
+        .catch(() => {
+          toast.error(t('terminal.copyFailed'));
+        })
+        .finally(() => {
+          instance.clearSelection?.();
+          instance.focus();
+        });
+    }, [instance, t]);
+
+    const handlePasteClipboard = useCallback(() => {
+      if (!instance) return;
+
+      const read = navigator.clipboard?.readText
+        ? navigator.clipboard.readText()
+        : Promise.reject<string>(new Error('clipboard unavailable'));
+      void read
+        .then((text) => {
+          if (text) {
+            instance.paste(text);
+          }
+          instance.clearSelection?.();
+          instance.focus();
+        })
+        .catch(() => {
+          toast.error(t('terminal.pasteFailed'));
+        });
+    }, [instance, t]);
+
+    const handleDismissSelection = useCallback(() => {
+      instance?.clearSelection?.();
+      instance?.focus();
+    }, [instance]);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -548,6 +614,13 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         data-terminal-engine={TERMINAL_ENGINE}
       >
         <div ref={mountRef} className="absolute inset-0" />
+        <SelectionToolbar
+          visible={hasSelection}
+          canPaste={inputMode === 'direct' && deviceConnected && !isSelectionInvalid}
+          onCopy={handleCopySelection}
+          onPaste={handlePasteClipboard}
+          onDismiss={handleDismissSelection}
+        />
       </div>
     );
   }

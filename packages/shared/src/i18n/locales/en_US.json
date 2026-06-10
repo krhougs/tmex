@@ -131,7 +131,13 @@
       "inputModeEditor": "Editor",
       "newWindow": "New Window",
       "closeWindow": "Close Window",
-      "closePane": "Close Pane"
+      "closePane": "Close Pane",
+      "copy": "Copy",
+      "paste": "Paste",
+      "copied": "Copied to clipboard",
+      "copyFailed": "Copy failed",
+      "pasteFailed": "Could not read clipboard, check browser permissions",
+      "clearSelection": "Dismiss selection"
     },
     "settings": {
       "title": "System Settings",

@@ -482,3 +482,148 @@ test('mobile: terminal can scroll with touch gesture', async ({ page, request })
     ensureCleanSession(sessionName);
   }
 });
+
+test('mobile: long press should select word and selection toolbar copies it', async ({
+  page,
+  request,
+}) => {
+  const sessionName = `tmex-e2e-mobile-longpress-${Date.now()}`;
+  createTwoPaneSession(sessionName);
+
+  const createRes = await request.post('/api/devices', {
+    data: {
+      name: `e2e-mobile-longpress-${Date.now()}`,
+      type: 'local',
+      session: sessionName,
+      authMode: 'auto',
+    },
+  });
+  expect(createRes.ok()).toBeTruthy();
+  const created = (await createRes.json()) as { device: { id: string } };
+  const deviceId = created.device.id;
+
+  try {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto(`/devices/${deviceId}`);
+    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+
+    tmux(`send-keys -t ${sessionName}.0 "printf 'longpress_target\\r\\n'" C-m`);
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const term = (window as any).__tmexE2eXterm;
+            if (!term) return '';
+            const buffer = term.buffer.active;
+            const lines: string[] = [];
+            for (let y = buffer.viewportY; y < Math.min(buffer.length, buffer.viewportY + term.rows); y += 1) {
+              const line = buffer.getLine(y);
+              lines.push(line ? line.translateToString(false) : '');
+            }
+            return lines.join('\n');
+          }),
+        { timeout: 20_000 }
+      )
+      .toContain('longpress_target');
+
+    const point = await page.evaluate(() => {
+      const term = (window as any).__tmexE2eXterm;
+      const canvas = document.querySelector('.xterm canvas');
+      if (!term || !(canvas instanceof HTMLCanvasElement)) {
+        throw new Error('terminal not ready');
+      }
+      const rect = canvas.getBoundingClientRect();
+      const cell = term._core?._renderService?.dimensions?.css?.cell;
+      const buffer = term.buffer.active;
+      for (let y = buffer.viewportY; y < Math.min(buffer.length, buffer.viewportY + term.rows); y += 1) {
+        const line = buffer.getLine(y);
+        const text = line ? line.translateToString(false) : '';
+        const col = text.indexOf('longpress_target');
+        if (col >= 0) {
+          return {
+            x: rect.left + (col + 3.5) * Number(cell?.width ?? 9),
+            y: rect.top + (y - buffer.viewportY + 0.5) * Number(cell?.height ?? 17),
+          };
+        }
+      }
+      throw new Error('text not found');
+    });
+
+    await page.evaluate(({ x, y }) => {
+      const target = document.querySelector('.xterm');
+      if (!(target instanceof HTMLElement)) throw new Error('no terminal');
+      const touch = new Touch({
+        identifier: 7,
+        target,
+        clientX: x,
+        clientY: y,
+        pageX: x,
+        pageY: y,
+        radiusX: 1,
+        radiusY: 1,
+        rotationAngle: 0,
+        force: 1,
+      });
+      target.dispatchEvent(
+        new TouchEvent('touchstart', {
+          bubbles: true,
+          cancelable: true,
+          touches: [touch],
+          targetTouches: [touch],
+          changedTouches: [touch],
+        })
+      );
+    }, point);
+
+    await page.waitForTimeout(800);
+
+    await page.evaluate(({ x, y }) => {
+      const target = document.querySelector('.xterm');
+      if (!(target instanceof HTMLElement)) throw new Error('no terminal');
+      const touch = new Touch({
+        identifier: 7,
+        target,
+        clientX: x,
+        clientY: y,
+        pageX: x,
+        pageY: y,
+        radiusX: 1,
+        radiusY: 1,
+        rotationAngle: 0,
+        force: 1,
+      });
+      target.dispatchEvent(
+        new TouchEvent('touchend', {
+          bubbles: true,
+          cancelable: true,
+          touches: [],
+          targetTouches: [],
+          changedTouches: [touch],
+        })
+      );
+    }, point);
+
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as any).__tmexE2eTerminalSelectionText ?? null),
+        { timeout: 10_000 }
+      )
+      .toBe('longpress_target');
+    await expect(page.getByTestId('terminal-selection-toolbar')).toBeVisible();
+
+    await page.getByTestId('terminal-selection-copy').click();
+    await expect
+      .poll(() => page.evaluate(async () => navigator.clipboard.readText()), { timeout: 10_000 })
+      .toContain('longpress_target');
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as any).__tmexE2eTerminalSelectionText ?? null),
+        { timeout: 10_000 }
+      )
+      .toBeNull();
+  } finally {
+    await request.delete(`/api/devices/${deviceId}`);
+    ensureCleanSession(sessionName);
+  }
+});
