@@ -303,6 +303,19 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       (instance as any).setDisableStdin(inputMode === 'editor');
     }, [instance, inputMode]);
 
+    // direct 模式下终端就绪（刷新、切换 pane 导致的重新挂载）或从 editor 切回时，
+    // 焦点应回到终端；移动端跳过，避免自动弹出软键盘
+    useEffect(() => {
+      if (!instance || inputMode !== 'direct') {
+        return;
+      }
+      const isMobileLike = window.innerWidth < 768 || 'ontouchstart' in window;
+      if (isMobileLike) {
+        return;
+      }
+      instance.focus();
+    }, [instance, inputMode]);
+
     const callbacks: SelectCallbacks = useMemo(() => {
       if (!instance) {
         return {};
