@@ -112,7 +112,9 @@ const ShortcutsBar = memo(function ShortcutsBar({
             title={shortcut.label}
             aria-label={shortcut.label}
             data-testid={`editor-shortcut-${shortcut.key}`}
-            onPointerDown={(e) => e.preventDefault()}
+            // 用 mousedown 而非 pointerdown 阻止焦点转移：部分 iOS WebKit 版本
+            // 对 pointerdown 调 preventDefault 会连带吞掉合成的 click，导致按钮不可点
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               onSend(shortcut.payload);
               if (isMobile && inputMode === 'editor') {
@@ -1140,7 +1142,7 @@ export default function DevicePage() {
                 variant="outline"
                 size="sm"
                 data-testid="editor-clear"
-                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setEditorText('');
                   if (draftKey) {
@@ -1159,7 +1161,7 @@ export default function DevicePage() {
                 variant="secondary"
                 size="sm"
                 data-testid="editor-send-line-by-line"
-                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   handleEditorSendLineByLine();
                   if (isMobile && inputMode === 'editor') {
@@ -1179,7 +1181,7 @@ export default function DevicePage() {
                 variant="default"
                 size="sm"
                 data-testid="editor-send"
-                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   handleEditorSend();
                   if (isMobile && inputMode === 'editor') {
