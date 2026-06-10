@@ -321,7 +321,7 @@ export const EnvelopeSchema = b.struct({
   - `paneUrl: option(string)`
 - output：保留空 schema（`{}`），当前仍通过 `TERM_CHUNK` / `TERM_HISTORY` 传输终端字节流。
 - notification：
-  - `source: u8`（1=`osc9`，2=`osc777`，3=`osc1337`）
+  - `source: u8`（1=`osc9`，2=`osc777`，3=`osc1337`，4=`osc99`）
   - `title: option(string)`
   - `body: string`
   - `windowId: option(string)`

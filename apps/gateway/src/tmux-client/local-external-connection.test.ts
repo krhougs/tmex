@@ -29,7 +29,8 @@ function isConfigureSessionOptionCommand(command: string, session: string): bool
     command === `set-option -t ${session} -s allow-passthrough off` ||
     command === `set-option -t ${session} -g extended-keys on` ||
     command === `set-option -t ${session} -s extended-keys-format csi-u` ||
-    command === `set-option -t ${session} -g focus-events on`
+    command === `set-option -t ${session} -g focus-events on` ||
+    command === `set-environment -t ${session} TERM_PROGRAM ghostty`
   );
 }
 
@@ -67,6 +68,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => true,
         getDevice: () => createDevice('tmex-configure'),
         run: async (argv) => {
           calls.push(argv);
@@ -81,7 +83,9 @@ describe('LocalExternalTmuxConnection', () => {
             command === 'set-option -t tmex-configure -s allow-passthrough off' ||
             command === 'set-option -t tmex-configure -g extended-keys on' ||
             command === 'set-option -t tmex-configure -s extended-keys-format csi-u' ||
-            command === 'set-option -t tmex-configure -g focus-events on'
+            command === 'set-option -t tmex-configure -g focus-events on' ||
+            command === 'set-environment -t tmex-configure TERM_PROGRAM ghostty' ||
+            command === 'set-option -t tmex-configure default-terminal xterm-ghostty'
           ) {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
@@ -120,6 +124,12 @@ describe('LocalExternalTmuxConnection', () => {
     expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
       'set-option -t tmex-configure -g focus-events on'
     );
+    expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
+      'set-environment -t tmex-configure TERM_PROGRAM ghostty'
+    );
+    expect(calls.map((argv) => argv.slice(1).join(' '))).toContain(
+      'set-option -t tmex-configure default-terminal xterm-ghostty'
+    );
     expect(syncCalls).toBe(1);
   });
 
@@ -139,6 +149,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-select-pane'),
         run: async (argv) => {
           const command = argv.slice(1).join(' ');
@@ -149,7 +160,8 @@ describe('LocalExternalTmuxConnection', () => {
             command === 'set-option -t tmex-select-pane -s allow-passthrough off' ||
             command === 'set-option -t tmex-select-pane -g extended-keys on' ||
             command === 'set-option -t tmex-select-pane -s extended-keys-format csi-u' ||
-            command === 'set-option -t tmex-select-pane -g focus-events on'
+            command === 'set-option -t tmex-select-pane -g focus-events on' ||
+            command === 'set-environment -t tmex-select-pane TERM_PROGRAM ghostty'
           ) {
             return { exitCode: 0, stdout: '', stderr: '' };
           }
@@ -205,6 +217,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-sync-readers'),
         run: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
       }
@@ -296,6 +309,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-snapshot'),
         run: async (argv) => {
           calls.push(argv);
@@ -341,6 +355,7 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux set-option -t tmex-snapshot -g extended-keys on',
       'tmux set-option -t tmex-snapshot -s extended-keys-format csi-u',
       'tmux set-option -t tmex-snapshot -g focus-events on',
+      'tmux set-environment -t tmex-snapshot TERM_PROGRAM ghostty',
       'tmux display-message -p -t tmex-snapshot #{session_id}\t#{session_name}',
       'tmux list-windows -t tmex-snapshot -F #{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
       'tmux list-panes -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}',
@@ -391,6 +406,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-input'),
         run: async (argv) => {
           commands.push(argv);
@@ -457,6 +473,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-input-serial'),
         run: async (argv) => {
           commands.push(argv);
@@ -526,6 +543,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => ({ ...createDevice('tmex-cleanup-safe'), id: deviceId }),
         run: async (argv) => {
           const command = argv.slice(1).join(' ');
@@ -578,6 +596,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-resize'),
         run: async (argv) => {
           commands.push(argv);
@@ -637,6 +656,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-alt-fallback'),
         run: async (argv) => {
           const command = argv.slice(1).join(' ');
@@ -683,6 +703,7 @@ describe('LocalExternalTmuxConnection', () => {
       },
       {
         enableHooks: false,
+        ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-alt-visible'),
         run: async (argv) => {
           const command = argv.slice(1).join(' ');

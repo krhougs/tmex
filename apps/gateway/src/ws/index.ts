@@ -782,7 +782,10 @@ export class WebSocketServer {
 
     const raw = (event.data as Record<string, unknown> | undefined) ?? {};
     const source =
-      raw.source === 'osc9' || raw.source === 'osc777' || raw.source === 'osc1337'
+      raw.source === 'osc9' ||
+      raw.source === 'osc99' ||
+      raw.source === 'osc777' ||
+      raw.source === 'osc1337'
         ? raw.source
         : 'osc9';
     const title = typeof raw.title === 'string' && raw.title ? raw.title : undefined;

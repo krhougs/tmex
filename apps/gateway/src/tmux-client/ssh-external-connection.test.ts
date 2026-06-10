@@ -37,7 +37,8 @@ function isConfigureSessionOptionPayload(payload: string, session: string): bool
     payload.includes(`'set-option' '-t' '${session}' '-s' 'allow-passthrough' 'off'`) ||
     payload.includes(`'set-option' '-t' '${session}' '-g' 'extended-keys' 'on'`) ||
     payload.includes(`'set-option' '-t' '${session}' '-s' 'extended-keys-format' 'csi-u'`) ||
-    payload.includes(`'set-option' '-t' '${session}' '-g' 'focus-events' 'on'`)
+    payload.includes(`'set-option' '-t' '${session}' '-g' 'focus-events' 'on'`) ||
+    payload.includes(`'set-environment' '-t' '${session}' 'TERM_PROGRAM' 'ghostty'`)
   );
 }
 
@@ -131,7 +132,8 @@ describe('SshExternalTmuxConnection', () => {
         payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-s' 'allow-passthrough' 'off'") ||
         payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'extended-keys' 'on'") ||
         payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-s' 'extended-keys-format' 'csi-u'") ||
-        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'focus-events' 'on'")
+        payload.includes("'set-option' '-t' 'tmex-ssh-configure' '-g' 'focus-events' 'on'") ||
+        payload.includes("'set-environment' '-t' 'tmex-ssh-configure' 'TERM_PROGRAM' 'ghostty'")
       ) {
         stdout = '';
       } else if (
@@ -235,6 +237,7 @@ describe('SshExternalTmuxConnection', () => {
       } else if (
         payload.includes("'select-window' '-t' '@1'") ||
         payload.includes("'select-pane' '-t' '%1'") ||
+        payload.includes("'set-environment' '-t' 'tmex-ssh-select-pane' 'TERM_PROGRAM' 'ghostty'") ||
         payload.includes("'display-message' '-p' '-t' '%1' '#{alternate_on}'")
       ) {
         stdout = payload.includes("'display-message' '-p' '-t' '%1' '#{alternate_on}'") ? '0\n' : '';

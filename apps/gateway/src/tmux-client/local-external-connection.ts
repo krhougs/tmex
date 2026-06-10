@@ -8,6 +8,7 @@ import { buildLocalTmuxEnv, getLocalShellPath } from '../tmux/local-shell-path';
 import { quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
 import { createRuntimeFsPaths } from './fs-paths';
+import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
 import { createPaneStreamParser, type PaneStreamNotification } from './pane-stream-parser';
 
@@ -21,6 +22,7 @@ interface LocalExternalTmuxConnectionDeps {
   enableHooks: boolean;
   getDevice: (deviceId: string) => Device | null;
   run: (argv: string[]) => Promise<CommandResult>;
+  ensureGhosttyTerminfo: () => Promise<boolean>;
 }
 
 interface PaneReaderHandle {
@@ -112,6 +114,12 @@ export class LocalExternalTmuxConnection {
       enableHooks: inputDeps.enableHooks ?? true,
       getDevice: inputDeps.getDevice ?? ((deviceId) => getDeviceById(deviceId)),
       run: inputDeps.run ?? defaultRun,
+      ensureGhosttyTerminfo:
+        inputDeps.ensureGhosttyTerminfo ??
+        (async () => {
+          const result = await this.deps.run(['/bin/sh', '-c', buildEnsureGhosttyTerminfoScript()]);
+          return result.exitCode === 0;
+        }),
     };
   }
 
@@ -296,6 +304,26 @@ export class LocalExternalTmuxConnection {
       'csi-u',
     ]);
     await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'on']);
+
+    const termProgram = config.tmuxTermProgram.trim();
+    if (termProgram && termProgram.toLowerCase() !== 'off') {
+      await this.runTmuxAllowFailure([
+        'set-environment',
+        '-t',
+        this.sessionName,
+        'TERM_PROGRAM',
+        termProgram,
+      ]);
+      if (termProgram === 'ghostty' && (await this.deps.ensureGhosttyTerminfo())) {
+        await this.runTmuxAllowFailure([
+          'set-option',
+          '-t',
+          this.sessionName,
+          'default-terminal',
+          'xterm-ghostty',
+        ]);
+      }
+    }
   }
 
   private ensureRuntimeDirs(): void {

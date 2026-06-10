@@ -227,7 +227,7 @@ export interface TmuxBellEventData {
   paneUrl?: string;
 }
 
-export type NotificationSource = 'osc9' | 'osc777' | 'osc1337';
+export type NotificationSource = 'osc9' | 'osc99' | 'osc777' | 'osc1337';
 
 export interface TmuxNotificationEventData {
   source: NotificationSource;

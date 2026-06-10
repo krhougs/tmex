@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { createPaneStreamParser } from './pane-stream-parser';
 
 type NotificationRecord = {
-  source: 'osc9' | 'osc777' | 'osc1337';
+  source: 'osc9' | 'osc99' | 'osc777' | 'osc1337';
   title?: string;
   body: string;
 };
@@ -255,5 +255,130 @@ describe('pane stream parser', () => {
       },
     ]);
     expect(bells).toEqual([]);
+  });
+
+  test('unwraps tmux passthrough wrapped OSC 9 notification (Claude Code in tmux)', () => {
+    const notifications: NotificationRecord[] = [];
+    const bells: number[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell() {
+        bells.push(1);
+      },
+      onNotification(notification: NotificationRecord) {
+        notifications.push(notification);
+      },
+    });
+
+    // \x1bPtmux;\x1b\x1b]9;task done\x07\x1b\\ —— 内层 ESC 翻倍，BEL 终结内层 OSC
+    const output = parser.push(
+      bytes('A', 0x1b, 'Ptmux;', 0x1b, 0x1b, ']9;task done', 0x07, 0x1b, 0x5c, 'B')
+    );
+
+    expect(Array.from(output)).toEqual(Array.from(bytes('AB')));
+    expect(notifications).toEqual([{ source: 'osc9', body: 'task done' }]);
+    expect(bells).toEqual([]);
+  });
+
+  test('unwraps tmux passthrough wrapped OSC 777 with ST terminator split across pushes', () => {
+    const notifications: NotificationRecord[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell: () => {},
+      onNotification(notification: NotificationRecord) {
+        notifications.push(notification);
+      },
+    });
+
+    // 内层 OSC 777 用 ST 终结：包装后为 ESC ESC ] ... ESC ESC \ + 外层 ESC \
+    const wrapped = bytes(
+      0x1b,
+      'Ptmux;',
+      0x1b,
+      0x1b,
+      ']777;notify;Claude;done',
+      0x1b,
+      0x1b,
+      0x5c,
+      0x1b,
+      0x5c
+    );
+    parser.push(wrapped.slice(0, 12));
+    parser.push(wrapped.slice(12));
+
+    expect(notifications).toEqual([
+      { source: 'osc777', title: 'Claude', body: 'done' },
+    ]);
+  });
+
+  test('aggregates kitty OSC 99 notification fragments by id (Claude Code kitty channel)', () => {
+    const notifications: NotificationRecord[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell: () => {},
+      onNotification(notification: NotificationRecord) {
+        notifications.push(notification);
+      },
+    });
+
+    const output = parser.push(
+      bytes(
+        0x1b,
+        0x5d,
+        '99;i=42:d=0:p=title;Claude Code',
+        0x1b,
+        0x5c,
+        0x1b,
+        0x5d,
+        '99;i=42:p=body;Task finished',
+        0x1b,
+        0x5c,
+        0x1b,
+        0x5d,
+        '99;i=42:d=1:a=focus;',
+        0x1b,
+        0x5c,
+        'Z'
+      )
+    );
+
+    expect(Array.from(output)).toEqual(Array.from(bytes('Z')));
+    expect(notifications).toEqual([
+      { source: 'osc99', title: 'Claude Code', body: 'Task finished' },
+    ]);
+  });
+
+  test('passes through non-tmux DCS sequences unchanged', () => {
+    const notifications: NotificationRecord[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell: () => {},
+      onNotification(notification: NotificationRecord) {
+        notifications.push(notification);
+      },
+    });
+
+    const dcs = bytes('A', 0x1b, 'P+q544e', 0x1b, 0x5c, 'B');
+    const output = parser.push(dcs);
+
+    expect(Array.from(output)).toEqual(Array.from(dcs));
+    expect(notifications).toEqual([]);
+  });
+
+  test('keeps OSC body intact when payload contains ESC followed by regular bytes', () => {
+    const notifications: NotificationRecord[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell: () => {},
+      onNotification(notification: NotificationRecord) {
+        notifications.push(notification);
+      },
+    });
+
+    // payload 中混入 ESC x：应保留并回到 body 状态，由 BEL 正常终结
+    const output = parser.push(bytes(0x1b, 0x5d, '9;ab', 0x1b, 'xcd', 0x07, 'Z'));
+
+    expect(Array.from(output)).toEqual(Array.from(bytes('Z')));
+    expect(notifications).toEqual([{ source: 'osc9', body: 'ab\u001bxcd' }]);
   });
 });

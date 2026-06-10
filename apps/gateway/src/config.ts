@@ -29,6 +29,7 @@ export const config = {
     10
   ),
   tmuxAllowPassthrough: getBooleanEnv('TMEX_TMUX_ALLOW_PASSTHROUGH', false),
+  tmuxTermProgram: getEnv('TMEX_TMUX_TERM_PROGRAM', 'ghostty'),
   sshReconnectMaxRetriesDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_MAX_RETRIES', '2'), 10),
   sshReconnectDelaySecondsDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_DELAY_SECONDS', '10'), 10),
   languageDefault: getEnv('TMEX_DEFAULT_LANGUAGE', 'en_US'),

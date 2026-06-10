@@ -19,12 +19,14 @@ const notificationSourceToU8: Record<NotificationSource, number> = {
   osc9: 1,
   osc777: 2,
   osc1337: 3,
+  osc99: 4,
 };
 
 const notificationSourceFromU8: Record<number, NotificationSource> = {
   1: 'osc9',
   2: 'osc777',
   3: 'osc1337',
+  4: 'osc99',
 };
 
 // ========== Domain -> Wire 编码 ==========

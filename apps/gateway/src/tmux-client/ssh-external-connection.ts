@@ -8,6 +8,7 @@ import { resolveSshAgentSocket, resolveSshUsername } from '../tmux/ssh-auth';
 import { joinShellArgs, quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
 import { createRuntimeFsPaths } from './fs-paths';
+import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
 import { createPaneStreamParser, type PaneStreamNotification } from './pane-stream-parser';
 import { resolveSshConnectConfig } from './ssh-connect-config';
@@ -411,6 +412,35 @@ export class SshExternalTmuxConnection {
       'csi-u',
     ]);
     await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'on']);
+
+    const termProgram = config.tmuxTermProgram.trim();
+    if (termProgram && termProgram.toLowerCase() !== 'off') {
+      await this.runTmuxAllowFailure([
+        'set-environment',
+        '-t',
+        this.sessionName,
+        'TERM_PROGRAM',
+        termProgram,
+      ]);
+      if (termProgram === 'ghostty' && (await this.ensureGhosttyTerminfo())) {
+        await this.runTmuxAllowFailure([
+          'set-option',
+          '-t',
+          this.sessionName,
+          'default-terminal',
+          'xterm-ghostty',
+        ]);
+      }
+    }
+  }
+
+  private async ensureGhosttyTerminfo(): Promise<boolean> {
+    try {
+      const result = await this.runShellAllowFailure(buildEnsureGhosttyTerminfoScript(), 15000);
+      return result.exitCode === 0;
+    } catch {
+      return false;
+    }
   }
 
   private async startHooks(): Promise<void> {
