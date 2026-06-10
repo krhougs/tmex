@@ -247,6 +247,7 @@ npm pack --dry-run --workspace tmex-cli
 | `TMEX_MASTER_KEY`              | 是 / Yes        | —                       | 加密主密钥（生产环境必需）/ Master encryption key (required in production)                                                                                             |
 | `TMEX_BASE_URL`                | 否 / No         | `http://127.0.0.1:9883` | 站点访问 URL / Site access URL                                                                                                                                         |
 | `TMEX_TMUX_ALLOW_PASSTHROUGH`  | 否 / No         | `false`                 | 是否在受管 tmux session 上启用 `allow-passthrough`。默认关闭，避免把 pane 内终端私有控制序列直接透传到宿主终端 / Whether to enable tmux `allow-passthrough` on managed sessions. Disabled by default to avoid forwarding private terminal control sequences from panes directly to the host terminal |
+| `TMEX_TMUX_TERM_PROGRAM`       | 否 / No         | `ghostty`               | 受管 tmux 会话向 pane 内程序声明的终端身份。为 `ghostty` 时会在宿主缺少 terminfo 的情况下自动安装 `xterm-ghostty` 并把 tmux `default-terminal` 设为 `xterm-ghostty`（server 级选项，影响该 tmux server 全部会话），使 Claude Code 等程序的终端自动探测识别为 ghostty。设为 `off` 关闭 / Terminal identity announced to programs inside managed tmux sessions. With `ghostty`, tmex auto-installs the `xterm-ghostty` terminfo if missing and sets tmux `default-terminal` to `xterm-ghostty` (a server-wide option), so tools like Claude Code auto-detect ghostty. Set `off` to disable |
 | `TMEX_SITE_NAME`               | 否 / No         | `tmex`                  | 站点名称 / Site name                                                                                                                                                   |
 | `GATEWAY_PORT`                 | 否 / No         | `9663`                  | Gateway 服务端口 / Gateway service port                                                                                                                                |
 | `FE_PORT`                      | 否 / No         | `9883`                  | 前端服务端口 / Frontend service port                                                                                                                                   |
@@ -260,6 +261,10 @@ npm pack --dry-run --workspace tmex-cli
 - [部署指南 / Deployment Guide](docs/2026021000-tmex-bootstrap/deployment.md)
 - [架构文档 / Architecture](docs/2026021000-tmex-bootstrap/architecture.md)
 - [发布流程 / Release Process](docs/release/2026041300-cli-release-process.md)
+
+### 已知问题 / Known Issues
+
+- [多个 gateway 接入同一 tmux 会话导致终端互相失效 / Multiple gateways attached to the same tmux session break each other's terminals](docs/operations/2026061100-known-issue-dual-gateway-pipe-pane-conflict.md)
 
 ## License
 
