@@ -75,6 +75,8 @@ export default defineConfig({
       command: `${bunExecutable} run dev`,
       env: {
         ...process.env,
+        // shell 可能继承安装版 app.env 的 NODE_ENV=production，会污染 vite dev 的依赖预打包
+        NODE_ENV: 'development',
         FE_PORT: String(fePort),
         TMEX_GATEWAY_URL: `http://localhost:${gatewayPort}`,
       },
