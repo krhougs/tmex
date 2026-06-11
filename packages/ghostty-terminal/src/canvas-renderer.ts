@@ -38,6 +38,30 @@ function colorToCss(color: GhosttyColorRgb): string {
   return `rgb(${color.r} ${color.g} ${color.b})`;
 }
 
+// U+2596–U+259F quadrant 块的象限组合：UL=1、UR=2、LL=4、LR=8
+const QUADRANT_FLAGS = new Map<number, number>([
+  [0x2596, 0b0100],
+  [0x2597, 0b1000],
+  [0x2598, 0b0001],
+  [0x2599, 0b1101],
+  [0x259a, 0b1001],
+  [0x259b, 0b0111],
+  [0x259c, 0b1011],
+  [0x259d, 0b0010],
+  [0x259e, 0b0110],
+  [0x259f, 0b1110],
+]);
+
+const SHADE_ALPHA = new Map<number, number>([
+  [0x2591, 0.25],
+  [0x2592, 0.5],
+  [0x2593, 0.75],
+]);
+
+function isBlockElement(codepoint: number): boolean {
+  return codepoint >= 0x2580 && codepoint <= 0x259f;
+}
+
 function ensureContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const context = canvas.getContext('2d');
   if (!context) {
@@ -60,6 +84,12 @@ export class CanvasRenderer {
   private readonly fontFamily: string;
   private readonly fontSize: number;
   private cellDimensions: GhosttyCellDimensions = { width: 9, height: 17 };
+  // 设备像素整数 cell。所有绘制坐标必须落在整数物理像素上：相邻 fillRect 在
+  // 小数边界各自抗锯齿半覆盖，叠加后边界像素覆盖不满，会在大面积色块中透出
+  // 底色形成横竖细线。
+  private deviceCellWidth = 9;
+  private deviceCellHeight = 17;
+  private dpr = 1;
   private cols = 0;
   private rows = 0;
   private lastCursor: CursorCell | null = null;
@@ -169,42 +199,45 @@ export class CanvasRenderer {
   private resize(cols: number, rows: number): void {
     const nextCols = Math.max(1, cols);
     const nextRows = Math.max(1, rows);
-    const width = nextCols * this.cellDimensions.width;
-    const height = nextRows * this.cellDimensions.height;
     const dpr = Math.max(1, globalThis.devicePixelRatio ?? 1);
+    const deviceCellWidth = Math.max(1, Math.round(this.cellDimensions.width * dpr));
+    const deviceCellHeight = Math.max(1, Math.round(this.cellDimensions.height * dpr));
 
-    if (this.cols === nextCols && this.rows === nextRows) {
-      const cssWidth = `${width}px`;
-      const cssHeight = `${height}px`;
-      if (this.mainCanvas.style.width === cssWidth && this.mainCanvas.style.height === cssHeight) {
-        return;
-      }
+    if (
+      this.cols === nextCols &&
+      this.rows === nextRows &&
+      this.dpr === dpr &&
+      this.deviceCellWidth === deviceCellWidth &&
+      this.deviceCellHeight === deviceCellHeight
+    ) {
+      return;
     }
 
     this.cols = nextCols;
     this.rows = nextRows;
+    this.dpr = dpr;
+    this.deviceCellWidth = deviceCellWidth;
+    this.deviceCellHeight = deviceCellHeight;
+
+    const width = nextCols * deviceCellWidth;
+    const height = nextRows * deviceCellHeight;
 
     for (const canvas of [this.mainCanvas, this.selectionCanvas, this.cursorCanvas]) {
-      canvas.width = Math.max(1, Math.ceil(width * dpr));
-      canvas.height = Math.max(1, Math.ceil(height * dpr));
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.width = `${width / dpr}px`;
+      canvas.style.height = `${height / dpr}px`;
     }
 
     for (const context of [this.mainContext, this.selectionContext, this.cursorContext]) {
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.setTransform(1, 0, 0, 1, 0, 0);
       context.textBaseline = 'top';
       context.imageSmoothingEnabled = false;
     }
   }
 
   private drawSelection(rects: GhosttySelectionRect[], color: string): void {
-    this.selectionContext.clearRect(
-      0,
-      0,
-      this.cols * this.cellDimensions.width,
-      this.rows * this.cellDimensions.height
-    );
+    this.selectionContext.clearRect(0, 0, this.selectionCanvas.width, this.selectionCanvas.height);
 
     if (rects.length === 0) {
       return;
@@ -213,84 +246,159 @@ export class CanvasRenderer {
     this.selectionContext.fillStyle = color;
     for (const rect of rects) {
       this.selectionContext.fillRect(
-        rect.x * this.cellDimensions.width,
-        rect.row * this.cellDimensions.height,
-        rect.width * this.cellDimensions.width,
-        this.cellDimensions.height
+        rect.x * this.deviceCellWidth,
+        rect.row * this.deviceCellHeight,
+        rect.width * this.deviceCellWidth,
+        this.deviceCellHeight
       );
     }
   }
 
   private drawRow(row: GhosttyRenderRow, colors: GhosttyRenderSnapshotMeta['colors']): void {
-    const y = row.y * this.cellDimensions.height;
-    const width = this.cols * this.cellDimensions.width;
+    const y = row.y * this.deviceCellHeight;
+    const width = this.cols * this.deviceCellWidth;
     const defaultBackground = this.toCss(colors.background);
+    const lineThickness = Math.max(1, Math.round(this.dpr));
 
-    this.mainContext.clearRect(0, y, width, this.cellDimensions.height);
+    this.mainContext.clearRect(0, y, width, this.deviceCellHeight);
     this.mainContext.fillStyle = defaultBackground;
-    this.mainContext.fillRect(0, y, width, this.cellDimensions.height);
+    this.mainContext.fillRect(0, y, width, this.deviceCellHeight);
 
     for (const cell of row.cells) {
       if (cell.widthKind === 'spacer-tail' || cell.widthKind === 'spacer-head') {
         continue;
       }
 
-      const x = cell.x * this.cellDimensions.width;
+      const x = cell.x * this.deviceCellWidth;
       const bg = cell.style.inverse
         ? cell.fgColor ?? colors.foreground
         : cell.bgColor ?? colors.background;
       const fg = cell.style.inverse
         ? cell.bgColor ?? colors.background
         : cell.fgColor ?? colors.foreground;
-      const cellWidth = cell.widthKind === 'wide' ? this.cellDimensions.width * 2 : this.cellDimensions.width;
+      const cellWidth = cell.widthKind === 'wide' ? this.deviceCellWidth * 2 : this.deviceCellWidth;
 
       if (bg.r !== colors.background.r || bg.g !== colors.background.g || bg.b !== colors.background.b) {
         this.mainContext.fillStyle = this.toCss(bg);
-        this.mainContext.fillRect(x, y, cellWidth, this.cellDimensions.height);
+        this.mainContext.fillRect(x, y, cellWidth, this.deviceCellHeight);
       }
 
       if (!cell.text || cell.style.invisible) {
         continue;
       }
 
-      this.mainContext.font = this.resolveFont(cell.style);
       this.mainContext.fillStyle = this.toCss(fg);
-      this.mainContext.fillText(cell.text, x, y);
+      // 块元素（▀▄█▌▐░▒▓ 等）不能交给字体：字形最多覆盖 1em，而 cell 高为
+      // 1.2em，行列间会留缝（logo/色块图中的明显间隙），必须按 cell 精确自绘。
+      const blockCodepoint =
+        cell.codepoints.length === 1 && isBlockElement(cell.codepoints[0])
+          ? cell.codepoints[0]
+          : null;
+      if (blockCodepoint !== null) {
+        this.drawBlockElement(blockCodepoint, x, y, cellWidth, this.deviceCellHeight);
+      } else {
+        this.mainContext.font = this.resolveFont(cell.style);
+        this.mainContext.fillText(cell.text, x, y);
+      }
 
       if (cell.style.underline > 0) {
         this.mainContext.fillRect(
           x,
-          y + this.cellDimensions.height - 2,
-          Math.max(cellWidth - 1, 1),
-          1
+          y + this.deviceCellHeight - 2 * lineThickness,
+          Math.max(cellWidth - lineThickness, lineThickness),
+          lineThickness
         );
       }
 
       if (cell.style.strikethrough) {
         this.mainContext.fillRect(
           x,
-          y + this.cellDimensions.height * 0.55,
-          Math.max(cellWidth - 1, 1),
-          1
+          Math.round(y + this.deviceCellHeight * 0.55),
+          Math.max(cellWidth - lineThickness, lineThickness),
+          lineThickness
         );
       }
 
       if (cell.style.overline) {
-        this.mainContext.fillRect(x, y + 1, Math.max(cellWidth - 1, 1), 1);
+        this.mainContext.fillRect(
+          x,
+          y + lineThickness,
+          Math.max(cellWidth - lineThickness, lineThickness),
+          lineThickness
+        );
       }
     }
+  }
+
+  // fillStyle 由调用方设好。分割点统一 round 到整数物理像素，相邻块元素的
+  // 拼接处既不留缝也不重叠。
+  private drawBlockElement(
+    codepoint: number,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): void {
+    const context = this.mainContext;
+    const sx = (n: number) => Math.round((width * n) / 8);
+    const sy = (n: number) => Math.round((height * n) / 8);
+    const fill = (x0: number, y0: number, x1: number, y1: number) => {
+      context.fillRect(x + x0, y + y0, x1 - x0, y1 - y0);
+    };
+
+    if (codepoint === 0x2580) {
+      // ▀ 上半块
+      fill(0, 0, width, sy(4));
+      return;
+    }
+    if (codepoint >= 0x2581 && codepoint <= 0x2588) {
+      // ▁..█ 自下而上 n/8
+      fill(0, sy(8 - (codepoint - 0x2580)), width, height);
+      return;
+    }
+    if (codepoint >= 0x2589 && codepoint <= 0x258f) {
+      // ▉..▏ 自左起 n/8
+      fill(0, 0, sx(0x2590 - codepoint), height);
+      return;
+    }
+    if (codepoint === 0x2590) {
+      // ▐ 右半块
+      fill(sx(4), 0, width, height);
+      return;
+    }
+    const shadeAlpha = SHADE_ALPHA.get(codepoint);
+    if (shadeAlpha !== undefined) {
+      // ░▒▓ 按前景色 alpha 混合
+      const previousAlpha = context.globalAlpha;
+      context.globalAlpha = previousAlpha * shadeAlpha;
+      fill(0, 0, width, height);
+      context.globalAlpha = previousAlpha;
+      return;
+    }
+    if (codepoint === 0x2594) {
+      // ▔ 上 1/8
+      fill(0, 0, width, sy(1));
+      return;
+    }
+    if (codepoint === 0x2595) {
+      // ▕ 右 1/8
+      fill(sx(7), 0, width, height);
+      return;
+    }
+    const quadrants = QUADRANT_FLAGS.get(codepoint) ?? 0;
+    const midX = sx(4);
+    const midY = sy(4);
+    if (quadrants & 0b0001) fill(0, 0, midX, midY);
+    if (quadrants & 0b0010) fill(midX, 0, width, midY);
+    if (quadrants & 0b0100) fill(0, midY, midX, height);
+    if (quadrants & 0b1000) fill(midX, midY, width, height);
   }
 
   private drawCursor(meta: GhosttyRenderSnapshotMeta): void {
     const colors = meta.colors;
     const cursor = meta.cursor;
     const previous = this.lastCursor;
-    this.cursorContext.clearRect(
-      0,
-      0,
-      this.cols * this.cellDimensions.width,
-      this.rows * this.cellDimensions.height
-    );
+    this.cursorContext.clearRect(0, 0, this.cursorCanvas.width, this.cursorCanvas.height);
 
     if (!cursor.visible || cursor.x === null || cursor.y === null) {
       this.lastCursor = null;
@@ -298,9 +406,10 @@ export class CanvasRenderer {
       return;
     }
 
-    const x = cursor.x * this.cellDimensions.width;
-    const y = cursor.y * this.cellDimensions.height;
-    const width = cursor.wideTail ? this.cellDimensions.width * 2 : this.cellDimensions.width;
+    const x = cursor.x * this.deviceCellWidth;
+    const y = cursor.y * this.deviceCellHeight;
+    const width = cursor.wideTail ? this.deviceCellWidth * 2 : this.deviceCellWidth;
+    const thickness = Math.max(1, Math.round(this.dpr));
     const cursorColor = colors.cursor ?? colors.foreground;
     const cssColor = this.toCss(cursorColor);
 
@@ -309,9 +418,9 @@ export class CanvasRenderer {
     this.cursorContext.globalAlpha = 0.7;
     this.cursorContext.fillRect(
       x,
-      y + this.cellDimensions.height - 2,
-      Math.max(width - 1, 1),
-      2
+      y + this.deviceCellHeight - 2 * thickness,
+      Math.max(width - thickness, thickness),
+      2 * thickness
     );
     this.cursorContext.globalAlpha = 1;
 
@@ -334,10 +443,11 @@ export class CanvasRenderer {
   }
 
   private resolveFont(style: GhosttyRenderRow['cells'][number]['style']): string {
+    const deviceFontSize = this.fontSize * this.dpr;
     const key = [
       style.italic ? 'italic' : 'normal',
       style.bold ? '700' : '400',
-      `${this.fontSize}px`,
+      `${deviceFontSize}px`,
       this.fontFamily,
     ].join('|');
 
@@ -346,7 +456,7 @@ export class CanvasRenderer {
       return cached;
     }
 
-    const font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${this.fontSize}px ${this.fontFamily}`;
+    const font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${deviceFontSize}px ${this.fontFamily}`;
     this.fontCache.set(key, font);
     return font;
   }

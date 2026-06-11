@@ -1409,6 +1409,228 @@ describe('CanvasRenderer', () => {
     renderer.dispose();
     expect(findElementsByTag(screen, 'canvas').length).toBe(0);
   });
+
+  test('draws on integer device pixels with fractional cell size and dpr', async () => {
+    dom = installFakeDom();
+    const previousDpr = (globalThis as any).devicePixelRatio;
+    (globalThis as any).devicePixelRatio = 2;
+
+    try {
+      const { CanvasRenderer } = await import(`./canvas-renderer.ts?renderer-dpr=${Date.now()}`);
+      const screen = dom.document.createElement('div');
+      dom.document.body.appendChild(screen);
+
+      const renderer = new CanvasRenderer({
+        screenElement: screen as unknown as HTMLElement,
+        theme: TEST_THEME,
+        fontFamily: 'monospace',
+        fontSize: 13,
+      });
+
+      const cellStyle = {
+        bold: false,
+        italic: false,
+        faint: false,
+        blink: false,
+        inverse: false,
+        invisible: false,
+        strikethrough: false,
+        overline: false,
+        underline: 0,
+      };
+      renderer.render({
+        meta: {
+          cols: 4,
+          rows: 2,
+          dirty: 'full' as const,
+          colors: {
+            background: { r: 17, g: 17, b: 17 },
+            foreground: { r: 238, g: 238, b: 238 },
+            cursor: { r: 255, g: 255, b: 255 },
+            palette: Array.from({ length: 256 }, () => ({ r: 0, g: 0, b: 0 })),
+          },
+          cursor: {
+            style: 'block' as const,
+            visible: true,
+            blinking: false,
+            passwordInput: false,
+            x: 1,
+            y: 1,
+            wideTail: false,
+          },
+        },
+        rows: [
+          {
+            y: 1,
+            dirty: true,
+            wrap: false,
+            wrapContinuation: false,
+            text: 'AB',
+            cells: [
+              {
+                x: 1,
+                text: 'A',
+                codepoints: [65],
+                widthKind: 'narrow' as const,
+                hasText: true,
+                style: cellStyle,
+                fgColor: null,
+                bgColor: { r: 0, g: 128, b: 0 },
+              },
+              {
+                x: 2,
+                text: 'B',
+                codepoints: [66],
+                widthKind: 'narrow' as const,
+                hasText: true,
+                style: { ...cellStyle, underline: 1, strikethrough: true },
+                fgColor: null,
+                bgColor: null,
+              },
+            ],
+          },
+        ],
+        // 模拟真实度量：13px * 1.2 行高 = 15.6，等宽字符 advance 带小数
+        cellDimensions: { width: 9.55, height: 15.6 },
+        selectionRects: [{ row: 0, x: 1, width: 2 }],
+      });
+
+      // deviceCell = round(9.55 * 2) x round(15.6 * 2) = 19 x 31
+      const mainCanvas = findCanvasByLayer(screen, 'main');
+      expect(mainCanvas?.width).toBe(4 * 19);
+      expect(mainCanvas?.height).toBe(2 * 31);
+      expect(mainCanvas?.style.width).toBe(`${(4 * 19) / 2}px`);
+
+      const layers = ['main', 'selection', 'cursor'] as const;
+      for (const layer of layers) {
+        const canvas = findCanvasByLayer(screen, layer);
+        const drawOps =
+          canvas?.context.operations.filter(
+            (operation) => operation.type === 'fillRect' || operation.type === 'fillText'
+          ) ?? [];
+        if (layer !== 'cursor') {
+          expect(drawOps.length).toBeGreaterThan(0);
+        }
+        for (const operation of drawOps) {
+          expect(Number.isInteger(operation.x)).toBeTrue();
+          expect(Number.isInteger(operation.y)).toBeTrue();
+          if (operation.type === 'fillRect') {
+            expect(Number.isInteger(operation.width)).toBeTrue();
+            expect(Number.isInteger(operation.height)).toBeTrue();
+          }
+        }
+      }
+
+      // 字号按 dpr 放大，与物理坐标系匹配
+      const textOp = mainCanvas?.context.operations.find(
+        (operation) => operation.type === 'fillText'
+      );
+      expect(String(textOp?.font)).toContain('26px');
+
+      renderer.dispose();
+    } finally {
+      (globalThis as any).devicePixelRatio = previousDpr;
+    }
+  });
+
+  test('block elements are drawn as exact cell rects instead of font glyphs', async () => {
+    dom = installFakeDom();
+    const { CanvasRenderer } = await import(`./canvas-renderer.ts?renderer-block=${Date.now()}`);
+    const screen = dom.document.createElement('div');
+    dom.document.body.appendChild(screen);
+
+    const renderer = new CanvasRenderer({
+      screenElement: screen as unknown as HTMLElement,
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+    });
+
+    const cellStyle = {
+      bold: false,
+      italic: false,
+      faint: false,
+      blink: false,
+      inverse: false,
+      invisible: false,
+      strikethrough: false,
+      overline: false,
+      underline: 0,
+    };
+    const blockCell = (x: number, codepoint: number) => ({
+      x,
+      text: String.fromCodePoint(codepoint),
+      codepoints: [codepoint],
+      widthKind: 'narrow' as const,
+      hasText: true,
+      style: cellStyle,
+      fgColor: { r: 255, g: 255, b: 255 },
+      bgColor: null,
+    });
+
+    renderer.render({
+      meta: {
+        cols: 4,
+        rows: 1,
+        dirty: 'full' as const,
+        colors: {
+          background: { r: 17, g: 17, b: 17 },
+          foreground: { r: 238, g: 238, b: 238 },
+          cursor: null,
+          palette: Array.from({ length: 256 }, () => ({ r: 0, g: 0, b: 0 })),
+        },
+        cursor: {
+          style: 'block' as const,
+          visible: false,
+          blinking: false,
+          passwordInput: false,
+          x: null,
+          y: null,
+          wideTail: false,
+        },
+      },
+      rows: [
+        {
+          y: 0,
+          dirty: true,
+          wrap: false,
+          wrapContinuation: false,
+          text: '▀█▐░',
+          cells: [
+            blockCell(0, 0x2580),
+            blockCell(1, 0x2588),
+            blockCell(2, 0x2590),
+            blockCell(3, 0x2591),
+          ],
+        },
+      ],
+      cellDimensions: { width: 10, height: 20 },
+    });
+
+    const operations = findCanvasByLayer(screen, 'main')?.context.operations ?? [];
+    expect(operations.filter((operation) => operation.type === 'fillText')).toEqual([]);
+
+    const white = operations.filter(
+      (operation) => operation.type === 'fillRect' && operation.fillStyle === 'rgb(255 255 255)'
+    );
+    const whiteRect = (x: number, y: number, width: number, height: number, globalAlpha = 1) => ({
+      type: 'fillRect',
+      x,
+      y,
+      width,
+      height,
+      fillStyle: 'rgb(255 255 255)',
+      globalAlpha,
+    });
+    expect(white).toEqual([
+      whiteRect(0, 0, 10, 10), // ▀ 上半块
+      whiteRect(10, 0, 10, 20), // █ 全块
+      whiteRect(25, 0, 5, 20), // ▐ 右半块
+      whiteRect(30, 0, 10, 20, 0.25), // ░ 前景色 25% alpha 全块
+    ]);
+
+    renderer.dispose();
+  });
 });
 
 describe('SelectionModel', () => {

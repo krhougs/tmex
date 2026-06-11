@@ -1396,10 +1396,15 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const rect = probe.getBoundingClientRect();
     probe.remove();
 
+    // CSS cell 对齐到物理像素网格（与 CanvasRenderer 的整数设备像素 cell 一致），
+    // 否则小数 cell 会让布局（cols/rows、hit-test）与渲染网格逐格漂移。
+    const dpr = Math.max(1, globalThis.devicePixelRatio ?? 1);
+    const rawWidth = rect.width > 0 ? rect.width / 10 : DEFAULT_CELL_WIDTH;
+    const rawHeight = rect.height > 0 ? rect.height : DEFAULT_CELL_HEIGHT;
     this._core._renderService.dimensions.css.cell.width =
-      rect.width > 0 ? rect.width / 10 : DEFAULT_CELL_WIDTH;
+      Math.max(1, Math.round(rawWidth * dpr)) / dpr;
     this._core._renderService.dimensions.css.cell.height =
-      rect.height > 0 ? rect.height : DEFAULT_CELL_HEIGHT;
+      Math.max(1, Math.round(rawHeight * dpr)) / dpr;
   }
 
   private clearSelectionState(repaint = true): void {
