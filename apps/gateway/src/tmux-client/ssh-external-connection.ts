@@ -5,6 +5,11 @@ import { config } from '../config';
 import { decryptWithContext } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { resolveSshAgentSocket, resolveSshUsername } from '../tmux/ssh-auth';
+import {
+  PANE_SCREEN_INFO_FORMAT,
+  appendCursorRestore,
+  parsePaneScreenInfo,
+} from './capture-history';
 import { joinShellArgs, quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
 import {
@@ -703,20 +708,22 @@ export class SshExternalTmuxConnection {
   }
 
   private async capturePaneHistory(paneId: string): Promise<void> {
-    const mode = (
-      await this.runTmux(['display-message', '-p', '-t', paneId, '#{alternate_on}'], true)
-    ).stdout.trim();
-    const alternateScreen = mode === '1';
+    const screenInfo = parsePaneScreenInfo(
+      (
+        await this.runTmux(['display-message', '-p', '-t', paneId, PANE_SCREEN_INFO_FORMAT], true)
+      ).stdout
+    );
+    const alternateScreen = screenInfo.alternateScreen;
     const normal = (
       await this.runTmux(
-        ['capture-pane', '-t', paneId, '-S', '-', '-E', '-', '-e', '-N', '-p'],
+        ['capture-pane', '-t', paneId, '-S', '-', '-E', '-', '-e', '-J', '-N', '-p'],
         true,
         30000
       )
     ).stdout;
     const alternate = (
       await this.runTmux(
-        ['capture-pane', '-t', paneId, '-a', '-S', '-', '-E', '-', '-e', '-N', '-p', '-q'],
+        ['capture-pane', '-t', paneId, '-a', '-S', '-', '-E', '-', '-e', '-J', '-N', '-p', '-q'],
         true,
         30000
       )
@@ -729,7 +736,11 @@ export class SshExternalTmuxConnection {
       : normal || alternate;
 
     if (history) {
-      this.callbacks.onTerminalHistory(paneId, history, alternateScreen);
+      this.callbacks.onTerminalHistory(
+        paneId,
+        appendCursorRestore(history, screenInfo),
+        alternateScreen
+      );
     }
   }
 

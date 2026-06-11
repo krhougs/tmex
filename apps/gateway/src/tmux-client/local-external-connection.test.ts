@@ -594,13 +594,16 @@ describe('LocalExternalTmuxConnection', () => {
         getDevice: () => createDevice('tmex-alt-fallback'),
         run: async (argv) => {
           const command = argv.slice(1).join(' ');
-          if (command === 'display-message -p -t %1 #{alternate_on}') {
-            return ok('1\n');
+          if (
+            command ===
+            'display-message -p -t %1 #{alternate_on} #{cursor_x} #{cursor_y} #{pane_height}'
+          ) {
+            return ok('1 8 3 40\n');
           }
-          if (command === 'capture-pane -t %1 -S - -E - -e -N -p') {
+          if (command === 'capture-pane -t %1 -S - -E - -e -J -N -p') {
             return ok('VIM SCREEN\n');
           }
-          if (command === 'capture-pane -t %1 -a -S - -E - -e -N -p -q') {
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -J -N -p -q') {
             return ok('\n\n\n');
           }
           throw new Error(`unexpected command: ${command}`);
@@ -613,7 +616,7 @@ describe('LocalExternalTmuxConnection', () => {
     expect(histories).toEqual([
       {
         paneId: '%1',
-        data: 'VIM SCREEN\n',
+        data: 'VIM SCREEN\x1b[4;9H',
         alternateScreen: true,
       },
     ]);
@@ -641,13 +644,16 @@ describe('LocalExternalTmuxConnection', () => {
         getDevice: () => createDevice('tmex-alt-visible'),
         run: async (argv) => {
           const command = argv.slice(1).join(' ');
-          if (command === 'display-message -p -t %1 #{alternate_on}') {
-            return ok('1\n');
+          if (
+            command ===
+            'display-message -p -t %1 #{alternate_on} #{cursor_x} #{cursor_y} #{pane_height}'
+          ) {
+            return ok('1 2 1 40\n');
           }
-          if (command === 'capture-pane -t %1 -S - -E - -e -N -p') {
+          if (command === 'capture-pane -t %1 -S - -E - -e -J -N -p') {
             return ok('VISIBLE TUI\n');
           }
-          if (command === 'capture-pane -t %1 -a -S - -E - -e -N -p -q') {
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -J -N -p -q') {
             return ok('sh-3.2$ opencode .\n');
           }
           throw new Error(`unexpected command: ${command}`);
@@ -660,8 +666,59 @@ describe('LocalExternalTmuxConnection', () => {
     expect(histories).toEqual([
       {
         paneId: '%1',
-        data: 'VISIBLE TUI\n',
+        data: 'VISIBLE TUI\x1b[2;3H',
         alternateScreen: true,
+      },
+    ]);
+  });
+
+  test('capturePaneHistory appends relative cursor restore for normal screen', async () => {
+    const histories: Array<{ paneId: string; data: string; alternateScreen: boolean }> = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: (paneId, data, alternateScreen) => {
+          histories.push({ paneId, data, alternateScreen });
+        },
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-normal-cursor'),
+        run: async (argv) => {
+          const command = argv.slice(1).join(' ');
+          if (
+            command ===
+            'display-message -p -t %1 #{alternate_on} #{cursor_x} #{cursor_y} #{pane_height}'
+          ) {
+            // 光标在可见区域倒数第 3 行（如 Claude Code 输入行），列 8
+            return ok('0 8 1 4\n');
+          }
+          if (command === 'capture-pane -t %1 -S - -E - -e -J -N -p') {
+            return ok('sh-3.2$ \n> input   \nstatus bar\n\n');
+          }
+          if (command === 'capture-pane -t %1 -a -S - -E - -e -J -N -p -q') {
+            return ok('');
+          }
+          throw new Error(`unexpected command: ${command}`);
+        },
+      }
+    );
+
+    await (connection as any).capturePaneHistory('%1');
+
+    expect(histories).toEqual([
+      {
+        paneId: '%1',
+        data: 'sh-3.2$ \n> input   \nstatus bar\n\x1b[2A\x1b[9G',
+        alternateScreen: false,
       },
     ]);
   });
