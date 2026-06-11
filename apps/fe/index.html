@@ -11,7 +11,9 @@
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="/api/manifest.webmanifest" />
+    <!-- use-credentials：站点可能部署在 Cloudflare Access 等 cookie 认证之后，
+         manifest 请求默认不带 cookie 会被 302 到登录页，导致 PWA 不可安装 -->
+    <link rel="manifest" href="/api/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="apple-touch-icon" href="/tmex.png" />
     <meta name="description" content="tmex - Web 接入多设备 tmux 的终端控制平台" />
     <title>tmex</title>
