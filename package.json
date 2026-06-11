@@ -15,7 +15,7 @@
     "build:tmex:runtime": "bun run --filter tmex-cli build:runtime",
     "build:tmex": "bun run --filter tmex-cli build",
     "build:tmex:cli": "bun run --filter tmex-cli build:cli",
-    "publish:tmex": "bun run --filter tmex-cli publish",
+    "publish:tmex": "bun run build && bun run --filter tmex-cli release",
     "test": "bun run --filter '*' test",
     "test:tmex": "bun run --filter tmex-cli test",
     "lint": "biome check .",

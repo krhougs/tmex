@@ -21,6 +21,7 @@
     "build:runtime": "bun build src/runtime/server.ts --outdir ./dist/runtime --target bun --format esm",
     "build:cli": "bun build src/cli-node.ts --outfile ./dist/cli-node.js --target node --format esm",
     "build": "bun run clean && bun run bundle:resources && bun run build:runtime && bun run build:cli",
+    "release": "npm publish",
     "test": "bun test src"
   },
   "devDependencies": {

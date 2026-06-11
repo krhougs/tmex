@@ -20,4 +20,11 @@ mkdir -p "${TARGET_FE_DIR}" "${TARGET_DRIZZLE_DIR}"
 cp -R "${FE_DIST_DIR}/." "${TARGET_FE_DIR}/"
 cp -R "${GATEWAY_DRIZZLE_DIR}/." "${TARGET_DRIZZLE_DIR}/"
 
+# 剔除不应随 npm 包分发的开发期产物：
+# - source map 只用于本地调试，体积约占包的一半
+# - drizzle meta/NNNN_snapshot.json 只被 drizzle-kit generate 使用，
+#   运行时 migrate 只读 meta/_journal.json 与 *.sql
+find "${TARGET_FE_DIR}" -name '*.map' -delete
+find "${TARGET_DRIZZLE_DIR}/meta" -name '*_snapshot.json' -delete
+
 echo "[tmex build] resources bundled"
