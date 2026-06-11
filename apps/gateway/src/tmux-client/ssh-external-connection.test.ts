@@ -81,8 +81,8 @@ function respondToPayload(
   if (payload.includes(`'list-windows' '-t' '${session}'`)) {
     return { stdout: '@1|0|main|1\n', exitCode: 0 };
   }
-  if (payload.includes(`'list-panes' '-t' '${session}'`)) {
-    return { stdout: '%1|@1|0|bash|1|80|24\n', exitCode: 0 };
+  if (payload.includes(`'list-panes' '-s' '-t' '${session}'`)) {
+    return { stdout: '%1|@1|0|bash|1|80|24|1\n', exitCode: 0 };
   }
   return null;
 }

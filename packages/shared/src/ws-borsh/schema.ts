@@ -203,6 +203,7 @@ export const PaneWireSchema = b.struct({
 export const WindowWireSchema = b.struct({
   id: b.string(),
   name: b.string(),
+  customName: OptionStringSchema,
   index: b.u16(),
   active: b.bool(),
   panes: b.vec(PaneWireSchema),

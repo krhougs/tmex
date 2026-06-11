@@ -354,6 +354,11 @@ export type TranslationKey =
   | 'window.closeConfirmTitle'
   | 'window.closePaneConfirmTitle'
   | 'window.closeConfirmDesc'
+  | 'window.menu'
+  | 'window.rename'
+  | 'window.renamePlaceholder'
+  | 'window.renameDesc'
+  | 'window.renameReset'
   | 'validation'
   | 'validation.deviceNameRequired'
   | 'validation.hostRequired';

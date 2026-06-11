@@ -110,6 +110,7 @@ export type WsMessageType =
   | 'tmux/create-window'
   | 'tmux/close-window'
   | 'tmux/close-pane'
+  | 'tmux/rename-window'
   | 'term/input'
   | 'term/resize'
   | 'term/sync-size'
@@ -190,9 +191,16 @@ export interface ClosePanePayload {
   paneId: string;
 }
 
+export interface RenameWindowPayload {
+  deviceId: string;
+  windowId: string;
+  name: string;
+}
+
 export interface TmuxWindow {
   id: string;
   name: string;
+  customName?: string;
   index: number;
   active: boolean;
   panes: TmuxPane[];

@@ -49,6 +49,8 @@ interface WebSocketServerOptions {
 export class WebSocketServer {
   connections = new Map<string, DeviceConnectionEntry>();
   pendingConnectionEntries = new Map<string, Promise<DeviceConnectionEntry | null>>();
+  // 窗口自定义名 overlay：deviceId -> windowId -> name，仅存于 gateway 内存（进程生命周期内有效）
+  windowCustomNames = new Map<string, Map<string, string>>();
   private readonly deps: WebSocketServerDeps;
 
   constructor(options: WebSocketServerOptions = {}) {
@@ -518,7 +520,9 @@ export class WebSocketServer {
     this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_CONNECTED, connectedPayload);
 
     if (entry.lastSnapshot) {
-      const snapshotBytes = wsBorsh.encodeStateSnapshot(entry.lastSnapshot);
+      const snapshotBytes = wsBorsh.encodeStateSnapshot(
+        this.applyWindowCustomNames(entry.lastSnapshot)
+      );
       this.sendChunked(ws, wsBorsh.KIND_STATE_SNAPSHOT, snapshotBytes);
     } else {
       entry.runtime.requestSnapshot();
@@ -642,10 +646,52 @@ export class WebSocketServer {
     entry.runtime.closePane(paneId);
   }
 
+  // 重命名写入内存 overlay 而非 tmux rename-window，避免关闭 automatic-rename 导致标题不再跟随终端
   private handleRenameWindow(deviceId: string, windowId: string, name: string): void {
+    const trimmed = name.trim().slice(0, 64);
+    const names = this.windowCustomNames.get(deviceId);
+
+    if (!trimmed) {
+      names?.delete(windowId);
+    } else if (names) {
+      names.set(windowId, trimmed);
+    } else {
+      this.windowCustomNames.set(deviceId, new Map([[windowId, trimmed]]));
+    }
+
     const entry = this.connections.get(deviceId);
-    if (!entry) return;
-    entry.runtime.renameWindow(windowId, name);
+    if (!entry?.lastSnapshot) return;
+    this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
+  private applyWindowCustomNames(payload: StateSnapshotPayload): StateSnapshotPayload {
+    const names = this.windowCustomNames.get(payload.deviceId);
+    if (!names?.size || !payload.session) return payload;
+
+    const liveWindowIds = new Set(payload.session.windows.map((w) => w.id));
+    for (const windowId of names.keys()) {
+      if (!liveWindowIds.has(windowId)) {
+        names.delete(windowId);
+      }
+    }
+
+    return {
+      ...payload,
+      session: {
+        ...payload.session,
+        windows: payload.session.windows.map((window) => {
+          const customName = names.get(window.id);
+          return customName ? { ...window, customName } : window;
+        }),
+      },
+    };
+  }
+
+  private sendSnapshotToClients(entry: DeviceConnectionEntry, payload: StateSnapshotPayload): void {
+    const payloadBytes = wsBorsh.encodeStateSnapshot(this.applyWindowCustomNames(payload));
+    for (const client of entry.clients) {
+      this.sendChunked(client, wsBorsh.KIND_STATE_SNAPSHOT, payloadBytes);
+    }
   }
 
   private async createDeviceConnectionEntry(
@@ -807,11 +853,7 @@ export class WebSocketServer {
     if (!entry) return;
 
     entry.lastSnapshot = payload;
-    const payloadBytes = wsBorsh.encodeStateSnapshot(payload);
-
-    for (const client of entry.clients) {
-      this.sendChunked(client, wsBorsh.KIND_STATE_SNAPSHOT, payloadBytes);
-    }
+    this.sendSnapshotToClients(entry, payload);
   }
 
   private broadcastTerminalOutput(deviceId: string, paneId: string, data: Uint8Array): void {

@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import type { StateSnapshotPayload } from '@tmex/shared';
+import { wsBorsh } from '@tmex/shared';
 import { ensureSiteSettingsInitialized, getSiteSettings, updateSiteSettings } from '../db';
 import { runMigrations } from '../db/migrate';
 import { createBorshClientState } from './borsh/codec-borsh';
@@ -420,5 +422,148 @@ describe('WebSocketServer bell extension', () => {
 
     sessionStateStore.shouldAllowNotification = originalShouldAllowNotification;
     updateSiteSettings({ notificationThrottleSeconds: 3 });
+  });
+});
+
+describe('WebSocketServer window custom names', () => {
+  function makeSnapshot(windowIds: string[]): StateSnapshotPayload {
+    return {
+      deviceId: 'device-a',
+      session: {
+        id: '$1',
+        name: 'tmex',
+        windows: windowIds.map((id, index) => ({
+          id,
+          name: `win-${index}`,
+          index,
+          active: index === 0,
+          panes: [
+            {
+              id: `%${index}`,
+              windowId: id,
+              index: 0,
+              title: `title-${index}`,
+              active: true,
+              width: 80,
+              height: 24,
+            },
+          ],
+        })),
+      },
+    };
+  }
+
+  function createBorshWs() {
+    return {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+  }
+
+  function decodeLastSnapshot(ws: any): StateSnapshotPayload {
+    const envelope = wsBorsh.decodeEnvelope(ws.sent[ws.sent.length - 1]);
+    expect(envelope.kind).toBe(wsBorsh.KIND_STATE_SNAPSHOT);
+    return wsBorsh.decodeStateSnapshot(envelope.payload);
+  }
+
+  function setupEntry(server: any, snapshot: StateSnapshotPayload | null, ws: any) {
+    server.connections.set('device-a', {
+      runtime: {},
+      detachRuntime: () => {},
+      clients: new Set([ws]),
+      lastSnapshot: snapshot,
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
+  }
+
+  test('rename stores overlay and rebroadcasts snapshot with customName', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    setupEntry(server, makeSnapshot(['@1', '@2']), ws);
+
+    server.handleRenameWindow('device-a', '@1', '  My Window  ');
+
+    const snapshot = decodeLastSnapshot(ws);
+    expect(snapshot.session?.windows[0].customName).toBe('My Window');
+    expect(snapshot.session?.windows[1].customName).toBeUndefined();
+    // lastSnapshot 保持原始数据，不被 overlay 污染
+    expect(server.connections.get('device-a').lastSnapshot.session.windows[0].customName)
+      .toBeUndefined();
+  });
+
+  test('empty name clears the overlay', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    setupEntry(server, makeSnapshot(['@1']), ws);
+
+    server.handleRenameWindow('device-a', '@1', 'Custom');
+    server.handleRenameWindow('device-a', '@1', '   ');
+
+    const snapshot = decodeLastSnapshot(ws);
+    expect(snapshot.session?.windows[0].customName).toBeUndefined();
+    expect(server.windowCustomNames.get('device-a')?.has('@1')).toBe(false);
+  });
+
+  test('overlay name is truncated to 64 characters', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    setupEntry(server, makeSnapshot(['@1']), ws);
+
+    server.handleRenameWindow('device-a', '@1', 'x'.repeat(100));
+
+    const snapshot = decodeLastSnapshot(ws);
+    expect(snapshot.session?.windows[0].customName).toBe('x'.repeat(64));
+  });
+
+  test('stale window entries are pruned when snapshot no longer contains them', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    setupEntry(server, makeSnapshot(['@1', '@2']), ws);
+
+    server.handleRenameWindow('device-a', '@1', 'Keep');
+    server.handleRenameWindow('device-a', '@2', 'Gone');
+
+    server.broadcastStateSnapshot('device-a', makeSnapshot(['@1']));
+
+    const snapshot = decodeLastSnapshot(ws);
+    expect(snapshot.session?.windows).toHaveLength(1);
+    expect(snapshot.session?.windows[0].customName).toBe('Keep');
+    expect(server.windowCustomNames.get('device-a')?.has('@2')).toBe(false);
+  });
+
+  test('overlay survives connection entry recreation and applies on device connect', async () => {
+    const server = new WebSocketServer({
+      deps: {
+        acquireRuntime: async () =>
+          ({
+            async connect() {},
+            subscribe() {
+              return () => {};
+            },
+            requestSnapshot() {},
+            disconnect() {},
+          }) as any,
+        releaseRuntime: () => {},
+      },
+    }) as any;
+    const ws = createBorshWs();
+    sessionStateStore.create(ws);
+    setupEntry(server, makeSnapshot(['@1']), ws);
+
+    server.handleRenameWindow('device-a', '@1', 'Persisted');
+
+    // 模拟所有 client 断开后 entry 销毁、随后重连
+    server.connections.delete('device-a');
+    await server.handleDeviceConnect(ws, 'device-a');
+    server.broadcastStateSnapshot('device-a', makeSnapshot(['@1']));
+
+    const snapshot = decodeLastSnapshot(ws);
+    expect(snapshot.session?.windows[0].customName).toBe('Persisted');
   });
 });

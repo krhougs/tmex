@@ -355,7 +355,12 @@
       "closePane": "Close pane",
       "closeConfirmTitle": "Close this window?",
       "closePaneConfirmTitle": "Close this pane?",
-      "closeConfirmDesc": "Processes running in \"{{name}}\" will be terminated. This action cannot be undone."
+      "closeConfirmDesc": "Processes running in \"{{name}}\" will be terminated. This action cannot be undone.",
+      "menu": "Window actions",
+      "rename": "Rename window",
+      "renamePlaceholder": "Enter a name",
+      "renameDesc": "The custom name overrides the title set by the terminal and is kept until the gateway restarts.",
+      "renameReset": "Use automatic name"
     },
     "validation": {
       "deviceNameRequired": "Device name is required",

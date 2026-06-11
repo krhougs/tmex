@@ -361,7 +361,12 @@ export const I18N_RESOURCES = {
       "closePane": "Close pane",
       "closeConfirmTitle": "Close this window?",
       "closePaneConfirmTitle": "Close this pane?",
-      "closeConfirmDesc": "Processes running in \"{{name}}\" will be terminated. This action cannot be undone."
+      "closeConfirmDesc": "Processes running in \"{{name}}\" will be terminated. This action cannot be undone.",
+      "menu": "Window actions",
+      "rename": "Rename window",
+      "renamePlaceholder": "Enter a name",
+      "renameDesc": "The custom name overrides the title set by the terminal and is kept until the gateway restarts.",
+      "renameReset": "Use automatic name"
     },
     "validation": {
       "deviceNameRequired": "Device name is required",
@@ -726,7 +731,12 @@ export const I18N_RESOURCES = {
       "closePane": "关闭面板",
       "closeConfirmTitle": "关闭此窗口？",
       "closePaneConfirmTitle": "关闭此面板？",
-      "closeConfirmDesc": "\"{{name}}\" 中运行的进程将被终止，此操作无法撤销。"
+      "closeConfirmDesc": "\"{{name}}\" 中运行的进程将被终止，此操作无法撤销。",
+      "menu": "窗口操作",
+      "rename": "重命名窗口",
+      "renamePlaceholder": "输入名称",
+      "renameDesc": "自定义名称会覆盖终端设置的标题，并保留至 gateway 重启。",
+      "renameReset": "恢复自动名称"
     },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
@@ -1091,7 +1101,12 @@ export const I18N_RESOURCES = {
       "closePane": "ペインを閉じる",
       "closeConfirmTitle": "このウィンドウを閉じますか？",
       "closePaneConfirmTitle": "このペインを閉じますか？",
-      "closeConfirmDesc": "\"{{name}}\" で実行中のプロセスは終了されます。この操作は取り消せません。"
+      "closeConfirmDesc": "\"{{name}}\" で実行中のプロセスは終了されます。この操作は取り消せません。",
+      "menu": "ウィンドウ操作",
+      "rename": "ウィンドウ名を変更",
+      "renamePlaceholder": "名前を入力",
+      "renameDesc": "カスタム名はターミナルが設定したタイトルを上書きし、ゲートウェイが再起動するまで保持されます。",
+      "renameReset": "自動名に戻す"
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",

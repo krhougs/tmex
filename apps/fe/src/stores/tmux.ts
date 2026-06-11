@@ -9,6 +9,7 @@ import {
   buildTmuxClosePane,
   buildTmuxCloseWindow,
   buildTmuxCreateWindow,
+  buildTmuxRenameWindow,
   buildTmuxSelect,
   buildTmuxSelectWindow,
   generateSelectToken,
@@ -72,6 +73,7 @@ interface TmuxState {
   clearPendingCreateWindow: (deviceId: string) => void;
   closeWindow: (deviceId: string, windowId: string) => void;
   closePane: (deviceId: string, paneId: string) => void;
+  renameWindow: (deviceId: string, windowId: string, name: string) => void;
 }
 
 const CONNECT_DEDUP_WINDOW_MS = 500;
@@ -547,6 +549,12 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   closePane(deviceId, paneId) {
     if (!deviceId || !paneId) return;
     const msg = buildTmuxClosePane(deviceId, paneId);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  renameWindow(deviceId, windowId, name) {
+    if (!deviceId || !windowId) return;
+    const msg = buildTmuxRenameWindow(deviceId, windowId, name);
     getBorshClient().send(msg.kind, msg.payload);
   },
 }));

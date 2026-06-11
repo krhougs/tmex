@@ -355,7 +355,12 @@
       "closePane": "ペインを閉じる",
       "closeConfirmTitle": "このウィンドウを閉じますか？",
       "closePaneConfirmTitle": "このペインを閉じますか？",
-      "closeConfirmDesc": "\"{{name}}\" で実行中のプロセスは終了されます。この操作は取り消せません。"
+      "closeConfirmDesc": "\"{{name}}\" で実行中のプロセスは終了されます。この操作は取り消せません。",
+      "menu": "ウィンドウ操作",
+      "rename": "ウィンドウ名を変更",
+      "renamePlaceholder": "名前を入力",
+      "renameDesc": "カスタム名はターミナルが設定したタイトルを上書きし、ゲートウェイが再起動するまで保持されます。",
+      "renameReset": "自動名に戻す"
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",

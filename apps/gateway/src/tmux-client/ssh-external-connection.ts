@@ -76,12 +76,13 @@ function splitSnapshotFields(line: string, fieldCount: number): string[] {
     return [parts[0] ?? '', parts[1] ?? '', parts.slice(2, -1).join(SNAPSHOT_FIELD_SEPARATOR), parts.at(-1) ?? ''];
   }
 
-  if (fieldCount === 7) {
+  if (fieldCount === 8) {
     return [
       parts[0] ?? '',
       parts[1] ?? '',
       parts[2] ?? '',
-      parts.slice(3, -3).join(SNAPSHOT_FIELD_SEPARATOR),
+      parts.slice(3, -4).join(SNAPSHOT_FIELD_SEPARATOR),
+      parts.at(-4) ?? '',
       parts.at(-3) ?? '',
       parts.at(-2) ?? '',
       parts.at(-1) ?? '',
@@ -819,10 +820,11 @@ export class SshExternalTmuxConnection {
       ]),
       this.runTmuxAllowFailure([
         'list-panes',
+        '-s',
         '-t',
         this.sessionName,
         '-F',
-        '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}',
+        '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}',
       ]),
     ]);
 
@@ -903,8 +905,8 @@ export class SshExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw] =
-        splitSnapshotFields(line, 7);
+      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw] =
+        splitSnapshotFields(line, 8);
       if (!paneId || !windowId) {
         continue;
       }
@@ -916,12 +918,13 @@ export class SshExternalTmuxConnection {
         windowId,
         index: Number.isNaN(index) ? 0 : index,
         title: this.pendingPaneTitles.get(paneId) ?? (titleRaw?.trim() ? titleRaw : undefined),
+        // pane_active 是窗口内 active；list-panes -s 下每个窗口都有一个
         active: activeRaw === '1',
         width: Number.isNaN(width) ? 0 : width,
         height: Number.isNaN(height) ? 0 : height,
       };
 
-      if (pane.active) {
+      if (pane.active && windowActiveRaw === '1') {
         this.activePaneId = paneId;
         this.activeWindowId = windowId;
       }

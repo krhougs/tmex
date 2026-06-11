@@ -13,14 +13,30 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
-import { Globe, Monitor, Plus, Power, PowerOff, X } from 'lucide-react';
+import { EllipsisVertical, Globe, Monitor, Pencil, Plus, Power, PowerOff, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildWindowDisplayName, buildWindowTitleParts } from '../../../utils/terminalMeta';
 
 type DeviceListItem = Device & {
   lastError?: string | null;
@@ -30,6 +46,12 @@ type DeviceListItem = Device & {
 type CloseCandidate =
   | { kind: 'window'; deviceId: string; windowId: string; name: string }
   | { kind: 'pane'; deviceId: string; paneId: string; name: string };
+
+interface RenameCandidate {
+  deviceId: string;
+  windowId: string;
+  hasCustomName: boolean;
+}
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
 import { useSiteStore } from '../../../stores/site';
@@ -56,6 +78,7 @@ export function SideBarDeviceList() {
   const connectedDevices = useTmuxStore((state) => state.connectedDevices);
   const closeWindow = useTmuxStore((state) => state.closeWindow);
   const closePane = useTmuxStore((state) => state.closePane);
+  const renameWindow = useTmuxStore((state) => state.renameWindow);
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
 
   const { data: devicesData } = useQuery({
@@ -191,7 +214,12 @@ export function SideBarDeviceList() {
   const requestCloseWindow = useCallback((deviceId: string, windowId: string) => {
     const windows = useTmuxStore.getState().snapshots[deviceId]?.session?.windows;
     const target = windows?.find((w) => w.id === windowId);
-    setCloseCandidate({ kind: 'window', deviceId, windowId, name: target?.name ?? '' });
+    setCloseCandidate({
+      kind: 'window',
+      deviceId,
+      windowId,
+      name: target ? buildWindowDisplayName(target) : '',
+    });
   }, []);
 
   const requestClosePane = useCallback((deviceId: string, windowId: string, paneId: string) => {
@@ -214,6 +242,31 @@ export function SideBarDeviceList() {
     }
     setCloseCandidate(null);
   }, [closeCandidate, handleCloseWindow, closePane]);
+
+  const [renameCandidate, setRenameCandidate] = useState<RenameCandidate | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  const requestRenameWindow = useCallback((deviceId: string, windowId: string) => {
+    const windows = useTmuxStore.getState().snapshots[deviceId]?.session?.windows;
+    const target = windows?.find((w) => w.id === windowId);
+    if (!target) return;
+    setRenameValue(target.customName ?? buildWindowTitleParts(target).title);
+    setRenameCandidate({ deviceId, windowId, hasCustomName: Boolean(target.customName) });
+  }, []);
+
+  const confirmRename = useCallback(() => {
+    if (!renameCandidate) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    renameWindow(renameCandidate.deviceId, renameCandidate.windowId, trimmed);
+    setRenameCandidate(null);
+  }, [renameCandidate, renameValue, renameWindow]);
+
+  const resetRename = useCallback(() => {
+    if (!renameCandidate) return;
+    renameWindow(renameCandidate.deviceId, renameCandidate.windowId, '');
+    setRenameCandidate(null);
+  }, [renameCandidate, renameWindow]);
 
   const handleCreateWindow = useCallback((deviceId: string) => {
     useTmuxStore.getState().createWindow(deviceId);
@@ -239,6 +292,7 @@ export function SideBarDeviceList() {
               device={device}
               windows={snapshots[device.id]?.session?.windows ?? null}
               isConnected={connectedDevices.has(device.id)}
+              isSelected={device.id === selectedDeviceId}
               selectedWindowId={selectedWindowId}
               selectedPaneId={selectedPaneId}
               onConnectToggle={() =>
@@ -247,6 +301,7 @@ export function SideBarDeviceList() {
               onCreateWindow={handleCreateWindow}
               onCloseWindow={requestCloseWindow}
               onClosePane={requestClosePane}
+              onRenameWindow={requestRenameWindow}
               onPaneClick={navigateToPane}
               onWindowClick={navigateToWindow}
             />
@@ -289,6 +344,53 @@ export function SideBarDeviceList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={renameCandidate !== null}
+        onOpenChange={(open) => !open && setRenameCandidate(null)}
+      >
+        <DialogContent data-testid="window-rename-dialog">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              confirmRename();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t('window.rename')}</DialogTitle>
+              <DialogDescription>{t('window.renameDesc')}</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Input
+                autoFocus
+                maxLength={64}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                placeholder={t('window.renamePlaceholder')}
+                data-testid="window-rename-input"
+              />
+            </div>
+            <DialogFooter>
+              {renameCandidate?.hasCustomName && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={resetRename}
+                  data-testid="window-rename-reset"
+                >
+                  {t('window.renameReset')}
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={() => setRenameCandidate(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button type="submit" disabled={!renameValue.trim()} data-testid="window-rename-save">
+                {t('common.save')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </SidebarGroup>
   );
 }
@@ -297,12 +399,14 @@ interface DeviceSectionProps {
   device: Device;
   windows: TmuxWindow[] | null;
   isConnected: boolean;
+  isSelected: boolean;
   selectedWindowId?: string;
   selectedPaneId?: string;
   onConnectToggle: () => void;
   onCreateWindow: (deviceId: string) => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
+  onRenameWindow: (deviceId: string, windowId: string) => void;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
 }
@@ -311,12 +415,14 @@ function DeviceSection({
   device,
   windows,
   isConnected,
+  isSelected,
   selectedWindowId,
   selectedPaneId,
   onConnectToggle,
   onCreateWindow,
   onCloseWindow,
   onClosePane,
+  onRenameWindow,
   onPaneClick,
   onWindowClick,
 }: DeviceSectionProps) {
@@ -328,12 +434,15 @@ function DeviceSection({
       data-testid={`device-item-${device.id}`}
       className={cn(
         'rounded-lg border overflow-hidden text-select-none',
-        isConnected ? 'bg-card/50' : 'bg-muted/20'
+        isSelected ? 'bg-card' : isConnected ? 'bg-card/50' : 'bg-muted/20'
       )}
       onClick={isConnected ? undefined : onConnectToggle}
     >
       {/* Device Header - Not selectable, just shows status and controls */}
-      <div className="px-3 py-1 bg-muted/30 border-b">
+      <div className="relative px-3 py-1 border-b bg-muted/30">
+        {isSelected && (
+          <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-muted-foreground/70" />
+        )}
         <div className="flex items-center gap-2">
           <DeviceIcon className="ml-1 h-4 w-4 text-muted-foreground shrink-0" />
           <span className="flex-1 truncate text-xs font-medium text-select-none">
@@ -374,7 +483,7 @@ function DeviceSection({
 
       {/* Windows List - only show when connected */}
       {isConnected && (
-        <div className="p-1 space-y-0.5">
+        <div className="p-1.5 space-y-1.5 [@media(any-pointer:coarse)]:space-y-2">
           {!windows && (
             <div className="text-xs text-muted-foreground px-2 py-1.5 text-center">
               {t('device.connecting')}
@@ -398,6 +507,7 @@ function DeviceSection({
               onWindowClick={onWindowClick}
               onCloseWindow={onCloseWindow}
               onClosePane={onClosePane}
+              onRenameWindow={onRenameWindow}
             />
           ))}
 
@@ -428,6 +538,7 @@ interface WindowItemProps {
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
+  onRenameWindow: (deviceId: string, windowId: string) => void;
 }
 
 function WindowItem({
@@ -439,16 +550,19 @@ function WindowItem({
   onWindowClick,
   onCloseWindow,
   onClosePane,
+  onRenameWindow,
 }: WindowItemProps) {
   const { t } = useTranslation();
+  const { isMobile } = useSidebar();
   const hasMultiplePanes = window.panes.length > 1;
+  const titleParts = buildWindowTitleParts(window);
 
   // Find which pane is selected in this window
   const selectedPaneInWindow = window.panes.find((p) => p.id === selectedPaneId);
   const isPaneSelected = isSelected && Boolean(selectedPaneInWindow);
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {/* Window Header - Clickable */}
       <div className="group relative">
         <button
@@ -456,10 +570,13 @@ function WindowItem({
           onClick={() => onWindowClick(deviceId, window.id, window.panes)}
           data-testid={`window-item-${window.id}`}
           className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors pr-7',
+            'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors pr-7 [@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:pr-12',
+            isMobile && 'py-2.5 pr-13',
             isPaneSelected
               ? 'bg-primary/15 text-primary border border-primary/30'
-              : 'hover:bg-accent/50 text-foreground border border-transparent'
+              : window.active
+                ? 'bg-accent text-accent-foreground border border-border/70'
+                : 'hover:bg-accent/50 text-foreground border border-transparent'
           )}
         >
           <Badge
@@ -469,41 +586,76 @@ function WindowItem({
             {window.index}
           </Badge>
 
-          <span className="flex-1 truncate text-xs font-medium">{window.name}</span>
+          <span className="flex-1 min-w-0">
+            <span className="font-mono text-[11px] leading-tight font-medium line-clamp-2 [overflow-wrap:break-word]">
+              {titleParts.title}
+            </span>
+            {titleParts.processName && (
+              <span className="font-mono text-[10.5px] leading-tight text-muted-foreground line-clamp-1 break-all">
+                {titleParts.processName}
+              </span>
+            )}
+          </span>
+        </button>
 
-          {window.active && (
-            <span
+        {/* Window Actions Menu - positioned absolutely */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            data-testid={`window-menu-${window.id}`}
+            aria-label={t('window.menu')}
+            title={t('window.menu')}
+            className={cn(
+              'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity data-popup-open:opacity-100',
+              isMobile
+                ? 'h-11 w-11 right-0 rounded-lg bg-background/40 opacity-100'
+                : 'h-5 w-5 right-1.5 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-0.5 [@media(any-pointer:coarse)]:rounded-lg',
+              isPaneSelected
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
+            )}
+          >
+            <EllipsisVertical
               className={cn(
-                'h-1.5 w-1.5 rounded-full shrink-0',
-                isPaneSelected ? 'bg-foreground/80' : 'bg-foreground/50'
+                isMobile
+                  ? 'h-5 w-5'
+                  : 'h-3.5 w-3.5 [@media(any-pointer:coarse)]:h-4.5 [@media(any-pointer:coarse)]:w-4.5'
               )}
             />
-          )}
-        </button>
-
-        {/* Close Window Button - positioned absolutely */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCloseWindow(deviceId, window.id);
-          }}
-          data-testid={`window-close-${window.id}`}
-          className={cn(
-            'absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
-            isPaneSelected
-              ? 'opacity-100'
-              : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
-          )}
-          title={t('window.close')}
-        >
-          <span className="text-xs leading-none">×</span>
-        </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
+          >
+            <DropdownMenuItem
+              data-testid={`window-menu-rename-${window.id}`}
+              className={cn(
+                '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                isMobile && 'py-3 px-2.5 text-base gap-2.5'
+              )}
+              onClick={() => onRenameWindow(deviceId, window.id)}
+            >
+              <Pencil className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+              {t('window.rename')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              data-testid={`window-menu-close-${window.id}`}
+              className={cn(
+                '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                isMobile && 'py-3 px-2.5 text-base gap-2.5'
+              )}
+              onClick={() => onCloseWindow(deviceId, window.id)}
+            >
+              <X className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+              {t('window.close')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Panes List - Only show if window has multiple panes */}
       {hasMultiplePanes && (
-        <div className="ml-4 pl-2 border-l border-border/50 space-y-0.5">
+        <div className="ml-4 pl-2 border-l border-border/50 space-y-1 [@media(any-pointer:coarse)]:space-y-1.5">
           {window.panes.map((pane) => {
             const isPaneActive = pane.id === selectedPaneId;
 
@@ -514,26 +666,20 @@ function WindowItem({
                   onClick={() => onPaneClick(deviceId, window.id, pane.id)}
                   data-testid={`pane-item-${pane.id}`}
                   className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition-colors pr-7',
+                    'w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors pr-7 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-12',
+                    isMobile && 'py-2.5 pr-13',
                     isPaneActive
                       ? 'bg-primary/10 text-primary border border-primary/20'
-                      : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
+                      : pane.active
+                        ? 'bg-accent text-accent-foreground border border-border/70'
+                        : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
                   )}
                 >
                   <span className="text-[10px] font-mono opacity-60 w-4">{pane.index}</span>
 
-                  <span className="flex-1 truncate text-xs">
+                  <span className="flex-1 text-xs line-clamp-2 break-all">
                     {pane.title || `Pane ${pane.index}`}
                   </span>
-
-                  {pane.active && (
-                    <span
-                      className={cn(
-                        'h-1 w-1 rounded-full shrink-0',
-                        isPaneActive ? 'bg-foreground/80' : 'bg-foreground/50'
-                      )}
-                    />
-                  )}
                 </button>
 
                 {/* Close Pane Button */}
@@ -545,14 +691,17 @@ function WindowItem({
                   }}
                   data-testid={`pane-close-${pane.id}`}
                   className={cn(
-                    'absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
+                    'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
+                    isMobile
+                      ? 'h-11 w-11 right-0 rounded-lg bg-background/40 opacity-100'
+                      : 'h-5 w-5 right-1.5 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-0.5 [@media(any-pointer:coarse)]:rounded-lg',
                     isPaneActive
                       ? 'opacity-100'
                       : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
                   )}
                   title={t('window.closePane')}
                 >
-                  <span className="text-xs leading-none">×</span>
+                  <span className={cn('leading-none', isMobile ? 'text-base' : 'text-xs')}>×</span>
                 </button>
               </div>
             );

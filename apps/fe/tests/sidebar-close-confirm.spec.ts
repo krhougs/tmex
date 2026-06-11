@@ -67,10 +67,11 @@ test('sidebar: close window/pane requires confirm dialog', async ({ page, reques
     await expect(paneItem).toHaveCount(0, { timeout: 20_000 });
     expect(tmux(`list-panes -t ${sessionName}:0 -F '#{pane_id}'`).split(/\r?\n/).length).toBe(1);
 
-    // 关非选中窗口：确认后从列表消失，tmux 只剩一个窗口
+    // 关非选中窗口：经 ⋮ 菜单触发，确认后从列表消失，tmux 只剩一个窗口
     const window2Item = page.getByTestId(`window-item-${windowIds[1]}`);
     await expect(window2Item).toBeVisible();
-    await page.getByTestId(`window-close-${windowIds[1]}`).click();
+    await page.getByTestId(`window-menu-${windowIds[1]}`).click();
+    await page.getByTestId(`window-menu-close-${windowIds[1]}`).click();
     await expect(dialog).toBeVisible();
     await dialog.locator('[data-slot="alert-dialog-action"]').click();
     await expect(window2Item).toHaveCount(0, { timeout: 20_000 });
@@ -113,15 +114,16 @@ test.describe('mobile', () => {
       const sidebar = page.getByTestId('sidebar');
       await expect(sidebar).toBeVisible();
 
-      // 非选中窗口的关闭按钮在触屏上无需 hover 即可见
-      const closeButton = page.getByTestId(`window-close-${windowIds[1]}`);
-      await expect(closeButton).toBeVisible();
+      // 非选中窗口的 ⋮ 菜单按钮在触屏上无需 hover 即可见
+      const menuButton = page.getByTestId(`window-menu-${windowIds[1]}`);
+      await expect(menuButton).toBeVisible();
       await expect
-        .poll(() => closeButton.evaluate((el) => getComputedStyle(el).opacity))
+        .poll(() => menuButton.evaluate((el) => getComputedStyle(el).opacity))
         .toBe('1');
 
-      // 点击不再直接关闭，而是弹确认对话框
-      await closeButton.click();
+      // 关闭走菜单项，且不直接关闭，而是弹确认对话框
+      await menuButton.click();
+      await page.getByTestId(`window-menu-close-${windowIds[1]}`).click();
       const dialog = page.locator('[data-slot="alert-dialog-content"]');
       await expect(dialog).toBeVisible();
       await dialog.locator('[data-slot="alert-dialog-cancel"]').click();
@@ -130,7 +132,8 @@ test.describe('mobile', () => {
         2
       );
 
-      await closeButton.click();
+      await menuButton.click();
+      await page.getByTestId(`window-menu-close-${windowIds[1]}`).click();
       await expect(dialog).toBeVisible();
       await dialog.locator('[data-slot="alert-dialog-action"]').click();
       await expect(page.getByTestId(`window-item-${windowIds[1]}`)).toHaveCount(0, {

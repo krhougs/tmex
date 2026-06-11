@@ -188,6 +188,7 @@ function encodeWindowWire(window: TmuxWindow): b.infer<typeof schema.WindowWireS
   return {
     id: window.id,
     name: window.name,
+    customName: window.customName ?? null,
     index: window.index,
     active: window.active,
     panes: window.panes.map(encodePaneWire),
@@ -327,6 +328,7 @@ function decodeWindowWire(wire: b.infer<typeof schema.WindowWireSchema>): TmuxWi
   return {
     id: wire.id,
     name: wire.name,
+    customName: wire.customName ?? undefined,
     index: wire.index,
     active: wire.active,
     panes: wire.panes.map(decodePaneWire),

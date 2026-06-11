@@ -229,6 +229,7 @@ export default function DevicePage() {
       windowIdx: selectedWindow.index,
       paneTitle: selectedPane.title,
       windowName: selectedWindow.name,
+      windowCustomName: selectedWindow.customName,
       deviceName,
     });
   }, [currentDevice?.name, deviceId, selectedPane, selectedWindow]);
@@ -1117,6 +1118,7 @@ export function PageTitle() {
         windowIdx: selectedWindow.index,
         paneTitle: selectedPane.title,
         windowName: selectedWindow.name,
+        windowCustomName: selectedWindow.customName,
         deviceName: siteName,
       });
     }

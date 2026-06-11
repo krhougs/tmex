@@ -90,8 +90,8 @@ function createRunStub(
     if (command.startsWith(`list-windows -t ${session}`)) {
       return ok('@1\t0\tmain\t1\n');
     }
-    if (command.startsWith(`list-panes -t ${session}`)) {
-      return ok('%1\t@1\t0\tbash\t1\t80\t24\n');
+    if (command.startsWith(`list-panes -s -t ${session}`)) {
+      return ok('%1\t@1\t0\tbash\t1\t80\t24\t1\n');
     }
     throw new Error(`unexpected command: ${argv.join(' ')}`);
   };
@@ -235,7 +235,7 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
       'tmux display-message -p -t tmex-snapshot #{session_id}\t#{session_name}',
       'tmux list-windows -t tmex-snapshot -F #{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
-      'tmux list-panes -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}',
+      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{window_active}',
     ]);
     expect(snapshots).toEqual([
       {
@@ -432,7 +432,7 @@ describe('LocalExternalTmuxConnection', () => {
             if (sessionGone && command.startsWith('list-windows -t tmex-gone')) {
               return { exitCode: 1, stdout: '', stderr: "can't find session: tmex-gone" };
             }
-            if (sessionGone && command.startsWith('list-panes -t tmex-gone')) {
+            if (sessionGone && command.startsWith('list-panes -s -t tmex-gone')) {
               return { exitCode: 1, stdout: '', stderr: "can't find session: tmex-gone" };
             }
             return null;

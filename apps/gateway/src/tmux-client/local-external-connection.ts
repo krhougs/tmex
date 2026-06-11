@@ -779,10 +779,11 @@ export class LocalExternalTmuxConnection {
       ]),
       this.runTmuxAllowFailure([
         'list-panes',
+        '-s',
         '-t',
         this.sessionName,
         '-F',
-        '#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}',
+        '#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{window_active}',
       ]),
     ]);
 
@@ -863,7 +864,7 @@ export class LocalExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw] =
+      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw] =
         line.split('\t');
       if (!paneId || !windowId) {
         continue;
@@ -876,12 +877,13 @@ export class LocalExternalTmuxConnection {
         windowId,
         index: Number.isNaN(index) ? 0 : index,
         title: this.pendingPaneTitles.get(paneId) ?? (titleRaw?.trim() ? titleRaw : undefined),
+        // pane_active 是窗口内 active；list-panes -s 下每个窗口都有一个
         active: activeRaw === '1',
         width: Number.isNaN(width) ? 0 : width,
         height: Number.isNaN(height) ? 0 : height,
       };
 
-      if (pane.active) {
+      if (pane.active && windowActiveRaw === '1') {
         this.activePaneId = paneId;
         this.activeWindowId = windowId;
       }
