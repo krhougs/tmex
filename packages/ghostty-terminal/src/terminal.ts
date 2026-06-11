@@ -9,6 +9,8 @@ import {
   type GhosttyRenderStateResources,
 } from './render-state';
 import {
+  EMPTY_SELECTION_LINE_MODEL,
+  buildLineModel,
   clearSelection as resetSelectionData,
   createEmptySelectionState,
   hasSelection,
@@ -16,6 +18,7 @@ import {
   resolvePointerSelection,
   serializeSelectionText,
   updateSelectionFocus,
+  type SelectionLineModel,
   type SelectionMode,
   type SelectionPoint,
   type SelectionState,
@@ -212,7 +215,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private imeIsComposing = false;
   private lastCompositionCommit: { data: string; at: number } | null = null;
   private selectionState: SelectionState = createEmptySelectionState();
-  private readonly lineCache = new Map<number, string>();
+  private readonly lineCache = new Map<number, SelectionLineModel>();
   private lastViewportOffset = 0;
   private lastViewportRows = DEFAULT_ROWS;
   private lastRenderedRows: GhosttyRenderRow[] = [];
@@ -1320,14 +1323,14 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.lastRenderedRows = rows;
 
     for (const row of rows) {
-      this.lineCache.set(scrollbar.offset + row.y, row.text);
+      this.lineCache.set(scrollbar.offset + row.y, buildLineModel(row.cells, row.wrap));
     }
 
     const selectionRects = projectSelectionRects(
       this.selectionState,
       this.lastViewportOffset,
       this.lastViewportRows,
-      (line) => this.getLineText(line)
+      (line) => this.getLineModel(line)
     );
     const selectionText = this.getSelectionText();
 
@@ -1438,7 +1441,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         ...point,
         mode,
       },
-      (line) => this.getLineText(line)
+      (line) => this.getLineModel(line)
     );
     this.updateAutoScroll();
     this.render();
@@ -1457,7 +1460,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     if (point) {
       this.pointerDrag.moved = true;
       this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
-        this.getLineText(line)
+        this.getLineModel(line)
       );
       this.render();
     }
@@ -1535,15 +1538,17 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     };
   }
 
-  private getLineText(line: number): string {
+  private getLineModel(line: number): SelectionLineModel {
     const cached = this.lineCache.get(line);
-    if (typeof cached === 'string') {
+    if (cached) {
       return cached;
     }
 
     const visibleIndex = line - this.lastViewportOffset;
     const visibleRow = this.lastRenderedRows[visibleIndex];
-    return visibleRow?.text ?? '';
+    return visibleRow
+      ? buildLineModel(visibleRow.cells, visibleRow.wrap)
+      : EMPTY_SELECTION_LINE_MODEL;
   }
 
   private getSelectionText(): string | null {
@@ -1551,7 +1556,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return null;
     }
 
-    return serializeSelectionText(this.selectionState, (line) => this.getLineText(line));
+    return serializeSelectionText(this.selectionState, (line) => this.getLineModel(line));
   }
 
   private updateSelectionTextProbe(value: string | null): void {
@@ -1627,7 +1632,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
-      this.getLineText(line)
+      this.getLineModel(line)
     );
     this.pointerDrag.moved = true;
     this.render();

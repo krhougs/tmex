@@ -1415,6 +1415,7 @@ describe('SelectionModel', () => {
   test('supports character drag, word double click, line triple click and serialization', async () => {
     const {
       createEmptySelectionState,
+      lineModelFromText,
       projectSelectionRects,
       resolvePointerSelection,
       serializeSelectionText,
@@ -1422,13 +1423,15 @@ describe('SelectionModel', () => {
     } = await import(`./selection-model.ts?selection=${Date.now()}`);
 
     const lineProvider = (line: number) =>
-      (
-        {
-          10: 'dragtarget',
-          11: 'dbltoken keep',
-          12: 'tripline',
-        } as Record<number, string>
-      )[line] ?? '';
+      lineModelFromText(
+        (
+          {
+            10: 'dragtarget',
+            11: 'dbltoken keep',
+            12: 'tripline',
+          } as Record<number, string>
+        )[line] ?? ''
+      );
 
     let selection = resolvePointerSelection(createEmptySelectionState(), {
       line: 10,
