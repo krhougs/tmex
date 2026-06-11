@@ -59,6 +59,12 @@ async function serveFrontend(req: Request, staticRoot: string): Promise<Response
     return new Response(t('runtime.forbidden'), { status: 403 });
   }
 
+  // 带扩展名的请求视为静态资源，未命中直接 404，避免 SPA fallback
+  // 把缺失资源（如 manifest 引用的图标）伪装成 200 + index.html
+  if (!existsSync(requestedPath) && extname(url.pathname) !== '') {
+    return new Response(t('runtime.notFound'), { status: 404 });
+  }
+
   const indexPath = join(staticRoot, 'index.html');
   const targetPath = existsSync(requestedPath) ? requestedPath : indexPath;
 

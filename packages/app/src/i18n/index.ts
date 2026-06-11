@@ -119,6 +119,7 @@ Global flags:
     'runtime.frontendMissing': 'Frontend assets not found.',
     'runtime.methodNotAllowed': 'Method Not Allowed',
     'runtime.forbidden': 'Forbidden',
+    'runtime.notFound': 'Not Found',
   },
   'zh-CN': {
     'cli.help':
@@ -224,6 +225,7 @@ Global flags:
     'runtime.frontendMissing': '未找到前端静态资源。',
     'runtime.methodNotAllowed': '方法不允许',
     'runtime.forbidden': '禁止访问',
+    'runtime.notFound': '资源不存在',
   },
 };
 

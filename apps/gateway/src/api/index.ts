@@ -579,9 +579,15 @@ async function handleGetManifest(method: 'GET' | 'HEAD'): Promise<Response> {
     icons: [
       {
         src: '/tmex.png',
-        sizes: '768x768',
+        sizes: '1024x1024',
         type: 'image/png',
-        purpose: 'any maskable',
+        purpose: 'any',
+      },
+      {
+        src: '/tmex.png',
+        sizes: '1024x1024',
+        type: 'image/png',
+        purpose: 'maskable',
       },
     ],
   };

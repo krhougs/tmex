@@ -5,6 +5,7 @@
 - 本项目的开发人员均使用简体中文（中国大陆）交流，请使用简体中文（中国大陆）回答。变量命名原则上应使用标准英语，涉及到中国大陆特有的业务场景时，可以适当使用拼音。
 - 代码中除非对应业务逻辑或算法过于复杂，否则请避免出现不必要的注释。
 - LLM思考过程应尽量用中文展示。
+- **严禁触碰本机生产环境的 tmex**：即用户系统安装的常驻服务（launchd 守护，监听 9883）及其安装目录 `~/Library/Application Support/tmex/`（含 `resources/`、`data/tmex.db`、`app.env`、runtime 产物）。禁止写入/覆盖/删除其中任何文件、禁止 kill 或重启服务进程。验证代码改动一律在仓库内起临时实例（显式覆盖 `TMEX_FE_DIST_DIR`、`GATEWAY_PORT`、`TMEX_BIND_HOST` 等被 shell 继承的 app.env 变量）；生产更新只走正式发版 + `tmex upgrade`，由用户自行执行。
 - **永远不要对生成文件跑 lint / format / fix**：包括但不限于 `packages/shared/src/i18n/resources.ts`、`packages/shared/src/i18n/types.ts`、任何 `resources/fe-dist/*`、`dist/*`、`node_modules/*`、`.wasm` 产物。生成文件由对应脚本重建（如 `bun run build:i18n`），人为 lint/format 只会和下一次生成结果打架。如果看到这些文件在 `git status` 里变化，要么是脚本刚跑过，要么是上游源文件被改了——先判断是否属于当前任务范围，不属于就 revert。
 - 必要的skills:
   - using-superpowers
