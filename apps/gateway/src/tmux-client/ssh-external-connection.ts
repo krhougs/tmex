@@ -7,12 +7,16 @@ import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { resolveSshAgentSocket, resolveSshUsername } from '../tmux/ssh-auth';
 import { joinShellArgs, quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
-import { createRuntimeFsPaths } from './fs-paths';
+import {
+  type ControlModeSubscription,
+  createControlModeSubscription,
+} from './control-mode-subscription';
 import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
-import { createPaneStreamParser, type PaneStreamNotification } from './pane-stream-parser';
+import type { PaneStreamNotification } from './pane-stream-parser';
 import { resolveSshConnectConfig } from './ssh-connect-config';
 import { buildSshBootstrapScript, parseSshBootstrapOutput } from './ssh-bootstrap';
+import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
 
 interface CommandResult {
   exitCode: number;
@@ -34,20 +38,23 @@ interface SshExternalTmuxConnectionDeps {
   createClient: () => Client;
 }
 
-interface PaneReaderHandle {
-  paneId: string;
-  fifoPath: string;
-  stopReader: () => void;
+interface ControlChannelHandle {
+  stop: () => void;
 }
 
 function hasRenderableTerminalContent(value: string): boolean {
   return value.trim().length > 0;
 }
 
-const DEFAULT_HISTORY_LINES = '-1000';
 const BELL_DEDUP_WINDOW_MS = 200;
 const COMMAND_SENTINEL = '\x1eTMEX_END ';
 const SNAPSHOT_FIELD_SEPARATOR = '|';
+const CONTROL_MAX_RESTARTS = 3;
+const CONTROL_RESTART_DELAY_MS = 500;
+const CONTROL_STABLE_RESET_MS = 10_000;
+const CONTROL_STDERR_TAIL_LIMIT = 2048;
+const CONTROL_ATTACH_READY_TIMEOUT_MS = 3000;
+const PARKING_WINDOW_NAME = 'tmex-park';
 
 function splitSnapshotFields(line: string, fieldCount: number): string[] {
   const parts = line.split(SNAPSHOT_FIELD_SEPARATOR);
@@ -93,16 +100,12 @@ export class SshExternalTmuxConnection {
   private pendingPaneTitles = new Map<string, string>();
   private snapshotSession: Pick<TmuxSession, 'id' | 'name'> | null = null;
   private snapshotWindows = new Map<string, TmuxWindow>();
-  private paneReaders = new Map<string, PaneReaderHandle>();
-  private pipeTransition: Promise<void> = Promise.resolve();
-  private hookReadAbort: (() => void) | null = null;
-  private hookBuffer = '';
   private bellDedup = new Map<string, number>();
-  private fsPaths = createRuntimeFsPaths({
-    deviceId: 'pending',
-    sessionName: 'pending',
-    gatewayPid: process.pid,
-  });
+  private controlChannel: ControlChannelHandle | null = null;
+  private controlSubscription: ControlModeSubscription | null = null;
+  private controlStartedAt = 0;
+  private controlRestartCount = 0;
+  private controlStderrTail = '';
   private sshClient: Client | null = null;
   private commandStream: ClientChannel | null = null;
   private commandStdoutBuffer = '';
@@ -136,18 +139,12 @@ export class SshExternalTmuxConnection {
     }
 
     this.sessionName = this.device.session?.trim() || 'tmex';
-    this.fsPaths = createRuntimeFsPaths({
-      deviceId: this.deviceId,
-      sessionName: this.sessionName,
-      gatewayPid: process.pid,
-    });
 
     await this.connectSshClient();
     await this.openCommandChannel();
-    await this.ensureRemoteRuntimeDirs();
     await this.ensureSession();
     await this.configureSessionOptions();
-    await this.startHooks();
+    await this.startControlClient();
 
     this.connected = true;
     updateDeviceRuntimeStatus(this.deviceId, {
@@ -369,19 +366,17 @@ export class SshExternalTmuxConnection {
 
     this.tmuxBin = parsed.tmuxBin;
     this.remoteHomeDir = parsed.homeDir;
-  }
 
-  private async ensureRemoteRuntimeDirs(): Promise<void> {
-    await this.runShell(
-      [
-        `mkdir -p ${quoteShellArg(this.fsPaths.rootDir)}`,
-        `mkdir -p ${quoteShellArg(this.fsPaths.panesDir)}`,
-        `mkdir -p ${quoteShellArg(this.fsPaths.hooksDir)}`,
-        `chmod 700 ${quoteShellArg(this.fsPaths.rootDir)}`,
-        `chmod 700 ${quoteShellArg(this.fsPaths.panesDir)}`,
-        `chmod 700 ${quoteShellArg(this.fsPaths.hooksDir)}`,
-      ].join('\n')
-    );
+    const version = parseTmuxVersion(parsed.tmuxVersion);
+    if (!isControlModeSupported(version)) {
+      const message = `remote tmux too old for tmex (control mode requires tmux >= 3.0, found ${parsed.tmuxVersion || 'unknown'})`;
+      updateDeviceRuntimeStatus(this.deviceId, {
+        lastSeenAt: new Date().toISOString(),
+        tmuxAvailable: false,
+        lastError: message,
+      });
+      throw new Error(message);
+    }
   }
 
   private async ensureSession(): Promise<void> {
@@ -411,7 +406,16 @@ export class SshExternalTmuxConnection {
       'extended-keys-format',
       'csi-u',
     ]);
-    await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'on']);
+    // 同 local 版本：control client 自带 focused 标志，focus-events 必须关闭，
+    // 且 control client detach 不能触发 destroy-unattached。
+    await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'off']);
+    await this.runTmuxAllowFailure([
+      'set-option',
+      '-t',
+      this.sessionName,
+      'destroy-unattached',
+      'off',
+    ]);
 
     const termProgram = config.tmuxTermProgram.trim();
     if (termProgram && termProgram.toLowerCase() !== 'off') {
@@ -443,86 +447,196 @@ export class SshExternalTmuxConnection {
     }
   }
 
-  private async startHooks(): Promise<void> {
-    await this.ensureRemoteRuntimeDirs();
-    const fifoPath = this.fsPaths.hookFifoPath;
-    await this.runShell(
-      `rm -f ${quoteShellArg(fifoPath)} && mkfifo ${quoteShellArg(fifoPath)} && chmod 600 ${quoteShellArg(fifoPath)}`
-    );
-
-    const stopReader = await this.openReaderChannel(
-      `exec tail -n +1 -f ${quoteShellArg(fifoPath)}`,
-      {
-        onData: (data) => {
-          this.handleHookChunk(data.toString());
-        },
-        onClose: () => {
-          if (this.manualDisconnect) {
-            return;
-          }
-          console.error('[ssh] hook reader channel closed unexpectedly, tearing down');
-          void this.shutdownInternal(true);
-        },
-      }
-    );
-    this.hookReadAbort = () => {
-      stopReader();
-      void this.runShellAllowFailure(`rm -f ${quoteShellArg(fifoPath)}`);
-    };
-
-    await this.installHook('pane-exited', ['pane-exited', '#{window_id}', '#{pane_id}']);
-    await this.installHook('pane-died', ['pane-died', '#{window_id}', '#{pane_id}']);
-    await this.installHook('after-new-window', ['refresh']);
-    await this.installHook('after-split-window', ['refresh']);
-  }
-
-  private async stopHooks(): Promise<void> {
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'pane-exited']);
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'pane-died']);
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'after-new-window']);
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'after-split-window']);
-    this.hookReadAbort?.();
-    this.hookReadAbort = null;
-    this.hookBuffer = '';
-  }
-
-  private async installHook(hookName: string, fields: string[]): Promise<void> {
-    const fifoPath = this.fsPaths.hookFifoPath;
-    const innerScript = `printf '%s\\t%s\\t%s\\n' ${fields
-      .map((field) => quoteShellArg(field))
-      .join(' ')} >> ${quoteShellArg(fifoPath)}`;
-    await this.runTmux([
-      'set-hook',
+  // 与 local 版本相同的 focus 规避（详见 local-external-connection.ts 与 plan-00）：
+  // attach 前把 curw 切到一次性 parking 窗口，避免 ESC[I 落到 ?1004h 的 pane 上。
+  private async createParkingWindow(): Promise<string | null> {
+    const result = await this.runTmuxAllowFailure([
+      'new-window',
       '-t',
       this.sessionName,
-      hookName,
-      `run-shell -b ${quoteShellArg(innerScript)}`,
+      '-n',
+      PARKING_WINDOW_NAME,
+      '-P',
+      '-F',
+      '#{window_id}',
+      'sleep 30',
     ]);
+    if (result.exitCode !== 0) {
+      console.warn(
+        `[ssh] failed to create parking window on ${this.deviceId}, attaching without focus shield`
+      );
+      return null;
+    }
+    return result.stdout.trim() || null;
   }
 
-  private handleHookChunk(text: string): void {
-    this.hookBuffer += text;
+  private async removeParkingWindow(windowId: string | null): Promise<void> {
+    if (!windowId) {
+      return;
+    }
+    await this.runTmuxAllowFailure(['last-window', '-t', this.sessionName]);
+    await this.runTmuxAllowFailure(['kill-window', '-t', windowId]);
+  }
 
-    while (true) {
-      const newlineIndex = this.hookBuffer.indexOf('\n');
-      if (newlineIndex < 0) {
-        return;
-      }
+  private async startControlClient(): Promise<void> {
+    let attachReadyResolve: (() => void) | null = null;
+    const attachReady = new Promise<void>((resolve) => {
+      attachReadyResolve = resolve;
+    });
 
-      const line = this.hookBuffer.slice(0, newlineIndex).trim();
-      this.hookBuffer = this.hookBuffer.slice(newlineIndex + 1);
-      if (!line) {
-        continue;
-      }
+    const parkingWindowId = await this.createParkingWindow();
+    let handle: ControlChannelHandle;
+    try {
+      handle = await this.openControlChannel(() => {
+        attachReadyResolve?.();
+        attachReadyResolve = null;
+      });
+      await Promise.race([
+        attachReady,
+        new Promise<void>((resolve) => setTimeout(resolve, CONTROL_ATTACH_READY_TIMEOUT_MS)),
+      ]);
+    } finally {
+      await this.removeParkingWindow(parkingWindowId);
+    }
 
-      const [type, windowId, paneId] = line.split('\t');
-      if (type === 'bell') {
-        continue;
-      }
+    // connect 阶段（connected 尚为 false）通道瞬断不会走重连，这里显式失败。
+    if (this.controlChannel !== handle) {
+      throw new Error(
+        this.controlStderrTail.trim() || 'tmux control client channel closed during attach'
+      );
+    }
+  }
 
-      if (type === 'pane-exited' || type === 'pane-died' || type === 'refresh') {
+  private async openControlChannel(onAttachReady: () => void): Promise<ControlChannelHandle> {
+    const subscription = createControlModeSubscription({
+      onTerminalOutput: (paneId, data) => {
+        this.callbacks.onTerminalOutput(paneId, data);
+      },
+      onTitle: (paneId, title) => {
+        this.pendingPaneTitles.set(paneId, title);
         this.requestSnapshot();
+      },
+      onBell: (paneId) => {
+        this.recordBell(paneId);
+      },
+      onNotification: (paneId, notification) => {
+        this.emitNotification(paneId, notification);
+      },
+      onStructureChanged: () => {
+        this.requestSnapshot();
+      },
+      onExit: () => {},
+      onBlockEnd: () => {
+        onAttachReady();
+      },
+    });
+
+    const handle: ControlChannelHandle = { stop: () => {} };
+    this.controlChannel = handle;
+    this.controlSubscription = subscription;
+    this.controlStartedAt = Date.now();
+    this.controlStderrTail = '';
+
+    const stopReader = await this.openReaderChannel(
+      `exec ${quoteShellArg(this.tmuxBin)} -C attach-session -t ${quoteShellArg(this.sessionName)}`,
+      {
+        onData: (data) => {
+          if (this.controlChannel === handle) {
+            subscription.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+          }
+        },
+        onStderr: (data) => {
+          if (this.controlChannel === handle) {
+            this.controlStderrTail = (this.controlStderrTail + data.toString()).slice(
+              -CONTROL_STDERR_TAIL_LIMIT
+            );
+          }
+        },
+        onClose: () => {
+          this.handleControlChannelClose(handle);
+        },
       }
+    );
+    handle.stop = stopReader;
+    return handle;
+  }
+
+  private stopControlClient(): void {
+    const handle = this.controlChannel;
+    this.controlChannel = null;
+    this.controlSubscription?.dispose();
+    this.controlSubscription = null;
+    handle?.stop();
+  }
+
+  private handleControlChannelClose(handle: ControlChannelHandle): void {
+    if (this.controlChannel !== handle) {
+      return;
+    }
+    this.controlChannel = null;
+    this.controlSubscription?.dispose();
+    this.controlSubscription = null;
+    if (!this.connected || this.manualDisconnect) {
+      return;
+    }
+    void this.reconnectControlClient();
+  }
+
+  private async reconnectControlClient(): Promise<void> {
+    if (Date.now() - this.controlStartedAt > CONTROL_STABLE_RESET_MS) {
+      this.controlRestartCount = 0;
+    }
+    this.controlRestartCount += 1;
+    const stderrMessage = this.controlStderrTail.trim();
+
+    if (this.controlRestartCount > CONTROL_MAX_RESTARTS) {
+      const message = stderrMessage || 'tmux control client channel closed repeatedly';
+      console.warn(`[ssh] tmux control client gave up on ${this.deviceId}: ${message}`);
+      updateDeviceRuntimeStatus(this.deviceId, {
+        lastSeenAt: new Date().toISOString(),
+        tmuxAvailable: false,
+        lastError: message,
+      });
+      void this.shutdownInternal(true);
+      return;
+    }
+
+    console.warn(
+      `[ssh] tmux control client channel closed on ${this.deviceId}, reconnecting (attempt ${this.controlRestartCount})`
+    );
+    await new Promise((resolve) =>
+      setTimeout(resolve, CONTROL_RESTART_DELAY_MS * this.controlRestartCount)
+    );
+    if (!this.connected || this.manualDisconnect) {
+      return;
+    }
+
+    const probe = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
+    if (probe.exitCode !== 0) {
+      const message = probe.stderr.trim() || probe.stdout.trim() || 'tmux session gone';
+      console.warn(`[ssh] tmux session gone on ${this.deviceId}: ${message}`);
+      updateDeviceRuntimeStatus(this.deviceId, {
+        lastSeenAt: new Date().toISOString(),
+        tmuxAvailable: false,
+        lastError: message,
+      });
+      void this.shutdownInternal(true);
+      return;
+    }
+    if (!this.connected || this.manualDisconnect) {
+      return;
+    }
+
+    try {
+      await this.startControlClient();
+    } catch (error) {
+      // 瞬断会再次触发 close 处理并按重试计数走重连/放弃，这里仅记录
+      console.warn(`[ssh] control client restart failed on ${this.deviceId}:`, error);
+      return;
+    }
+    this.requestSnapshot();
+    if (this.activePaneId) {
+      void this.capturePaneHistory(this.activePaneId).catch(() => undefined);
     }
   }
 
@@ -673,7 +787,7 @@ export class SshExternalTmuxConnection {
     this.parseSnapshotSession(sessionRes.stdout.split(/\r?\n/));
     this.parseSnapshotWindows(windowsRes.stdout.split(/\r?\n/));
     this.parseSnapshotPanes(panesRes.stdout.split(/\r?\n/));
-    await this.syncPipeReaders();
+    this.controlSubscription?.prunePanes(new Set(this.getExpectedPaneIds()));
     this.emitSnapshot();
   }
 
@@ -818,116 +932,6 @@ export class SshExternalTmuxConnection {
     return Array.from(this.snapshotWindows.values())
       .sort((left, right) => left.index - right.index)
       .flatMap((window) => window.panes.map((pane) => pane.id));
-  }
-
-  private async startPipeForPaneNow(paneId: string): Promise<void> {
-    if (this.paneReaders.has(paneId)) {
-      return;
-    }
-
-    const fifoPath = this.fsPaths.paneFifoPath(paneId);
-    await this.ensureRemoteRuntimeDirs();
-    await this.runShell(
-      `rm -f ${quoteShellArg(fifoPath)} && mkfifo ${quoteShellArg(fifoPath)} && chmod 600 ${quoteShellArg(fifoPath)}`
-    );
-
-    const parser = createPaneStreamParser({
-      onTitle: (title) => {
-        this.pendingPaneTitles.set(paneId, title);
-        this.requestSnapshot();
-      },
-      onBell: () => {
-        this.recordBell(paneId);
-      },
-      onNotification: (notification) => {
-        this.emitNotification(paneId, notification);
-      },
-    });
-
-    const stopReader = await this.openReaderChannel(`exec cat ${quoteShellArg(fifoPath)}`, {
-      onData: (raw) => {
-        const output = parser.push(raw);
-        if (output.length > 0) {
-          this.callbacks.onTerminalOutput(paneId, output);
-        }
-      },
-      onClose: () => {
-        if (this.manualDisconnect) {
-          return;
-        }
-        const existing = this.paneReaders.get(paneId);
-        if (!existing) {
-          return;
-        }
-        console.warn(
-          `[ssh] pane reader channel closed for ${paneId}, resync on next snapshot`
-        );
-        this.paneReaders.delete(paneId);
-        void this.runShellAllowFailure(`rm -f ${quoteShellArg(existing.fifoPath)}`);
-        this.requestSnapshot();
-      },
-    });
-
-    const handle: PaneReaderHandle = {
-      paneId,
-      fifoPath,
-      stopReader: () => {
-        stopReader();
-        void this.runShellAllowFailure(`rm -f ${quoteShellArg(fifoPath)}`);
-      },
-    };
-    this.paneReaders.set(paneId, handle);
-
-    try {
-      await this.runTmux(['pipe-pane', '-O', '-t', paneId, `cat >${fifoPath}`]);
-    } catch (error) {
-      this.paneReaders.delete(paneId);
-      handle.stopReader();
-      throw error;
-    }
-  }
-
-  private async stopPipeForPaneNow(paneId: string): Promise<void> {
-    const handle = this.paneReaders.get(paneId);
-    if (!handle) {
-      return;
-    }
-
-    this.paneReaders.delete(paneId);
-    await this.runTmuxAllowFailure(['pipe-pane', '-t', paneId]);
-    handle.stopReader();
-  }
-
-  private async syncPipeReaders(): Promise<void> {
-    const expectedPaneIds = this.getExpectedPaneIds();
-    const expectedSet = new Set(expectedPaneIds);
-
-    await this.queuePipeTransition(async () => {
-      for (const paneId of Array.from(this.paneReaders.keys())) {
-        if (!expectedSet.has(paneId)) {
-          await this.stopPipeForPaneNow(paneId);
-        }
-      }
-      for (const paneId of expectedPaneIds) {
-        if (!this.paneReaders.has(paneId)) {
-          await this.startPipeForPaneNow(paneId);
-        }
-      }
-    });
-  }
-
-  private async stopAllPipeReaders(): Promise<void> {
-    await this.queuePipeTransition(async () => {
-      for (const paneId of Array.from(this.paneReaders.keys())) {
-        await this.stopPipeForPaneNow(paneId);
-      }
-    });
-  }
-
-  private queuePipeTransition(task: () => Promise<void>): Promise<void> {
-    const next = this.pipeTransition.catch(() => undefined).then(task);
-    this.pipeTransition = next.catch(() => undefined);
-    return next;
   }
 
   private async runTmux(
@@ -1079,6 +1083,7 @@ export class SshExternalTmuxConnection {
     command: string,
     options: {
       onData: (data: Buffer) => void;
+      onStderr?: (data: Buffer) => void;
       onClose?: () => void;
     }
   ): Promise<() => void> {
@@ -1097,6 +1102,10 @@ export class SshExternalTmuxConnection {
       options.onData(data);
     });
     stream.stderr.on('data', (data: Buffer) => {
+      if (options.onStderr) {
+        options.onStderr(data);
+        return;
+      }
       if (!this.manualDisconnect) {
         this.callbacks.onError(new Error(data.toString().trim() || 'SSH reader stderr output'));
       }
@@ -1158,11 +1167,7 @@ export class SshExternalTmuxConnection {
 
     this.connected = false;
     this.cleanupPromise = (async () => {
-      await this.stopAllPipeReaders().catch(() => undefined);
-      await this.stopHooks().catch(() => undefined);
-      await this.runShellAllowFailure(`rm -rf ${quoteShellArg(this.fsPaths.rootDir)}`).catch(
-        () => undefined
-      );
+      this.stopControlClient();
       this.rejectPendingCommand(new Error('SSH command channel closed'));
       this.commandStream?.end();
       this.commandStream?.close();

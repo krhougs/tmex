@@ -1,5 +1,30 @@
 # 已知问题：多个 gateway 同时接入同一 tmux 会话导致终端互相失效
 
+## 状态：已根治（2026-06-11）
+
+订阅层已迁移到 tmux control mode（`tmux -C attach`），pipe-pane 与 set-hook 全部移除，
+多 gateway 实例可同时订阅同一会话、互不抢占。实现与实验记录见
+`prompt-archives/2026061102-control-mode-migration/`。要点：
+
+- `%output` 通知按 client 独立分发，根因（管道/hook 抢占）不复存在；
+- `focus-events` 由原来的强制 `on` 改为强制 `off`（server 级选项）：control client
+  自带 `attached,focused` 标志，若 focus-events on，select-pane / select-window
+  （3.5+）会向 ?1004h pane 投递 ESC[I/ESC[O；
+- **新发现**：client attach 瞬间对当前窗口活动 pane 的焦点投递**不受 focus-events
+  选项约束**（`server_client_set_session` → `window_update_focus` 无条件调用，
+  tmux 3.4 与 master 均如此，实验证实）。为此 gateway 在每次 control attach 前执行
+  "parking window 舞步"：临时 `new-window 'sleep 30'` 让 curw 指向无 ?1004h 的
+  一次性窗口 → attach → `last-window` 切回 → `kill-window`。集成测试
+  `local-external-connection.integration.test.ts` 中有对应回归用例守护
+  "Claude Code 60 秒后通知能弹" 行为；
+- 新增 `destroy-unattached off`（session 级）：避免 control client detach 触发会话销毁；
+- 要求 tmux >= 3.0（local 与 ssh 均在连接时检测并明确报错）。
+
+注意：focus-events 全局 off 意味着用户在真实终端 attach 同一 tmux server 的会话时，
+vim 等程序收不到焦点事件（旧版 tmex 强制 on，同样是全局副作用，方向相反）。
+
+以下为迁移前的原始问题记录，供追溯。
+
 ## 背景
 
 tmex gateway 通过外部 tmux CLI 订阅 pane 输出。当**两个及以上 gateway 实例**（典型场景：本机常驻的 tmex-cli 生产服务 + 仓库内启动的 dev gateway）各自存在指向**同一个 tmux 会话**的设备并同时 attach 时，两个实例的网页终端都会出现"输入无反应、内容不更新"的现象，看起来像页面卡死。

@@ -1,16 +1,18 @@
-import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type { Device, StateSnapshotPayload, TmuxPane, TmuxSession, TmuxWindow } from '@tmex/shared';
 import { config } from '../config';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { connectionAlertNotifier } from '../push/connection-alerts';
 import { buildLocalTmuxEnv, getLocalShellPath } from '../tmux/local-shell-path';
-import { quoteShellArg } from './command-builder';
 import type { TmuxConnectionOptions } from './connection-types';
-import { createRuntimeFsPaths } from './fs-paths';
+import {
+  type ControlModeSubscription,
+  createControlModeSubscription,
+} from './control-mode-subscription';
 import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
-import { createPaneStreamParser, type PaneStreamNotification } from './pane-stream-parser';
+import type { PaneStreamNotification } from './pane-stream-parser';
+import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
 
 interface CommandResult {
   exitCode: number;
@@ -18,20 +20,27 @@ interface CommandResult {
   stderr: string;
 }
 
+export interface ControlClientProcess {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  kill: () => void;
+}
+
 interface LocalExternalTmuxConnectionDeps {
-  enableHooks: boolean;
+  enableSubscription: boolean;
   getDevice: (deviceId: string) => Device | null;
   run: (argv: string[]) => Promise<CommandResult>;
   ensureGhosttyTerminfo: () => Promise<boolean>;
+  spawnControlClient: (argv: string[]) => ControlClientProcess;
 }
 
-interface PaneReaderHandle {
-  paneId: string;
-  fifoPath: string;
-  stopReader: () => void;
-}
-
-const DEFAULT_CHUNK_HISTORY_LINES = '-1000';
+const CONTROL_MAX_RESTARTS = 3;
+const CONTROL_RESTART_DELAY_MS = 500;
+const CONTROL_STABLE_RESET_MS = 10_000;
+const CONTROL_STDERR_TAIL_LIMIT = 2048;
+const CONTROL_ATTACH_READY_TIMEOUT_MS = 3000;
+const PARKING_WINDOW_NAME = 'tmex-park';
 
 function hasRenderableTerminalContent(value: string): boolean {
   return value.trim().length > 0;
@@ -77,6 +86,31 @@ function defaultRun(argv: string[]): Promise<CommandResult> {
   });
 }
 
+function defaultSpawnControlClient(argv: string[]): ControlClientProcess {
+  const subprocess = Bun.spawn(argv, {
+    env: buildLocalTmuxEnv(getLocalShellPath()),
+    // stdin 保持打开（tmux -C 在 stdin EOF 时退出），但永不写入。
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  // 持有 stdin 引用直到 kill，避免 FileSink 被 GC 关闭导致 tmux 收到 EOF 而退出。
+  const stdin = subprocess.stdin;
+  return {
+    stdout: subprocess.stdout,
+    stderr: subprocess.stderr,
+    exited: subprocess.exited,
+    kill: () => {
+      try {
+        stdin?.end();
+      } catch {
+        /* ignore */
+      }
+      subprocess.kill();
+    },
+  };
+}
+
 export class LocalExternalTmuxConnection {
   private readonly deviceId: string;
   private readonly deps: LocalExternalTmuxConnectionDeps;
@@ -90,19 +124,15 @@ export class LocalExternalTmuxConnection {
   private pendingPaneTitles = new Map<string, string>();
   private snapshotSession: Pick<TmuxSession, 'id' | 'name'> | null = null;
   private snapshotWindows = new Map<string, TmuxWindow>();
-  private paneReaders = new Map<string, PaneReaderHandle>();
-  private pipeTransition: Promise<void> = Promise.resolve();
   private inputTransition: Promise<void> = Promise.resolve();
-  private hookReadAbort: (() => void) | null = null;
-  private hookBuffer = '';
   private bellDedup = new Map<string, number>();
   private closeNotified = false;
   private cleanupPromise: Promise<void> | null = null;
-  private fsPaths = createRuntimeFsPaths({
-    deviceId: 'pending',
-    sessionName: 'pending',
-    gatewayPid: process.pid,
-  });
+  private controlProcess: ControlClientProcess | null = null;
+  private controlSubscription: ControlModeSubscription | null = null;
+  private controlStartedAt = 0;
+  private controlRestartCount = 0;
+  private controlStderrTail = '';
 
   constructor(
     options: TmuxConnectionOptions,
@@ -111,7 +141,7 @@ export class LocalExternalTmuxConnection {
     this.deviceId = options.deviceId;
     this.callbacks = options;
     this.deps = {
-      enableHooks: inputDeps.enableHooks ?? true,
+      enableSubscription: inputDeps.enableSubscription ?? true,
       getDevice: inputDeps.getDevice ?? ((deviceId) => getDeviceById(deviceId)),
       run: inputDeps.run ?? defaultRun,
       ensureGhosttyTerminfo:
@@ -120,6 +150,7 @@ export class LocalExternalTmuxConnection {
           const result = await this.deps.run(['/bin/sh', '-c', buildEnsureGhosttyTerminfoScript()]);
           return result.exitCode === 0;
         }),
+      spawnControlClient: inputDeps.spawnControlClient ?? defaultSpawnControlClient,
     };
   }
 
@@ -135,17 +166,14 @@ export class LocalExternalTmuxConnection {
     }
 
     this.sessionName = this.device.session?.trim() || 'tmex';
-    this.fsPaths = createRuntimeFsPaths({
-      deviceId: this.deviceId,
-      sessionName: this.sessionName,
-      gatewayPid: process.pid,
-    });
-    this.ensureRuntimeDirs();
 
+    if (this.deps.enableSubscription) {
+      await this.assertControlModeSupport();
+    }
     await this.ensureSession();
     await this.configureSessionOptions();
-    if (this.deps.enableHooks) {
-      await this.startHooks();
+    if (this.deps.enableSubscription) {
+      await this.startControlClient();
     }
     this.connected = true;
     updateDeviceRuntimeStatus(this.deviceId, {
@@ -164,11 +192,7 @@ export class LocalExternalTmuxConnection {
 
     this.manualDisconnect = true;
     this.connected = false;
-    void this.stopAllPipeReaders();
-    if (this.deps.enableHooks) {
-      void this.stopHooks();
-    }
-    rmSync(this.fsPaths.rootDir, { recursive: true, force: true });
+    this.stopControlClient();
   }
 
   requestSnapshot(): void {
@@ -303,7 +327,17 @@ export class LocalExternalTmuxConnection {
       'extended-keys-format',
       'csi-u',
     ]);
-    await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'on']);
+    // control client 自带 attached+focused 标志，focus-events on 会把 ESC[I 投递给
+    // ?1004h 的 pane（如 Claude Code），使其永久判定"用户在场"、通知静默，必须关闭。
+    await this.runTmuxAllowFailure(['set-option', '-t', this.sessionName, '-g', 'focus-events', 'off']);
+    // control client detach 不能触发 destroy-unattached 销毁会话。
+    await this.runTmuxAllowFailure([
+      'set-option',
+      '-t',
+      this.sessionName,
+      'destroy-unattached',
+      'off',
+    ]);
 
     const termProgram = config.tmuxTermProgram.trim();
     if (termProgram && termProgram.toLowerCase() !== 'off') {
@@ -326,101 +360,243 @@ export class LocalExternalTmuxConnection {
     }
   }
 
-  private ensureRuntimeDirs(): void {
-    mkdirSync(this.fsPaths.rootDir, { recursive: true, mode: 0o700 });
-    mkdirSync(this.fsPaths.panesDir, { recursive: true, mode: 0o700 });
-    mkdirSync(this.fsPaths.hooksDir, { recursive: true, mode: 0o700 });
+  private async assertControlModeSupport(): Promise<void> {
+    const result = await this.runTmuxAllowFailure(['-V']);
+    if (result.exitCode !== 0) {
+      return;
+    }
+    const version = parseTmuxVersion(result.stdout.trim());
+    if (!isControlModeSupported(version)) {
+      throw new Error(
+        `tmux ${version?.major}.${version?.minor} is too old for tmex (control mode requires tmux >= 3.0)`
+      );
+    }
   }
 
-  private async startHooks(): Promise<void> {
-    this.ensureRuntimeDirs();
-    const fifoPath = this.fsPaths.hookFifoPath;
-    rmSync(fifoPath, { force: true });
-    await this.runShell(`mkfifo ${quoteShellArg(fifoPath)}`);
-
-    const readerProcess = Bun.spawn(
-      ['/bin/sh', '-lc', `tail -n +1 -f ${quoteShellArg(fifoPath)}`],
-      {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      }
-    );
-    const reader = readerProcess.stdout.getReader();
-    void (async () => {
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            break;
-          }
-          this.handleHookChunk(new TextDecoder().decode(chunk.value));
-        }
-      } catch (error) {
-        if (!this.manualDisconnect && !shouldIgnoreReaderAbortError(error)) {
-          this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
-        }
-      }
-    })();
-
-    this.hookReadAbort = () => {
-      reader.releaseLock();
-      readerProcess.kill();
-      rmSync(fifoPath, { force: true });
-    };
-
-    await this.installHook('pane-exited', ['pane-exited', '#{window_id}', '#{pane_id}']);
-    await this.installHook('pane-died', ['pane-died', '#{window_id}', '#{pane_id}']);
-    await this.installHook('after-new-window', ['refresh']);
-    await this.installHook('after-split-window', ['refresh']);
-  }
-
-  private async stopHooks(): Promise<void> {
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'pane-exited']);
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'pane-died']);
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'after-new-window']);
-    await this.runTmuxAllowFailure(['set-hook', '-u', '-t', this.sessionName, 'after-split-window']);
-    this.hookReadAbort?.();
-    this.hookReadAbort = null;
-    this.hookBuffer = '';
-  }
-
-  private async installHook(hookName: string, fields: string[]): Promise<void> {
-    const fifoPath = this.fsPaths.hookFifoPath;
-    const innerScript = `printf '%s\\t%s\\t%s\\n' ${fields
-      .map((field) => quoteShellArg(field))
-      .join(' ')} >> ${quoteShellArg(fifoPath)}`;
-    await this.runTmux([
-      'set-hook',
+  // tmux 在 client attach 时会无条件向当前窗口的活动 pane 投递焦点事件（不受
+  // focus-events 选项约束，实验见 plan-00）。若该 pane 开了 ?1004h（如 Claude Code），
+  // ESC[I 会让其永久判定"用户在场"、通知静默。规避：attach 前把会话当前窗口切到
+  // 一次性 parking 窗口（裸 sleep，无 ?1004h），让焦点事件落空，attach 完成后切回并清理。
+  private async createParkingWindow(): Promise<string | null> {
+    const result = await this.runTmuxAllowFailure([
+      'new-window',
       '-t',
       this.sessionName,
-      hookName,
-      `run-shell -b ${quoteShellArg(innerScript)}`,
+      '-n',
+      PARKING_WINDOW_NAME,
+      '-P',
+      '-F',
+      '#{window_id}',
+      'sleep 30',
     ]);
+    if (result.exitCode !== 0) {
+      console.warn(
+        `[local] failed to create parking window on ${this.deviceId}, attaching without focus shield`
+      );
+      return null;
+    }
+    return result.stdout.trim() || null;
   }
 
-  private handleHookChunk(text: string): void {
-    this.hookBuffer += text;
+  private async removeParkingWindow(windowId: string | null): Promise<void> {
+    if (!windowId) {
+      return;
+    }
+    await this.runTmuxAllowFailure(['last-window', '-t', this.sessionName]);
+    await this.runTmuxAllowFailure(['kill-window', '-t', windowId]);
+  }
 
-    while (true) {
-      const newlineIndex = this.hookBuffer.indexOf('\n');
-      if (newlineIndex < 0) {
-        return;
-      }
+  private async startControlClient(): Promise<void> {
+    let attachReadyResolve: (() => void) | null = null;
+    const attachReady = new Promise<void>((resolve) => {
+      attachReadyResolve = resolve;
+    });
 
-      const line = this.hookBuffer.slice(0, newlineIndex).trim();
-      this.hookBuffer = this.hookBuffer.slice(newlineIndex + 1);
-      if (!line) {
-        continue;
-      }
+    const parkingWindowId = await this.createParkingWindow();
+    let proc: ControlClientProcess;
+    try {
+      proc = this.spawnControlClientProcess(() => {
+        attachReadyResolve?.();
+        attachReadyResolve = null;
+      });
+      await Promise.race([
+        attachReady,
+        new Promise<void>((resolve) => setTimeout(resolve, CONTROL_ATTACH_READY_TIMEOUT_MS)),
+      ]);
+    } finally {
+      await this.removeParkingWindow(parkingWindowId);
+    }
 
-      const [type, windowId, paneId] = line.split('\t');
-      if (type === 'bell') {
-        continue;
-      }
+    // connect 阶段（connected 尚为 false）进程瞬退不会走重连，这里显式失败。
+    if (this.controlProcess !== proc) {
+      const message = this.controlStderrTail.trim() || 'tmux control client exited during attach';
+      console.warn(`[local] tmux control client died during attach on ${this.deviceId}: ${message}`);
+      throw new Error(message);
+    }
+  }
 
-      if (type === 'pane-exited' || type === 'pane-died' || type === 'refresh') {
+  private spawnControlClientProcess(onAttachReady: () => void): ControlClientProcess {
+    const subscription = createControlModeSubscription({
+      onTerminalOutput: (paneId, data) => {
+        this.callbacks.onTerminalOutput(paneId, data);
+      },
+      onTitle: (paneId, title) => {
+        this.pendingPaneTitles.set(paneId, title);
         this.requestSnapshot();
+      },
+      onBell: (paneId) => {
+        this.recordBell(paneId);
+      },
+      onNotification: (paneId, notification) => {
+        this.emitNotification(paneId, notification);
+      },
+      onStructureChanged: () => {
+        this.requestSnapshot();
+      },
+      onExit: () => {},
+      onBlockEnd: () => {
+        onAttachReady();
+      },
+    });
+
+    const proc = this.deps.spawnControlClient([
+      'tmux',
+      '-C',
+      'attach-session',
+      '-t',
+      this.sessionName,
+    ]);
+    this.controlProcess = proc;
+    this.controlSubscription = subscription;
+    this.controlStartedAt = Date.now();
+    this.controlStderrTail = '';
+
+    void this.pumpControlStdout(proc, subscription);
+    void this.pumpControlStderr(proc);
+    void proc.exited
+      .then((exitCode) => {
+        this.handleControlClientExit(proc, exitCode);
+      })
+      .catch(() => {
+        this.handleControlClientExit(proc, -1);
+      });
+    return proc;
+  }
+
+  private async pumpControlStdout(
+    proc: ControlClientProcess,
+    subscription: ControlModeSubscription
+  ): Promise<void> {
+    const reader = proc.stdout.getReader();
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done || this.controlProcess !== proc) {
+          break;
+        }
+        subscription.push(chunk.value);
       }
+    } catch (error) {
+      if (!this.manualDisconnect && !shouldIgnoreReaderAbortError(error)) {
+        this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    subscription.end();
+  }
+
+  private async pumpControlStderr(proc: ControlClientProcess): Promise<void> {
+    const reader = proc.stderr.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          break;
+        }
+        if (this.controlProcess === proc) {
+          this.controlStderrTail = (this.controlStderrTail + decoder.decode(chunk.value)).slice(
+            -CONTROL_STDERR_TAIL_LIMIT
+          );
+        }
+      }
+    } catch {
+      /* stderr 噪声不影响主流程 */
+    }
+  }
+
+  private stopControlClient(): void {
+    const proc = this.controlProcess;
+    this.controlProcess = null;
+    this.controlSubscription?.dispose();
+    this.controlSubscription = null;
+    proc?.kill();
+  }
+
+  private handleControlClientExit(proc: ControlClientProcess, exitCode: number): void {
+    if (this.controlProcess !== proc) {
+      return;
+    }
+    this.controlProcess = null;
+    this.controlSubscription?.dispose();
+    this.controlSubscription = null;
+    if (!this.connected || this.manualDisconnect) {
+      return;
+    }
+    void this.reconnectControlClient(exitCode);
+  }
+
+  private async reconnectControlClient(exitCode: number): Promise<void> {
+    if (Date.now() - this.controlStartedAt > CONTROL_STABLE_RESET_MS) {
+      this.controlRestartCount = 0;
+    }
+    this.controlRestartCount += 1;
+    const stderrMessage = this.controlStderrTail.trim();
+
+    if (this.controlRestartCount > CONTROL_MAX_RESTARTS) {
+      const message =
+        stderrMessage || `tmux control client exited repeatedly (last code ${exitCode})`;
+      console.warn(`[local] tmux control client gave up on ${this.deviceId}: ${message}`);
+      void this.notifyRuntimeError(message);
+      void this.shutdownInternal(true);
+      return;
+    }
+
+    console.warn(
+      `[local] tmux control client exited (code ${exitCode}) on ${this.deviceId}, reconnecting (attempt ${this.controlRestartCount})`
+    );
+    await new Promise((resolve) =>
+      setTimeout(resolve, CONTROL_RESTART_DELAY_MS * this.controlRestartCount)
+    );
+    if (!this.connected || this.manualDisconnect) {
+      return;
+    }
+
+    const probe = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
+    if (probe.exitCode !== 0) {
+      const message = probe.stderr.trim() || probe.stdout.trim() || 'tmux session gone';
+      console.warn(`[local] tmux session gone on ${this.deviceId}: ${message}`);
+      updateDeviceRuntimeStatus(this.deviceId, {
+        lastSeenAt: new Date().toISOString(),
+        tmuxAvailable: false,
+        lastError: message,
+      });
+      void this.shutdownInternal(true);
+      return;
+    }
+    if (!this.connected || this.manualDisconnect) {
+      return;
+    }
+
+    try {
+      await this.startControlClient();
+    } catch (error) {
+      // 瞬退会再次触发 exit 处理并按重试计数走重连/放弃，这里仅记录
+      console.warn(`[local] control client restart failed on ${this.deviceId}:`, error);
+      return;
+    }
+    this.requestSnapshot();
+    if (this.activePaneId) {
+      void this.capturePaneHistory(this.activePaneId).catch(() => undefined);
     }
   }
 
@@ -569,7 +745,7 @@ export class LocalExternalTmuxConnection {
     this.parseSnapshotSession(sessionRes.stdout.split(/\r?\n/));
     this.parseSnapshotWindows(windowsRes.stdout.split(/\r?\n/));
     this.parseSnapshotPanes(panesRes.stdout.split(/\r?\n/));
-    await this.syncPipeReaders();
+    this.controlSubscription?.prunePanes(new Set(this.getExpectedPaneIds()));
     this.emitSnapshot();
   }
 
@@ -716,119 +892,6 @@ export class LocalExternalTmuxConnection {
       .flatMap((window) => window.panes.map((pane) => pane.id));
   }
 
-  private async startPipeForPaneNow(paneId: string): Promise<void> {
-    if (this.paneReaders.has(paneId)) {
-      return;
-    }
-
-    const fifoPath = this.fsPaths.paneFifoPath(paneId);
-    this.ensureRuntimeDirs();
-    rmSync(fifoPath, { force: true });
-    await this.runShell(`mkfifo ${quoteShellArg(fifoPath)}`);
-
-    const parser = createPaneStreamParser({
-      onTitle: (title) => {
-        this.pendingPaneTitles.set(paneId, title);
-        this.requestSnapshot();
-      },
-      onBell: () => {
-        this.recordBell(paneId);
-      },
-      onNotification: (notification) => {
-        this.emitNotification(paneId, notification);
-      },
-    });
-    const readerProcess = Bun.spawn(['/bin/sh', '-lc', `cat ${quoteShellArg(fifoPath)}`], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const reader = readerProcess.stdout.getReader();
-    const stopReader = () => {
-      reader.releaseLock();
-      readerProcess.kill();
-      rmSync(fifoPath, { force: true });
-    };
-
-    this.paneReaders.set(paneId, { paneId, fifoPath, stopReader });
-
-    void (async () => {
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            break;
-          }
-          const output = parser.push(chunk.value);
-          if (output.length > 0) {
-            this.callbacks.onTerminalOutput(paneId, output);
-          }
-        }
-      } catch (error) {
-        if (!this.manualDisconnect && !shouldIgnoreReaderAbortError(error)) {
-          this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
-        }
-      }
-    })();
-
-    try {
-      await this.runTmux(['pipe-pane', '-O', '-t', paneId, `cat >${fifoPath}`]);
-    } catch (error) {
-      this.paneReaders.delete(paneId);
-      stopReader();
-      throw error;
-    }
-  }
-
-  private async stopPipeForPaneNow(paneId: string): Promise<void> {
-    const handle = this.paneReaders.get(paneId);
-    if (!handle) {
-      return;
-    }
-
-    this.paneReaders.delete(paneId);
-    await this.runTmuxAllowFailure(['pipe-pane', '-t', paneId]);
-    handle.stopReader();
-  }
-
-  private async syncPipeReaders(): Promise<void> {
-    const expectedPaneIds = this.getExpectedPaneIds();
-    const expectedSet = new Set(expectedPaneIds);
-
-    await this.queuePipeTransition(async () => {
-      for (const paneId of Array.from(this.paneReaders.keys())) {
-        if (!expectedSet.has(paneId)) {
-          await this.stopPipeForPaneNow(paneId);
-        }
-      }
-      for (const paneId of expectedPaneIds) {
-        if (!this.paneReaders.has(paneId)) {
-          await this.startPipeForPaneNow(paneId);
-        }
-      }
-    });
-  }
-
-  private async stopAllPipeReaders(): Promise<void> {
-    await this.queuePipeTransition(async () => {
-      for (const paneId of Array.from(this.paneReaders.keys())) {
-        await this.stopPipeForPaneNow(paneId);
-      }
-    });
-  }
-
-  private queuePipeTransition(task: () => Promise<void>): Promise<void> {
-    const next = this.pipeTransition.catch(() => undefined).then(task);
-    this.pipeTransition = next;
-    return next;
-  }
-
-  private async runShell(command: string): Promise<void> {
-    const result = await this.deps.run(['/bin/sh', '-lc', command]);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || `shell command failed: ${command}`);
-    }
-  }
-
   private async runTmux(argv: string[], allowTargetMissing = false): Promise<CommandResult> {
     const result = await this.runTmuxAllowFailure(argv);
     if (result.exitCode === 0) {
@@ -909,15 +972,7 @@ export class LocalExternalTmuxConnection {
 
     this.connected = false;
     this.cleanupPromise = (async () => {
-      await this.stopAllPipeReaders().catch(() => undefined);
-      if (this.deps.enableHooks) {
-        await this.stopHooks().catch(() => undefined);
-      }
-      try {
-        rmSync(this.fsPaths.rootDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
+      this.stopControlClient();
     })();
 
     await this.cleanupPromise;
