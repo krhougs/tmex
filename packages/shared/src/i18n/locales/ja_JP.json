@@ -350,7 +350,12 @@
     },
     "window": {
       "noWindows": "ウィンドウがありません",
-      "new": "新規ウィンドウ"
+      "new": "新規ウィンドウ",
+      "close": "ウィンドウを閉じる",
+      "closePane": "ペインを閉じる",
+      "closeConfirmTitle": "このウィンドウを閉じますか？",
+      "closePaneConfirmTitle": "このペインを閉じますか？",
+      "closeConfirmDesc": "\"{{name}}\" で実行中のプロセスは終了されます。この操作は取り消せません。"
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",

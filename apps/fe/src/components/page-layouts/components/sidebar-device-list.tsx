@@ -1,5 +1,16 @@
 import { DeviceStatusBadge } from '@/components/device-status-badge';
 import { useGlobalDevice } from '@/components/global-device-provider';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -8,13 +19,17 @@ import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
-import { Globe, Monitor, Plus, Power, PowerOff } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Globe, Monitor, Plus, Power, PowerOff, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type DeviceListItem = Device & {
   lastError?: string | null;
   lastErrorType?: string | null;
 };
+
+type CloseCandidate =
+  | { kind: 'window'; deviceId: string; windowId: string; name: string }
+  | { kind: 'pane'; deviceId: string; paneId: string; name: string };
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
 import { useSiteStore } from '../../../stores/site';
@@ -171,6 +186,35 @@ export function SideBarDeviceList() {
     [closeWindow, selectedDeviceId, selectedWindowId, handleNavigate]
   );
 
+  const [closeCandidate, setCloseCandidate] = useState<CloseCandidate | null>(null);
+
+  const requestCloseWindow = useCallback((deviceId: string, windowId: string) => {
+    const windows = useTmuxStore.getState().snapshots[deviceId]?.session?.windows;
+    const target = windows?.find((w) => w.id === windowId);
+    setCloseCandidate({ kind: 'window', deviceId, windowId, name: target?.name ?? '' });
+  }, []);
+
+  const requestClosePane = useCallback((deviceId: string, windowId: string, paneId: string) => {
+    const windows = useTmuxStore.getState().snapshots[deviceId]?.session?.windows;
+    const pane = windows?.find((w) => w.id === windowId)?.panes?.find((p) => p.id === paneId);
+    setCloseCandidate({
+      kind: 'pane',
+      deviceId,
+      paneId,
+      name: pane?.title || `Pane ${pane?.index ?? ''}`,
+    });
+  }, []);
+
+  const confirmClose = useCallback(() => {
+    if (!closeCandidate) return;
+    if (closeCandidate.kind === 'window') {
+      handleCloseWindow(closeCandidate.deviceId, closeCandidate.windowId);
+    } else {
+      closePane(closeCandidate.deviceId, closeCandidate.paneId);
+    }
+    setCloseCandidate(null);
+  }, [closeCandidate, handleCloseWindow, closePane]);
+
   const handleCreateWindow = useCallback((deviceId: string) => {
     useTmuxStore.getState().createWindow(deviceId);
   }, []);
@@ -201,8 +245,8 @@ export function SideBarDeviceList() {
                 handleConnectToggle(device.id, connectedDevices.has(device.id))
               }
               onCreateWindow={handleCreateWindow}
-              onCloseWindow={handleCloseWindow}
-              onClosePane={closePane}
+              onCloseWindow={requestCloseWindow}
+              onClosePane={requestClosePane}
               onPaneClick={navigateToPane}
               onWindowClick={navigateToWindow}
             />
@@ -214,6 +258,37 @@ export function SideBarDeviceList() {
           )}
         </div>
       </ScrollArea>
+
+      <AlertDialog
+        open={closeCandidate !== null}
+        onOpenChange={(open) => !open && setCloseCandidate(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10">
+              <X className="h-5 w-5 text-destructive" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {closeCandidate?.kind === 'pane'
+                ? t('window.closePaneConfirmTitle')
+                : t('window.closeConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('window.closeConfirmDesc', { name: closeCandidate?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!closeCandidate}
+              onClick={confirmClose}
+            >
+              {t('common.close')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarGroup>
   );
 }
@@ -227,7 +302,7 @@ interface DeviceSectionProps {
   onConnectToggle: () => void;
   onCreateWindow: (deviceId: string) => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
-  onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
+  onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
 }
@@ -352,7 +427,7 @@ interface WindowItemProps {
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
   onCloseWindow: (deviceId: string, windowId: string) => void;
-  onClosePane: (deviceId: string, windowId: string, paneId: string, paneCount: number) => void;
+  onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
 }
 
 function WindowItem({
@@ -365,6 +440,7 @@ function WindowItem({
   onCloseWindow,
   onClosePane,
 }: WindowItemProps) {
+  const { t } = useTranslation();
   const hasMultiplePanes = window.panes.length > 1;
 
   // Find which pane is selected in this window
@@ -412,11 +488,14 @@ function WindowItem({
             e.stopPropagation();
             onCloseWindow(deviceId, window.id);
           }}
+          data-testid={`window-close-${window.id}`}
           className={cn(
             'absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
-            isPaneSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            isPaneSelected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
           )}
-          title="Close window"
+          title={t('window.close')}
         >
           <span className="text-xs leading-none">×</span>
         </button>
@@ -462,13 +541,16 @@ function WindowItem({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onClosePane(deviceId, window.id, pane.id, window.panes.length);
+                    onClosePane(deviceId, window.id, pane.id);
                   }}
+                  data-testid={`pane-close-${pane.id}`}
                   className={cn(
                     'absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
-                    isPaneActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    isPaneActive
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
                   )}
-                  title="Close pane"
+                  title={t('window.closePane')}
                 >
                   <span className="text-xs leading-none">×</span>
                 </button>

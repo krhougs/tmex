@@ -350,7 +350,12 @@
     },
     "window": {
       "noWindows": "No windows",
-      "new": "New Window"
+      "new": "New Window",
+      "close": "Close window",
+      "closePane": "Close pane",
+      "closeConfirmTitle": "Close this window?",
+      "closePaneConfirmTitle": "Close this pane?",
+      "closeConfirmDesc": "Processes running in \"{{name}}\" will be terminated. This action cannot be undone."
     },
     "validation": {
       "deviceNameRequired": "Device name is required",

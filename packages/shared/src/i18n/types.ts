@@ -349,6 +349,11 @@ export type TranslationKey =
   | 'window'
   | 'window.noWindows'
   | 'window.new'
+  | 'window.close'
+  | 'window.closePane'
+  | 'window.closeConfirmTitle'
+  | 'window.closePaneConfirmTitle'
+  | 'window.closeConfirmDesc'
   | 'validation'
   | 'validation.deviceNameRequired'
   | 'validation.hostRequired';

@@ -356,7 +356,12 @@ export const I18N_RESOURCES = {
     },
     "window": {
       "noWindows": "No windows",
-      "new": "New Window"
+      "new": "New Window",
+      "close": "Close window",
+      "closePane": "Close pane",
+      "closeConfirmTitle": "Close this window?",
+      "closePaneConfirmTitle": "Close this pane?",
+      "closeConfirmDesc": "Processes running in \"{{name}}\" will be terminated. This action cannot be undone."
     },
     "validation": {
       "deviceNameRequired": "Device name is required",
@@ -716,7 +721,12 @@ export const I18N_RESOURCES = {
     },
     "window": {
       "noWindows": "暂无窗口",
-      "new": "新建窗口"
+      "new": "新建窗口",
+      "close": "关闭窗口",
+      "closePane": "关闭面板",
+      "closeConfirmTitle": "关闭此窗口？",
+      "closePaneConfirmTitle": "关闭此面板？",
+      "closeConfirmDesc": "\"{{name}}\" 中运行的进程将被终止，此操作无法撤销。"
     },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
@@ -1076,7 +1086,12 @@ export const I18N_RESOURCES = {
     },
     "window": {
       "noWindows": "ウィンドウがありません",
-      "new": "新規ウィンドウ"
+      "new": "新規ウィンドウ",
+      "close": "ウィンドウを閉じる",
+      "closePane": "ペインを閉じる",
+      "closeConfirmTitle": "このウィンドウを閉じますか？",
+      "closePaneConfirmTitle": "このペインを閉じますか？",
+      "closeConfirmDesc": "\"{{name}}\" で実行中のプロセスは終了されます。この操作は取り消せません。"
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
