@@ -113,6 +113,11 @@ export const TmuxRenameWindowSchema = b.struct({
   name: b.string(),
 });
 
+export const TmuxSetWindowStyleSchema = b.struct({
+  deviceId: b.string(),
+  style: b.string(),
+});
+
 export const TmuxEventSchema = b.struct({
   deviceId: b.string(),
   eventType: b.u8(),

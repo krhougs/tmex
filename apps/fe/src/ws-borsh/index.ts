@@ -40,6 +40,7 @@ export {
   buildTmuxCloseWindow,
   buildTmuxClosePane,
   buildTmuxRenameWindow,
+  buildTmuxSetWindowStyle,
   buildTermInput,
   buildTermPaste,
   buildTermResize,

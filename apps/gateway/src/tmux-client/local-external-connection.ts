@@ -306,6 +306,20 @@ export class LocalExternalTmuxConnection {
     });
   }
 
+  // TMEX_TMUX_WINDOW_STYLE=off 表示用户不希望 tmex 接管 window-style，动态更新同样跳过。
+  setWindowStyle(style: string): void {
+    if (!this.connected) {
+      return;
+    }
+    if (!resolveTmuxWindowStyle(config.tmuxWindowStyle)) {
+      return;
+    }
+
+    void this.configureWindowStyle(style).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
   private async ensureSession(): Promise<void> {
     const exists = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
     if (exists.exitCode === 0) {
@@ -382,8 +396,9 @@ export class LocalExternalTmuxConnection {
   // client 上报的 tty 前景/背景色；控制模式 client 无法上报，tmux 会回复纯黑，
   // 导致 TUI（如 codex）按 fg/bg 混色画出的输入框底色与背景同色而不可见。
   // window option 无 session 层，需逐 window 设置并用 hook 覆盖后续新窗口。
-  private async configureWindowStyle(): Promise<void> {
-    const windowStyle = resolveTmuxWindowStyle(config.tmuxWindowStyle);
+  // styleValue 可能来自客户端，resolveTmuxWindowStyle 的白名单防止穿透 set-hook 引号。
+  private async configureWindowStyle(styleValue: string = config.tmuxWindowStyle): Promise<void> {
+    const windowStyle = resolveTmuxWindowStyle(styleValue);
     if (!windowStyle) {
       return;
     }

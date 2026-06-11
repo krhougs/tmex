@@ -733,4 +733,85 @@ describe('LocalExternalTmuxConnection', () => {
       },
     ]);
   });
+
+  test('setWindowStyle re-applies client style to hook and existing windows', async () => {
+    const session = 'tmex-style';
+    const lightStyle = 'fg=#616161,bg=#e1e1e1';
+    const calls: string[][] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice(session),
+        run: createRunStub(session, {
+          record: calls,
+          overrides: (command) => {
+            if (
+              command ===
+                `set-hook -t ${session} after-new-window set-option -w window-style '${lightStyle}'` ||
+              command === `set-option -w -t @1 window-style ${lightStyle}`
+            ) {
+              return ok();
+            }
+            return null;
+          },
+        }),
+      }
+    );
+
+    await connection.connect();
+    calls.length = 0;
+
+    connection.setWindowStyle(lightStyle);
+    await waitFor(() => (calls.length >= 3 ? true : null));
+
+    expect(calls.map((argv) => argv.join(' '))).toEqual([
+      `tmux set-hook -t ${session} after-new-window set-option -w window-style '${lightStyle}'`,
+      `tmux list-windows -t ${session} -F #{window_id}`,
+      `tmux set-option -w -t @1 window-style ${lightStyle}`,
+    ]);
+  });
+
+  test('setWindowStyle ignores style with unsafe characters', async () => {
+    const session = 'tmex-style-bad';
+    const calls: string[][] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice(session),
+        run: createRunStub(session, { record: calls }),
+      }
+    );
+
+    await connection.connect();
+    calls.length = 0;
+
+    connection.setWindowStyle("fg=#ffffff' ; kill-server #");
+    await Bun.sleep(50);
+
+    expect(calls).toEqual([]);
+  });
 });

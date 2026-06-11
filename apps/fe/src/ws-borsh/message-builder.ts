@@ -105,6 +105,17 @@ export function buildTmuxRenameWindow(
   return { kind: wsBorsh.KIND_TMUX_RENAME_WINDOW, payload };
 }
 
+export function buildTmuxSetWindowStyle(
+  deviceId: string,
+  style: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxSetWindowStyleSchema, {
+    deviceId,
+    style,
+  });
+  return { kind: wsBorsh.KIND_TMUX_SET_WINDOW_STYLE, payload };
+}
+
 export function buildTermInput(
   deviceId: string,
   paneId: string,

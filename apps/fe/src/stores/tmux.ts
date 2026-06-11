@@ -1,3 +1,4 @@
+import { getTmuxWindowStyle } from '@/components/terminal/theme';
 import { getBorshClient } from '@/ws-borsh';
 import {
   buildDeviceConnect,
@@ -12,6 +13,7 @@ import {
   buildTmuxRenameWindow,
   buildTmuxSelect,
   buildTmuxSelectWindow,
+  buildTmuxSetWindowStyle,
   generateSelectToken,
 } from '@/ws-borsh';
 import { getSelectStateMachine } from '@/ws-borsh';
@@ -21,6 +23,7 @@ import { toast } from 'sonner';
 import { create } from 'zustand';
 import { useSiteStore } from './site';
 import { formatTerminalNotificationToast } from './tmux-notification-format';
+import { useUIStore } from './ui';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
 
@@ -93,6 +96,14 @@ function shouldSkipDuplicateConnect(deviceId: string): boolean {
 
 let initialized = false;
 
+// gateway 连接设备时按 TMEX_TMUX_WINDOW_STYLE 注入默认（暗色）window-style，
+// 这里在设备连上/重连/主题切换时按前端当前主题覆盖，保持 tmux 代答的 OSC 10/11 颜色一致。
+function sendWindowStyleForCurrentTheme(deviceId: string): void {
+  const style = getTmuxWindowStyle(useUIStore.getState().theme);
+  const msg = buildTmuxSetWindowStyle(deviceId, style);
+  getBorshClient().send(msg.kind, msg.payload);
+}
+
 function normalizeTerminalSize(
   cols: number | undefined,
   rows: number | undefined
@@ -142,6 +153,7 @@ function setupClientHandlers(
           deviceErrors: { ...prev.deviceErrors, [decoded.deviceId]: undefined },
           deviceReconnecting: { ...prev.deviceReconnecting, [decoded.deviceId]: undefined },
         }));
+        sendWindowStyleForCurrentTheme(decoded.deviceId);
         maybeReselectCurrentPane(decoded.deviceId);
         return;
       }
@@ -159,6 +171,7 @@ function setupClientHandlers(
         const payload = wsBorsh.decodeDeviceEventPayload(msg.payload);
         handleDeviceEvent(setState, payload);
         if (payload.type === 'reconnected') {
+          sendWindowStyleForCurrentTheme(payload.deviceId);
           maybeReselectCurrentPane(payload.deviceId);
         }
         return;
@@ -245,6 +258,19 @@ function setupClientHandlers(
       if (shouldSkipDuplicateConnect(deviceId)) continue;
       const msg = buildDeviceConnect(deviceId);
       client.send(msg.kind, msg.payload);
+    }
+  });
+
+  // 主题切换时同步所有已连接设备的 tmux window-style
+  let lastTheme = useUIStore.getState().theme;
+  useUIStore.subscribe((uiState) => {
+    if (uiState.theme === lastTheme) return;
+    lastTheme = uiState.theme;
+    const state = getState();
+    for (const deviceId of state.connectedDevices) {
+      if (state.deviceConnected[deviceId]) {
+        sendWindowStyleForCurrentTheme(deviceId);
+      }
     }
   });
 }

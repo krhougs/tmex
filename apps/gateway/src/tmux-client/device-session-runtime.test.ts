@@ -19,6 +19,7 @@ function createStubConnectionRecorder() {
     closeWindowCalls: [] as string[],
     closePaneCalls: [] as string[],
     renameWindowCalls: [] as Array<[string, string]>,
+    setWindowStyleCalls: [] as string[],
     options: null as TmuxConnectionOptions | null,
   };
 
@@ -65,6 +66,9 @@ function createStubConnectionRecorder() {
     },
     renameWindow(windowId, name) {
       state.renameWindowCalls.push([windowId, name]);
+    },
+    setWindowStyle(style) {
+      state.setWindowStyleCalls.push(style);
     },
   };
 

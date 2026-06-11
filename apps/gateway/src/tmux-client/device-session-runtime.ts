@@ -19,6 +19,7 @@ export interface DeviceSessionRuntimeConnection {
   closeWindow(windowId: string): void;
   closePane(paneId: string): void;
   renameWindow(windowId: string, name: string): void;
+  setWindowStyle(style: string): void;
 }
 
 export interface DeviceSessionRuntimeListener {
@@ -166,6 +167,10 @@ export class DeviceSessionRuntime {
 
   renameWindow(windowId: string, name: string): void {
     this.connection.renameWindow(windowId, name);
+  }
+
+  setWindowStyle(style: string): void {
+    this.connection.setWindowStyle(style);
   }
 
   private broadcast(action: (listener: DeviceSessionRuntimeListener) => void): void {

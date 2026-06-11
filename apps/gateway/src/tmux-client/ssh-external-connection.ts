@@ -270,6 +270,20 @@ export class SshExternalTmuxConnection {
     });
   }
 
+  // 同 local 版本：TMEX_TMUX_WINDOW_STYLE=off 时尊重配置，跳过动态更新。
+  setWindowStyle(style: string): void {
+    if (!this.connected) {
+      return;
+    }
+    if (!resolveTmuxWindowStyle(config.tmuxWindowStyle)) {
+      return;
+    }
+
+    void this.configureWindowStyle(style).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
   private async connectSshClient(): Promise<void> {
     if (!this.device) {
       throw new Error('SSH device not loaded');
@@ -458,9 +472,10 @@ export class SshExternalTmuxConnection {
 
   // 同 local 版本：window-style 让 tmux 能正确代答 pane 内 OSC 10/11 颜色查询
   //（控制模式 client 无法上报 tty 颜色，否则回复纯黑），需逐 window 设置并用
-  // hook 覆盖后续新窗口。
-  private async configureWindowStyle(): Promise<void> {
-    const windowStyle = resolveTmuxWindowStyle(config.tmuxWindowStyle);
+  // hook 覆盖后续新窗口。styleValue 可能来自客户端，resolveTmuxWindowStyle 的白名单
+  // 防止穿透 set-hook 引号。
+  private async configureWindowStyle(styleValue: string = config.tmuxWindowStyle): Promise<void> {
+    const windowStyle = resolveTmuxWindowStyle(styleValue);
     if (!windowStyle) {
       return;
     }

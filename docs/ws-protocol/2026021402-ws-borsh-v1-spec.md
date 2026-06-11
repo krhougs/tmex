@@ -120,6 +120,7 @@ export const EnvelopeSchema = b.struct({
 | 0x0207 | TMUX_EVENT | S2C | tmux 事件（pane-active/bell 等） |
 | 0x0208 | STATE_SNAPSHOT | S2C | tmux 状态快照 |
 | 0x0209 | STATE_SNAPSHOT_DIFF | S2C | 快照 diff（v1 保留，可忽略） |
+| 0x020A | TMUX_SET_WINDOW_STYLE | C2S | 按前端主题更新 window-style |
 
 ### 终端数据（0x0300-0x03FF）
 
@@ -374,6 +375,18 @@ PaneWire：
 语义：
 
 - v1 默认不启用；客户端在不支持时可以忽略。
+
+### TMUX_SET_WINDOW_STYLE（0x020A）
+
+字段：
+
+- `deviceId: string`
+- `style: string`（tmux style 字符串，如 `fg=#d0d0d0,bg=#262626`）
+
+语义：
+
+- 客户端在主题切换、设备连接/重连后发送，gateway 据此更新会话所有 window 的 `window-style` 及 `after-new-window` hook。
+- gateway 按 `TMEX_TMUX_WINDOW_STYLE` 的白名单规则校验 style，非法值忽略；该配置为 `off` 时忽略本消息。
 
 ### TERM_INPUT（0x0301）
 

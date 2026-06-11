@@ -65,6 +65,12 @@ export const XTERM_THEME_DARK = {
   brightWhite: '#d0d0d0',
 };
 
+// gateway 用 window-style 代答 tmux 内 OSC 10/11 颜色查询，需与 xterm 主题保持一致
+export function getTmuxWindowStyle(theme: 'light' | 'dark'): string {
+  const colors = theme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
+  return `fg=${colors.foreground},bg=${colors.background}`;
+}
+
 export const XTERM_FONT_FAMILY =
   '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Sarasa Mono SC", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace';
 

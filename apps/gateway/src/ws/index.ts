@@ -342,6 +342,12 @@ export class WebSocketServer {
         return;
       }
 
+      case wsBorsh.KIND_TMUX_SET_WINDOW_STYLE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxSetWindowStyleSchema, payload);
+        this.handleSetWindowStyle(decoded.deviceId, decoded.style);
+        return;
+      }
+
       case wsBorsh.KIND_TERM_INPUT: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermInputSchema, payload);
         if (decoded.isComposing) return;
@@ -662,6 +668,12 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry?.lastSnapshot) return;
     this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
+  private handleSetWindowStyle(deviceId: string, style: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    entry.runtime.setWindowStyle(style);
   }
 
   private applyWindowCustomNames(payload: StateSnapshotPayload): StateSnapshotPayload {
