@@ -2,9 +2,12 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <!-- interactive-widget=resizes-visual：显式声明虚拟键盘只缩 visual viewport、
+         不缩 layout viewport，保证键盘弹收不会改变容器尺寸（终端不被 resize）；
+         遮挡由 useVirtualKeyboardOffset 的 translateY 平移避让 -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual"
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

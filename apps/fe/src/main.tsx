@@ -10,6 +10,7 @@ import { GlobalDeviceProvider } from '@/components/global-device-provider';
 import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
 
 function applyInitialTheme(): void {
   try {
@@ -44,11 +45,27 @@ type PageModule = Record<string, any>;
 
 // Root layout: 包含全局 Provider 和 Sidebar
 function RootLayout() {
+  // Android 等平台虚拟键盘只缩小 visual viewport，固定布局下会盖住下半屏，
+  // 用 translateY 整体平移避让。transform 不参与布局，不会触发终端容器的
+  // ResizeObserver。offset 为 0 时必须移除 transform：非 none 的 transform
+  // 会成为 fixed 后代的 containing block，破坏 iOS editor dock 的定位。
+  const keyboardOffset = useVirtualKeyboardOffset();
+
   return (
     <GlobalDeviceProvider>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset className="h-dvh overflow-hidden">
+        <SidebarInset
+          className="h-dvh overflow-hidden"
+          style={
+            keyboardOffset > 0
+              ? {
+                  transform: `translateY(-${keyboardOffset}px)`,
+                  transition: 'transform 0.12s ease-out',
+                }
+              : undefined
+          }
+        >
           <div className="h-[var(--tmex-safe-area-top)]" />
           <Outlet />
           <div className="h-[var(--tmex-safe-area-bottom)]" />

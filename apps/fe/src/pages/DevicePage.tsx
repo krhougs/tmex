@@ -23,7 +23,7 @@ import {
   Smartphone,
   Trash2,
 } from 'lucide-react';
-import { type FocusEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -40,22 +40,12 @@ import {
 } from '../utils/selectionGuards';
 import { buildBrowserTitle, buildTerminalLabel } from '../utils/terminalMeta';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
+import { isIOSMobileBrowser } from '../utils/virtualKeyboard';
 
 interface EditorShortcut {
   key: string;
   label: string;
   payload: string;
-}
-
-function isIOSMobileBrowser(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-
-  const userAgent = navigator.userAgent;
-  const isIOSDevice = /iPad|iPhone|iPod/.test(userAgent);
-  const isTouchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
-  return isIOSDevice || isTouchMac;
 }
 
 const EDITOR_SHORTCUTS: EditorShortcut[] = [
@@ -163,12 +153,9 @@ export default function DevicePage() {
 
   const [isMobile, setIsMobile] = useState(false);
   const [editorText, setEditorText] = useState('');
-  const [isEditorFocused, setIsEditorFocused] = useState(false);
   const isComposingRef = useRef(false);
   // Loading state - false when connected and has pane
   const isLoading = !deviceConnected || !resolvedPaneId;
-  const [keyboardInsetBottom, setKeyboardInsetBottom] = useState(0);
-  const [editorDockHeight, setEditorDockHeight] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const inputMode = useUIStore((state) => state.inputMode);
   const uiTheme = useUIStore((state) => state.theme);
@@ -181,7 +168,6 @@ export default function DevicePage() {
     draftKey ? (state.editorDrafts[draftKey] ?? '') : ''
   );
   const isIOSBrowser = useMemo(() => isIOSMobileBrowser(), []);
-  const shouldDockEditor = isMobile && inputMode === 'editor' && isIOSBrowser && isEditorFocused;
 
   const windows = snapshot?.session?.windows;
   const terminalTheme = uiTheme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
@@ -336,79 +322,6 @@ export default function DevicePage() {
       window.clearTimeout(timerB);
     };
   }, [isIOSBrowser, isMobile]);
-
-  // Reset editor focus when switching modes
-  useEffect(() => {
-    if (inputMode !== 'editor') {
-      setIsEditorFocused(false);
-    }
-  }, [inputMode]);
-
-  // iOS keyboard inset handling
-  useEffect(() => {
-    if (!(isMobile && isIOSBrowser && inputMode === 'editor' && isEditorFocused)) {
-      setKeyboardInsetBottom(0);
-      return;
-    }
-
-    let frameId: number | null = null;
-    const updateKeyboardInset = () => {
-      const viewport = window.visualViewport;
-      const viewportHeight = viewport?.height ?? window.innerHeight;
-      const offsetTop = viewport?.offsetTop ?? 0;
-      const nextInset = Math.max(0, Math.round(window.innerHeight - viewportHeight - offsetTop));
-      setKeyboardInsetBottom(nextInset);
-    };
-
-    const scheduleUpdate = () => {
-      if (frameId !== null) {
-        return;
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        updateKeyboardInset();
-      });
-    };
-
-    updateKeyboardInset();
-
-    window.visualViewport?.addEventListener('resize', scheduleUpdate);
-    window.visualViewport?.addEventListener('scroll', scheduleUpdate);
-    window.addEventListener('resize', scheduleUpdate);
-
-    return () => {
-      window.visualViewport?.removeEventListener('resize', scheduleUpdate);
-      window.visualViewport?.removeEventListener('scroll', scheduleUpdate);
-      window.removeEventListener('resize', scheduleUpdate);
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-    };
-  }, [inputMode, isEditorFocused, isIOSBrowser, isMobile]);
-
-  // Editor dock height handling
-  useEffect(() => {
-    if (!shouldDockEditor) {
-      setEditorDockHeight(0);
-      return;
-    }
-
-    const editorContainer = editorContainerRef.current;
-    if (!editorContainer) {
-      return;
-    }
-
-    const updateEditorHeight = () => {
-      setEditorDockHeight(Math.ceil(editorContainer.getBoundingClientRect().height));
-    };
-
-    updateEditorHeight();
-    const observer = new ResizeObserver(updateEditorHeight);
-    observer.observe(editorContainer);
-
-    return () => observer.disconnect();
-  }, [shouldDockEditor]);
 
   // Ensure device is connected when viewing (GlobalDeviceProvider handles actual connection)
   // This effect resets auto-selection logic and related refs when deviceId changes
@@ -947,29 +860,6 @@ export default function DevicePage() {
     t,
   ]);
 
-  const handleEditorFocus = useCallback(
-    (event: FocusEvent<HTMLTextAreaElement>) => {
-      setIsEditorFocused(true);
-
-      if (!(isMobile && isIOSBrowser)) {
-        return;
-      }
-
-      const target = event.currentTarget;
-      window.requestAnimationFrame(() => {
-        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      });
-      window.setTimeout(() => {
-        window.scrollTo(0, 1);
-      }, 60);
-    },
-    [isIOSBrowser, isMobile]
-  );
-
-  const handleEditorBlur = useCallback(() => {
-    setIsEditorFocused(false);
-  }, []);
-
   // 聚焦编辑器回调 - 必须在所有早期 return 之前定义
   const handleFocusEditor = useCallback(() => {
     editorTextareaRef.current?.focus({ preventScroll: true });
@@ -991,18 +881,19 @@ export default function DevicePage() {
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
       <div
         className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${
-          isMobile && inputMode === 'editor' && !shouldDockEditor ? 'pb-1' : ''
+          isMobile && inputMode === 'editor' ? 'pb-1' : ''
         }`}
-        style={{
-          paddingBottom: shouldDockEditor ? `${editorDockHeight + 60}px` : undefined,
-        }}
       >
         <div
           className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
           style={{ backgroundColor: terminalTheme.background }}
         >
           {deviceConnected && resolvedPaneId ? (
-            <div ref={terminalContainerRef} className="flex-1 h-full min-h-0 w-full">
+            <div
+              ref={terminalContainerRef}
+              className="flex-1 h-full min-h-0 w-full"
+              data-virtual-keyboard-avoid
+            >
               <TerminalComponent
                 key={`${deviceId}:${resolvedPaneId}`}
                 ref={terminalRef}
@@ -1080,10 +971,8 @@ export default function DevicePage() {
       {inputMode === 'editor' && (
         <div
           ref={editorContainerRef}
-          className={`editor-mode-input bg-card/85 backdrop-blur-sm ${
-            shouldDockEditor ? 'fixed left-0 right-0 z-50' : ''
-          }`}
-          style={shouldDockEditor ? { bottom: `${keyboardInsetBottom}px` } : undefined}
+          data-virtual-keyboard-avoid
+          className="editor-mode-input bg-card/85 backdrop-blur-sm"
         >
           {/* 移动端 editor 模式：快捷键栏在编辑器上方 */}
           {isMobile && (
@@ -1113,8 +1002,6 @@ export default function DevicePage() {
               removeEditorDraft(draftKey);
             }}
             placeholder={t('terminal.inputPlaceholder')}
-            onFocus={handleEditorFocus}
-            onBlur={handleEditorBlur}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
