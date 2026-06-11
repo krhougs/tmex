@@ -22,6 +22,7 @@ import type { PaneStreamNotification } from './pane-stream-parser';
 import { resolveSshConnectConfig } from './ssh-connect-config';
 import { buildSshBootstrapScript, parseSshBootstrapOutput } from './ssh-bootstrap';
 import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
+import { resolveTmuxWindowStyle } from './window-style';
 
 interface CommandResult {
   exitCode: number;
@@ -440,6 +441,58 @@ export class SshExternalTmuxConnection {
           'xterm-ghostty',
         ]);
       }
+    }
+
+    // 同 local 版本：tmux 不传播 COLORTERM，显式声明真彩色支持。
+    await this.runTmuxAllowFailure([
+      'set-environment',
+      '-t',
+      this.sessionName,
+      'COLORTERM',
+      'truecolor',
+    ]);
+
+    await this.configureWindowStyle();
+  }
+
+  // 同 local 版本：window-style 让 tmux 能正确代答 pane 内 OSC 10/11 颜色查询
+  //（控制模式 client 无法上报 tty 颜色，否则回复纯黑），需逐 window 设置并用
+  // hook 覆盖后续新窗口。
+  private async configureWindowStyle(): Promise<void> {
+    const windowStyle = resolveTmuxWindowStyle(config.tmuxWindowStyle);
+    if (!windowStyle) {
+      return;
+    }
+    await this.runTmuxAllowFailure([
+      'set-hook',
+      '-t',
+      this.sessionName,
+      'after-new-window',
+      `set-option -w window-style '${windowStyle}'`,
+    ]);
+    const windows = await this.runTmuxAllowFailure([
+      'list-windows',
+      '-t',
+      this.sessionName,
+      '-F',
+      '#{window_id}',
+    ]);
+    if (windows.exitCode !== 0) {
+      return;
+    }
+    for (const line of windows.stdout.split('\n')) {
+      const windowId = line.trim();
+      if (!windowId) {
+        continue;
+      }
+      await this.runTmuxAllowFailure([
+        'set-option',
+        '-w',
+        '-t',
+        windowId,
+        'window-style',
+        windowStyle,
+      ]);
     }
   }
 

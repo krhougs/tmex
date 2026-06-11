@@ -40,7 +40,10 @@ function isConfigureSessionOptionPayload(payload: string, session: string): bool
     payload.includes(`'set-option' '-t' '${session}' '-s' 'extended-keys-format' 'csi-u'`) ||
     payload.includes(`'set-option' '-t' '${session}' '-g' 'focus-events' 'off'`) ||
     payload.includes(`'set-option' '-t' '${session}' 'destroy-unattached' 'off'`) ||
-    payload.includes(`'set-environment' '-t' '${session}' 'TERM_PROGRAM' 'ghostty'`)
+    payload.includes(`'set-environment' '-t' '${session}' 'TERM_PROGRAM' 'ghostty'`) ||
+    payload.includes(`'set-environment' '-t' '${session}' 'COLORTERM' 'truecolor'`) ||
+    payload.includes(`'set-hook' '-t' '${session}' 'after-new-window'`) ||
+    payload.includes("'set-option' '-w' '-t' '@1' 'window-style' 'fg=#d0d0d0,bg=#262626'")
   );
 }
 
@@ -71,6 +74,9 @@ function respondToPayload(
   }
   if (payload.includes(`'display-message' '-p' '-t' '${session}' '#{session_id}|#{session_name}'`)) {
     return { stdout: `$1|${session}\n`, exitCode: 0 };
+  }
+  if (payload.includes(`'list-windows' '-t' '${session}' '-F' '#{window_id}'`)) {
+    return { stdout: '@1\n', exitCode: 0 };
   }
   if (payload.includes(`'list-windows' '-t' '${session}'`)) {
     return { stdout: '@1|0|main|1\n', exitCode: 0 };
@@ -455,7 +461,12 @@ describe('SshExternalTmuxConnection', () => {
     await connection.connect();
 
     expect(writes.some((payload) => payload.includes('mkfifo'))).toBe(false);
-    expect(writes.some((payload) => payload.includes("'set-hook'"))).toBe(false);
+    // window-style 的 after-new-window hook 是预期内的，旧 fifo 方案不再注册其他 hook
+    expect(
+      writes.some(
+        (payload) => payload.includes("'set-hook'") && !payload.includes("'after-new-window'")
+      )
+    ).toBe(false);
     expect(
       writes.some((payload) => payload.includes('find ') && payload.includes('/tmp/tmex'))
     ).toBe(false);

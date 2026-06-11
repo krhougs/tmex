@@ -18,6 +18,7 @@ import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
 import type { PaneStreamNotification } from './pane-stream-parser';
 import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
+import { resolveTmuxWindowStyle } from './window-style';
 
 interface CommandResult {
   exitCode: number;
@@ -362,6 +363,60 @@ export class LocalExternalTmuxConnection {
           'xterm-ghostty',
         ]);
       }
+    }
+
+    // tmux 不传播 COLORTERM，TUI（如 codex）会据此判定不支持真彩色而跳过
+    // 混色底色；前端 ghostty-wasm 始终支持真彩色，对新建 pane 显式声明。
+    await this.runTmuxAllowFailure([
+      'set-environment',
+      '-t',
+      this.sessionName,
+      'COLORTERM',
+      'truecolor',
+    ]);
+
+    await this.configureWindowStyle();
+  }
+
+  // tmux 对 pane 内 OSC 10/11 颜色查询的代答优先取 window-style，否则取 attached
+  // client 上报的 tty 前景/背景色；控制模式 client 无法上报，tmux 会回复纯黑，
+  // 导致 TUI（如 codex）按 fg/bg 混色画出的输入框底色与背景同色而不可见。
+  // window option 无 session 层，需逐 window 设置并用 hook 覆盖后续新窗口。
+  private async configureWindowStyle(): Promise<void> {
+    const windowStyle = resolveTmuxWindowStyle(config.tmuxWindowStyle);
+    if (!windowStyle) {
+      return;
+    }
+    await this.runTmuxAllowFailure([
+      'set-hook',
+      '-t',
+      this.sessionName,
+      'after-new-window',
+      `set-option -w window-style '${windowStyle}'`,
+    ]);
+    const windows = await this.runTmuxAllowFailure([
+      'list-windows',
+      '-t',
+      this.sessionName,
+      '-F',
+      '#{window_id}',
+    ]);
+    if (windows.exitCode !== 0) {
+      return;
+    }
+    for (const line of windows.stdout.split('\n')) {
+      const windowId = line.trim();
+      if (!windowId) {
+        continue;
+      }
+      await this.runTmuxAllowFailure([
+        'set-option',
+        '-w',
+        '-t',
+        windowId,
+        'window-style',
+        windowStyle,
+      ]);
     }
   }
 

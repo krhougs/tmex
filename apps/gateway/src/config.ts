@@ -30,6 +30,9 @@ export const config = {
   ),
   tmuxAllowPassthrough: getBooleanEnv('TMEX_TMUX_ALLOW_PASSTHROUGH', false),
   tmuxTermProgram: getEnv('TMEX_TMUX_TERM_PROGRAM', 'ghostty'),
+  // 受管 session 的 window-style，用于 tmux 代答 pane 内 OSC 10/11 颜色查询；
+  // 默认与前端 seoul256 dark 主题一致，设为 off 关闭
+  tmuxWindowStyle: getEnv('TMEX_TMUX_WINDOW_STYLE', 'fg=#d0d0d0,bg=#262626'),
   sshReconnectMaxRetriesDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_MAX_RETRIES', '2'), 10),
   sshReconnectDelaySecondsDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_DELAY_SECONDS', '10'), 10),
   languageDefault: getEnv('TMEX_DEFAULT_LANGUAGE', 'en_US'),

@@ -41,7 +41,11 @@ function isConfigureSessionOptionCommand(command: string, session: string): bool
     command === `set-option -t ${session} -s extended-keys-format csi-u` ||
     command === `set-option -t ${session} -g focus-events off` ||
     command === `set-option -t ${session} destroy-unattached off` ||
-    command === `set-environment -t ${session} TERM_PROGRAM ghostty`
+    command === `set-environment -t ${session} TERM_PROGRAM ghostty` ||
+    command === `set-environment -t ${session} COLORTERM truecolor` ||
+    command ===
+      `set-hook -t ${session} after-new-window set-option -w window-style 'fg=#d0d0d0,bg=#262626'` ||
+    command === 'set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626'
   );
 }
 
@@ -79,6 +83,9 @@ function createRunStub(
     }
     if (command.startsWith(`display-message -p -t ${session} #{session_id}`)) {
       return ok(`$1\t${session}\n`);
+    }
+    if (command === `list-windows -t ${session} -F #{window_id}`) {
+      return ok('@1\n');
     }
     if (command.startsWith(`list-windows -t ${session}`)) {
       return ok('@1\t0\tmain\t1\n');
@@ -222,6 +229,10 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux set-option -t tmex-snapshot -g focus-events off',
       'tmux set-option -t tmex-snapshot destroy-unattached off',
       'tmux set-environment -t tmex-snapshot TERM_PROGRAM ghostty',
+      'tmux set-environment -t tmex-snapshot COLORTERM truecolor',
+      "tmux set-hook -t tmex-snapshot after-new-window set-option -w window-style 'fg=#d0d0d0,bg=#262626'",
+      'tmux list-windows -t tmex-snapshot -F #{window_id}',
+      'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
       'tmux display-message -p -t tmex-snapshot #{session_id}\t#{session_name}',
       'tmux list-windows -t tmex-snapshot -F #{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
       'tmux list-panes -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}',
