@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, Tool } from 'ai';
 import { decrypt, decryptWithContext } from '../crypto';
 import { getAgentSettings } from '../db/agent';
 import { type LlmProviderRecord, getLlmProviderById } from '../db/llm';
@@ -56,6 +56,34 @@ export async function resolveLanguageModel(
     baseURL,
     apiKey,
   }).chatModel(effectiveModelId);
+}
+
+// session.useProviderWebSearch=true 且 provider 协议为 openai-responses 时使用；
+// 协议不匹配返回 null（创建 session 时 REST 层已校验互斥，这里兜底）。
+export async function resolveProviderWebSearchTool(providerId: string | null): Promise<Tool | null> {
+  let effectiveProviderId = providerId;
+  if (!effectiveProviderId) {
+    effectiveProviderId = getAgentSettings().defaultProviderId;
+  }
+  if (!effectiveProviderId) {
+    return null;
+  }
+
+  const provider = getLlmProviderById(effectiveProviderId);
+  if (!provider || !provider.enabled || provider.protocol !== 'openai-responses') {
+    return null;
+  }
+
+  const apiKey = await decryptWithContext(provider.apiKeyEnc, {
+    scope: 'llm_provider',
+    entityId: provider.id,
+    field: 'api_key_enc',
+  });
+
+  return createOpenAI({
+    baseURL: normalizeBaseUrl(provider.baseUrl),
+    apiKey,
+  }).tools.webSearch();
 }
 
 export async function fetchProviderModels(
