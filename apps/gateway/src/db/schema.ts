@@ -92,6 +92,175 @@ export const telegramBots = sqliteTable('telegram_bots', {
   updatedAt: text('updated_at').notNull(),
 });
 
+export const llmProviders = sqliteTable(
+  'llm_providers',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    protocol: text('protocol').notNull(),
+    baseUrl: text('base_url').notNull(),
+    apiKeyEnc: text('api_key_enc').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    modelsCache: text('models_cache', { mode: 'json' }).$type<string[]>(),
+    modelsFetchedAt: text('models_fetched_at'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    check(
+      'llm_providers_protocol_check',
+      sql`${table.protocol} in ('openai-chat', 'openai-responses')`
+    ),
+  ]
+);
+
+export const agentSettings = sqliteTable(
+  'agent_settings',
+  {
+    id: integer('id').primaryKey(),
+    searchProvider: text('search_provider').notNull().default('none'),
+    tavilyApiKeyEnc: text('tavily_api_key_enc'),
+    braveApiKeyEnc: text('brave_api_key_enc'),
+    defaultProviderId: text('default_provider_id').references(() => llmProviders.id, {
+      onDelete: 'set null',
+    }),
+    defaultModelId: text('default_model_id'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    check('agent_settings_singleton_check', sql`${table.id} = 1`),
+    check(
+      'agent_settings_search_provider_check',
+      sql`${table.searchProvider} in ('none', 'tavily', 'brave')`
+    ),
+  ]
+);
+
+export const agentSessions = sqliteTable(
+  'agent_sessions',
+  {
+    id: text('id').primaryKey(),
+    title: text('title').notNull(),
+    deviceId: text('device_id').references(() => devices.id, { onDelete: 'set null' }),
+    paneId: text('pane_id'),
+    providerId: text('provider_id').references(() => llmProviders.id, { onDelete: 'set null' }),
+    modelId: text('model_id').notNull(),
+    systemPrompt: text('system_prompt'),
+    writeMode: text('write_mode').notNull().default('confirm'),
+    useProviderWebSearch: integer('use_provider_web_search', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    status: text('status').notNull().default('idle'),
+    lastError: text('last_error'),
+    maxStepsPerTurn: integer('max_steps_per_turn').notNull().default(25),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    check('agent_sessions_write_mode_check', sql`${table.writeMode} in ('confirm', 'auto')`),
+    check(
+      'agent_sessions_status_check',
+      sql`${table.status} in ('idle', 'running', 'waiting_confirmation', 'stopped', 'error')`
+    ),
+  ]
+);
+
+export const agentMessages = sqliteTable(
+  'agent_messages',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    role: text('role').notNull(),
+    content: text('content', { mode: 'json' }).$type<unknown>().notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [unique('agent_messages_session_seq_unique').on(table.sessionId, table.seq)]
+);
+
+export const agentConfirmations = sqliteTable(
+  'agent_confirmations',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: 'cascade' }),
+    toolName: text('tool_name').notNull(),
+    toolCallId: text('tool_call_id').notNull(),
+    inputJson: text('input_json', { mode: 'json' }).$type<unknown>().notNull(),
+    status: text('status').notNull().default('pending'),
+    reason: text('reason'),
+    decidedAt: text('decided_at'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    check(
+      'agent_confirmations_status_check',
+      sql`${table.status} in ('pending', 'approved', 'denied', 'cancelled')`
+    ),
+  ]
+);
+
+export const watchRules = sqliteTable(
+  'watch_rules',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    paneId: text('pane_id').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    triggerType: text('trigger_type').notNull(),
+    pattern: text('pattern'),
+    patternFlags: text('pattern_flags').notNull().default(''),
+    extractGroup: integer('extract_group').notNull().default(0),
+    conditionPrompt: text('condition_prompt'),
+    providerId: text('provider_id').references(() => llmProviders.id, { onDelete: 'set null' }),
+    modelId: text('model_id'),
+    confirmWithLlm: integer('confirm_with_llm', { mode: 'boolean' }).notNull().default(false),
+    summarizeWithLlm: integer('summarize_with_llm', { mode: 'boolean' }).notNull().default(false),
+    intervalSeconds: integer('interval_seconds').notNull().default(30),
+    unchangedMinutes: integer('unchanged_minutes'),
+    noMatchBehavior: text('no_match_behavior').notNull().default('reset'),
+    fireMode: text('fire_mode').notNull().default('once'),
+    cooldownSeconds: integer('cooldown_seconds').notNull().default(600),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    check(
+      'watch_rules_trigger_type_check',
+      sql`${table.triggerType} in ('match', 'unchanged', 'llm')`
+    ),
+    check(
+      'watch_rules_no_match_behavior_check',
+      sql`${table.noMatchBehavior} in ('reset', 'ignore')`
+    ),
+    check('watch_rules_fire_mode_check', sql`${table.fireMode} in ('once', 'repeat')`),
+  ]
+);
+
+export const watchRuleState = sqliteTable('watch_rule_state', {
+  ruleId: text('rule_id')
+    .primaryKey()
+    .references(() => watchRules.id, { onDelete: 'cascade' }),
+  lastSampledAt: text('last_sampled_at'),
+  lastValue: text('last_value'),
+  lastValueChangedAt: text('last_value_changed_at'),
+  triggeredSinceChange: integer('triggered_since_change', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  lastTriggeredAt: text('last_triggered_at'),
+  consecutiveErrors: integer('consecutive_errors').notNull().default(0),
+  lastError: text('last_error'),
+  modelUnavailableNotified: integer('model_unavailable_notified', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+});
+
 export const telegramBotChats = sqliteTable(
   'telegram_bot_chats',
   {

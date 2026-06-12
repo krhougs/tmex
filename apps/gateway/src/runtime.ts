@@ -2,6 +2,7 @@ import { handleApiRequest } from './api';
 import { config } from './config';
 import { runtimeController } from './control/runtime';
 import { ensureSiteSettingsInitialized, getSiteSettings } from './db';
+import { ensureAgentSettingsInitialized } from './db/agent';
 import { runMigrations } from './db/migrate';
 import { connectionAlertNotifier } from './push/connection-alerts';
 import { pushSupervisor } from './push/supervisor';
@@ -38,6 +39,7 @@ export async function createGatewayRuntime(
 
   if (initializeSiteSettings) {
     ensureSiteSettingsInitialized();
+    ensureAgentSettingsInitialized();
   }
 
   runtimeController.reset();
