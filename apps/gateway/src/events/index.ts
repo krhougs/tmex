@@ -283,6 +283,7 @@ export class EventNotifier {
       agent_error: '🤖',
       watch_triggered: '👁️',
       watch_model_unavailable: '👁️',
+      watch_rule_error: '👁️',
     };
 
     const paneUrl = buildPaneUrl(event);

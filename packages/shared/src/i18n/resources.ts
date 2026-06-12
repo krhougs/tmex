@@ -333,7 +333,21 @@ export const I18N_RESOURCES = {
       "agentProviderWebSearchRequiresResponses": "Provider built-in web search requires the openai-responses protocol",
       "agentConfirmationNotFound": "Confirmation not found",
       "agentConfirmationAlreadyDecided": "Confirmation has already been decided",
-      "agentMessageTextRequired": "Message text is required"
+      "agentMessageTextRequired": "Message text is required",
+      "watchRuleNotFound": "Watch rule not found",
+      "watchNameRequired": "Rule name is required",
+      "watchTriggerTypeInvalid": "Trigger type must be match, unchanged or llm",
+      "watchPatternRequired": "match/unchanged rules require a regular expression",
+      "watchPatternInvalid": "Invalid regular expression: {{detail}}",
+      "watchUnchangedMinutesInvalid": "unchanged rules require unchangedMinutes greater than 0",
+      "watchExtractGroupInvalid": "Capture group index must be an integer >= 0",
+      "watchConditionPromptRequired": "llm rules require a condition prompt",
+      "watchIntervalInvalid": "Sampling interval must be at least {{min}} seconds",
+      "watchNoMatchBehaviorInvalid": "No-match behavior must be reset or ignore",
+      "watchFireModeInvalid": "Fire mode must be once or repeat",
+      "watchCooldownInvalid": "Cooldown seconds must be an integer >= 0",
+      "watchAssistDescriptionRequired": "Please describe what to match",
+      "watchAssistModelUnavailable": "Model call failed: {{detail}}"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -350,7 +364,8 @@ export const I18N_RESOURCES = {
         "agent_turn_finished": "🤖 Agent Turn Finished",
         "agent_error": "🤖 Agent Error",
         "watch_triggered": "👁️ Watch Rule Triggered",
-        "watch_model_unavailable": "👁️ Watch Model Unavailable"
+        "watch_model_unavailable": "👁️ Watch Model Unavailable",
+        "watch_rule_error": "👁️ Watch Rule Error"
       },
       "site": "Site",
       "device": "Device",
@@ -369,6 +384,15 @@ export const I18N_RESOURCES = {
         "confirmationPending": "Agent \"{{title}}\" requests to run tool {{toolName}}, awaiting confirmation",
         "turnFinished": "Agent \"{{title}}\" turn finished",
         "error": "Agent \"{{title}}\" error: {{message}}"
+      },
+      "watch": {
+        "matchTriggered": "Watch \"{{name}}\" matched: {{text}}",
+        "unchangedTriggered": "Watch \"{{name}}\" value \"{{value}}\" has been unchanged for {{minutes}} minutes",
+        "llmTriggered": "Watch \"{{name}}\" condition met: {{reason}}",
+        "summaryTriggered": "Watch \"{{name}}\": {{summary}}",
+        "unconfirmedSuffix": " (model unavailable, not LLM-confirmed)",
+        "modelUnavailable": "Watch \"{{name}}\" model call failed: {{message}}",
+        "ruleError": "Watch \"{{name}}\" failed {{count}} times in a row and has been disabled: {{message}}"
       }
     },
     "sidebar": {
@@ -735,7 +759,21 @@ export const I18N_RESOURCES = {
       "agentProviderWebSearchRequiresResponses": "Provider 内置搜索仅支持 openai-responses 协议",
       "agentConfirmationNotFound": "确认请求不存在",
       "agentConfirmationAlreadyDecided": "确认请求已被处理",
-      "agentMessageTextRequired": "消息内容不能为空"
+      "agentMessageTextRequired": "消息内容不能为空",
+      "watchRuleNotFound": "Watch 规则不存在",
+      "watchNameRequired": "规则名称不能为空",
+      "watchTriggerTypeInvalid": "触发类型必须是 match、unchanged 或 llm",
+      "watchPatternRequired": "match/unchanged 规则必须提供正则表达式",
+      "watchPatternInvalid": "正则表达式无效：{{detail}}",
+      "watchUnchangedMinutesInvalid": "unchanged 规则的未变化分钟数必须大于 0",
+      "watchExtractGroupInvalid": "捕获组序号必须是不小于 0 的整数",
+      "watchConditionPromptRequired": "llm 规则必须提供条件描述",
+      "watchIntervalInvalid": "采样间隔不能小于 {{min}} 秒",
+      "watchNoMatchBehaviorInvalid": "无命中行为必须是 reset 或 ignore",
+      "watchFireModeInvalid": "触发模式必须是 once 或 repeat",
+      "watchCooldownInvalid": "冷却秒数必须是不小于 0 的整数",
+      "watchAssistDescriptionRequired": "请描述要匹配的内容",
+      "watchAssistModelUnavailable": "模型调用失败：{{detail}}"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -752,7 +790,8 @@ export const I18N_RESOURCES = {
         "agent_turn_finished": "🤖 Agent 回合完成",
         "agent_error": "🤖 Agent 错误",
         "watch_triggered": "👁️ Watch 规则触发",
-        "watch_model_unavailable": "👁️ Watch 模型不可用"
+        "watch_model_unavailable": "👁️ Watch 模型不可用",
+        "watch_rule_error": "👁️ Watch 规则错误"
       },
       "site": "站点",
       "device": "设备",
@@ -771,6 +810,15 @@ export const I18N_RESOURCES = {
         "confirmationPending": "Agent「{{title}}」请求执行工具 {{toolName}}，等待确认",
         "turnFinished": "Agent「{{title}}」回合完成",
         "error": "Agent「{{title}}」出错：{{message}}"
+      },
+      "watch": {
+        "matchTriggered": "监控「{{name}}」命中：{{text}}",
+        "unchangedTriggered": "监控「{{name}}」的值「{{value}}」已 {{minutes}} 分钟未变化",
+        "llmTriggered": "监控「{{name}}」条件满足：{{reason}}",
+        "summaryTriggered": "监控「{{name}}」：{{summary}}",
+        "unconfirmedSuffix": "（模型不可用，未经 LLM 二次确认）",
+        "modelUnavailable": "监控「{{name}}」模型调用失败：{{message}}",
+        "ruleError": "监控「{{name}}」连续失败 {{count}} 次，已自动停用：{{message}}"
       }
     },
     "sidebar": {
@@ -1137,7 +1185,21 @@ export const I18N_RESOURCES = {
       "agentProviderWebSearchRequiresResponses": "プロバイダ内蔵の Web 検索は openai-responses プロトコルのみ対応しています",
       "agentConfirmationNotFound": "確認リクエストが存在しません",
       "agentConfirmationAlreadyDecided": "確認リクエストは既に処理済みです",
-      "agentMessageTextRequired": "メッセージ内容を入力してください"
+      "agentMessageTextRequired": "メッセージ内容を入力してください",
+      "watchRuleNotFound": "Watch ルールが存在しません",
+      "watchNameRequired": "ルール名を入力してください",
+      "watchTriggerTypeInvalid": "トリガー種別は match、unchanged、llm のいずれかです",
+      "watchPatternRequired": "match/unchanged ルールには正規表現が必要です",
+      "watchPatternInvalid": "正規表現が無効です：{{detail}}",
+      "watchUnchangedMinutesInvalid": "unchanged ルールには 0 より大きい未変化分数が必要です",
+      "watchExtractGroupInvalid": "キャプチャグループ番号は 0 以上の整数で指定してください",
+      "watchConditionPromptRequired": "llm ルールには条件の説明が必要です",
+      "watchIntervalInvalid": "サンプリング間隔は {{min}} 秒以上で指定してください",
+      "watchNoMatchBehaviorInvalid": "非マッチ時の挙動は reset または ignore です",
+      "watchFireModeInvalid": "発火モードは once または repeat です",
+      "watchCooldownInvalid": "クールダウン秒数は 0 以上の整数で指定してください",
+      "watchAssistDescriptionRequired": "マッチさせたい内容を記述してください",
+      "watchAssistModelUnavailable": "モデル呼び出しに失敗しました：{{detail}}"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",
@@ -1154,7 +1216,8 @@ export const I18N_RESOURCES = {
         "agent_turn_finished": "🤖 エージェントターン完了",
         "agent_error": "🤖 エージェントエラー",
         "watch_triggered": "👁️ Watch ルール発動",
-        "watch_model_unavailable": "👁️ Watch モデル利用不可"
+        "watch_model_unavailable": "👁️ Watch モデル利用不可",
+        "watch_rule_error": "👁️ Watch ルールエラー"
       },
       "site": "サイト",
       "device": "デバイス",
@@ -1173,6 +1236,15 @@ export const I18N_RESOURCES = {
         "confirmationPending": "Agent「{{title}}」がツール {{toolName}} の実行確認を求めています",
         "turnFinished": "Agent「{{title}}」のターンが完了しました",
         "error": "Agent「{{title}}」でエラーが発生しました：{{message}}"
+      },
+      "watch": {
+        "matchTriggered": "Watch「{{name}}」がマッチしました：{{text}}",
+        "unchangedTriggered": "Watch「{{name}}」の値「{{value}}」が {{minutes}} 分間変化していません",
+        "llmTriggered": "Watch「{{name}}」の条件を満たしました：{{reason}}",
+        "summaryTriggered": "Watch「{{name}}」：{{summary}}",
+        "unconfirmedSuffix": "（モデル利用不可のため LLM 未確認）",
+        "modelUnavailable": "Watch「{{name}}」のモデル呼び出しに失敗しました：{{message}}",
+        "ruleError": "Watch「{{name}}」が {{count}} 回連続で失敗したため自動停止しました：{{message}}"
       }
     },
     "sidebar": {

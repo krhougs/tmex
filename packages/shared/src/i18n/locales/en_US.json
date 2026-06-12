@@ -327,7 +327,21 @@
       "agentProviderWebSearchRequiresResponses": "Provider built-in web search requires the openai-responses protocol",
       "agentConfirmationNotFound": "Confirmation not found",
       "agentConfirmationAlreadyDecided": "Confirmation has already been decided",
-      "agentMessageTextRequired": "Message text is required"
+      "agentMessageTextRequired": "Message text is required",
+      "watchRuleNotFound": "Watch rule not found",
+      "watchNameRequired": "Rule name is required",
+      "watchTriggerTypeInvalid": "Trigger type must be match, unchanged or llm",
+      "watchPatternRequired": "match/unchanged rules require a regular expression",
+      "watchPatternInvalid": "Invalid regular expression: {{detail}}",
+      "watchUnchangedMinutesInvalid": "unchanged rules require unchangedMinutes greater than 0",
+      "watchExtractGroupInvalid": "Capture group index must be an integer >= 0",
+      "watchConditionPromptRequired": "llm rules require a condition prompt",
+      "watchIntervalInvalid": "Sampling interval must be at least {{min}} seconds",
+      "watchNoMatchBehaviorInvalid": "No-match behavior must be reset or ignore",
+      "watchFireModeInvalid": "Fire mode must be once or repeat",
+      "watchCooldownInvalid": "Cooldown seconds must be an integer >= 0",
+      "watchAssistDescriptionRequired": "Please describe what to match",
+      "watchAssistModelUnavailable": "Model call failed: {{detail}}"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -344,7 +358,8 @@
         "agent_turn_finished": "🤖 Agent Turn Finished",
         "agent_error": "🤖 Agent Error",
         "watch_triggered": "👁️ Watch Rule Triggered",
-        "watch_model_unavailable": "👁️ Watch Model Unavailable"
+        "watch_model_unavailable": "👁️ Watch Model Unavailable",
+        "watch_rule_error": "👁️ Watch Rule Error"
       },
       "site": "Site",
       "device": "Device",
@@ -363,6 +378,15 @@
         "confirmationPending": "Agent \"{{title}}\" requests to run tool {{toolName}}, awaiting confirmation",
         "turnFinished": "Agent \"{{title}}\" turn finished",
         "error": "Agent \"{{title}}\" error: {{message}}"
+      },
+      "watch": {
+        "matchTriggered": "Watch \"{{name}}\" matched: {{text}}",
+        "unchangedTriggered": "Watch \"{{name}}\" value \"{{value}}\" has been unchanged for {{minutes}} minutes",
+        "llmTriggered": "Watch \"{{name}}\" condition met: {{reason}}",
+        "summaryTriggered": "Watch \"{{name}}\": {{summary}}",
+        "unconfirmedSuffix": " (model unavailable, not LLM-confirmed)",
+        "modelUnavailable": "Watch \"{{name}}\" model call failed: {{message}}",
+        "ruleError": "Watch \"{{name}}\" failed {{count}} times in a row and has been disabled: {{message}}"
       }
     },
     "sidebar": {

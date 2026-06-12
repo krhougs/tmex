@@ -10,6 +10,7 @@ import { pushSupervisor } from './push/supervisor';
 import { telegramService } from './telegram/service';
 import { tmuxRuntimeRegistry } from './tmux-client/registry';
 import { primeLocalShellPath } from './tmux/local-shell-path';
+import { watchService } from './watch/service';
 import { WebSocketServer } from './ws';
 
 interface GatewayRuntimeOptions {
@@ -53,6 +54,7 @@ export async function createGatewayRuntime(
   await telegramService.refresh();
   await pushSupervisor.start();
   await agentSupervisor.start();
+  await watchService.start();
 
   try {
     const settings = getSiteSettings();
@@ -100,6 +102,7 @@ export async function createGatewayRuntime(
     async stop() {
       connectionAlertNotifier.setBroadcaster(null);
       wsServer.closeAll();
+      await watchService.stop();
       await agentSupervisor.stop();
       await pushSupervisor.stopAll();
       await tmuxRuntimeRegistry.shutdownAll();

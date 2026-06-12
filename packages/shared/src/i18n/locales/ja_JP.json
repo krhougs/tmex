@@ -327,7 +327,21 @@
       "agentProviderWebSearchRequiresResponses": "プロバイダ内蔵の Web 検索は openai-responses プロトコルのみ対応しています",
       "agentConfirmationNotFound": "確認リクエストが存在しません",
       "agentConfirmationAlreadyDecided": "確認リクエストは既に処理済みです",
-      "agentMessageTextRequired": "メッセージ内容を入力してください"
+      "agentMessageTextRequired": "メッセージ内容を入力してください",
+      "watchRuleNotFound": "Watch ルールが存在しません",
+      "watchNameRequired": "ルール名を入力してください",
+      "watchTriggerTypeInvalid": "トリガー種別は match、unchanged、llm のいずれかです",
+      "watchPatternRequired": "match/unchanged ルールには正規表現が必要です",
+      "watchPatternInvalid": "正規表現が無効です：{{detail}}",
+      "watchUnchangedMinutesInvalid": "unchanged ルールには 0 より大きい未変化分数が必要です",
+      "watchExtractGroupInvalid": "キャプチャグループ番号は 0 以上の整数で指定してください",
+      "watchConditionPromptRequired": "llm ルールには条件の説明が必要です",
+      "watchIntervalInvalid": "サンプリング間隔は {{min}} 秒以上で指定してください",
+      "watchNoMatchBehaviorInvalid": "非マッチ時の挙動は reset または ignore です",
+      "watchFireModeInvalid": "発火モードは once または repeat です",
+      "watchCooldownInvalid": "クールダウン秒数は 0 以上の整数で指定してください",
+      "watchAssistDescriptionRequired": "マッチさせたい内容を記述してください",
+      "watchAssistModelUnavailable": "モデル呼び出しに失敗しました：{{detail}}"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",
@@ -344,7 +358,8 @@
         "agent_turn_finished": "🤖 エージェントターン完了",
         "agent_error": "🤖 エージェントエラー",
         "watch_triggered": "👁️ Watch ルール発動",
-        "watch_model_unavailable": "👁️ Watch モデル利用不可"
+        "watch_model_unavailable": "👁️ Watch モデル利用不可",
+        "watch_rule_error": "👁️ Watch ルールエラー"
       },
       "site": "サイト",
       "device": "デバイス",
@@ -363,6 +378,15 @@
         "confirmationPending": "Agent「{{title}}」がツール {{toolName}} の実行確認を求めています",
         "turnFinished": "Agent「{{title}}」のターンが完了しました",
         "error": "Agent「{{title}}」でエラーが発生しました：{{message}}"
+      },
+      "watch": {
+        "matchTriggered": "Watch「{{name}}」がマッチしました：{{text}}",
+        "unchangedTriggered": "Watch「{{name}}」の値「{{value}}」が {{minutes}} 分間変化していません",
+        "llmTriggered": "Watch「{{name}}」の条件を満たしました：{{reason}}",
+        "summaryTriggered": "Watch「{{name}}」：{{summary}}",
+        "unconfirmedSuffix": "（モデル利用不可のため LLM 未確認）",
+        "modelUnavailable": "Watch「{{name}}」のモデル呼び出しに失敗しました：{{message}}",
+        "ruleError": "Watch「{{name}}」が {{count}} 回連続で失敗したため自動停止しました：{{message}}"
       }
     },
     "sidebar": {

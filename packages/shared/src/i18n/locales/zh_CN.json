@@ -327,7 +327,21 @@
       "agentProviderWebSearchRequiresResponses": "Provider 内置搜索仅支持 openai-responses 协议",
       "agentConfirmationNotFound": "确认请求不存在",
       "agentConfirmationAlreadyDecided": "确认请求已被处理",
-      "agentMessageTextRequired": "消息内容不能为空"
+      "agentMessageTextRequired": "消息内容不能为空",
+      "watchRuleNotFound": "Watch 规则不存在",
+      "watchNameRequired": "规则名称不能为空",
+      "watchTriggerTypeInvalid": "触发类型必须是 match、unchanged 或 llm",
+      "watchPatternRequired": "match/unchanged 规则必须提供正则表达式",
+      "watchPatternInvalid": "正则表达式无效：{{detail}}",
+      "watchUnchangedMinutesInvalid": "unchanged 规则的未变化分钟数必须大于 0",
+      "watchExtractGroupInvalid": "捕获组序号必须是不小于 0 的整数",
+      "watchConditionPromptRequired": "llm 规则必须提供条件描述",
+      "watchIntervalInvalid": "采样间隔不能小于 {{min}} 秒",
+      "watchNoMatchBehaviorInvalid": "无命中行为必须是 reset 或 ignore",
+      "watchFireModeInvalid": "触发模式必须是 once 或 repeat",
+      "watchCooldownInvalid": "冷却秒数必须是不小于 0 的整数",
+      "watchAssistDescriptionRequired": "请描述要匹配的内容",
+      "watchAssistModelUnavailable": "模型调用失败：{{detail}}"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -344,7 +358,8 @@
         "agent_turn_finished": "🤖 Agent 回合完成",
         "agent_error": "🤖 Agent 错误",
         "watch_triggered": "👁️ Watch 规则触发",
-        "watch_model_unavailable": "👁️ Watch 模型不可用"
+        "watch_model_unavailable": "👁️ Watch 模型不可用",
+        "watch_rule_error": "👁️ Watch 规则错误"
       },
       "site": "站点",
       "device": "设备",
@@ -363,6 +378,15 @@
         "confirmationPending": "Agent「{{title}}」请求执行工具 {{toolName}}，等待确认",
         "turnFinished": "Agent「{{title}}」回合完成",
         "error": "Agent「{{title}}」出错：{{message}}"
+      },
+      "watch": {
+        "matchTriggered": "监控「{{name}}」命中：{{text}}",
+        "unchangedTriggered": "监控「{{name}}」的值「{{value}}」已 {{minutes}} 分钟未变化",
+        "llmTriggered": "监控「{{name}}」条件满足：{{reason}}",
+        "summaryTriggered": "监控「{{name}}」：{{summary}}",
+        "unconfirmedSuffix": "（模型不可用，未经 LLM 二次确认）",
+        "modelUnavailable": "监控「{{name}}」模型调用失败：{{message}}",
+        "ruleError": "监控「{{name}}」连续失败 {{count}} 次，已自动停用：{{message}}"
       }
     },
     "sidebar": {
