@@ -11,6 +11,7 @@ import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
 import { RightPanel, RightPanelProvider, RightPanelTrigger } from '@/components/ui/right-panel';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { WatchEventsInit } from '@/components/watch/watch-events-init';
 import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
 
 const AgentPanel = lazy(() =>
@@ -58,6 +59,7 @@ function RootLayout() {
 
   return (
     <GlobalDeviceProvider>
+      <WatchEventsInit />
       <SidebarProvider>
         <AppSidebar />
         <RightPanelProvider>
