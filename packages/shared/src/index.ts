@@ -520,3 +520,106 @@ export interface UpdateAgentLlmSettingsRequest {
 export interface UpdateAgentLlmSettingsResponse {
   settings: AgentLlmSettingsDto;
 }
+
+// ==================== Agent Sessions ====================
+
+export type AgentWriteMode = 'confirm' | 'auto';
+
+export type AgentSessionStatus = 'idle' | 'running' | 'waiting_confirmation' | 'stopped' | 'error';
+
+export type AgentConfirmationStatus = 'pending' | 'approved' | 'denied' | 'cancelled';
+
+export type AgentMessageRole = 'system' | 'user' | 'assistant' | 'tool';
+
+/** 新建 session 的默认标题，标题仍为该值时服务端会在首回合结束后自动生成 */
+export const DEFAULT_AGENT_SESSION_TITLE = 'New Session';
+
+export interface AgentSessionDto {
+  id: string;
+  title: string;
+  deviceId: string | null;
+  paneId: string | null;
+  providerId: string | null;
+  modelId: string;
+  systemPrompt: string | null;
+  writeMode: AgentWriteMode;
+  useProviderWebSearch: boolean;
+  status: AgentSessionStatus;
+  lastError: string | null;
+  maxStepsPerTurn: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMessageDto {
+  id: string;
+  sessionId: string;
+  seq: number;
+  role: AgentMessageRole;
+  /** AI SDK ModelMessage 原样 JSON */
+  content: unknown;
+  createdAt: string;
+}
+
+export interface AgentConfirmationDto {
+  id: string;
+  sessionId: string;
+  toolName: string;
+  toolCallId: string;
+  input: unknown;
+  status: AgentConfirmationStatus;
+  reason: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface ListAgentSessionsResponse {
+  sessions: AgentSessionDto[];
+}
+
+export interface CreateAgentSessionRequest {
+  deviceId: string;
+  paneId: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  systemPrompt?: string | null;
+  writeMode?: AgentWriteMode;
+  useProviderWebSearch?: boolean;
+  maxStepsPerTurn?: number;
+}
+
+export interface UpdateAgentSessionRequest {
+  title?: string;
+  paneId?: string;
+  providerId?: string | null;
+  modelId?: string;
+  systemPrompt?: string | null;
+  writeMode?: AgentWriteMode;
+  useProviderWebSearch?: boolean;
+  maxStepsPerTurn?: number;
+}
+
+export interface AgentSessionResponse {
+  session: AgentSessionDto;
+}
+
+export interface ListAgentMessagesResponse {
+  messages: AgentMessageDto[];
+}
+
+export interface PostAgentMessageRequest {
+  text: string;
+}
+
+export interface ListAgentConfirmationsResponse {
+  confirmations: AgentConfirmationDto[];
+}
+
+export interface DecideAgentConfirmationRequest {
+  approved: boolean;
+  reason?: string;
+}
+
+export interface DecideAgentConfirmationResponse {
+  confirmation: AgentConfirmationDto;
+}

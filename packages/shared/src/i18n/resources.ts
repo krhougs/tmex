@@ -322,7 +322,18 @@ export const I18N_RESOURCES = {
       "llmNoDefaultModel": "No model specified and no default model configured",
       "llmDefaultProviderNotFound": "Default provider does not exist",
       "llmSearchProviderInvalid": "Search provider must be none, tavily or brave",
-      "llmFetchModelsFailed": "Failed to fetch model list: {{detail}}"
+      "llmFetchModelsFailed": "Failed to fetch model list: {{detail}}",
+      "agentSessionNotFound": "Agent session not found",
+      "agentSessionBusy": "Agent session is currently running, stop it or wait for completion",
+      "agentSessionAwaitingConfirmation": "Agent session has pending confirmations, resolve them first",
+      "agentDeviceRequired": "Device is required",
+      "agentPaneRequired": "Terminal pane is required",
+      "agentWriteModeInvalid": "Write mode must be confirm or auto",
+      "agentMaxStepsInvalid": "Max steps per turn must be between 1 and 100",
+      "agentProviderWebSearchRequiresResponses": "Provider built-in web search requires the openai-responses protocol",
+      "agentConfirmationNotFound": "Confirmation not found",
+      "agentConfirmationAlreadyDecided": "Confirmation has already been decided",
+      "agentMessageTextRequired": "Message text is required"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -353,7 +364,12 @@ export const I18N_RESOURCES = {
         "viewLink": "Click to view",
         "terminalTopbarLabel": "Window {{window}} · Pane {{pane}} @ {{device}}"
       },
-      "telegramNotification": {}
+      "telegramNotification": {},
+      "agent": {
+        "confirmationPending": "Agent \"{{title}}\" requests to run tool {{toolName}}, awaiting confirmation",
+        "turnFinished": "Agent \"{{title}}\" turn finished",
+        "error": "Agent \"{{title}}\" error: {{message}}"
+      }
     },
     "sidebar": {
       "noWindows": "No windows",
@@ -708,7 +724,18 @@ export const I18N_RESOURCES = {
       "llmNoDefaultModel": "未指定模型且未配置默认模型",
       "llmDefaultProviderNotFound": "默认 provider 不存在",
       "llmSearchProviderInvalid": "搜索服务必须是 none、tavily 或 brave",
-      "llmFetchModelsFailed": "拉取模型列表失败：{{detail}}"
+      "llmFetchModelsFailed": "拉取模型列表失败：{{detail}}",
+      "agentSessionNotFound": "Agent 会话不存在",
+      "agentSessionBusy": "Agent 会话正在运行中，请先停止或等待完成",
+      "agentSessionAwaitingConfirmation": "Agent 会话有待处理的确认请求，请先处理",
+      "agentDeviceRequired": "必须指定设备",
+      "agentPaneRequired": "必须指定终端 pane",
+      "agentWriteModeInvalid": "写入模式必须是 confirm 或 auto",
+      "agentMaxStepsInvalid": "每回合最大步数必须在 1-100 之间",
+      "agentProviderWebSearchRequiresResponses": "Provider 内置搜索仅支持 openai-responses 协议",
+      "agentConfirmationNotFound": "确认请求不存在",
+      "agentConfirmationAlreadyDecided": "确认请求已被处理",
+      "agentMessageTextRequired": "消息内容不能为空"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -739,7 +766,12 @@ export const I18N_RESOURCES = {
         "viewLink": "点击查看",
         "terminalTopbarLabel": "窗口 {{window}} · Pane {{pane}} @ {{device}}"
       },
-      "telegramNotification": {}
+      "telegramNotification": {},
+      "agent": {
+        "confirmationPending": "Agent「{{title}}」请求执行工具 {{toolName}}，等待确认",
+        "turnFinished": "Agent「{{title}}」回合完成",
+        "error": "Agent「{{title}}」出错：{{message}}"
+      }
     },
     "sidebar": {
       "noWindows": "暂无窗口",
@@ -1094,7 +1126,18 @@ export const I18N_RESOURCES = {
       "llmNoDefaultModel": "モデルが指定されておらず、デフォルトモデルも設定されていません",
       "llmDefaultProviderNotFound": "デフォルトプロバイダーが存在しません",
       "llmSearchProviderInvalid": "検索プロバイダーは none、tavily、brave のいずれかである必要があります",
-      "llmFetchModelsFailed": "モデル一覧の取得に失敗しました：{{detail}}"
+      "llmFetchModelsFailed": "モデル一覧の取得に失敗しました：{{detail}}",
+      "agentSessionNotFound": "Agent セッションが存在しません",
+      "agentSessionBusy": "Agent セッションは実行中です。停止するか完了をお待ちください",
+      "agentSessionAwaitingConfirmation": "Agent セッションに未処理の確認リクエストがあります。先に処理してください",
+      "agentDeviceRequired": "デバイスを指定してください",
+      "agentPaneRequired": "ターミナル pane を指定してください",
+      "agentWriteModeInvalid": "書き込みモードは confirm または auto である必要があります",
+      "agentMaxStepsInvalid": "1 ターンあたりの最大ステップ数は 1〜100 の範囲で指定してください",
+      "agentProviderWebSearchRequiresResponses": "プロバイダ内蔵の Web 検索は openai-responses プロトコルのみ対応しています",
+      "agentConfirmationNotFound": "確認リクエストが存在しません",
+      "agentConfirmationAlreadyDecided": "確認リクエストは既に処理済みです",
+      "agentMessageTextRequired": "メッセージ内容を入力してください"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",
@@ -1125,7 +1168,12 @@ export const I18N_RESOURCES = {
         "viewLink": "表示",
         "terminalTopbarLabel": "ウィンドウ {{window}} · ペイン {{pane}} @ {{device}}"
       },
-      "telegramNotification": {}
+      "telegramNotification": {},
+      "agent": {
+        "confirmationPending": "Agent「{{title}}」がツール {{toolName}} の実行確認を求めています",
+        "turnFinished": "Agent「{{title}}」のターンが完了しました",
+        "error": "Agent「{{title}}」でエラーが発生しました：{{message}}"
+      }
     },
     "sidebar": {
       "noWindows": "ウィンドウがありません",

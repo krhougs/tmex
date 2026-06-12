@@ -316,7 +316,18 @@
       "llmNoDefaultModel": "No model specified and no default model configured",
       "llmDefaultProviderNotFound": "Default provider does not exist",
       "llmSearchProviderInvalid": "Search provider must be none, tavily or brave",
-      "llmFetchModelsFailed": "Failed to fetch model list: {{detail}}"
+      "llmFetchModelsFailed": "Failed to fetch model list: {{detail}}",
+      "agentSessionNotFound": "Agent session not found",
+      "agentSessionBusy": "Agent session is currently running, stop it or wait for completion",
+      "agentSessionAwaitingConfirmation": "Agent session has pending confirmations, resolve them first",
+      "agentDeviceRequired": "Device is required",
+      "agentPaneRequired": "Terminal pane is required",
+      "agentWriteModeInvalid": "Write mode must be confirm or auto",
+      "agentMaxStepsInvalid": "Max steps per turn must be between 1 and 100",
+      "agentProviderWebSearchRequiresResponses": "Provider built-in web search requires the openai-responses protocol",
+      "agentConfirmationNotFound": "Confirmation not found",
+      "agentConfirmationAlreadyDecided": "Confirmation has already been decided",
+      "agentMessageTextRequired": "Message text is required"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -347,7 +358,12 @@
         "viewLink": "Click to view",
         "terminalTopbarLabel": "Window {{window}} · Pane {{pane}} @ {{device}}"
       },
-      "telegramNotification": {}
+      "telegramNotification": {},
+      "agent": {
+        "confirmationPending": "Agent \"{{title}}\" requests to run tool {{toolName}}, awaiting confirmation",
+        "turnFinished": "Agent \"{{title}}\" turn finished",
+        "error": "Agent \"{{title}}\" error: {{message}}"
+      }
     },
     "sidebar": {
       "noWindows": "No windows",

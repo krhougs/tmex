@@ -242,6 +242,8 @@ export function getMaxAgentMessageSeq(sessionId: string): number {
 }
 
 export interface CreateAgentConfirmationInput {
+  /** 缺省时自动生成；agent runtime 传 AI SDK 的 approvalId 以便续跑时回填 tool-approval-response */
+  id?: string;
   sessionId: string;
   toolName: string;
   toolCallId: string;
@@ -253,7 +255,7 @@ export function createAgentConfirmation(
 ): AgentConfirmationRecord {
   const orm = getOrmDb();
   const row: typeof agentConfirmations.$inferInsert = {
-    id: crypto.randomUUID(),
+    id: input.id ?? crypto.randomUUID(),
     sessionId: input.sessionId,
     toolName: input.toolName,
     toolCallId: input.toolCallId,
