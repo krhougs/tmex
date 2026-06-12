@@ -404,6 +404,18 @@
       "closePane": "ペインを閉じる",
       "addDevice": "デバイスを追加"
     },
+    "agent": {
+      "panel": {
+        "title": "Agent",
+        "empty": "セッションを選択または作成してください",
+        "inputPlaceholder": "メッセージを入力…",
+        "send": "送信"
+      },
+      "session": {
+        "none": "セッション未選択",
+        "new": "新規セッション"
+      }
+    },
     "window": {
       "noWindows": "ウィンドウがありません",
       "new": "新規ウィンドウ",

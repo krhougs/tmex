@@ -404,6 +404,18 @@
       "closePane": "Close Pane",
       "addDevice": "Add Device"
     },
+    "agent": {
+      "panel": {
+        "title": "Agent",
+        "empty": "Select or create a session",
+        "inputPlaceholder": "Type a message…",
+        "send": "Send"
+      },
+      "session": {
+        "none": "No session selected",
+        "new": "New session"
+      }
+    },
     "window": {
       "noWindows": "No windows",
       "new": "New Window",

@@ -404,6 +404,18 @@
       "closePane": "关闭 pane",
       "addDevice": "添加设备"
     },
+    "agent": {
+      "panel": {
+        "title": "Agent",
+        "empty": "选择或创建一个会话",
+        "inputPlaceholder": "输入消息…",
+        "send": "发送"
+      },
+      "session": {
+        "none": "未选择会话",
+        "new": "新建会话"
+      }
+    },
     "window": {
       "noWindows": "暂无窗口",
       "new": "新建窗口",

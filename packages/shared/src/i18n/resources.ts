@@ -410,6 +410,18 @@ export const I18N_RESOURCES = {
       "closePane": "Close Pane",
       "addDevice": "Add Device"
     },
+    "agent": {
+      "panel": {
+        "title": "Agent",
+        "empty": "Select or create a session",
+        "inputPlaceholder": "Type a message…",
+        "send": "Send"
+      },
+      "session": {
+        "none": "No session selected",
+        "new": "New session"
+      }
+    },
     "window": {
       "noWindows": "No windows",
       "new": "New Window",
@@ -836,6 +848,18 @@ export const I18N_RESOURCES = {
       "closePane": "关闭 pane",
       "addDevice": "添加设备"
     },
+    "agent": {
+      "panel": {
+        "title": "Agent",
+        "empty": "选择或创建一个会话",
+        "inputPlaceholder": "输入消息…",
+        "send": "发送"
+      },
+      "session": {
+        "none": "未选择会话",
+        "new": "新建会话"
+      }
+    },
     "window": {
       "noWindows": "暂无窗口",
       "new": "新建窗口",
@@ -1261,6 +1285,18 @@ export const I18N_RESOURCES = {
       "closeWindow": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
       "addDevice": "デバイスを追加"
+    },
+    "agent": {
+      "panel": {
+        "title": "Agent",
+        "empty": "セッションを選択または作成してください",
+        "inputPlaceholder": "メッセージを入力…",
+        "send": "送信"
+      },
+      "session": {
+        "none": "セッション未選択",
+        "new": "新規セッション"
+      }
     },
     "window": {
       "noWindows": "ウィンドウがありません",
