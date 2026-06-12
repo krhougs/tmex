@@ -328,7 +328,12 @@
         "device_tmux_missing": "⚠️ Tmux Missing",
         "device_disconnect": "🔌 Device Disconnected",
         "session_created": "🆕 Session Created",
-        "session_closed": "🚪 Session Closed"
+        "session_closed": "🚪 Session Closed",
+        "agent_confirmation_pending": "🤖 Agent Confirmation Pending",
+        "agent_turn_finished": "🤖 Agent Turn Finished",
+        "agent_error": "🤖 Agent Error",
+        "watch_triggered": "👁️ Watch Rule Triggered",
+        "watch_model_unavailable": "👁️ Watch Model Unavailable"
       },
       "site": "Site",
       "device": "Device",

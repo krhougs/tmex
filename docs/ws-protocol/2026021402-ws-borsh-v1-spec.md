@@ -146,6 +146,20 @@ export const EnvelopeSchema = b.struct({
 |---:|---|---|---|
 | 0x0501 | CHUNK | BIDI | 超大 payload 分片承载 |
 
+### Agent（0x0600-0x06FF）
+
+| kind | 名称 | 方向 | 说明 |
+|---:|---|---|---|
+| 0x0601 | AGENT_SUBSCRIBE | C2S | 订阅 agent 会话事件（订阅成功后服务端立即单发一条 sync 事件） |
+| 0x0602 | AGENT_UNSUBSCRIBE | C2S | 退订 agent 会话事件 |
+| 0x0603 | AGENT_EVENT | S2C | agent 会话事件（payload 为 JSON bytes） |
+
+### Watch（0x0700-0x07FF）
+
+| kind | 名称 | 方向 | 说明 |
+|---:|---|---|---|
+| 0x0701 | WATCH_EVENT | S2C | watch 规则事件，广播给所有已协商客户端（payload 为 JSON bytes） |
+
 ## payload schemas（完整）
 
 > 本节描述“字段语义 + wire 类型”。最终 schema 以 shared 代码为准。
@@ -173,7 +187,7 @@ export const EnvelopeSchema = b.struct({
 - `selectedVersion: u16`（当前 1）
 - `maxFrameBytes: u32`（服务端可接收最大帧）
 - `heartbeatIntervalMs: u32`（默认 15000）
-- `capabilities: vec(string)`
+- `capabilities: vec(string)`（当前：`tmex-ws-borsh-v1`、`tmex-agent-v1`）
 
 ### PING/PONG（0x0003/0x0004）
 
@@ -468,6 +482,60 @@ PaneWire：
 - 收到 `CHUNK` 后按 `chunkStreamId` 聚合，收齐 `totalChunks` 后按 `chunkIndex` 拼接 `data`。
 - 拼接得到 `originalPayloadBytes` 后，用 `originalKind` 解码为对应 payload。
 - 超时（默认 5s）或重复/越界 index：丢弃并回 `ERROR(code=1002)`。
+
+### AGENT_SUBSCRIBE（0x0601）/ AGENT_UNSUBSCRIBE（0x0602）
+
+字段：
+
+- `sessionId: string`
+
+语义：
+
+- 订阅成功后服务端立即向该客户端单发一条 `AGENT_EVENT(eventType=1 sync)`，包含会话当前状态全量。
+- 连接关闭时服务端清理该客户端的全部订阅。
+
+### AGENT_EVENT（0x0603）
+
+字段：
+
+- `sessionId: string`
+- `seq: u32`（会话内事件序号；sync 单发时为 0）
+- `eventType: u8`
+- `payload: bytes()`（JSON bytes，形状约定见 `packages/shared/src/ws-borsh/agent.ts`，先例：TMUX_EVENT.eventData）
+
+eventType 枚举：
+
+| 值 | 名称 | payload 类型 |
+|---:|---|---|
+| 1 | sync | `AgentSyncEventPayload` |
+| 2 | status | `AgentStatusEventPayload` |
+| 3 | text_delta | `AgentTextDeltaPayload` |
+| 4 | reasoning_delta | `AgentReasoningDeltaPayload` |
+| 5 | tool_call | `AgentToolCallPayload` |
+| 6 | tool_result | `AgentToolResultPayload` |
+| 7 | confirmation_request | `AgentConfirmationRequestPayload` |
+| 8 | confirmation_resolved | `AgentConfirmationResolvedPayload` |
+| 9 | message_persisted | `AgentMessagePersistedPayload` |
+| 10 | error | `AgentErrorEventPayload` |
+| 11 | turn_finished | `AgentTurnFinishedPayload` |
+
+### WATCH_EVENT（0x0701）
+
+字段：
+
+- `ruleId: string`
+- `deviceId: string`
+- `paneId: string`
+- `eventType: u8`
+- `payload: bytes()`（JSON bytes，形状约定见 `packages/shared/src/ws-borsh/agent.ts`）
+
+eventType 枚举：
+
+| 值 | 名称 | payload 类型 |
+|---:|---|---|
+| 1 | triggered | `WatchTriggeredPayload` |
+| 2 | model_unavailable | `WatchModelUnavailablePayload` |
+| 3 | rule_error | `WatchRuleErrorPayload` |
 
 ## 关键时序（必须遵守）
 

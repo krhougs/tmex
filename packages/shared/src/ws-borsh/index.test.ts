@@ -3,13 +3,19 @@
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
+  AGENT_EVENT_SYNC,
   CURRENT_VERSION,
   ChunkReassembler,
   ERROR_FRAME_TOO_LARGE,
   ERROR_INVALID_FRAME,
+  KIND_AGENT_EVENT,
+  KIND_AGENT_SUBSCRIBE,
+  KIND_AGENT_UNSUBSCRIBE,
   KIND_CHUNK,
   KIND_PING,
+  KIND_WATCH_EVENT,
   MAGIC,
+  WATCH_EVENT_TRIGGERED,
   WsBorshError,
   checkMagic,
   createSeqGenerator,
@@ -25,7 +31,13 @@ import {
   resetChunkStreamId,
   splitPayloadIntoChunks,
 } from './index';
-import { PingPongSchema } from './schema';
+import {
+  AgentEventSchema,
+  AgentSubscribeSchema,
+  AgentUnsubscribeSchema,
+  PingPongSchema,
+  WatchEventSchema,
+} from './schema';
 
 describe('codec', () => {
   describe('encodeEnvelope / decodeEnvelope', () => {
@@ -302,6 +314,10 @@ describe('kind', () => {
   it('应该验证有效的 kind', () => {
     expect(isValidKind(0x0001)).toBe(true); // HELLO_C2S
     expect(isValidKind(0x0501)).toBe(true); // CHUNK
+    expect(isValidKind(KIND_AGENT_SUBSCRIBE)).toBe(true);
+    expect(isValidKind(KIND_AGENT_UNSUBSCRIBE)).toBe(true);
+    expect(isValidKind(KIND_AGENT_EVENT)).toBe(true);
+    expect(isValidKind(KIND_WATCH_EVENT)).toBe(true);
     expect(isValidKind(0x9999)).toBe(false);
     expect(isValidKind(0)).toBe(false);
   });
@@ -309,7 +325,70 @@ describe('kind', () => {
   it('应该返回 kind 字符串表示', () => {
     expect(kindToString(0x0001)).toBe('HELLO_C2S');
     expect(kindToString(0x0501)).toBe('CHUNK');
+    expect(kindToString(KIND_AGENT_SUBSCRIBE)).toBe('AGENT_SUBSCRIBE');
+    expect(kindToString(KIND_AGENT_UNSUBSCRIBE)).toBe('AGENT_UNSUBSCRIBE');
+    expect(kindToString(KIND_AGENT_EVENT)).toBe('AGENT_EVENT');
+    expect(kindToString(KIND_WATCH_EVENT)).toBe('WATCH_EVENT');
     expect(kindToString(0x9999)).toBe('UNKNOWN(0x9999)');
+  });
+});
+
+describe('agent/watch 协议消息', () => {
+  it('AGENT_SUBSCRIBE/AGENT_UNSUBSCRIBE payload roundtrip', () => {
+    for (const schema of [AgentSubscribeSchema, AgentUnsubscribeSchema]) {
+      const encoded = encodePayload(schema, { sessionId: 'session-1' });
+      const decoded = decodePayload(schema, encoded);
+      expect(decoded.sessionId).toBe('session-1');
+    }
+  });
+
+  it('AGENT_EVENT envelope + payload roundtrip（payload 为 JSON bytes）', () => {
+    const jsonPayload = {
+      status: 'running',
+      lastError: null,
+      inProgressText: 'hello',
+      inProgressReasoning: '',
+      pendingConfirmations: [],
+      lastMessageSeq: 3,
+    };
+    const payloadBytes = encodePayload(AgentEventSchema, {
+      sessionId: 'session-1',
+      seq: 42,
+      eventType: AGENT_EVENT_SYNC,
+      payload: new TextEncoder().encode(JSON.stringify(jsonPayload)),
+    });
+
+    const envelope = encodeEnvelope(KIND_AGENT_EVENT, payloadBytes, 7);
+    const decodedEnvelope = decodeEnvelope(envelope);
+    expect(decodedEnvelope.kind).toBe(KIND_AGENT_EVENT);
+
+    const decoded = decodePayload(AgentEventSchema, decodedEnvelope.payload);
+    expect(decoded.sessionId).toBe('session-1');
+    expect(decoded.seq).toBe(42);
+    expect(decoded.eventType).toBe(AGENT_EVENT_SYNC);
+    expect(JSON.parse(new TextDecoder().decode(decoded.payload))).toEqual(jsonPayload);
+  });
+
+  it('WATCH_EVENT envelope + payload roundtrip', () => {
+    const jsonPayload = { summary: 'rule matched', matchedText: 'ERROR' };
+    const payloadBytes = encodePayload(WatchEventSchema, {
+      ruleId: 'rule-1',
+      deviceId: 'device-1',
+      paneId: '%1',
+      eventType: WATCH_EVENT_TRIGGERED,
+      payload: new TextEncoder().encode(JSON.stringify(jsonPayload)),
+    });
+
+    const envelope = encodeEnvelope(KIND_WATCH_EVENT, payloadBytes, 9);
+    const decodedEnvelope = decodeEnvelope(envelope);
+    expect(decodedEnvelope.kind).toBe(KIND_WATCH_EVENT);
+
+    const decoded = decodePayload(WatchEventSchema, decodedEnvelope.payload);
+    expect(decoded.ruleId).toBe('rule-1');
+    expect(decoded.deviceId).toBe('device-1');
+    expect(decoded.paneId).toBe('%1');
+    expect(decoded.eventType).toBe(WATCH_EVENT_TRIGGERED);
+    expect(JSON.parse(new TextDecoder().decode(decoded.payload))).toEqual(jsonPayload);
   });
 });
 

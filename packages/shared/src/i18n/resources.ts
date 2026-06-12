@@ -334,7 +334,12 @@ export const I18N_RESOURCES = {
         "device_tmux_missing": "⚠️ Tmux Missing",
         "device_disconnect": "🔌 Device Disconnected",
         "session_created": "🆕 Session Created",
-        "session_closed": "🚪 Session Closed"
+        "session_closed": "🚪 Session Closed",
+        "agent_confirmation_pending": "🤖 Agent Confirmation Pending",
+        "agent_turn_finished": "🤖 Agent Turn Finished",
+        "agent_error": "🤖 Agent Error",
+        "watch_triggered": "👁️ Watch Rule Triggered",
+        "watch_model_unavailable": "👁️ Watch Model Unavailable"
       },
       "site": "Site",
       "device": "Device",
@@ -715,7 +720,12 @@ export const I18N_RESOURCES = {
         "device_tmux_missing": "⚠️ Tmux 不可用",
         "device_disconnect": "🔌 设备断开",
         "session_created": "🆕 会话创建",
-        "session_closed": "🚪 会话关闭"
+        "session_closed": "🚪 会话关闭",
+        "agent_confirmation_pending": "🤖 Agent 等待确认",
+        "agent_turn_finished": "🤖 Agent 回合完成",
+        "agent_error": "🤖 Agent 错误",
+        "watch_triggered": "👁️ Watch 规则触发",
+        "watch_model_unavailable": "👁️ Watch 模型不可用"
       },
       "site": "站点",
       "device": "设备",
@@ -1096,7 +1106,12 @@ export const I18N_RESOURCES = {
         "device_tmux_missing": "⚠️ Tmux がありません",
         "device_disconnect": "🔌 デバイス切断",
         "session_created": "🆕 セッション作成",
-        "session_closed": "🚪 セッション閉じる"
+        "session_closed": "🚪 セッション閉じる",
+        "agent_confirmation_pending": "🤖 エージェント確認待ち",
+        "agent_turn_finished": "🤖 エージェントターン完了",
+        "agent_error": "🤖 エージェントエラー",
+        "watch_triggered": "👁️ Watch ルール発動",
+        "watch_model_unavailable": "👁️ Watch モデル利用不可"
       },
       "site": "サイト",
       "device": "デバイス",

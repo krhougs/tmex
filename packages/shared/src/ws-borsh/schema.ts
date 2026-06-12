@@ -233,6 +233,34 @@ export const StateSnapshotDiffSchema = b.struct({
   diffBytes: b.bytes(),
 });
 
+// ========== Agent ==========
+
+export const AgentSubscribeSchema = b.struct({
+  sessionId: b.string(),
+});
+
+export const AgentUnsubscribeSchema = b.struct({
+  sessionId: b.string(),
+});
+
+// payload 为 JSON bytes（形状约定见 ./agent.ts），先例：TmuxEventSchema.eventData
+export const AgentEventSchema = b.struct({
+  sessionId: b.string(),
+  seq: b.u32(),
+  eventType: b.u8(),
+  payload: b.bytes(),
+});
+
+// ========== Watch ==========
+
+export const WatchEventSchema = b.struct({
+  ruleId: b.string(),
+  deviceId: b.string(),
+  paneId: b.string(),
+  eventType: b.u8(),
+  payload: b.bytes(),
+});
+
 // ========== TMUX_EVENT 子 Schema ==========
 
 export const WindowAddEventSchema = b.struct({

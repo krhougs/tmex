@@ -328,7 +328,12 @@
         "device_tmux_missing": "⚠️ Tmux 不可用",
         "device_disconnect": "🔌 设备断开",
         "session_created": "🆕 会话创建",
-        "session_closed": "🚪 会话关闭"
+        "session_closed": "🚪 会话关闭",
+        "agent_confirmation_pending": "🤖 Agent 等待确认",
+        "agent_turn_finished": "🤖 Agent 回合完成",
+        "agent_error": "🤖 Agent 错误",
+        "watch_triggered": "👁️ Watch 规则触发",
+        "watch_model_unavailable": "👁️ Watch 模型不可用"
       },
       "site": "站点",
       "device": "设备",

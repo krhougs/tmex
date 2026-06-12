@@ -42,6 +42,14 @@ export const KIND_LIVE_RESUME = 0x0402;
 // ========== 分片 (0x0500-0x05FF) ==========
 export const KIND_CHUNK = 0x0501;
 
+// ========== Agent (0x0600-0x06FF) ==========
+export const KIND_AGENT_SUBSCRIBE = 0x0601;
+export const KIND_AGENT_UNSUBSCRIBE = 0x0602;
+export const KIND_AGENT_EVENT = 0x0603;
+
+// ========== Watch (0x0700-0x07FF) ==========
+export const KIND_WATCH_EVENT = 0x0701;
+
 // ========== Kind 有效性检查 ==========
 const VALID_KINDS = new Set<number>([
   KIND_HELLO_C2S,
@@ -73,6 +81,10 @@ const VALID_KINDS = new Set<number>([
   KIND_SWITCH_ACK,
   KIND_LIVE_RESUME,
   KIND_CHUNK,
+  KIND_AGENT_SUBSCRIBE,
+  KIND_AGENT_UNSUBSCRIBE,
+  KIND_AGENT_EVENT,
+  KIND_WATCH_EVENT,
 ]);
 
 export function isValidKind(kind: number): boolean {
@@ -110,6 +122,10 @@ export function kindToString(kind: number): string {
     [KIND_SWITCH_ACK]: 'SWITCH_ACK',
     [KIND_LIVE_RESUME]: 'LIVE_RESUME',
     [KIND_CHUNK]: 'CHUNK',
+    [KIND_AGENT_SUBSCRIBE]: 'AGENT_SUBSCRIBE',
+    [KIND_AGENT_UNSUBSCRIBE]: 'AGENT_UNSUBSCRIBE',
+    [KIND_AGENT_EVENT]: 'AGENT_EVENT',
+    [KIND_WATCH_EVENT]: 'WATCH_EVENT',
   };
   return kindMap[kind] ?? `UNKNOWN(0x${kind.toString(16).padStart(4, '0')})`;
 }

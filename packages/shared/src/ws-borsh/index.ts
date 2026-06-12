@@ -35,9 +35,48 @@ export {
   KIND_SWITCH_ACK,
   KIND_LIVE_RESUME,
   KIND_CHUNK,
+  KIND_AGENT_SUBSCRIBE,
+  KIND_AGENT_UNSUBSCRIBE,
+  KIND_AGENT_EVENT,
+  KIND_WATCH_EVENT,
   isValidKind,
   kindToString,
 } from './kind';
+
+// ========== Agent/Watch 事件常量与 payload 类型 ==========
+export {
+  AGENT_EVENT_SYNC,
+  AGENT_EVENT_STATUS,
+  AGENT_EVENT_TEXT_DELTA,
+  AGENT_EVENT_REASONING_DELTA,
+  AGENT_EVENT_TOOL_CALL,
+  AGENT_EVENT_TOOL_RESULT,
+  AGENT_EVENT_CONFIRMATION_REQUEST,
+  AGENT_EVENT_CONFIRMATION_RESOLVED,
+  AGENT_EVENT_MESSAGE_PERSISTED,
+  AGENT_EVENT_ERROR,
+  AGENT_EVENT_TURN_FINISHED,
+  WATCH_EVENT_TRIGGERED,
+  WATCH_EVENT_MODEL_UNAVAILABLE,
+  WATCH_EVENT_RULE_ERROR,
+  type AgentSessionWireStatus,
+  type AgentConfirmationWireStatus,
+  type AgentPendingConfirmation,
+  type AgentSyncEventPayload,
+  type AgentStatusEventPayload,
+  type AgentTextDeltaPayload,
+  type AgentReasoningDeltaPayload,
+  type AgentToolCallPayload,
+  type AgentToolResultPayload,
+  type AgentConfirmationRequestPayload,
+  type AgentConfirmationResolvedPayload,
+  type AgentMessagePersistedPayload,
+  type AgentErrorEventPayload,
+  type AgentTurnFinishedPayload,
+  type WatchTriggeredPayload,
+  type WatchModelUnavailablePayload,
+  type WatchRuleErrorPayload,
+} from './agent';
 
 // ========== 错误码 ==========
 export {

@@ -328,7 +328,12 @@
         "device_tmux_missing": "⚠️ Tmux がありません",
         "device_disconnect": "🔌 デバイス切断",
         "session_created": "🆕 セッション作成",
-        "session_closed": "🚪 セッション閉じる"
+        "session_closed": "🚪 セッション閉じる",
+        "agent_confirmation_pending": "🤖 エージェント確認待ち",
+        "agent_turn_finished": "🤖 エージェントターン完了",
+        "agent_error": "🤖 エージェントエラー",
+        "watch_triggered": "👁️ Watch ルール発動",
+        "watch_model_unavailable": "👁️ Watch モデル利用不可"
       },
       "site": "サイト",
       "device": "デバイス",

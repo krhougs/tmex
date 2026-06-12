@@ -130,6 +130,27 @@ export interface WsMessage<T = unknown> {
 export { b } from './ws-borsh';
 export * as wsBorsh from './ws-borsh';
 
+// Agent/Watch WS 事件 payload 类型（JSON 形状约定，前后端共用）
+export type {
+  AgentSessionWireStatus,
+  AgentConfirmationWireStatus,
+  AgentPendingConfirmation,
+  AgentSyncEventPayload,
+  AgentStatusEventPayload,
+  AgentTextDeltaPayload,
+  AgentReasoningDeltaPayload,
+  AgentToolCallPayload,
+  AgentToolResultPayload,
+  AgentConfirmationRequestPayload,
+  AgentConfirmationResolvedPayload,
+  AgentMessagePersistedPayload,
+  AgentErrorEventPayload,
+  AgentTurnFinishedPayload,
+  WatchTriggeredPayload,
+  WatchModelUnavailablePayload,
+  WatchRuleErrorPayload,
+} from './ws-borsh/agent';
+
 export interface DeviceConnectPayload {
   deviceId: string;
 }
@@ -287,7 +308,12 @@ export type EventType =
   | 'device_tmux_missing'
   | 'device_disconnect'
   | 'session_created'
-  | 'session_closed';
+  | 'session_closed'
+  | 'agent_confirmation_pending'
+  | 'agent_turn_finished'
+  | 'agent_error'
+  | 'watch_triggered'
+  | 'watch_model_unavailable';
 
 export interface WebhookEndpoint {
   id: string;
