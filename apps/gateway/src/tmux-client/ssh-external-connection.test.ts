@@ -3,9 +3,11 @@ import { EventEmitter } from 'node:events';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
 import type { Client, ClientChannel, ConnectConfig } from 'ssh2';
 
+import { createDevice as createDeviceRow, getDeviceRuntimeStatus } from '../db';
 import { runMigrations } from '../db/migrate';
 import type { TmuxEvent } from './events';
 import { SshExternalTmuxConnection } from './ssh-external-connection';
+import { TmuxTargetMissingError } from './target-missing';
 
 const now = '2026-04-14T00:00:00.000Z';
 
@@ -466,13 +468,18 @@ describe('SshExternalTmuxConnection', () => {
       },
     });
 
+    const captureDeviceId = 'device-ssh-capture-status';
+    const captureDevice = { ...createDevice('tmex-ssh-capture'), id: captureDeviceId };
+    createDeviceRow(captureDevice);
+
     const connection = new SshExternalTmuxConnection(
       {
         ...createCallbacks({}),
+        deviceId: captureDeviceId,
         onError: () => {},
       },
       {
-        getDevice: () => createDevice('tmex-ssh-capture'),
+        getDevice: () => captureDevice,
         decrypt: async () => 'secret',
         createClient: () => fakeClient as unknown as Client,
       }
@@ -489,7 +496,20 @@ describe('SshExternalTmuxConnection', () => {
     await expect(connection.capturePaneText('%1', { historyLines: 120 })).resolves.toBe(
       'history line\nhello world\n'
     );
-    await expect(connection.capturePaneText('%404')).rejects.toThrow(/can't find pane/);
+
+    let missingError: unknown = null;
+    try {
+      await connection.capturePaneText('%404');
+    } catch (error) {
+      missingError = error;
+    }
+    expect(missingError).toBeInstanceOf(TmuxTargetMissingError);
+    expect(String((missingError as Error).message)).toMatch(/can't find pane/);
+
+    // 静默形态不得污染设备运行状态（connect 成功写入的健康状态保持不变）
+    const status = getDeviceRuntimeStatus(captureDeviceId);
+    expect(status.tmuxAvailable).toBe(true);
+    expect(status.lastError).toBeNull();
 
     // 纯文本捕获不得携带 -e（转义序列）
     expect(

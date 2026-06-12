@@ -17,6 +17,7 @@ import {
 import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
 import type { PaneStreamNotification } from './pane-stream-parser';
+import { TmuxTargetMissingError, isTargetMissingMessage } from './target-missing';
 import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
 import { resolveTmuxWindowStyle } from './window-style';
 
@@ -322,6 +323,7 @@ export class LocalExternalTmuxConnection {
 
   // 按需读取 pane 当前可见屏幕的纯文本（无 ANSI 转义）；historyLines > 0 时
   // 额外包含可见区上方 N 行历史。供 Agent / Watch 等主动采样场景使用。
+  // pane 缺失抛 TmuxTargetMissingError（静默形态，不触发连接告警/不污染设备状态）。
   async capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string> {
     if (!this.connected) {
       throw new Error(`tmux connection not available: ${this.deviceId}`);
@@ -332,7 +334,7 @@ export class LocalExternalTmuxConnection {
     if (Number.isFinite(historyLines) && historyLines > 0) {
       argv.push('-S', `-${historyLines}`);
     }
-    return (await this.runTmux(argv)).stdout;
+    return (await this.runTmux(argv, 'silent')).stdout;
   }
 
   private async ensureSession(): Promise<void> {
@@ -990,7 +992,14 @@ export class LocalExternalTmuxConnection {
       .flatMap((window) => window.panes.map((pane) => pane.id));
   }
 
-  private async runTmux(argv: string[], allowTargetMissing = false): Promise<CommandResult> {
+  // allowTargetMissing:
+  // - false：失败即告警（connectionAlertNotifier / runtime status）并抛错
+  // - true：target missing 时静默恢复（清空 active 指针 + 重新快照）并返回原结果
+  // - 'silent'：target missing 时抛 TmuxTargetMissingError，不告警、不污染设备状态
+  private async runTmux(
+    argv: string[],
+    allowTargetMissing: boolean | 'silent' = false
+  ): Promise<CommandResult> {
     const result = await this.runTmuxAllowFailure(argv);
     if (result.exitCode === 0) {
       return result;
@@ -1001,7 +1010,10 @@ export class LocalExternalTmuxConnection {
       result.stdout.trim() ||
       `tmux command failed: ${argv.join(' ')}`
     ).trim();
-    if (allowTargetMissing && this.isRecoverableTargetMissingError(message)) {
+    if (allowTargetMissing && isTargetMissingMessage(message)) {
+      if (allowTargetMissing === 'silent') {
+        throw new TmuxTargetMissingError(message);
+      }
       this.recoverFromTargetMissingError(message);
       return result;
     }
@@ -1034,16 +1046,6 @@ export class LocalExternalTmuxConnection {
 
   private async runTmuxAllowFailure(argv: string[]): Promise<CommandResult> {
     return this.deps.run(['tmux', ...argv]);
-  }
-
-  private isRecoverableTargetMissingError(message: string): boolean {
-    const normalized = message.toLowerCase();
-    return (
-      normalized.includes("can't find window") ||
-      normalized.includes("can't find pane") ||
-      normalized.includes('no such window') ||
-      normalized.includes('no such pane')
-    );
   }
 
   private isTmuxServerGoneMessage(message: string): boolean {

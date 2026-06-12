@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
 
+import { createDevice as createDeviceRow, getDeviceRuntimeStatus } from '../db';
 import { runMigrations } from '../db/migrate';
 import type { TmuxEvent } from './events';
 import {
@@ -8,6 +9,7 @@ import {
   LocalExternalTmuxConnection,
   shouldIgnoreReaderAbortError,
 } from './local-external-connection';
+import { TmuxTargetMissingError } from './target-missing';
 
 const now = '2026-04-14T00:00:00.000Z';
 const encoder = new TextEncoder();
@@ -813,5 +815,60 @@ describe('LocalExternalTmuxConnection', () => {
     await Bun.sleep(50);
 
     expect(calls).toEqual([]);
+  });
+
+  test('capturePaneText pane missing throws TmuxTargetMissingError without polluting device status', async () => {
+    const deviceId = 'device-local-capture-missing';
+    const session = 'tmex-capture-missing';
+    const device = { ...createDevice(session), id: deviceId };
+    createDeviceRow(device);
+
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId,
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => device,
+        run: createRunStub(session, {
+          overrides: (command) => {
+            if (command === 'capture-pane -t %1 -p -J') {
+              return ok('screen text\n');
+            }
+            if (command === 'capture-pane -t %404 -p -J') {
+              return { exitCode: 1, stdout: '', stderr: "can't find pane: %404" };
+            }
+            return null;
+          },
+        }),
+      }
+    );
+
+    await connection.connect();
+    await expect(connection.capturePaneText('%1')).resolves.toBe('screen text\n');
+
+    let captured: unknown = null;
+    try {
+      await connection.capturePaneText('%404');
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toBeInstanceOf(TmuxTargetMissingError);
+
+    // 静默形态不得污染设备运行状态（connect 成功时写入的健康状态保持不变）
+    const status = getDeviceRuntimeStatus(deviceId);
+    expect(status.tmuxAvailable).toBe(true);
+    expect(status.lastError).toBeNull();
+
+    connection.disconnect();
   });
 });

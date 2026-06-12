@@ -21,6 +21,7 @@ import { encodeInputToHexChunks } from './input-encoder';
 import type { PaneStreamNotification } from './pane-stream-parser';
 import { resolveSshConnectConfig } from './ssh-connect-config';
 import { buildSshBootstrapScript, parseSshBootstrapOutput } from './ssh-bootstrap';
+import { TmuxTargetMissingError, isTargetMissingMessage } from './target-missing';
 import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
 import { resolveTmuxWindowStyle } from './window-style';
 
@@ -285,6 +286,7 @@ export class SshExternalTmuxConnection {
   }
 
   // 同 local 版本：按需读取 pane 可见屏幕纯文本，historyLines > 0 时附带历史。
+  // pane 缺失抛 TmuxTargetMissingError（静默形态，不污染设备运行状态）。
   async capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string> {
     if (!this.connected) {
       throw new Error(`tmux connection not available: ${this.deviceId}`);
@@ -295,7 +297,7 @@ export class SshExternalTmuxConnection {
     if (Number.isFinite(historyLines) && historyLines > 0) {
       argv.push('-S', `-${historyLines}`);
     }
-    return (await this.runTmux(argv, false, 30000)).stdout;
+    return (await this.runTmux(argv, 'silent', 30000)).stdout;
   }
 
   private async connectSshClient(): Promise<void> {
@@ -1030,9 +1032,12 @@ export class SshExternalTmuxConnection {
       .flatMap((window) => window.panes.map((pane) => pane.id));
   }
 
+  // allowTargetMissing 语义同 local 版本：
+  // false=失败即写设备状态并抛错；true=target missing 静默恢复；
+  // 'silent'=target missing 抛 TmuxTargetMissingError，不污染设备状态。
   private async runTmux(
     argv: string[],
-    allowTargetMissing = false,
+    allowTargetMissing: boolean | 'silent' = false,
     timeoutMs = 10000
   ): Promise<CommandResult> {
     const result = await this.runTmuxAllowFailure(argv, timeoutMs);
@@ -1045,7 +1050,10 @@ export class SshExternalTmuxConnection {
       result.stdout.trim() ||
       `tmux command failed: ${argv.join(' ')}`
     ).trim();
-    if (allowTargetMissing && this.isRecoverableTargetMissingError(message)) {
+    if (allowTargetMissing && isTargetMissingMessage(message)) {
+      if (allowTargetMissing === 'silent') {
+        throw new TmuxTargetMissingError(message);
+      }
       this.recoverFromTargetMissingError(message);
       return result;
     }
@@ -1216,16 +1224,6 @@ export class SshExternalTmuxConnection {
       stream.close();
       stream.destroy();
     };
-  }
-
-  private isRecoverableTargetMissingError(message: string): boolean {
-    const normalized = message.toLowerCase();
-    return (
-      normalized.includes("can't find window") ||
-      normalized.includes("can't find pane") ||
-      normalized.includes('no such window') ||
-      normalized.includes('no such pane')
-    );
   }
 
   private isTmuxServerGoneMessage(message: string): boolean {
