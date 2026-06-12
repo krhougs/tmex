@@ -12,8 +12,8 @@ import { I18N_MANIFEST, toBCP47 as toBCP47Locale } from '@tmex/shared';
 import { Loader2, RotateCcw, Save, Send, Shield, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import i18n from '../i18n';
 import { toast } from 'sonner';
+import i18n from '../i18n';
 
 import {
   AlertDialog,
@@ -36,6 +36,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { LlmProvidersTab } from '../components/settings/llm-providers-tab';
+import { SearchTab } from '../components/settings/search-tab';
 import { useSiteStore } from '../stores/site';
 import { useUIStore } from '../stores/ui';
 
@@ -64,6 +66,12 @@ const WEBHOOK_EVENT_OPTIONS: EventType[] = [
   'device_disconnect',
   'session_created',
   'session_closed',
+  'agent_confirmation_pending',
+  'agent_turn_finished',
+  'agent_error',
+  'watch_triggered',
+  'watch_model_unavailable',
+  'watch_rule_error',
 ];
 
 async function parseApiError(res: Response, fallback: string): Promise<string> {
@@ -80,9 +88,9 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { refreshSettings } = useSiteStore();
 
-  const [activeTab, setActiveTab] = useState<'site' | 'notifications' | 'telegram' | 'webhooks'>(
-    'site'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'site' | 'notifications' | 'telegram' | 'webhooks' | 'llm' | 'search'
+  >('site');
 
   const theme = useUIStore((state) => state.theme);
   const setTheme = useUIStore((state) => state.setTheme);
@@ -112,7 +120,8 @@ export default function SettingsPage() {
   // Webhook state
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [newWebhookSecret, setNewWebhookSecret] = useState('');
-  const [newWebhookEventMask, setNewWebhookEventMask] = useState<EventType[]>(WEBHOOK_EVENT_OPTIONS);
+  const [newWebhookEventMask, setNewWebhookEventMask] =
+    useState<EventType[]>(WEBHOOK_EVENT_OPTIONS);
 
   const handleThemeChange = (checked: boolean) => {
     const nextTheme = checked ? 'dark' : 'light';
@@ -337,6 +346,24 @@ export default function SettingsPage() {
           onClick={() => setActiveTab('webhooks')}
         >
           {t('webhook.title')}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeTab === 'llm' ? 'default' : 'outline'}
+          data-testid="settings-tab-llm"
+          onClick={() => setActiveTab('llm')}
+        >
+          {t('settings.llm.title')}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeTab === 'search' ? 'default' : 'outline'}
+          data-testid="settings-tab-search"
+          onClick={() => setActiveTab('search')}
+        >
+          {t('settings.search.title')}
         </Button>
       </div>
 
@@ -753,6 +780,10 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      {activeTab === 'llm' && <LlmProvidersTab />}
+
+      {activeTab === 'search' && <SearchTab />}
+
       {(activeTab === 'site' || activeTab === 'notifications') && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <Button
@@ -1024,7 +1055,9 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
               <Shield className="h-4 w-4" />
               {t('telegram.pendingChats')}
             </h3>
-            {groupedChats.pending.length === 0 && <div className="text-xs text-muted-foreground">-</div>}
+            {groupedChats.pending.length === 0 && (
+              <div className="text-xs text-muted-foreground">-</div>
+            )}
             {groupedChats.pending.map((chat) => (
               <ChatRow
                 key={`${chat.botId}-${chat.chatId}`}
@@ -1041,7 +1074,9 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
               <Shield className="h-4 w-4" />
               {t('telegram.chats')}
             </h3>
-            {groupedChats.authorized.length === 0 && <div className="text-xs text-muted-foreground">-</div>}
+            {groupedChats.authorized.length === 0 && (
+              <div className="text-xs text-muted-foreground">-</div>
+            )}
             {groupedChats.authorized.map((chat) => (
               <ChatRow
                 key={`${chat.botId}-${chat.chatId}`}
@@ -1054,9 +1089,7 @@ function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
           </div>
 
           {chatsQuery.isLoading && (
-            <div className="lg:col-span-2 text-xs text-muted-foreground">
-              {t('common.loading')}
-            </div>
+            <div className="lg:col-span-2 text-xs text-muted-foreground">{t('common.loading')}</div>
           )}
         </div>
       )}
