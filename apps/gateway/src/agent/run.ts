@@ -27,6 +27,52 @@ import { agentWsHub } from './ws-hub';
 
 const TERMINAL_FAILURE_LIMIT = 2;
 
+/** 喂给模型的历史消息字符预算（JSON 序列化后，system prompt 不计入） */
+export const MESSAGE_WINDOW_CHAR_BUDGET = 200_000;
+
+/**
+ * 历史消息滑窗：超出字符预算时从最旧开始丢弃，截断点必须落在 user 消息边界
+ * （保证 assistant tool-call 与对应 tool-result 不被拆散、approval 链完整）。
+ * - 预算内：原样返回
+ * - 超预算：保留从"预算内最早的 user 消息"开始的后缀
+ * - 连最后一条 user 起的后缀都超预算：仍从最后一条 user 开始保留（合法性优先于预算）
+ * - 没有任何 user 消息：原样返回（无合法截断点）
+ */
+export function applyMessageWindow(
+  messages: ModelMessage[],
+  charBudget: number = MESSAGE_WINDOW_CHAR_BUDGET
+): ModelMessage[] {
+  const sizes = messages.map((message) => JSON.stringify(message).length);
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  if (total <= charBudget) {
+    return messages;
+  }
+
+  let suffixSize = 0;
+  let lastUserIndex = -1;
+  let bestUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    suffixSize += sizes[i] ?? 0;
+    if (messages[i]?.role === 'user') {
+      if (lastUserIndex < 0) {
+        lastUserIndex = i;
+      }
+      if (suffixSize <= charBudget) {
+        bestUserIndex = i;
+      }
+    }
+  }
+
+  if (lastUserIndex < 0) {
+    return messages;
+  }
+  const start = bestUserIndex >= 0 ? bestUserIndex : lastUserIndex;
+  if (start === 0) {
+    return messages;
+  }
+  return messages.slice(start);
+}
+
 export type AgentRunOutcome = 'idle' | 'waiting_confirmation' | 'stopped' | 'interrupted' | 'error';
 
 export type AgentStopReason = 'manual' | 'shutdown';
@@ -94,6 +140,35 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+const NETWORK_ERROR_PATTERNS = [
+  'fetch failed',
+  'failed to fetch',
+  'econnrefused',
+  'econnreset',
+  'etimedout',
+  'enotfound',
+  'eai_again',
+  'epipe',
+  'ehostunreach',
+  'enetunreach',
+  'socket',
+  'connection',
+  'network',
+  'und_err',
+];
+
+function isNetworkError(error: unknown, depth = 0): boolean {
+  if (depth > 4 || !(error instanceof Error)) {
+    return false;
+  }
+  const haystack =
+    `${error.name} ${error.message} ${(error as { code?: unknown }).code ?? ''}`.toLowerCase();
+  if (NETWORK_ERROR_PATTERNS.some((pattern) => haystack.includes(pattern))) {
+    return true;
+  }
+  return isNetworkError(error.cause, depth + 1);
+}
+
 export function isRetryableLlmError(error: unknown): boolean {
   if (RetryError.isInstance(error)) {
     // SDK 内部重试已耗尽，多为网络抖动/限流/5xx，整轮重试仍有意义
@@ -105,9 +180,10 @@ export function isRetryableLlmError(error: unknown): boolean {
     }
     return error.statusCode !== undefined && error.statusCode >= 500;
   }
-  // fetch 网络层错误（DNS/连接被拒等）在 Bun 中表现为 TypeError / ConnectionError
+  // fetch 网络层错误（DNS/连接被拒等）在 Bun 中表现为 TypeError / ConnectionError，
+  // 但代码型 TypeError（如 undefined is not a function）不可重试，按 message/cause 判定
   if (error instanceof TypeError) {
-    return true;
+    return isNetworkError(error);
   }
   return false;
 }
@@ -216,8 +292,8 @@ export class AgentRun {
     session: AgentSessionRecord,
     runtime: TerminalRuntimeLike | null
   ): Promise<AgentRunOutcome> {
-    const messages = listAgentMessages(this.sessionId).map(
-      (record) => record.content as ModelMessage
+    const messages = applyMessageWindow(
+      listAgentMessages(this.sessionId).map((record) => record.content as ModelMessage)
     );
     const model = await this.deps.resolveModel(session.providerId, session.modelId);
     const tools = await this.buildTools(session, runtime);

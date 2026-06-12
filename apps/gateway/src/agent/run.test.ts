@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { AgentEventPayloadMap } from '@tmex/shared';
 import { wsBorsh } from '@tmex/shared';
+import type { ModelMessage } from 'ai';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { createDevice, ensureSiteSettingsInitialized } from '../db';
 import {
@@ -15,7 +16,7 @@ import {
   listPendingAgentConfirmations,
 } from '../db/agent';
 import { getDb as getOrmDb } from '../db/client';
-import { AgentRun, type AgentRunDeps } from './run';
+import { AgentRun, type AgentRunDeps, applyMessageWindow, isRetryableLlmError } from './run';
 import type { TerminalRuntimeLike } from './tools/terminal';
 
 // ========== mock LLM server（spike 模式） ==========
@@ -204,6 +205,105 @@ beforeAll(() => {
     port: 22,
     createdAt: now,
     updatedAt: now,
+  });
+});
+
+describe('applyMessageWindow（历史滑窗）', () => {
+  const userMsg = (text: string): ModelMessage => ({ role: 'user', content: text });
+  const assistantText = (text: string): ModelMessage => ({
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+  });
+  const assistantToolCall = (toolCallId: string): ModelMessage => ({
+    role: 'assistant',
+    content: [{ type: 'tool-call', toolCallId, toolName: 'read_screen', input: {} }],
+  });
+  const toolResult = (toolCallId: string, text: string): ModelMessage => ({
+    role: 'tool',
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId,
+        toolName: 'read_screen',
+        output: { type: 'text', value: text },
+      },
+    ],
+  });
+
+  test('预算内原样返回（同一引用）', () => {
+    const messages = [userMsg('hi'), assistantText('hello')];
+    expect(applyMessageWindow(messages, 10_000)).toBe(messages);
+  });
+
+  test('超预算时从预算内最早的 user 边界开始保留，tool 链不被拆散', () => {
+    const messages = [
+      userMsg('x'.repeat(600)),
+      assistantToolCall('call_a'),
+      toolResult('call_a', 'y'.repeat(600)),
+      assistantText('step one done'),
+      userMsg('second question'),
+      assistantText('second answer'),
+      userMsg('third question'),
+      assistantText('third answer'),
+    ];
+    // 预算容不下含 tool 链的前缀，但容得下从 'second question' 开始的后缀
+    const windowed = applyMessageWindow(messages, 400);
+    expect(windowed[0]).toBe(messages[4]);
+    expect(windowed).toEqual(messages.slice(4));
+    // 不存在没有对应 tool-call 的孤立 tool-result
+    const toolCallIds = new Set(
+      windowed
+        .filter((m) => m.role === 'assistant' && Array.isArray(m.content))
+        .flatMap((m) => m.content as Array<{ type: string; toolCallId?: string }>)
+        .filter((p) => p.type === 'tool-call')
+        .map((p) => p.toolCallId)
+    );
+    for (const message of windowed) {
+      if (message.role !== 'tool') continue;
+      for (const part of message.content as Array<{ type: string; toolCallId?: string }>) {
+        if (part.type === 'tool-result') {
+          expect(toolCallIds.has(part.toolCallId)).toBe(true);
+        }
+      }
+    }
+  });
+
+  test('从最后一条 user 起的后缀也超预算时，仍保留最后一条 user 起（合法性优先）', () => {
+    const messages = [
+      userMsg('first'),
+      assistantText('a'.repeat(500)),
+      userMsg('last question'),
+      assistantText('b'.repeat(500)),
+    ];
+    const windowed = applyMessageWindow(messages, 100);
+    expect(windowed[0]).toBe(messages[2]);
+    expect(windowed.length).toBe(2);
+  });
+
+  test('没有 user 消息时原样返回', () => {
+    const messages = [assistantText('a'.repeat(500)), assistantText('b'.repeat(500))];
+    expect(applyMessageWindow(messages, 100)).toBe(messages);
+  });
+});
+
+describe('isRetryableLlmError（TypeError 收窄）', () => {
+  test('网络类 TypeError 可重试', () => {
+    expect(isRetryableLlmError(new TypeError('fetch failed'))).toBe(true);
+    expect(
+      isRetryableLlmError(new TypeError('terminated', { cause: new Error('ECONNRESET') }))
+    ).toBe(true);
+    const withCode = new TypeError('request failed');
+    (withCode as { cause?: unknown }).cause = Object.assign(new Error('boom'), {
+      code: 'ECONNREFUSED',
+    });
+    expect(isRetryableLlmError(withCode)).toBe(true);
+  });
+
+  test('代码型 TypeError 不可重试', () => {
+    expect(isRetryableLlmError(new TypeError('undefined is not a function'))).toBe(false);
+    expect(
+      isRetryableLlmError(new TypeError("Cannot read properties of undefined (reading 'foo')"))
+    ).toBe(false);
   });
 });
 
@@ -573,5 +673,33 @@ describe('AgentRun 核心循环', () => {
     expect(outcome).toBe('idle');
     expect(getAgentSessionById(harness.session.id)?.status).toBe('idle');
     expect(getAgentSessionById(harness.session.id)?.title).toBe('New Session');
+  });
+
+  test('带 truncated 顶层字段的 assistant 消息回喂下一 turn 不炸', async () => {
+    const mock = createMockChatServer(() =>
+      sseResponse([chunk({ role: 'assistant', content: 'continuing' }), chunk({}, 'stop')])
+    );
+    servers.push(mock.server);
+
+    const harness = createHarness({ baseUrl: mock.baseUrl });
+    // 模拟上一 turn abort 时 persistTruncatedText 落库的消息形态
+    appendAgentMessage(harness.session.id, 'user', { role: 'user', content: 'first ask' });
+    appendAgentMessage(harness.session.id, 'assistant', {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'partial answer that was cut' }],
+      truncated: true,
+    });
+    appendAgentMessage(harness.session.id, 'user', { role: 'user', content: 'go on' });
+
+    const run = new AgentRun(harness.session.id, harness.deps);
+    const outcome = await run.execute();
+
+    expect(outcome).toBe('idle');
+    expect(getAgentSessionById(harness.session.id)?.status).toBe('idle');
+    // mock server 收到合法请求，截断文本作为 assistant 历史被带上
+    expect(mock.requests.length).toBe(1);
+    const sent = mock.requests[0]!.body.messages;
+    expect(sent.some((m) => m.role === 'assistant')).toBe(true);
+    expect(JSON.stringify(sent)).toContain('partial answer that was cut');
   });
 });

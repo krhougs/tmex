@@ -507,6 +507,77 @@ describe('AgentSupervisor - 重启恢复', () => {
     expect(mock.requests[0]!.body.messages.some((m) => m.role === 'user')).toBe(true);
   });
 
+  test("恢复 status='running' 且残留 pending confirmations：先作废再重跑", async () => {
+    const mock = createMockChatServer(() =>
+      sseResponse([chunk({ role: 'assistant', content: 'recovered' }), chunk({}, 'stop')])
+    );
+    servers.push(mock.server);
+
+    const harness = createSupervisorHarness({
+      baseUrl: mock.baseUrl,
+      writeMode: 'confirm',
+      sessionStatus: 'running',
+    });
+    // 模拟 crash 现场：approval-request 已落库、confirmation pending，但 status 仍是 running
+    appendAgentMessage(harness.session.id, 'user', { role: 'user', content: 'run ls' });
+    appendAgentMessage(harness.session.id, 'assistant', {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call_crash_1',
+          toolName: 'send_input',
+          input: { text: 'ls', keys: ['enter'] },
+        },
+        {
+          type: 'tool-approval-request',
+          approvalId: 'approval_crash_1',
+          toolCallId: 'call_crash_1',
+        },
+      ],
+    });
+    const confirmation = createAgentConfirmation({
+      id: 'approval_crash_1',
+      sessionId: harness.session.id,
+      toolName: 'send_input',
+      toolCallId: 'call_crash_1',
+      inputJson: { text: 'ls', keys: ['enter'] },
+    });
+
+    await harness.supervisor.start();
+    await harness.waitForIdle();
+
+    // 残留 confirmation 被作废并广播
+    expect(getAgentConfirmationById(confirmation.id)?.status).toBe('cancelled');
+    expect(listPendingAgentConfirmations(harness.session.id).length).toBe(0);
+    const resolved = harness.broadcasts.filter(
+      (b) => b.eventType === wsBorsh.AGENT_EVENT_CONFIRMATION_RESOLVED
+    );
+    expect(resolved.length).toBe(1);
+    expect((resolved[0]!.payload as { status: string }).status).toBe('cancelled');
+
+    // 悬空 tool call 被补上 SDK 原生 execution-denied output，重跑请求合法
+    const toolMessages = listAgentMessages(harness.session.id).filter((m) => m.role === 'tool');
+    const denied = toolMessages
+      .flatMap(
+        (m) =>
+          (
+            m.content as {
+              content: Array<{ type: string; output?: { type: string; reason?: string } }>;
+            }
+          ).content
+      )
+      .find((p) => p.type === 'tool-result');
+    expect(denied?.output).toEqual({
+      type: 'execution-denied',
+      reason: 'invalidated after restart',
+    });
+
+    // run 正常完成
+    expect(getAgentSessionById(harness.session.id)?.status).toBe('idle');
+    expect(mock.requests.length).toBeGreaterThanOrEqual(1);
+  });
+
   test("恢复 status='waiting_confirmation'：pending 仍在则保持等待，不发起 run、不重发通知", async () => {
     const mock = createMockChatServer(() => sseResponse([chunk({}, 'stop')]));
     servers.push(mock.server);

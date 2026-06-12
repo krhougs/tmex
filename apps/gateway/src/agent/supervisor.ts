@@ -121,8 +121,14 @@ export class AgentSupervisor {
       };
     });
 
-    // 重启恢复：running → 从已落库 messages 重新发起 run（等价重试最后 step）
+    // 重启恢复：running → 从已落库 messages 重新发起 run（等价重试最后 step）。
+    // crash 可能发生在 confirmations 落库之后、status 置 waiting_confirmation 之前，
+    // 残留 pending 已无运行中的 run 对应，先作废并补 execution-denied result 防止消息流悬空
     for (const session of getAgentSessionsByStatus('running')) {
+      const cancelled = this.cancelPendingConfirmations(session.id, 'invalidated after restart');
+      if (cancelled > 0) {
+        this.appendApprovalResponsesIfReady(session.id);
+      }
       this.startRun(session.id);
     }
 
@@ -195,26 +201,7 @@ export class AgentSupervisor {
     }
 
     // 无活动 run：取消 pending confirmations 并补 denied responses，防止消息流悬空
-    const pending = listPendingAgentConfirmations(sessionId);
-    for (const confirmation of pending) {
-      const decided = decideAgentConfirmation(confirmation.id, {
-        status: 'cancelled',
-        reason: 'stopped by user',
-      });
-      if (decided) {
-        this.deps.hub.broadcastAgentEvent(
-          sessionId,
-          wsBorsh.AGENT_EVENT_CONFIRMATION_RESOLVED,
-          {
-            confirmationId: decided.id,
-            status: 'cancelled',
-            reason: decided.reason,
-          },
-          0
-        );
-      }
-    }
-    if (pending.length > 0) {
+    if (this.cancelPendingConfirmations(sessionId, 'stopped by user') > 0) {
       this.appendApprovalResponsesIfReady(sessionId);
     }
 
@@ -267,6 +254,30 @@ export class AgentSupervisor {
     }
 
     return decided;
+  }
+
+  /** 将 session 残留的 pending confirmations 置为 cancelled 并广播，返回处理条数 */
+  private cancelPendingConfirmations(sessionId: string, reason: string): number {
+    const pending = listPendingAgentConfirmations(sessionId);
+    for (const confirmation of pending) {
+      const decided = decideAgentConfirmation(confirmation.id, {
+        status: 'cancelled',
+        reason,
+      });
+      if (decided) {
+        this.deps.hub.broadcastAgentEvent(
+          sessionId,
+          wsBorsh.AGENT_EVENT_CONFIRMATION_RESOLVED,
+          {
+            confirmationId: decided.id,
+            status: 'cancelled',
+            reason: decided.reason,
+          },
+          0
+        );
+      }
+    }
+    return pending.length;
   }
 
   private startRun(sessionId: string): void {
@@ -376,11 +387,8 @@ export class AgentSupervisor {
           toolCallId: confirmation.toolCallId,
           toolName: confirmation.toolName,
           output: {
-            type: 'json',
-            value: {
-              type: 'execution-denied',
-              reason: confirmation.reason ?? 'cancelled',
-            },
+            type: 'execution-denied',
+            reason: confirmation.reason ?? 'cancelled',
           },
         });
         continue;

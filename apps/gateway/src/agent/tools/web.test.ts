@@ -61,6 +61,17 @@ describe('isPrivateHostname / validateFetchUrl（SSRF 拒绝表）', () => {
     'fd00::1',
     'fc00::1',
     'fe80::1',
+    // 非规范数字形式 IPv4 字面量（混淆绕过写法）一律拒绝
+    '2130706433',
+    '127.1',
+    '10.1',
+    '192.168.1',
+    '0177.0.0.1',
+    '0x7f000001',
+    '0x7f.0.0.1',
+    '0x7f.1',
+    '017700000001',
+    '127.000.000.001',
   ];
   const allowed = [
     'example.com',
@@ -93,6 +104,14 @@ describe('isPrivateHostname / validateFetchUrl（SSRF 拒绝表）', () => {
   test('validateFetchUrl 拒绝私有地址', () => {
     expect(validateFetchUrl('http://127.0.0.1:9883/api')).toHaveProperty('error');
     expect(validateFetchUrl('http://[::1]/x')).toHaveProperty('error');
+  });
+
+  test('validateFetchUrl 拒绝非规范数字形式 IPv4 URL', () => {
+    expect(validateFetchUrl('http://2130706433/')).toHaveProperty('error');
+    expect(validateFetchUrl('http://127.1/')).toHaveProperty('error');
+    expect(validateFetchUrl('http://0177.0.0.1/')).toHaveProperty('error');
+    expect(validateFetchUrl('http://0x7f000001/')).toHaveProperty('error');
+    expect(validateFetchUrl('http://0x7f.0.0.1/')).toHaveProperty('error');
   });
 
   test('TMEX_AGENT_ALLOW_PRIVATE_FETCH=1 时放行私有地址', () => {

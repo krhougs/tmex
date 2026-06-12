@@ -49,6 +49,24 @@ function normalizeHostname(hostname: string): string {
   return value;
 }
 
+// 规范 IPv4 八位组：0-255、十进制、无前导零
+const CANONICAL_IPV4_OCTET = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+
+function isCanonicalIpv4(host: string): boolean {
+  const parts = host.split('.');
+  return parts.length === 4 && parts.every((part) => CANONICAL_IPV4_OCTET.test(part));
+}
+
+// 数字形式 host（十进制/0x 十六进制/前导零八进制段，1-4 段）：
+// 非规范点分四段时是 IPv4 字面量的混淆写法（如 2130706433、127.1、0177.0.0.1、0x7f000001）
+function isNumericHost(host: string): boolean {
+  const parts = host.split('.');
+  if (parts.length === 0 || parts.length > 4) {
+    return false;
+  }
+  return parts.every((part) => /^(0x[0-9a-f]+|\d+)$/.test(part));
+}
+
 export function isPrivateHostname(hostname: string): boolean {
   const host = normalizeHostname(hostname);
 
@@ -56,14 +74,19 @@ export function isPrivateHostname(hostname: string): boolean {
     return true;
   }
 
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+  if (isCanonicalIpv4(host)) {
+    const [a, b] = host.split('.').map(Number);
     if (a === 0 || a === 10 || a === 127) return true;
     if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     return false;
+  }
+
+  // 非规范数字形式（整数 IP、缺段、八进制/十六进制段）一律拒绝：
+  // 正常网站不会用这种 host，放行只会留下绕过私网判断的口子
+  if (isNumericHost(host)) {
+    return true;
   }
 
   // IPv6（URL.hostname 对 IPv6 字面量返回带括号形式，已剥除）

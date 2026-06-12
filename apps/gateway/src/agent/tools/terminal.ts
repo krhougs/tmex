@@ -50,6 +50,7 @@ export function encodeKeysToSequence(keys: readonly SendInputKey[]): string {
 
 const SEND_INPUT_SETTLE_MS = 300;
 const SEND_INPUT_TAIL_LINES = 15;
+const SEND_INPUT_TEXT_MAX_CHARS = 16384;
 
 export interface CreateTerminalToolsOptions {
   paneId: string;
@@ -117,7 +118,11 @@ export function createTerminalTools(options: CreateTerminalToolsOptions): Record
       'Send input to the bound tmux pane. Use `text` for literal text and `keys` for special keys/control sequences. After sending, the tail of the screen is returned so you can verify the effect.',
     inputSchema: z
       .object({
-        text: z.string().optional().describe('Literal text to type into the pane.'),
+        text: z
+          .string()
+          .max(SEND_INPUT_TEXT_MAX_CHARS)
+          .optional()
+          .describe('Literal text to type into the pane.'),
         keys: z
           .array(z.enum(SEND_INPUT_KEYS))
           .optional()
