@@ -3,7 +3,11 @@
 // 事件来源：agent runtime（Task 5）与 watch service（Task 6）。
 
 import { wsBorsh } from '@tmex/shared';
-import type { AgentSyncEventPayload } from '@tmex/shared';
+import type {
+  AgentEventPayloadMap,
+  AgentSyncEventPayload,
+  WatchEventPayloadMap,
+} from '@tmex/shared';
 import type { ServerWebSocket } from 'bun';
 import {
   getAgentSessionById,
@@ -106,7 +110,12 @@ export class AgentWsHub {
     }
   }
 
-  broadcastAgentEvent(sessionId: string, eventType: number, payload: unknown, seq: number): void {
+  broadcastAgentEvent<K extends keyof AgentEventPayloadMap>(
+    sessionId: string,
+    eventType: K,
+    payload: AgentEventPayloadMap[K],
+    seq: number
+  ): void {
     const subscribers = this.subscriptions.get(sessionId);
     if (!subscribers?.size) return;
 
@@ -116,15 +125,16 @@ export class AgentWsHub {
     }
   }
 
-  broadcastWatchEvent(
+  broadcastWatchEvent<K extends keyof WatchEventPayloadMap>(
     ruleId: string,
     deviceId: string,
     paneId: string,
-    eventType: number,
-    payload: unknown
+    eventType: K,
+    payload: WatchEventPayloadMap[K]
   ): void {
     if (this.clients.size === 0) return;
 
+    assertU8EventType(eventType);
     const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.WatchEventSchema, {
       ruleId,
       deviceId,
@@ -138,11 +148,11 @@ export class AgentWsHub {
     }
   }
 
-  private sendAgentEvent(
+  private sendAgentEvent<K extends keyof AgentEventPayloadMap>(
     ws: AgentHubClient,
     sessionId: string,
-    eventType: number,
-    payload: unknown,
+    eventType: K,
+    payload: AgentEventPayloadMap[K],
     seq: number
   ): void {
     this.sendPayload(
@@ -180,12 +190,20 @@ function encodeJsonBytes(payload: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(payload ?? null));
 }
 
+// zorsh u8 对越界值静默环绕，编码前兜底断言
+function assertU8EventType(eventType: number): void {
+  if (!Number.isInteger(eventType) || eventType < 0 || eventType > 255) {
+    throw new RangeError(`eventType out of u8 range: ${eventType}`);
+  }
+}
+
 function encodeAgentEventPayload(
   sessionId: string,
   eventType: number,
   payload: unknown,
   seq: number
 ): Uint8Array {
+  assertU8EventType(eventType);
   return wsBorsh.encodePayload(wsBorsh.schema.AgentEventSchema, {
     sessionId,
     seq,

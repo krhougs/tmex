@@ -138,3 +138,28 @@ export interface WatchModelUnavailablePayload {
 export interface WatchRuleErrorPayload {
   message: string;
 }
+
+// ========== eventType -> payload 映射（编译期约束广播入口） ==========
+
+export interface AgentEventPayloadMap {
+  [AGENT_EVENT_SYNC]: AgentSyncEventPayload;
+  [AGENT_EVENT_STATUS]: AgentStatusEventPayload;
+  [AGENT_EVENT_TEXT_DELTA]: AgentTextDeltaPayload;
+  [AGENT_EVENT_REASONING_DELTA]: AgentReasoningDeltaPayload;
+  [AGENT_EVENT_TOOL_CALL]: AgentToolCallPayload;
+  [AGENT_EVENT_TOOL_RESULT]: AgentToolResultPayload;
+  [AGENT_EVENT_CONFIRMATION_REQUEST]: AgentConfirmationRequestPayload;
+  [AGENT_EVENT_CONFIRMATION_RESOLVED]: AgentConfirmationResolvedPayload;
+  [AGENT_EVENT_MESSAGE_PERSISTED]: AgentMessagePersistedPayload;
+  [AGENT_EVENT_ERROR]: AgentErrorEventPayload;
+  [AGENT_EVENT_TURN_FINISHED]: AgentTurnFinishedPayload;
+}
+
+export interface WatchEventPayloadMap {
+  [WATCH_EVENT_TRIGGERED]: WatchTriggeredPayload;
+  [WATCH_EVENT_MODEL_UNAVAILABLE]: WatchModelUnavailablePayload;
+  [WATCH_EVENT_RULE_ERROR]: WatchRuleErrorPayload;
+}
+
+export type AgentEventType = keyof AgentEventPayloadMap;
+export type WatchEventType = keyof WatchEventPayloadMap;

@@ -223,6 +223,70 @@ describe('AgentWsHub', () => {
     ]);
   });
 
+  test('payload 超过 maxFrameBytes 时走分片路径且可重组', async () => {
+    const hub = new AgentWsHub({ syncProvider: async () => null });
+    const ws = createMockWs();
+    ws.data.borshState.maxFrameBytes = 256;
+
+    await hub.subscribe(asClient(ws), 'session-big');
+
+    const bigDelta = 'x'.repeat(2048);
+    hub.broadcastAgentEvent(
+      'session-big',
+      wsBorsh.AGENT_EVENT_TEXT_DELTA,
+      { messageId: 'm1', delta: bigDelta },
+      7
+    );
+
+    expect(ws.sent.length).toBeGreaterThan(1);
+
+    const reassembler = new wsBorsh.ChunkReassembler();
+    let message: wsBorsh.ReassembledMessage | null = null;
+    for (const frame of ws.sent) {
+      expect(frame.length).toBeLessThanOrEqual(256);
+      const envelope = wsBorsh.decodeEnvelope(frame);
+      expect(envelope.kind).toBe(wsBorsh.KIND_CHUNK);
+      expect(message).toBeNull();
+      message = reassembler.addChunk(wsBorsh.decodeChunk(envelope.payload));
+    }
+
+    expect(message).not.toBeNull();
+    expect(message!.kind).toBe(wsBorsh.KIND_AGENT_EVENT);
+    const decoded = wsBorsh.decodePayload(wsBorsh.schema.AgentEventSchema, message!.payload);
+    expect(decoded.sessionId).toBe('session-big');
+    expect(decoded.seq).toBe(7);
+    expect(decoded.eventType).toBe(wsBorsh.AGENT_EVENT_TEXT_DELTA);
+    const json = JSON.parse(new TextDecoder().decode(decoded.payload));
+    expect(json).toEqual({ messageId: 'm1', delta: bigDelta });
+  });
+
+  test('单个订阅者 send 抛错不影响其他订阅者收到广播', async () => {
+    const hub = new AgentWsHub({ syncProvider: async () => null });
+    const broken = createMockWs();
+    broken.send = () => {
+      throw new Error('connection closed');
+    };
+    const healthy = createMockWs();
+
+    await hub.subscribe(asClient(broken), 'session-a');
+    await hub.subscribe(asClient(healthy), 'session-a');
+
+    hub.broadcastAgentEvent('session-a', wsBorsh.AGENT_EVENT_STATUS, { status: 'running' }, 1);
+
+    expect(healthy.sent.length).toBe(1);
+    const event = decodeAgentEvent(healthy.sent[0]!);
+    expect(event.eventType).toBe(wsBorsh.AGENT_EVENT_STATUS);
+    expect(event.json).toEqual({ status: 'running' });
+
+    hub.registerClient(asClient(broken));
+    hub.registerClient(asClient(healthy));
+    hub.broadcastWatchEvent('rule-1', 'device-1', '%1', wsBorsh.WATCH_EVENT_TRIGGERED, {
+      summary: 'matched',
+    });
+    expect(healthy.sent.length).toBe(2);
+    expect(decodeWatchEvent(healthy.sent[1]!).json).toEqual({ summary: 'matched' });
+  });
+
   test('默认 syncProvider 对不存在的 session 不回发', async () => {
     const hub = new AgentWsHub();
     const ws = createMockWs();

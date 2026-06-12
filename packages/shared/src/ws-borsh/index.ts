@@ -76,6 +76,10 @@ export {
   type WatchTriggeredPayload,
   type WatchModelUnavailablePayload,
   type WatchRuleErrorPayload,
+  type AgentEventPayloadMap,
+  type WatchEventPayloadMap,
+  type AgentEventType,
+  type WatchEventType,
 } from './agent';
 
 // ========== 错误码 ==========

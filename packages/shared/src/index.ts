@@ -149,6 +149,10 @@ export type {
   WatchTriggeredPayload,
   WatchModelUnavailablePayload,
   WatchRuleErrorPayload,
+  AgentEventPayloadMap,
+  WatchEventPayloadMap,
+  AgentEventType,
+  WatchEventType,
 } from './ws-borsh/agent';
 
 export interface DeviceConnectPayload {
