@@ -12,12 +12,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { fetchWatchRules, watchRulesQueryKey } from '@/components/watch/api';
+import { WatchDialog } from '@/components/watch/watch-dialog';
 import { useQuery } from '@tanstack/react-query';
 import type { Device } from '@tmex/shared';
 import {
   ArrowDownToLine,
   Keyboard,
   Loader2,
+  Radar,
   RefreshCw,
   Send,
   Smartphone,
@@ -1140,8 +1143,17 @@ export function PageActions() {
   );
 
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
+  const [showWatchDialog, setShowWatchDialog] = useState(false);
 
   const canInteract = Boolean(resolvedPaneId && deviceConnected);
+
+  const watchRulesQuery = useQuery({
+    queryKey: watchRulesQueryKey(deviceId ?? '', resolvedPaneId ?? ''),
+    queryFn: () => fetchWatchRules(deviceId ?? '', resolvedPaneId ?? ''),
+    enabled: Boolean(deviceId && resolvedPaneId),
+    throwOnError: false,
+  });
+  const hasEnabledWatchRule = (watchRulesQuery.data ?? []).some((rule) => rule.enabled);
 
   const handleToggleInputMode = () => {
     const newMode = inputMode === 'direct' ? 'editor' : 'direct';
@@ -1196,6 +1208,33 @@ export function PageActions() {
       >
         <ArrowDownToLine className="h-4 w-4" />
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="relative"
+        onClick={() => setShowWatchDialog(true)}
+        disabled={!resolvedPaneId}
+        data-testid="watch-open-button"
+        aria-label={t('watch.title')}
+        title={t('watch.title')}
+      >
+        <Radar className="h-4 w-4" />
+        {hasEnabledWatchRule && (
+          <span
+            className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary"
+            data-testid="watch-active-indicator"
+          />
+        )}
+      </Button>
+
+      {deviceId && resolvedPaneId && (
+        <WatchDialog
+          open={showWatchDialog}
+          onOpenChange={setShowWatchDialog}
+          deviceId={deviceId}
+          paneId={resolvedPaneId}
+        />
+      )}
 
       <AlertDialog open={showRefreshConfirm} onOpenChange={setShowRefreshConfirm}>
         <AlertDialogContent>

@@ -522,6 +522,113 @@
       "renameDesc": "カスタム名はターミナルが設定したタイトルを上書きし、ゲートウェイが再起動するまで保持されます。",
       "renameReset": "自動名に戻す"
     },
+    "watch": {
+      "title": "監視ルール",
+      "dialogDesc": "このペインの画面を監視し、条件を満たしたら通知します",
+      "openMonitor": "このターミナルを監視",
+      "rules": {
+        "empty": "このペインにはまだ監視ルールがありません",
+        "addRule": "新規ルール",
+        "edit": "編集",
+        "delete": "削除",
+        "viewState": "状態",
+        "lastTriggered": "最終トリガー：{{time}}",
+        "neverTriggered": "未トリガー",
+        "deleteTitle": "このルールを削除しますか？",
+        "deleteDesc": "「{{name}}」は完全に削除されます。",
+        "deleteConfirm": "削除"
+      },
+      "type": {
+        "match": "マッチ",
+        "unchanged": "停滞",
+        "llm": "LLM"
+      },
+      "typeDesc": {
+        "match": "正規表現が画面にマッチしたらトリガー",
+        "unchanged": "抽出した値が N 分間変化しない場合にトリガー（例：ダウンロード停滞）",
+        "llm": "LLM が定期的に画面を確認し自然言語の条件を判定"
+      },
+      "form": {
+        "createTitle": "監視ルールを作成",
+        "editTitle": "監視ルールを編集",
+        "name": "ルール名",
+        "namePlaceholder": "例：ダウンロード停滞アラート",
+        "triggerType": "トリガー種別",
+        "pattern": "正規表現",
+        "patternPlaceholder": "例：(\\d+)%",
+        "flags": "フラグ",
+        "flagsPlaceholder": "例：i",
+        "extractGroup": "キャプチャグループ番号",
+        "extractGroupHint": "0 = マッチ全体。このグループの値を追跡します",
+        "unchangedMinutes": "変化なし継続（分）",
+        "noMatchBehavior": "マッチしない場合",
+        "noMatchReset": "タイマーをリセット（進捗行の消失 = タスク完了）",
+        "noMatchIgnore": "無視（前回値を保持）",
+        "conditionPrompt": "条件（自然言語）",
+        "conditionPromptPlaceholder": "例：コンパイルエラーでビルドが失敗した",
+        "model": "モデル",
+        "followGlobalDefault": "グローバル既定に従う",
+        "modelPlaceholder": "モデル ID",
+        "modelRequiredHint": "このルールは LLM を呼び出します。選択した（またはグローバル既定の）モデルが利用可能か確認してください。",
+        "confirmWithLlm": "通知前に LLM で再確認",
+        "confirmWithLlmDesc": "誤検知を低減。モデル利用不可時はそのまま通知",
+        "summarizeWithLlm": "LLM による通知要約",
+        "summarizeWithLlmDesc": "画面内容をモデルが要約して通知本文にします",
+        "intervalSeconds": "サンプリング間隔（秒）",
+        "intervalHint": "最小 {{min}} 秒",
+        "fireMode": "発火モード",
+        "fireOnce": "一回（発火後に自動停止）",
+        "fireRepeat": "繰り返し",
+        "cooldownSeconds": "クールダウン（秒）",
+        "enabled": "有効",
+        "assistLabel": "説明から正規表現を生成",
+        "assistPlaceholder": "例：ダウンロード進捗のパーセンテージにマッチ",
+        "assistButton": "生成",
+        "assistExplanation": "説明",
+        "assistPreview": "現在の画面でのマッチ",
+        "assistPreviewEmpty": "現在の画面サンプルにマッチなし",
+        "create": "作成",
+        "save": "保存"
+      },
+      "validation": {
+        "nameRequired": "ルール名は必須です",
+        "patternRequired": "正規表現は必須です",
+        "patternInvalid": "正規表現が無効です：{{detail}}",
+        "unchangedMinutesInvalid": "変化なし継続分は 0 より大きい必要があります",
+        "conditionPromptRequired": "条件の説明は必須です",
+        "intervalMin": "サンプリング間隔は {{min}} 秒以上にしてください"
+      },
+      "state": {
+        "title": "ルール状態",
+        "back": "戻る",
+        "lastSampledAt": "最終サンプリング",
+        "lastValue": "最新値",
+        "lastValueChangedAt": "値の最終変化",
+        "lastTriggeredAt": "最終トリガー",
+        "consecutiveErrors": "連続エラー回数",
+        "lastError": "最新エラー",
+        "samples": "直近サンプル",
+        "samplesEmpty": "サンプルなし",
+        "hit": "ヒット",
+        "none": "—"
+      },
+      "toast": {
+        "created": "監視ルールを作成しました",
+        "updated": "監視ルールを更新しました",
+        "deleted": "監視ルールを削除しました",
+        "triggeredTitle": "監視トリガー",
+        "openTerminal": "ターミナルを開く",
+        "modelUnavailableTitle": "監視モデル利用不可",
+        "modelUnavailableHint": "ルールは縮退動作で継続します。",
+        "ruleErrorTitle": "監視ルールを自動停止しました"
+      },
+      "notifPermission": {
+        "title": "ブラウザ通知を有効にしますか？",
+        "desc": "タブがバックグラウンドでも監視トリガー時に通知を受け取れます。",
+        "enable": "有効にする",
+        "dismiss": "今はしない"
+      }
+    },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
       "hostRequired": "SSH デバイスにはホストアドレスが必要です"

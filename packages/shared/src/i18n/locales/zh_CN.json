@@ -522,6 +522,113 @@
       "renameDesc": "自定义名称会覆盖终端设置的标题，并保留至 gateway 重启。",
       "renameReset": "恢复自动名称"
     },
+    "watch": {
+      "title": "监控规则",
+      "dialogDesc": "监控该终端屏幕，条件满足时发送通知",
+      "openMonitor": "监控此终端",
+      "rules": {
+        "empty": "该终端还没有监控规则",
+        "addRule": "新建规则",
+        "edit": "编辑",
+        "delete": "删除",
+        "viewState": "状态",
+        "lastTriggered": "最近触发：{{time}}",
+        "neverTriggered": "从未触发",
+        "deleteTitle": "删除该规则？",
+        "deleteDesc": "“{{name}}”将被永久删除。",
+        "deleteConfirm": "删除"
+      },
+      "type": {
+        "match": "匹配",
+        "unchanged": "卡住",
+        "llm": "LLM"
+      },
+      "typeDesc": {
+        "match": "正则命中屏幕内容时触发",
+        "unchanged": "提取值连续 N 分钟不变时触发（如下载卡住）",
+        "llm": "由 LLM 周期查看屏幕并判断自然语言条件"
+      },
+      "form": {
+        "createTitle": "新建监控规则",
+        "editTitle": "编辑监控规则",
+        "name": "规则名称",
+        "namePlaceholder": "如：下载卡住提醒",
+        "triggerType": "触发类型",
+        "pattern": "正则表达式",
+        "patternPlaceholder": "如：(\\d+)%",
+        "flags": "标志",
+        "flagsPlaceholder": "如：i",
+        "extractGroup": "捕获组序号",
+        "extractGroupHint": "0 = 整个匹配；该组的值将被持续跟踪",
+        "unchangedMinutes": "不变持续（分钟）",
+        "noMatchBehavior": "无命中时",
+        "noMatchReset": "重置计时（进度行消失视为任务结束）",
+        "noMatchIgnore": "忽略（保留上次值）",
+        "conditionPrompt": "条件（自然语言）",
+        "conditionPromptPlaceholder": "如：构建因编译错误而失败",
+        "model": "模型",
+        "followGlobalDefault": "跟随全局默认",
+        "modelPlaceholder": "模型 ID",
+        "modelRequiredHint": "该规则会调用 LLM，请确保所选（或全局默认）模型可用。",
+        "confirmWithLlm": "通知前 LLM 二次确认",
+        "confirmWithLlmDesc": "减少误报；模型不可用时直接通知",
+        "summarizeWithLlm": "LLM 生成通知摘要",
+        "summarizeWithLlmDesc": "由模型总结屏幕内容作为通知正文",
+        "intervalSeconds": "采样间隔（秒）",
+        "intervalHint": "最低 {{min}} 秒",
+        "fireMode": "触发模式",
+        "fireOnce": "单次（触发后自动停用）",
+        "fireRepeat": "重复",
+        "cooldownSeconds": "冷却时间（秒）",
+        "enabled": "启用",
+        "assistLabel": "用描述生成正则",
+        "assistPlaceholder": "如：匹配下载进度百分比",
+        "assistButton": "生成",
+        "assistExplanation": "说明",
+        "assistPreview": "当前屏幕命中",
+        "assistPreviewEmpty": "当前屏幕样本无命中",
+        "create": "创建",
+        "save": "保存"
+      },
+      "validation": {
+        "nameRequired": "规则名称不能为空",
+        "patternRequired": "正则表达式不能为空",
+        "patternInvalid": "正则表达式无效：{{detail}}",
+        "unchangedMinutesInvalid": "不变持续分钟数必须大于 0",
+        "conditionPromptRequired": "条件描述不能为空",
+        "intervalMin": "采样间隔不能低于 {{min}} 秒"
+      },
+      "state": {
+        "title": "规则状态",
+        "back": "返回",
+        "lastSampledAt": "最近采样",
+        "lastValue": "最近值",
+        "lastValueChangedAt": "值最近变化",
+        "lastTriggeredAt": "最近触发",
+        "consecutiveErrors": "连续错误次数",
+        "lastError": "最近错误",
+        "samples": "近期样本",
+        "samplesEmpty": "暂无样本",
+        "hit": "命中",
+        "none": "—"
+      },
+      "toast": {
+        "created": "监控规则已创建",
+        "updated": "监控规则已更新",
+        "deleted": "监控规则已删除",
+        "triggeredTitle": "监控触发",
+        "openTerminal": "打开终端",
+        "modelUnavailableTitle": "监控模型不可用",
+        "modelUnavailableHint": "规则将以降级方式继续运行。",
+        "ruleErrorTitle": "监控规则已自动停用"
+      },
+      "notifPermission": {
+        "title": "启用浏览器通知？",
+        "desc": "即使页面在后台，监控触发时也能收到通知。",
+        "enable": "启用",
+        "dismiss": "暂不"
+      }
+    },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
       "hostRequired": "SSH 设备需要填写主机地址"

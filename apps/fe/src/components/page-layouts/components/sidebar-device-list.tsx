@@ -30,11 +30,22 @@ import {
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
+import { WatchDialog } from '@/components/watch/watch-dialog';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
-import { EllipsisVertical, Globe, Monitor, Pencil, Plus, Power, PowerOff, X } from 'lucide-react';
+import {
+  EllipsisVertical,
+  Globe,
+  Monitor,
+  Pencil,
+  Plus,
+  Power,
+  PowerOff,
+  Radar,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildWindowDisplayName, buildWindowTitleParts } from '../../../utils/terminalMeta';
 
@@ -272,6 +283,12 @@ export function SideBarDeviceList() {
     useTmuxStore.getState().createWindow(deviceId);
   }, []);
 
+  const [watchTarget, setWatchTarget] = useState<{ deviceId: string; paneId: string } | null>(null);
+
+  const requestWatchPane = useCallback((deviceId: string, paneId: string) => {
+    setWatchTarget({ deviceId, paneId });
+  }, []);
+
   const devices = devicesData?.devices ?? [];
   const sortedDevices = useMemo(
     () =>
@@ -304,6 +321,7 @@ export function SideBarDeviceList() {
               onRenameWindow={requestRenameWindow}
               onPaneClick={navigateToPane}
               onWindowClick={navigateToWindow}
+              onWatchPane={requestWatchPane}
             />
           ))}
           {sortedDevices.length === 0 && (
@@ -391,6 +409,15 @@ export function SideBarDeviceList() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {watchTarget && (
+        <WatchDialog
+          open
+          onOpenChange={(open) => !open && setWatchTarget(null)}
+          deviceId={watchTarget.deviceId}
+          paneId={watchTarget.paneId}
+        />
+      )}
     </SidebarGroup>
   );
 }
@@ -409,6 +436,7 @@ interface DeviceSectionProps {
   onRenameWindow: (deviceId: string, windowId: string) => void;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
+  onWatchPane: (deviceId: string, paneId: string) => void;
 }
 
 function DeviceSection({
@@ -425,6 +453,7 @@ function DeviceSection({
   onRenameWindow,
   onPaneClick,
   onWindowClick,
+  onWatchPane,
 }: DeviceSectionProps) {
   const { t } = useTranslation();
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
@@ -508,6 +537,7 @@ function DeviceSection({
               onCloseWindow={onCloseWindow}
               onClosePane={onClosePane}
               onRenameWindow={onRenameWindow}
+              onWatchPane={onWatchPane}
             />
           ))}
 
@@ -539,6 +569,7 @@ interface WindowItemProps {
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
   onRenameWindow: (deviceId: string, windowId: string) => void;
+  onWatchPane: (deviceId: string, paneId: string) => void;
 }
 
 function WindowItem({
@@ -551,6 +582,7 @@ function WindowItem({
   onCloseWindow,
   onClosePane,
   onRenameWindow,
+  onWatchPane,
 }: WindowItemProps) {
   const { t } = useTranslation();
   const { isMobile } = useSidebar();
@@ -666,8 +698,8 @@ function WindowItem({
                   onClick={() => onPaneClick(deviceId, window.id, pane.id)}
                   data-testid={`pane-item-${pane.id}`}
                   className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors pr-7 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-12',
-                    isMobile && 'py-2.5 pr-13',
+                    'w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors pr-13 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-21',
+                    isMobile && 'py-2.5 pr-24',
                     isPaneActive
                       ? 'bg-primary/10 text-primary border border-primary/20'
                       : pane.active
@@ -681,6 +713,41 @@ function WindowItem({
                     {pane.title || `Pane ${pane.index}`}
                   </span>
                 </button>
+
+                {/* Pane Actions Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    data-testid={`pane-menu-${pane.id}`}
+                    aria-label={t('watch.openMonitor')}
+                    className={cn(
+                      'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity data-popup-open:opacity-100',
+                      isMobile
+                        ? 'h-11 w-11 right-11 rounded-lg bg-background/40 opacity-100'
+                        : 'h-5 w-5 right-7 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-10.5 [@media(any-pointer:coarse)]:rounded-lg',
+                      isPaneActive
+                        ? 'opacity-100'
+                        : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
+                    )}
+                  >
+                    <EllipsisVertical className={cn(isMobile ? 'h-5 w-5' : 'h-3.5 w-3.5')} />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
+                  >
+                    <DropdownMenuItem
+                      data-testid={`pane-watch-${pane.id}`}
+                      className={cn(
+                        '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                        isMobile && 'py-3 px-2.5 text-base gap-2.5'
+                      )}
+                      onClick={() => onWatchPane(deviceId, pane.id)}
+                    >
+                      <Radar className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+                      {t('watch.openMonitor')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
                 {/* Close Pane Button */}
                 <button

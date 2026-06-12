@@ -522,6 +522,113 @@
       "renameDesc": "The custom name overrides the title set by the terminal and is kept until the gateway restarts.",
       "renameReset": "Use automatic name"
     },
+    "watch": {
+      "title": "Watch rules",
+      "dialogDesc": "Monitor this pane's screen and get notified when conditions are met",
+      "openMonitor": "Watch this pane",
+      "rules": {
+        "empty": "No watch rules for this pane yet",
+        "addRule": "New rule",
+        "edit": "Edit",
+        "delete": "Delete",
+        "viewState": "Status",
+        "lastTriggered": "Last triggered: {{time}}",
+        "neverTriggered": "Never triggered",
+        "deleteTitle": "Delete this rule?",
+        "deleteDesc": "\"{{name}}\" will be permanently deleted.",
+        "deleteConfirm": "Delete"
+      },
+      "type": {
+        "match": "Match",
+        "unchanged": "Stuck",
+        "llm": "LLM"
+      },
+      "typeDesc": {
+        "match": "Trigger when a regex matches the screen",
+        "unchanged": "Trigger when an extracted value stays unchanged for N minutes (e.g. stalled download)",
+        "llm": "An LLM periodically checks the screen against a natural-language condition"
+      },
+      "form": {
+        "createTitle": "New watch rule",
+        "editTitle": "Edit watch rule",
+        "name": "Rule name",
+        "namePlaceholder": "e.g. Download stalled",
+        "triggerType": "Trigger type",
+        "pattern": "Regular expression",
+        "patternPlaceholder": "e.g. (\\d+)%",
+        "flags": "Flags",
+        "flagsPlaceholder": "e.g. i",
+        "extractGroup": "Capture group index",
+        "extractGroupHint": "0 = whole match; the group value is tracked over time",
+        "unchangedMinutes": "Unchanged for (minutes)",
+        "noMatchBehavior": "When nothing matches",
+        "noMatchReset": "Reset timer (progress line gone = task done)",
+        "noMatchIgnore": "Ignore (keep last value)",
+        "conditionPrompt": "Condition (natural language)",
+        "conditionPromptPlaceholder": "e.g. The build has failed with a compile error",
+        "model": "Model",
+        "followGlobalDefault": "Follow global default",
+        "modelPlaceholder": "Model ID",
+        "modelRequiredHint": "This rule calls an LLM. Make sure the selected (or global default) model is available.",
+        "confirmWithLlm": "LLM double-check before notifying",
+        "confirmWithLlmDesc": "Reduce false positives; fails open if the model is unavailable",
+        "summarizeWithLlm": "LLM notification summary",
+        "summarizeWithLlmDesc": "Summarize the screen into the notification text",
+        "intervalSeconds": "Sampling interval (seconds)",
+        "intervalHint": "Minimum {{min}}s",
+        "fireMode": "Fire mode",
+        "fireOnce": "Once (auto-disable after firing)",
+        "fireRepeat": "Repeat",
+        "cooldownSeconds": "Cooldown (seconds)",
+        "enabled": "Enabled",
+        "assistLabel": "Generate regex from a description",
+        "assistPlaceholder": "e.g. match the download progress percentage",
+        "assistButton": "Generate",
+        "assistExplanation": "Explanation",
+        "assistPreview": "Matches on current screen",
+        "assistPreviewEmpty": "No matches on the current screen sample",
+        "create": "Create",
+        "save": "Save"
+      },
+      "validation": {
+        "nameRequired": "Rule name is required",
+        "patternRequired": "Regular expression is required",
+        "patternInvalid": "Invalid regular expression: {{detail}}",
+        "unchangedMinutesInvalid": "Unchanged minutes must be greater than 0",
+        "conditionPromptRequired": "Condition prompt is required",
+        "intervalMin": "Sampling interval must be at least {{min}} seconds"
+      },
+      "state": {
+        "title": "Rule status",
+        "back": "Back",
+        "lastSampledAt": "Last sampled",
+        "lastValue": "Last value",
+        "lastValueChangedAt": "Value last changed",
+        "lastTriggeredAt": "Last triggered",
+        "consecutiveErrors": "Consecutive errors",
+        "lastError": "Last error",
+        "samples": "Recent samples",
+        "samplesEmpty": "No samples yet",
+        "hit": "hit",
+        "none": "—"
+      },
+      "toast": {
+        "created": "Watch rule created",
+        "updated": "Watch rule updated",
+        "deleted": "Watch rule deleted",
+        "triggeredTitle": "Watch triggered",
+        "openTerminal": "Open terminal",
+        "modelUnavailableTitle": "Watch model unavailable",
+        "modelUnavailableHint": "The rule keeps running with degraded behavior.",
+        "ruleErrorTitle": "Watch rule auto-disabled"
+      },
+      "notifPermission": {
+        "title": "Enable browser notifications?",
+        "desc": "Get notified when watch rules trigger, even when this tab is in the background.",
+        "enable": "Enable",
+        "dismiss": "Not now"
+      }
+    },
     "validation": {
       "deviceNameRequired": "Device name is required",
       "hostRequired": "Host is required for SSH devices"
