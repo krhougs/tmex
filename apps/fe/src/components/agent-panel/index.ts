@@ -1,11 +1,6 @@
-export {
-  AgentPanel,
-  ChatInput,
-  ChatThread,
-  type AgentChatMessage,
-} from './agent-panel';
+export { AgentPanel, ChatInput } from './agent-panel';
+export { ChatThread } from './chat-thread';
 export {
   SessionSwitcher,
-  type AgentSessionSummary,
   type SessionSwitcherProps,
 } from './session-switcher';
