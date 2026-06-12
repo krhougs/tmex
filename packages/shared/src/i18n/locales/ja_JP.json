@@ -409,11 +409,57 @@
         "title": "Agent",
         "empty": "セッションを選択または作成してください",
         "inputPlaceholder": "メッセージを入力…",
-        "send": "送信"
+        "send": "送信",
+        "stop": "停止",
+        "retry": "再試行",
+        "scrollToBottom": "最下部へ"
       },
       "session": {
         "none": "セッション未選択",
-        "new": "新規セッション"
+        "new": "新規セッション",
+        "noSessions": "セッションがありません",
+        "showAll": "すべてのセッションを表示",
+        "rename": "セッション名を変更",
+        "renameTitle": "セッション名を変更",
+        "renamePlaceholder": "セッション名",
+        "save": "保存",
+        "cancel": "キャンセル",
+        "delete": "セッションを削除",
+        "deleteTitle": "このセッションを削除しますか？",
+        "deleteDesc": "「{{title}}」とそのメッセージはすべて完全に削除されます。",
+        "deleteConfirm": "削除",
+        "createDisabledNoPane": "ターミナル pane を開いてからセッションを作成してください",
+        "privacyNotice": "セッションはターミナル画面の内容を設定済みの LLM サービスへ送信します。"
+      },
+      "binding": {
+        "invalid": "無効",
+        "mismatchTitle": "このセッションは別の pane にバインドされています",
+        "goTo": "移動",
+        "rebind": "現在の pane に再バインド"
+      },
+      "writeMode": {
+        "confirm": "書き込み確認",
+        "auto": "自動実行"
+      },
+      "confirm": {
+        "title": "承認待ち",
+        "approve": "許可",
+        "deny": "拒否"
+      },
+      "tool": {
+        "input": "入力",
+        "result": "結果",
+        "screen": "画面キャプチャ",
+        "send_input": "入力送信",
+        "read_screen": "画面読み取り",
+        "web_search": "Web 検索",
+        "fetch_url": "URL 取得"
+      },
+      "reasoning": {
+        "title": "思考プロセス"
+      },
+      "toast": {
+        "errorTitle": "Agent「{{title}}」でエラー"
       }
     },
     "window": {

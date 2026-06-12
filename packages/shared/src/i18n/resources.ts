@@ -415,11 +415,57 @@ export const I18N_RESOURCES = {
         "title": "Agent",
         "empty": "Select or create a session",
         "inputPlaceholder": "Type a message…",
-        "send": "Send"
+        "send": "Send",
+        "stop": "Stop",
+        "retry": "Retry",
+        "scrollToBottom": "Scroll to bottom"
       },
       "session": {
         "none": "No session selected",
-        "new": "New session"
+        "new": "New session",
+        "noSessions": "No sessions yet",
+        "showAll": "Show all sessions",
+        "rename": "Rename session",
+        "renameTitle": "Rename session",
+        "renamePlaceholder": "Session title",
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete session",
+        "deleteTitle": "Delete this session?",
+        "deleteDesc": "\"{{title}}\" and all its messages will be permanently deleted.",
+        "deleteConfirm": "Delete",
+        "createDisabledNoPane": "Open a terminal pane to create a session",
+        "privacyNotice": "Sessions send terminal screen content to the configured LLM service."
+      },
+      "binding": {
+        "invalid": "Pane unavailable",
+        "mismatchTitle": "This session is bound to a different pane",
+        "goTo": "Go to pane",
+        "rebind": "Rebind here"
+      },
+      "writeMode": {
+        "confirm": "Confirm writes",
+        "auto": "Auto execute"
+      },
+      "confirm": {
+        "title": "Approval required",
+        "approve": "Allow",
+        "deny": "Deny"
+      },
+      "tool": {
+        "input": "Input",
+        "result": "Result",
+        "screen": "Screen capture",
+        "send_input": "Send input",
+        "read_screen": "Read screen",
+        "web_search": "Web search",
+        "fetch_url": "Fetch URL"
+      },
+      "reasoning": {
+        "title": "Reasoning"
+      },
+      "toast": {
+        "errorTitle": "Agent \"{{title}}\" error"
       }
     },
     "window": {
@@ -853,11 +899,57 @@ export const I18N_RESOURCES = {
         "title": "Agent",
         "empty": "选择或创建一个会话",
         "inputPlaceholder": "输入消息…",
-        "send": "发送"
+        "send": "发送",
+        "stop": "停止",
+        "retry": "重试",
+        "scrollToBottom": "回到底部"
       },
       "session": {
         "none": "未选择会话",
-        "new": "新建会话"
+        "new": "新建会话",
+        "noSessions": "暂无会话",
+        "showAll": "显示全部会话",
+        "rename": "重命名会话",
+        "renameTitle": "重命名会话",
+        "renamePlaceholder": "会话标题",
+        "save": "保存",
+        "cancel": "取消",
+        "delete": "删除会话",
+        "deleteTitle": "删除此会话？",
+        "deleteDesc": "“{{title}}”及其全部消息将被永久删除。",
+        "deleteConfirm": "删除",
+        "createDisabledNoPane": "请先打开一个终端 pane 再创建会话",
+        "privacyNotice": "会话将把终端屏幕内容发送给配置的 LLM 服务。"
+      },
+      "binding": {
+        "invalid": "已失效",
+        "mismatchTitle": "此会话绑定的 pane 与当前终端不一致",
+        "goTo": "跳转过去",
+        "rebind": "重绑到当前"
+      },
+      "writeMode": {
+        "confirm": "写入需确认",
+        "auto": "自动执行"
+      },
+      "confirm": {
+        "title": "等待确认",
+        "approve": "允许",
+        "deny": "拒绝"
+      },
+      "tool": {
+        "input": "输入",
+        "result": "结果",
+        "screen": "屏幕快照",
+        "send_input": "发送输入",
+        "read_screen": "读取屏幕",
+        "web_search": "网络搜索",
+        "fetch_url": "抓取网页"
+      },
+      "reasoning": {
+        "title": "思考过程"
+      },
+      "toast": {
+        "errorTitle": "Agent“{{title}}”出错"
       }
     },
     "window": {
@@ -1291,11 +1383,57 @@ export const I18N_RESOURCES = {
         "title": "Agent",
         "empty": "セッションを選択または作成してください",
         "inputPlaceholder": "メッセージを入力…",
-        "send": "送信"
+        "send": "送信",
+        "stop": "停止",
+        "retry": "再試行",
+        "scrollToBottom": "最下部へ"
       },
       "session": {
         "none": "セッション未選択",
-        "new": "新規セッション"
+        "new": "新規セッション",
+        "noSessions": "セッションがありません",
+        "showAll": "すべてのセッションを表示",
+        "rename": "セッション名を変更",
+        "renameTitle": "セッション名を変更",
+        "renamePlaceholder": "セッション名",
+        "save": "保存",
+        "cancel": "キャンセル",
+        "delete": "セッションを削除",
+        "deleteTitle": "このセッションを削除しますか？",
+        "deleteDesc": "「{{title}}」とそのメッセージはすべて完全に削除されます。",
+        "deleteConfirm": "削除",
+        "createDisabledNoPane": "ターミナル pane を開いてからセッションを作成してください",
+        "privacyNotice": "セッションはターミナル画面の内容を設定済みの LLM サービスへ送信します。"
+      },
+      "binding": {
+        "invalid": "無効",
+        "mismatchTitle": "このセッションは別の pane にバインドされています",
+        "goTo": "移動",
+        "rebind": "現在の pane に再バインド"
+      },
+      "writeMode": {
+        "confirm": "書き込み確認",
+        "auto": "自動実行"
+      },
+      "confirm": {
+        "title": "承認待ち",
+        "approve": "許可",
+        "deny": "拒否"
+      },
+      "tool": {
+        "input": "入力",
+        "result": "結果",
+        "screen": "画面キャプチャ",
+        "send_input": "入力送信",
+        "read_screen": "画面読み取り",
+        "web_search": "Web 検索",
+        "fetch_url": "URL 取得"
+      },
+      "reasoning": {
+        "title": "思考プロセス"
+      },
+      "toast": {
+        "errorTitle": "Agent「{{title}}」でエラー"
       }
     },
     "window": {

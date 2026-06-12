@@ -179,6 +179,20 @@ export function buildTermSyncSize(
   return { kind: wsBorsh.KIND_TERM_SYNC_SIZE, payload };
 }
 
+export function buildAgentSubscribe(sessionId: string): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.AgentSubscribeSchema, {
+    sessionId,
+  });
+  return { kind: wsBorsh.KIND_AGENT_SUBSCRIBE, payload };
+}
+
+export function buildAgentUnsubscribe(sessionId: string): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.AgentUnsubscribeSchema, {
+    sessionId,
+  });
+  return { kind: wsBorsh.KIND_AGENT_UNSUBSCRIBE, payload };
+}
+
 // ========== S2C 消息解码 ==========
 
 export function decodeDeviceConnected(payload: Uint8Array): { deviceId: string } {

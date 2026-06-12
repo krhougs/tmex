@@ -409,11 +409,57 @@
         "title": "Agent",
         "empty": "Select or create a session",
         "inputPlaceholder": "Type a message…",
-        "send": "Send"
+        "send": "Send",
+        "stop": "Stop",
+        "retry": "Retry",
+        "scrollToBottom": "Scroll to bottom"
       },
       "session": {
         "none": "No session selected",
-        "new": "New session"
+        "new": "New session",
+        "noSessions": "No sessions yet",
+        "showAll": "Show all sessions",
+        "rename": "Rename session",
+        "renameTitle": "Rename session",
+        "renamePlaceholder": "Session title",
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete session",
+        "deleteTitle": "Delete this session?",
+        "deleteDesc": "\"{{title}}\" and all its messages will be permanently deleted.",
+        "deleteConfirm": "Delete",
+        "createDisabledNoPane": "Open a terminal pane to create a session",
+        "privacyNotice": "Sessions send terminal screen content to the configured LLM service."
+      },
+      "binding": {
+        "invalid": "Pane unavailable",
+        "mismatchTitle": "This session is bound to a different pane",
+        "goTo": "Go to pane",
+        "rebind": "Rebind here"
+      },
+      "writeMode": {
+        "confirm": "Confirm writes",
+        "auto": "Auto execute"
+      },
+      "confirm": {
+        "title": "Approval required",
+        "approve": "Allow",
+        "deny": "Deny"
+      },
+      "tool": {
+        "input": "Input",
+        "result": "Result",
+        "screen": "Screen capture",
+        "send_input": "Send input",
+        "read_screen": "Read screen",
+        "web_search": "Web search",
+        "fetch_url": "Fetch URL"
+      },
+      "reasoning": {
+        "title": "Reasoning"
+      },
+      "toast": {
+        "errorTitle": "Agent \"{{title}}\" error"
       }
     },
     "window": {

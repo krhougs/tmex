@@ -45,6 +45,8 @@ export {
   buildTermPaste,
   buildTermResize,
   buildTermSyncSize,
+  buildAgentSubscribe,
+  buildAgentUnsubscribe,
   decodeDeviceConnected,
   decodeDeviceDisconnected,
   decodeDeviceEvent,
