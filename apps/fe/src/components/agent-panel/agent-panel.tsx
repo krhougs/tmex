@@ -221,6 +221,7 @@ export function AgentPanel() {
           toolName: confirmation.toolName,
           input: confirmation.input,
           isError: false,
+          denied: false,
           resolved: false,
         },
       });
@@ -391,6 +392,7 @@ export function AgentPanel() {
       )}
 
       <ChatThread
+        key={activeSession?.id ?? 'none'}
         blocks={activeSession ? blocks : []}
         running={Boolean(running)}
         emptyText={t('agent.panel.empty')}

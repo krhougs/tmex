@@ -330,10 +330,10 @@ test.describe
       });
 
       await page.screenshot({
-        path: '../../prompt-archives/2026061300-terminal-agent-watch/task-08-screenshot-tab-a.png',
+        path: 'test-results/agent-session-two-tabs-tab-a.png',
       });
       await pageB.screenshot({
-        path: '../../prompt-archives/2026061300-terminal-agent-watch/task-08-screenshot-tab-b.png',
+        path: 'test-results/agent-session-two-tabs-tab-b.png',
       });
       await pageB.close();
 

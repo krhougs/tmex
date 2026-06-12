@@ -10,6 +10,7 @@ export interface UiToolCall {
   input: unknown;
   output?: unknown;
   isError: boolean;
+  denied: boolean;
   resolved: boolean;
 }
 
@@ -46,25 +47,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export interface UnwrappedToolOutput {
+  value: unknown;
+  isError: boolean;
+  denied: boolean;
+}
+
 /**
- * ModelMessage ToolResultPart 的 output 可能是 LanguageModel 包装形态
- * ({type:'text'|'json'|'error-text'|'error-json', value})，WS 事件里则是
- * execute 返回值原样；统一解包。
+ * ModelMessage ToolResultPart 的 output 可能是 SDK ToolResultOutput 包装形态
+ * ({type:'text'|'json'|'error-text'|'error-json', value} 或
+ * {type:'execution-denied', reason?})，WS 事件里则是 execute 返回值原样；统一解包。
  */
-export function unwrapToolOutput(output: unknown): { value: unknown; isError: boolean } {
-  if (isRecord(output) && typeof output.type === 'string' && 'value' in output) {
+export function unwrapToolOutput(output: unknown): UnwrappedToolOutput {
+  if (isRecord(output) && typeof output.type === 'string') {
     switch (output.type) {
       case 'text':
       case 'json':
-        return { value: output.value, isError: false };
+        if ('value' in output) {
+          return { value: output.value, isError: false, denied: false };
+        }
+        break;
       case 'error-text':
       case 'error-json':
-        return { value: output.value, isError: true };
+        if ('value' in output) {
+          return { value: output.value, isError: true, denied: false };
+        }
+        break;
+      case 'execution-denied':
+        return {
+          value: typeof output.reason === 'string' ? output.reason : undefined,
+          isError: false,
+          denied: true,
+        };
       default:
         break;
     }
   }
-  return { value: output, isError: false };
+  return { value: output, isError: false, denied: false };
 }
 
 function extractText(content: unknown): string {
@@ -130,6 +149,7 @@ function parsePersistedMessages(messages: AgentMessageDto[]): {
               toolName: typeof part.toolName === 'string' ? part.toolName : 'unknown',
               input: part.input,
               isError: false,
+              denied: false,
               resolved: false,
             };
             toolBlocksById.set(call.toolCallId, call);
@@ -144,10 +164,11 @@ function parsePersistedMessages(messages: AgentMessageDto[]): {
           if (!isRecord(part) || part.type !== 'tool-result') continue;
           const toolCallId = typeof part.toolCallId === 'string' ? part.toolCallId : '';
           const existing = toolBlocksById.get(toolCallId);
-          const { value, isError } = unwrapToolOutput(part.output);
+          const { value, isError, denied } = unwrapToolOutput(part.output);
           if (existing) {
             existing.output = value;
             existing.isError = isError;
+            existing.denied = denied;
             existing.resolved = true;
           }
         }
@@ -182,6 +203,7 @@ export function buildThreadBlocks(
       if (!existing.resolved && call.resolved) {
         existing.output = call.output;
         existing.isError = call.isError;
+        existing.denied = call.denied;
         existing.resolved = true;
       }
       continue;

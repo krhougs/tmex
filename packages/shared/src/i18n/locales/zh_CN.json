@@ -453,7 +453,8 @@
         "send_input": "发送输入",
         "read_screen": "读取屏幕",
         "web_search": "网络搜索",
-        "fetch_url": "抓取网页"
+        "fetch_url": "抓取网页",
+        "denied": "已拒绝"
       },
       "reasoning": {
         "title": "思考过程"

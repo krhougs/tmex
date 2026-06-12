@@ -129,6 +129,18 @@ let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const HISTORY_FETCH_DEBOUNCE_MS = 120;
 const historyFetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const historyLoadingSessions = new Set<string>();
+// in-flight 期间又有新的 loadHistory 请求：标记完成后重跑，避免丢增量
+const historyReloadPending = new Set<string>();
+
+function clearSessionRuntime(sessionId: string): void {
+  const timer = historyFetchTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    historyFetchTimers.delete(sessionId);
+  }
+  deltaBuffer.delete(sessionId);
+  historyReloadPending.delete(sessionId);
+}
 
 function sendSubscribe(sessionId: string): void {
   const msg = buildAgentSubscribe(sessionId);
@@ -232,6 +244,8 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
   };
 
   const handleSync = (sessionId: string, payload: AgentSyncEventPayload): void => {
+    // SYNC 重置 inProgress 后，缓冲里的旧 delta 不应再回流重复显示
+    deltaBuffer.delete(sessionId);
     setState((prev) => {
       const session = prev.sessions[sessionId];
       const inProgress = emptyInProgress();
@@ -315,6 +329,7 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
         toolName: payload.toolName,
         input: payload.input,
         isError: false,
+        denied: false,
         resolved: false,
         stale: false,
       };
@@ -331,7 +346,7 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
 
   const handleToolResult = (sessionId: string, payload: AgentToolResultPayload): void => {
     deltaFlusher.flush();
-    const { value, isError } = unwrapToolOutput(payload.output);
+    const { value, isError, denied } = unwrapToolOutput(payload.output);
     setState((prev) => {
       const current = prev.inProgress[sessionId] ?? emptyInProgress();
       const toolCalls = [...current.toolCalls];
@@ -341,6 +356,7 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
           ...toolCalls[index],
           output: value,
           isError: Boolean(payload.isError) || isError,
+          denied,
           resolved: true,
         };
       } else {
@@ -350,6 +366,7 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
           input: undefined,
           output: value,
           isError: Boolean(payload.isError) || isError,
+          denied,
           resolved: true,
           stale: current.staleBarrier,
         });
@@ -695,6 +712,7 @@ export const useAgentStore = create<AgentState>()(
           if (get().activeSessionId === sessionId) {
             get().setActiveSession(null);
           }
+          clearSessionRuntime(sessionId);
           set((prev) => {
             const sessions = { ...prev.sessions };
             delete sessions[sessionId];
@@ -758,6 +776,8 @@ export const useAgentStore = create<AgentState>()(
 
       async loadHistory(sessionId) {
         if (historyLoadingSessions.has(sessionId)) {
+          // in-flight 期间的新请求不能直接丢弃：响应可能不含本次触发对应的增量
+          historyReloadPending.add(sessionId);
           return;
         }
         historyLoadingSessions.add(sessionId);
@@ -799,6 +819,9 @@ export const useAgentStore = create<AgentState>()(
           console.error('[agent] loadHistory failed:', error);
         } finally {
           historyLoadingSessions.delete(sessionId);
+          if (historyReloadPending.delete(sessionId)) {
+            void get().loadHistory(sessionId);
+          }
         }
       },
 

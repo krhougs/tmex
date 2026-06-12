@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import * as net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
@@ -30,6 +31,41 @@ const bunExecutable = resolveBunExecutable();
 const forceFreshServers = Boolean(
   process.env.TMEX_E2E_DATABASE_URL || process.env.TMEX_E2E_SSH_DEVICE_NAME
 );
+const reuseExistingServer = !process.env.CI && !forceFreshServers;
+
+// 用 connect 探测而非 listen：listen 不带 host 绑 ::，对监听 IPv4 的进程（如生产 tmex）会误判空闲
+function isPortListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port, host: '127.0.0.1' });
+    const finish = (listening: boolean): void => {
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+    socket.setTimeout(1000, () => finish(false));
+  });
+}
+
+// 防护：reuseExistingServer 生效时，若端口未显式指定且默认端口已被占用，
+// reuse 会直接命中已存在的实例（本机 9883 常驻生产 tmex），beforeAll 改写
+// 全局设置会污染生产数据。此时直接拒绝，要求显式指定 env 或走 bun run test:e2e。
+if (reuseExistingServer) {
+  const conflicts: string[] = [];
+  if (!process.env.TMEX_E2E_GATEWAY_PORT && (await isPortListening(gatewayPort))) {
+    conflicts.push(`gateway port ${gatewayPort} (TMEX_E2E_GATEWAY_PORT not set)`);
+  }
+  if (!process.env.TMEX_E2E_FE_PORT && (await isPortListening(fePort))) {
+    conflicts.push(`fe port ${fePort} (TMEX_E2E_FE_PORT not set)`);
+  }
+  if (conflicts.length > 0) {
+    throw new Error(
+      `[e2e] Refusing to reuse unknown server(s) already listening on default port(s): ${conflicts.join(
+        ', '
+      )}. This may be a production tmex instance. Set TMEX_E2E_FE_PORT / TMEX_E2E_GATEWAY_PORT explicitly (e.g. TMEX_E2E_FE_PORT=9885 TMEX_E2E_GATEWAY_PORT=9665), or run via \`bun run test:e2e\` which picks free ports automatically.`
+    );
+  }
+}
 
 export default defineConfig({
   testDir: './tests',
@@ -70,7 +106,7 @@ export default defineConfig({
       },
       url: `http://localhost:${gatewayPort}/healthz`,
       timeout: 60_000,
-      reuseExistingServer: !process.env.CI && !forceFreshServers,
+      reuseExistingServer,
       stdout: 'pipe',
       stderr: 'pipe',
       gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
@@ -88,7 +124,7 @@ export default defineConfig({
       },
       url: `http://localhost:${fePort}`,
       timeout: 60_000,
-      reuseExistingServer: !process.env.CI && !forceFreshServers,
+      reuseExistingServer,
       stdout: 'pipe',
       stderr: 'pipe',
       gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },

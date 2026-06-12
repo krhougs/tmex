@@ -1,7 +1,22 @@
-import * as net from 'node:net';
 import { spawn } from 'node:child_process';
+import * as net from 'node:net';
 
-async function isPortAvailable(port: number): Promise<boolean> {
+// listen 不带 host 默认绑 ::，对只监听 IPv4 的进程（如生产 tmex 的 9883）会误判可用，
+// 必须先用 connect 探测
+function isPortListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port, host: '127.0.0.1' });
+    const finish = (listening: boolean): void => {
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+    socket.setTimeout(1000, () => finish(false));
+  });
+}
+
+function canBindPort(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', () => {
@@ -14,6 +29,13 @@ async function isPortAvailable(port: number): Promise<boolean> {
     });
     server.listen(port);
   });
+}
+
+async function isPortAvailable(port: number): Promise<boolean> {
+  if (await isPortListening(port)) {
+    return false;
+  }
+  return canBindPort(port);
 }
 
 async function findAvailablePort(startPort: number, maxAttempts = 20): Promise<number> {

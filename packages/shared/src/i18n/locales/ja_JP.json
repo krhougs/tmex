@@ -453,7 +453,8 @@
         "send_input": "入力送信",
         "read_screen": "画面読み取り",
         "web_search": "Web 検索",
-        "fetch_url": "URL 取得"
+        "fetch_url": "URL 取得",
+        "denied": "拒否されました"
       },
       "reasoning": {
         "title": "思考プロセス"

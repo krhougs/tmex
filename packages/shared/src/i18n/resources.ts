@@ -459,7 +459,8 @@ export const I18N_RESOURCES = {
         "send_input": "Send input",
         "read_screen": "Read screen",
         "web_search": "Web search",
-        "fetch_url": "Fetch URL"
+        "fetch_url": "Fetch URL",
+        "denied": "Denied"
       },
       "reasoning": {
         "title": "Reasoning"
@@ -943,7 +944,8 @@ export const I18N_RESOURCES = {
         "send_input": "发送输入",
         "read_screen": "读取屏幕",
         "web_search": "网络搜索",
-        "fetch_url": "抓取网页"
+        "fetch_url": "抓取网页",
+        "denied": "已拒绝"
       },
       "reasoning": {
         "title": "思考过程"
@@ -1427,7 +1429,8 @@ export const I18N_RESOURCES = {
         "send_input": "入力送信",
         "read_screen": "画面読み取り",
         "web_search": "Web 検索",
-        "fetch_url": "URL 取得"
+        "fetch_url": "URL 取得",
+        "denied": "拒否されました"
       },
       "reasoning": {
         "title": "思考プロセス"

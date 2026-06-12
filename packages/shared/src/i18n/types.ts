@@ -445,6 +445,7 @@ export type TranslationKey =
   | 'agent.tool.read_screen'
   | 'agent.tool.web_search'
   | 'agent.tool.fetch_url'
+  | 'agent.tool.denied'
   | 'agent.reasoning'
   | 'agent.reasoning.title'
   | 'agent.toast'

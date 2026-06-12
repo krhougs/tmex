@@ -150,7 +150,8 @@ function WebSearchBody({ call }: { call: UiToolCall }) {
   const { t } = useTranslation();
   const input = isRecord(call.input) ? call.input : {};
   const query = typeof input.query === 'string' ? input.query : '';
-  const results = call.resolved && !call.isError ? parseWebSearchResults(call.output) : null;
+  const results =
+    call.resolved && !call.isError && !call.denied ? parseWebSearchResults(call.output) : null;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -175,9 +176,13 @@ function WebSearchBody({ call }: { call: UiToolCall }) {
           ))}
         </ul>
       )}
-      {call.resolved && !call.isError && !results && typeof call.output === 'string' && (
-        <CollapsedText label={t('agent.tool.result')} text={call.output} />
-      )}
+      {call.resolved &&
+        !call.isError &&
+        !call.denied &&
+        !results &&
+        typeof call.output === 'string' && (
+          <CollapsedText label={t('agent.tool.result')} text={call.output} />
+        )}
     </div>
   );
 }
@@ -201,7 +206,7 @@ function FetchUrlBody({ call }: { call: UiToolCall }) {
           {url}
         </a>
       )}
-      {call.resolved && !call.isError && body && (
+      {call.resolved && !call.isError && !call.denied && body && (
         <CollapsedText label={t('agent.tool.result')} text={body} />
       )}
     </div>
@@ -215,7 +220,7 @@ function GenericBody({ call }: { call: UiToolCall }) {
       {call.input !== undefined && (
         <CollapsedText label={t('agent.tool.input')} text={asText(call.input)} />
       )}
-      {call.resolved && !call.isError && call.output !== undefined && (
+      {call.resolved && !call.isError && !call.denied && call.output !== undefined && (
         <CollapsedText label={t('agent.tool.result')} text={asText(call.output)} />
       )}
     </div>
@@ -225,8 +230,10 @@ function GenericBody({ call }: { call: UiToolCall }) {
 export function ToolCallCard({ call, confirmationId, onDecide, className }: ToolCallCardProps) {
   const { t } = useTranslation();
   const pendingApproval = Boolean(confirmationId) && !call.resolved;
-  const errorText = call.resolved ? callErrorText(call) : null;
+  const denied = call.resolved && call.denied;
+  const errorText = call.resolved && !denied ? callErrorText(call) : null;
   const running = !call.resolved && !pendingApproval;
+  const deniedReason = denied && typeof call.output === 'string' ? call.output : '';
 
   const toolLabelKey = `agent.tool.${call.toolName}`;
   const toolLabel = ['send_input', 'read_screen', 'web_search', 'fetch_url'].includes(call.toolName)
@@ -237,9 +244,11 @@ export function ToolCallCard({ call, confirmationId, onDecide, className }: Tool
     <div
       data-testid={`agent-tool-card-${call.toolCallId}`}
       data-tool-name={call.toolName}
+      data-tool-denied={denied || undefined}
       className={cn(
         'border-border bg-card flex max-w-full min-w-0 flex-col gap-1.5 self-start rounded-md border p-2',
         errorText !== null && 'border-destructive/50',
+        denied && 'opacity-80',
         className
       )}
     >
@@ -247,8 +256,16 @@ export function ToolCallCard({ call, confirmationId, onDecide, className }: Tool
         {toolIcon(call.toolName)}
         <span className="min-w-0 truncate">{toolLabel}</span>
         {running && <Loader2Icon className="text-muted-foreground size-3 animate-spin" />}
-        {call.resolved && errorText === null && <CheckIcon className="size-3 text-emerald-500" />}
+        {call.resolved && !denied && errorText === null && (
+          <CheckIcon className="size-3 text-emerald-500" />
+        )}
         {errorText !== null && <CircleAlertIcon className="text-destructive size-3" />}
+        {denied && (
+          <span className="text-destructive flex items-center gap-0.5">
+            <XIcon className="size-3" />
+            {t('agent.tool.denied')}
+          </span>
+        )}
       </div>
 
       {call.toolName === 'send_input' && <SendInputBody call={call} />}
@@ -261,6 +278,12 @@ export function ToolCallCard({ call, confirmationId, onDecide, className }: Tool
 
       {errorText !== null && (
         <p className="text-destructive text-xs break-words whitespace-pre-wrap">{errorText}</p>
+      )}
+
+      {deniedReason && (
+        <p className="text-muted-foreground text-xs break-words whitespace-pre-wrap">
+          {deniedReason}
+        </p>
       )}
 
       {pendingApproval && confirmationId && (

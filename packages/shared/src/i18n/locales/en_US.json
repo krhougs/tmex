@@ -453,7 +453,8 @@
         "send_input": "Send input",
         "read_screen": "Read screen",
         "web_search": "Web search",
-        "fetch_url": "Fetch URL"
+        "fetch_url": "Fetch URL",
+        "denied": "Denied"
       },
       "reasoning": {
         "title": "Reasoning"
