@@ -409,3 +409,84 @@ export interface RestartGatewayResponse {
   success: boolean;
   message: string;
 }
+
+// ==================== LLM / Agent ====================
+
+export type LlmProviderProtocol = 'openai-chat' | 'openai-responses';
+
+export type AgentSearchProvider = 'none' | 'tavily' | 'brave';
+
+export interface LlmProviderDto {
+  id: string;
+  name: string;
+  protocol: LlmProviderProtocol;
+  baseUrl: string;
+  hasApiKey: boolean;
+  enabled: boolean;
+  models: string[];
+  modelsFetchedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListLlmProvidersResponse {
+  providers: LlmProviderDto[];
+}
+
+export interface CreateLlmProviderRequest {
+  name: string;
+  protocol: LlmProviderProtocol;
+  baseUrl: string;
+  apiKey: string;
+  enabled?: boolean;
+}
+
+export interface CreateLlmProviderResponse {
+  provider: LlmProviderDto;
+  modelsError?: string;
+}
+
+export interface UpdateLlmProviderRequest {
+  name?: string;
+  protocol?: LlmProviderProtocol;
+  baseUrl?: string;
+  /** 留空或缺省表示不修改 */
+  apiKey?: string;
+  enabled?: boolean;
+}
+
+export interface UpdateLlmProviderResponse {
+  provider: LlmProviderDto;
+  modelsError?: string;
+}
+
+export interface RefreshLlmProviderModelsResponse {
+  models: string[];
+}
+
+export interface AgentLlmSettingsDto {
+  searchProvider: AgentSearchProvider;
+  hasTavilyApiKey: boolean;
+  hasBraveApiKey: boolean;
+  defaultProviderId: string | null;
+  defaultModelId: string | null;
+  updatedAt: string;
+}
+
+export interface GetAgentLlmSettingsResponse {
+  settings: AgentLlmSettingsDto;
+}
+
+export interface UpdateAgentLlmSettingsRequest {
+  searchProvider?: AgentSearchProvider;
+  defaultProviderId?: string | null;
+  defaultModelId?: string | null;
+  /** 缺省表示不修改，空串表示清除 */
+  tavilyApiKey?: string;
+  /** 缺省表示不修改，空串表示清除 */
+  braveApiKey?: string;
+}
+
+export interface UpdateAgentLlmSettingsResponse {
+  settings: AgentLlmSettingsDto;
+}

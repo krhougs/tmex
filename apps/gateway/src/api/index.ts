@@ -40,6 +40,7 @@ import {
 import { t } from '../i18n';
 import { pushSupervisor } from '../push/supervisor';
 import { telegramService } from '../telegram/service';
+import { handleLlmApiRequest } from './llm';
 import { handleDeviceTestConnection } from './test-connection';
 
 function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device>): boolean {
@@ -216,6 +217,13 @@ export function handleApiRequest(
     req.method === 'DELETE'
   ) {
     return handleDeleteTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+
+  if (path.startsWith('/api/llm/')) {
+    const llmResponse = handleLlmApiRequest(req, path);
+    if (llmResponse) {
+      return llmResponse;
+    }
   }
 
   if (path === '/api/webhooks' && req.method === 'GET') {
