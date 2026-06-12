@@ -570,6 +570,8 @@ export type TranslationKey =
   | 'watch.form.assistPreviewEmpty'
   | 'watch.form.create'
   | 'watch.form.save'
+  | 'watch.form.providerUnavailable'
+  | 'watch.form.providerDisabled'
   | 'watch.validation'
   | 'watch.validation.nameRequired'
   | 'watch.validation.patternRequired'

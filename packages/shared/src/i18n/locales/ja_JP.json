@@ -588,7 +588,9 @@
         "assistPreview": "現在の画面でのマッチ",
         "assistPreviewEmpty": "現在の画面サンプルにマッチなし",
         "create": "作成",
-        "save": "保存"
+        "save": "保存",
+        "providerUnavailable": "元のプロバイダーは利用できません",
+        "providerDisabled": "無効"
       },
       "validation": {
         "nameRequired": "ルール名は必須です",

@@ -88,7 +88,9 @@ async function handleTriggered(
 ): Promise<void> {
   const ruleName = await resolveRuleName(queryClient, ruleId);
   const title = ruleName ?? i18n.t('watch.toast.triggeredTitle');
-  const description = payload.summary || payload.matchedText || '';
+  const rawDescription = payload.summary || payload.matchedText || '';
+  const description =
+    rawDescription.length > 200 ? `${rawDescription.slice(0, 200)}…` : rawDescription;
   const url = buildPaneUrl(deviceId, paneId, payload.windowId);
 
   toast(title, {

@@ -588,7 +588,9 @@
         "assistPreview": "Matches on current screen",
         "assistPreviewEmpty": "No matches on the current screen sample",
         "create": "Create",
-        "save": "Save"
+        "save": "Save",
+        "providerUnavailable": "Original provider unavailable",
+        "providerDisabled": "disabled"
       },
       "validation": {
         "nameRequired": "Rule name is required",

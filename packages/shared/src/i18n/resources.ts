@@ -594,7 +594,9 @@ export const I18N_RESOURCES = {
         "assistPreview": "Matches on current screen",
         "assistPreviewEmpty": "No matches on the current screen sample",
         "create": "Create",
-        "save": "Save"
+        "save": "Save",
+        "providerUnavailable": "Original provider unavailable",
+        "providerDisabled": "disabled"
       },
       "validation": {
         "nameRequired": "Rule name is required",
@@ -1231,7 +1233,9 @@ export const I18N_RESOURCES = {
         "assistPreview": "当前屏幕命中",
         "assistPreviewEmpty": "当前屏幕样本无命中",
         "create": "创建",
-        "save": "保存"
+        "save": "保存",
+        "providerUnavailable": "原提供商已不可用",
+        "providerDisabled": "已禁用"
       },
       "validation": {
         "nameRequired": "规则名称不能为空",
@@ -1868,7 +1872,9 @@ export const I18N_RESOURCES = {
         "assistPreview": "現在の画面でのマッチ",
         "assistPreviewEmpty": "現在の画面サンプルにマッチなし",
         "create": "作成",
-        "save": "保存"
+        "save": "保存",
+        "providerUnavailable": "元のプロバイダーは利用できません",
+        "providerDisabled": "無効"
       },
       "validation": {
         "nameRequired": "ルール名は必須です",

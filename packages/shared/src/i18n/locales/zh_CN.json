@@ -588,7 +588,9 @@
         "assistPreview": "当前屏幕命中",
         "assistPreviewEmpty": "当前屏幕样本无命中",
         "create": "创建",
-        "save": "保存"
+        "save": "保存",
+        "providerUnavailable": "原提供商已不可用",
+        "providerDisabled": "已禁用"
       },
       "validation": {
         "nameRequired": "规则名称不能为空",

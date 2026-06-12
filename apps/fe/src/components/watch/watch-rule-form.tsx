@@ -420,13 +420,22 @@ export function WatchRuleForm({ deviceId, paneId, rule, onSaved, onCancel }: Wat
           >
             <SelectTrigger className="w-full" data-testid="watch-form-provider">
               <SelectValue>
-                {selectedProvider?.name ?? t('watch.form.followGlobalDefault')}
+                {providerId
+                  ? (selectedProvider?.name ?? t('watch.form.providerUnavailable'))
+                  : t('watch.form.followGlobalDefault')}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={FOLLOW_DEFAULT_VALUE}>
                 {t('watch.form.followGlobalDefault')}
               </SelectItem>
+              {providerId && !enabledProviders.some((provider) => provider.id === providerId) && (
+                <SelectItem value={providerId}>
+                  {selectedProvider
+                    ? `${selectedProvider.name} (${t('watch.form.providerDisabled')})`
+                    : t('watch.form.providerUnavailable')}
+                </SelectItem>
+              )}
               {enabledProviders.map((provider) => (
                 <SelectItem key={provider.id} value={provider.id}>
                   {provider.name}
