@@ -52,8 +52,8 @@ const defaultDeps: PushSupervisorDeps = {
   getDevice: (deviceId) => getDeviceById(deviceId),
   getSettings: () => getSiteSettings(),
   acquireRuntime: async (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
-  releaseRuntime: async (deviceId, _runtime) => {
-    await tmuxRuntimeRegistry.release(deviceId);
+  releaseRuntime: async (deviceId, runtime) => {
+    await tmuxRuntimeRegistry.release(deviceId, runtime);
   },
   async notifyBell(context) {
     const { device, settings, bell } = context;

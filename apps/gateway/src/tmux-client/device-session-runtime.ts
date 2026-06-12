@@ -88,6 +88,10 @@ export class DeviceSessionRuntime {
     });
   }
 
+  get isTerminated(): boolean {
+    return this.terminated;
+  }
+
   subscribe(listener: DeviceSessionRuntimeListener): () => void {
     this.listeners.add(listener);
     return () => {

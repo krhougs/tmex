@@ -83,7 +83,7 @@ export interface AgentRunDeps {
   createWebSearchTool: () => Promise<Tool | null>;
   createFetchUrlTool: () => Tool;
   acquireRuntime: (deviceId: string) => Promise<TerminalRuntimeLike>;
-  releaseRuntime: (deviceId: string) => Promise<void>;
+  releaseRuntime: (deviceId: string, runtime?: TerminalRuntimeLike) => Promise<void>;
   broadcast: <K extends keyof AgentEventPayloadMap>(
     sessionId: string,
     eventType: K,
@@ -110,7 +110,7 @@ const defaultDeps: AgentRunDeps = {
   createWebSearchTool: () => createWebSearchTool(),
   createFetchUrlTool: () => createFetchUrlTool(),
   acquireRuntime: (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
-  releaseRuntime: (deviceId) => tmuxRuntimeRegistry.release(deviceId),
+  releaseRuntime: (deviceId, runtime) => tmuxRuntimeRegistry.release(deviceId, runtime),
   broadcast: (sessionId, eventType, payload, seq) =>
     agentWsHub.broadcastAgentEvent(sessionId, eventType, payload, seq),
   notify: (eventType, event) => eventNotifier.notify(eventType, event),
@@ -280,7 +280,7 @@ export class AgentRun {
       this.clearFlushTimer();
       if (runtime && runtimeDeviceId) {
         try {
-          await this.deps.releaseRuntime(runtimeDeviceId);
+          await this.deps.releaseRuntime(runtimeDeviceId, runtime);
         } catch (error) {
           console.error(`[agent-run] failed to release runtime ${runtimeDeviceId}:`, error);
         }

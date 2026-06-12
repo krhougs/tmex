@@ -10,6 +10,7 @@ import {
   type CreateWatchRuleInput,
   type WatchRuleRecord,
   createWatchRule,
+  deleteWatchRule,
   getEnabledWatchRules,
   getWatchRuleById,
   getWatchRuleState,
@@ -20,7 +21,10 @@ const TEST_DEVICE_ID = 'watch-service-test-device';
 
 // ========== mock LLM server（generateObject 走 chat/completions 非流式） ==========
 
-type MockResponder = (callIndex: number, body: Record<string, unknown>) => Response;
+type MockResponder = (
+  callIndex: number,
+  body: Record<string, unknown>
+) => Response | Promise<Response>;
 
 function jsonChatResponse(content: unknown): Response {
   return Response.json({
@@ -572,6 +576,108 @@ describe('WatchService - LLM 介入', () => {
     await harness.service.tickRule(rule.id);
     expect(harness.notifications.filter((n) => n.eventType === 'watch_triggered')).toHaveLength(1);
     expect(getWatchRuleById(rule.id)?.enabled).toBe(false);
+    expect(harness.service.isRuleScheduled(rule.id)).toBe(false);
+
+    await harness.service.stop();
+  });
+});
+
+describe('WatchService - in-flight tick 与规则变更并发', () => {
+  test('refreshRule 等待 in-flight tick：新旧 tick 不并发、旧 tick 结果丢弃', async () => {
+    const gate: { open: (() => void) | null } = { open: null };
+    let gated = true;
+    const mock = createMockLlmServer(async () => {
+      if (gated) {
+        await new Promise<void>((resolve) => {
+          gate.open = resolve;
+        });
+      }
+      return jsonChatResponse({ matched: true, reason: 'done' });
+    });
+    servers.push(mock.server);
+
+    const harness = createHarness({ llmBaseUrl: mock.baseUrl });
+    const rule = harness.makeRule({
+      triggerType: 'llm',
+      pattern: null,
+      conditionPrompt: 'is it done?',
+      fireMode: 'repeat',
+      cooldownSeconds: 0,
+    });
+    harness.setScreen('working...\n');
+    await harness.service.start();
+
+    const firstTick = harness.service.tickRule(rule.id);
+    while (mock.requests.length === 0) {
+      await Bun.sleep(5);
+    }
+
+    // 旧 tick 等待 LLM 期间 refreshRule：必须等旧 tick 完成才返回
+    let refreshDone = false;
+    const refresh = harness.service.refreshRule(rule.id).then(() => {
+      refreshDone = true;
+    });
+    await Bun.sleep(20);
+    expect(refreshDone).toBe(false);
+
+    // 等待期间驱动 tick 不会产生并发 LLM 调用
+    await harness.service.tickRule(rule.id);
+    expect(mock.requests).toHaveLength(1);
+
+    gated = false;
+    gate.open?.();
+    await firstTick;
+    await refresh;
+    expect(refreshDone).toBe(true);
+
+    // 旧 tick 结果被丢弃：不触发通知、state 不写入
+    expect(harness.notifications).toHaveLength(0);
+    expect(getWatchRuleState(rule.id)).toBeNull();
+
+    // 新调度就绪，后续 tick 正常触发
+    expect(harness.service.isRuleScheduled(rule.id)).toBe(true);
+    await harness.service.tickRule(rule.id);
+    expect(mock.requests).toHaveLength(2);
+    expect(harness.notifications.filter((n) => n.eventType === 'watch_triggered')).toHaveLength(1);
+    expect(getWatchRuleState(rule.id)?.lastSampledAt).not.toBeNull();
+
+    await harness.service.stop();
+  });
+
+  test('removeRule 等待 in-flight tick：DB 已删规则时旧 tick 不通知不写库', async () => {
+    const gate: { open: (() => void) | null } = { open: null };
+    const mock = createMockLlmServer(async () => {
+      await new Promise<void>((resolve) => {
+        gate.open = resolve;
+      });
+      return jsonChatResponse({ matched: true, reason: 'done' });
+    });
+    servers.push(mock.server);
+
+    const harness = createHarness({ llmBaseUrl: mock.baseUrl });
+    const rule = harness.makeRule({
+      triggerType: 'llm',
+      pattern: null,
+      conditionPrompt: 'is it done?',
+      fireMode: 'repeat',
+      cooldownSeconds: 0,
+    });
+    harness.setScreen('working...\n');
+    await harness.service.start();
+
+    const firstTick = harness.service.tickRule(rule.id);
+    while (mock.requests.length === 0) {
+      await Bun.sleep(5);
+    }
+
+    deleteWatchRule(rule.id);
+    const remove = harness.service.removeRule(rule.id);
+    gate.open?.();
+    await firstTick;
+    await remove;
+
+    expect(harness.notifications).toHaveLength(0);
+    expect(getWatchRuleState(rule.id)).toBeNull();
     expect(harness.service.isRuleScheduled(rule.id)).toBe(false);
 
     await harness.service.stop();

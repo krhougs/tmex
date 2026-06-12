@@ -42,8 +42,8 @@ export async function handleDeviceTestConnection(
     acquireRuntime: inputDeps.acquireRuntime ?? ((currentDeviceId) => tmuxRuntimeRegistry.acquire(currentDeviceId)),
     releaseRuntime:
       inputDeps.releaseRuntime ??
-      (async (currentDeviceId) => {
-        await tmuxRuntimeRegistry.release(currentDeviceId);
+      (async (currentDeviceId, runtime) => {
+        await tmuxRuntimeRegistry.release(currentDeviceId, runtime);
       }),
     translate: inputDeps.translate ?? t,
   };

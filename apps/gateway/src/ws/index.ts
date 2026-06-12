@@ -38,8 +38,8 @@ interface WebSocketServerDeps {
 
 const defaultDeps: WebSocketServerDeps = {
   acquireRuntime: async (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
-  releaseRuntime: async (deviceId) => {
-    await tmuxRuntimeRegistry.release(deviceId);
+  releaseRuntime: async (deviceId, runtime) => {
+    await tmuxRuntimeRegistry.release(deviceId, runtime);
   },
 };
 
