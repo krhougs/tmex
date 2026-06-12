@@ -40,6 +40,7 @@ import {
 import { t } from '../i18n';
 import { pushSupervisor } from '../push/supervisor';
 import { telegramService } from '../telegram/service';
+import { handleAgentApiRequest } from './agent';
 import { handleLlmApiRequest } from './llm';
 import { handleDeviceTestConnection } from './test-connection';
 
@@ -223,6 +224,13 @@ export function handleApiRequest(
     const llmResponse = handleLlmApiRequest(req, path);
     if (llmResponse) {
       return llmResponse;
+    }
+  }
+
+  if (path.startsWith('/api/agent/')) {
+    const agentResponse = handleAgentApiRequest(req, path);
+    if (agentResponse) {
+      return agentResponse;
     }
   }
 
