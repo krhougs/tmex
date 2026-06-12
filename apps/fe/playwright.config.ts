@@ -1,6 +1,9 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 function resolveBunExecutable(): string {
   const explicit = process.env.TMEX_E2E_BUN;
@@ -61,6 +64,9 @@ export default defineConfig({
         GATEWAY_PORT: String(gatewayPort),
         DATABASE_URL: process.env.TMEX_E2E_DATABASE_URL ?? `/tmp/tmex-e2e-${Date.now()}.db`,
         TMEX_BASE_URL: `http://localhost:${gatewayPort}`,
+        // shell 可能继承安装版 app.env 的 TMEX_MIGRATIONS_DIR（指向生产 resources 的旧
+        // migrations，缺新表），必须钉回仓库内目录
+        TMEX_MIGRATIONS_DIR: join(configDir, '../gateway/drizzle'),
       },
       url: `http://localhost:${gatewayPort}/healthz`,
       timeout: 60_000,
