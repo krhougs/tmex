@@ -1,6 +1,7 @@
 import type { EventDevicePayload, StateSnapshotPayload, TmuxEventType } from '@tmex/shared';
 import { wsBorsh } from '@tmex/shared';
 import type { Server, ServerWebSocket } from 'bun';
+import { agentWsHub } from '../agent/ws-hub';
 import { getSiteSettings } from '../db';
 import { t } from '../i18n';
 import type {
@@ -240,6 +241,7 @@ export class WebSocketServer {
 
     switchBarrier.cleanupClient(ws);
     sessionStateStore.cleanup(ws);
+    agentWsHub.removeClient(ws);
 
     const toDelete: string[] = [];
 
@@ -375,6 +377,18 @@ export class WebSocketServer {
         return;
       }
 
+      case wsBorsh.KIND_AGENT_SUBSCRIBE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.AgentSubscribeSchema, payload);
+        await agentWsHub.subscribe(ws, decoded.sessionId);
+        return;
+      }
+
+      case wsBorsh.KIND_AGENT_UNSUBSCRIBE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.AgentUnsubscribeSchema, payload);
+        agentWsHub.unsubscribe(ws, decoded.sessionId);
+        return;
+      }
+
       default:
         this.sendError(ws, refSeq, wsBorsh.ERROR_UNKNOWN_KIND, `Unknown kind: ${kind}`, false);
     }
@@ -401,6 +415,7 @@ export class WebSocketServer {
 
     ws.data.borshState.negotiated = true;
     ws.data.borshState.maxFrameBytes = effectiveMaxFrameBytes;
+    agentWsHub.registerClient(ws);
 
     const helloS2C: wsBorsh.b.infer<typeof wsBorsh.schema.HelloS2CSchema> = {
       serverImpl: 'tmex-gateway',
@@ -408,7 +423,7 @@ export class WebSocketServer {
       selectedVersion: wsBorsh.CURRENT_VERSION,
       maxFrameBytes: serverMaxFrameBytes,
       heartbeatIntervalMs: 15000,
-      capabilities: ['tmex-ws-borsh-v1'],
+      capabilities: ['tmex-ws-borsh-v1', 'tmex-agent-v1'],
     };
 
     const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.HelloS2CSchema, helloS2C);

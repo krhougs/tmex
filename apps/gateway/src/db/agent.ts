@@ -231,6 +231,16 @@ export function listAgentMessages(
   return orm.select().from(agentMessages).where(conditions).orderBy(asc(agentMessages.seq)).all();
 }
 
+export function getMaxAgentMessageSeq(sessionId: string): number {
+  const orm = getOrmDb();
+  const row = orm
+    .select({ maxSeq: max(agentMessages.seq) })
+    .from(agentMessages)
+    .where(eq(agentMessages.sessionId, sessionId))
+    .get();
+  return row?.maxSeq ?? -1;
+}
+
 export interface CreateAgentConfirmationInput {
   sessionId: string;
   toolName: string;

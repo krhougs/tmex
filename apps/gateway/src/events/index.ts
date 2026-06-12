@@ -278,6 +278,11 @@ export class EventNotifier {
       device_disconnect: '🔌',
       session_created: '🆕',
       session_closed: '🚪',
+      agent_confirmation_pending: '🤖',
+      agent_turn_finished: '🤖',
+      agent_error: '🤖',
+      watch_triggered: '👁️',
+      watch_model_unavailable: '👁️',
     };
 
     const paneUrl = buildPaneUrl(event);
