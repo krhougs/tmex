@@ -320,6 +320,21 @@ export class LocalExternalTmuxConnection {
     });
   }
 
+  // 按需读取 pane 当前可见屏幕的纯文本（无 ANSI 转义）；historyLines > 0 时
+  // 额外包含可见区上方 N 行历史。供 Agent / Watch 等主动采样场景使用。
+  async capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string> {
+    if (!this.connected) {
+      throw new Error(`tmux connection not available: ${this.deviceId}`);
+    }
+
+    const argv = ['capture-pane', '-t', paneId, '-p', '-J'];
+    const historyLines = Math.floor(opts?.historyLines ?? 0);
+    if (Number.isFinite(historyLines) && historyLines > 0) {
+      argv.push('-S', `-${historyLines}`);
+    }
+    return (await this.runTmux(argv)).stdout;
+  }
+
   private async ensureSession(): Promise<void> {
     const exists = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
     if (exists.exitCode === 0) {

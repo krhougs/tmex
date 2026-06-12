@@ -284,6 +284,20 @@ export class SshExternalTmuxConnection {
     });
   }
 
+  // 同 local 版本：按需读取 pane 可见屏幕纯文本，historyLines > 0 时附带历史。
+  async capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string> {
+    if (!this.connected) {
+      throw new Error(`tmux connection not available: ${this.deviceId}`);
+    }
+
+    const argv = ['capture-pane', '-t', paneId, '-p', '-J'];
+    const historyLines = Math.floor(opts?.historyLines ?? 0);
+    if (Number.isFinite(historyLines) && historyLines > 0) {
+      argv.push('-S', `-${historyLines}`);
+    }
+    return (await this.runTmux(argv, false, 30000)).stdout;
+  }
+
   private async connectSshClient(): Promise<void> {
     if (!this.device) {
       throw new Error('SSH device not loaded');

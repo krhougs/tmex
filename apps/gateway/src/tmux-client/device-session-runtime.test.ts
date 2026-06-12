@@ -20,6 +20,7 @@ function createStubConnectionRecorder() {
     closePaneCalls: [] as string[],
     renameWindowCalls: [] as Array<[string, string]>,
     setWindowStyleCalls: [] as string[],
+    capturePaneTextCalls: [] as Array<[string, number | undefined]>,
     options: null as TmuxConnectionOptions | null,
   };
 
@@ -69,6 +70,10 @@ function createStubConnectionRecorder() {
     },
     setWindowStyle(style) {
       state.setWindowStyleCalls.push(style);
+    },
+    async capturePaneText(paneId, opts) {
+      state.capturePaneTextCalls.push([paneId, opts?.historyLines]);
+      return `stub-text:${paneId}:${opts?.historyLines ?? 0}`;
     },
   };
 
@@ -212,6 +217,29 @@ describe('DeviceSessionRuntime', () => {
     runtime.disconnect();
 
     expect(recorder.state.disconnectCalls).toBe(1);
+  });
+
+  test('capturePaneText delegates to the underlying connection', async () => {
+    const recorder = createStubConnectionRecorder();
+    const runtime = createDeviceSessionRuntime({
+      deviceId: 'device-a',
+      createConnection(options) {
+        recorder.state.options = options;
+        return recorder.connection;
+      },
+    });
+
+    recorder.releaseConnect();
+    await runtime.connect();
+
+    await expect(runtime.capturePaneText('%1')).resolves.toBe('stub-text:%1:0');
+    await expect(runtime.capturePaneText('%2', { historyLines: 200 })).resolves.toBe(
+      'stub-text:%2:200'
+    );
+    expect(recorder.state.capturePaneTextCalls).toEqual([
+      ['%1', undefined],
+      ['%2', 200],
+    ]);
   });
 
   test('rejects reconnect attempts after the runtime has been closed', async () => {

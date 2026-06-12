@@ -20,6 +20,7 @@ export interface DeviceSessionRuntimeConnection {
   closePane(paneId: string): void;
   renameWindow(windowId: string, name: string): void;
   setWindowStyle(style: string): void;
+  capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string>;
 }
 
 export interface DeviceSessionRuntimeListener {
@@ -171,6 +172,10 @@ export class DeviceSessionRuntime {
 
   setWindowStyle(style: string): void {
     this.connection.setWindowStyle(style);
+  }
+
+  async capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string> {
+    return this.connection.capturePaneText(paneId, opts);
   }
 
   private broadcast(action: (listener: DeviceSessionRuntimeListener) => void): void {

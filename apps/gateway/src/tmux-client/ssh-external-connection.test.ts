@@ -447,6 +447,61 @@ describe('SshExternalTmuxConnection', () => {
     connection.disconnect();
   });
 
+  test('capturePaneText runs plain capture-pane and fails fast when unavailable', async () => {
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    setupCommandChannel(fakeClient, 'tmex-ssh-capture', {
+      record: writes,
+      overrides: (payload) => {
+        if (payload.includes("'capture-pane' '-t' '%1' '-p' '-J' '-S' '-120'")) {
+          return { stdout: 'history line\nhello world\n', exitCode: 0 };
+        }
+        if (payload.includes("'capture-pane' '-t' '%1' '-p' '-J'")) {
+          return { stdout: 'hello world\n', exitCode: 0 };
+        }
+        if (payload.includes("'capture-pane' '-t' '%404' '-p' '-J'")) {
+          return { stdout: "can't find pane: %404\n", exitCode: 1 };
+        }
+        return null;
+      },
+    });
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        ...createCallbacks({}),
+        onError: () => {},
+      },
+      {
+        getDevice: () => createDevice('tmex-ssh-capture'),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    // 未连接时 fail-fast
+    await expect(connection.capturePaneText('%1')).rejects.toThrow(
+      /tmux connection not available/
+    );
+
+    await connection.connect();
+
+    await expect(connection.capturePaneText('%1')).resolves.toBe('hello world\n');
+    await expect(connection.capturePaneText('%1', { historyLines: 120 })).resolves.toBe(
+      'history line\nhello world\n'
+    );
+    await expect(connection.capturePaneText('%404')).rejects.toThrow(/can't find pane/);
+
+    // 纯文本捕获不得携带 -e（转义序列）
+    expect(
+      writes.some((payload) => payload.includes("'capture-pane'") && payload.includes("'-e'"))
+    ).toBe(false);
+
+    connection.disconnect();
+    await expect(connection.capturePaneText('%1')).rejects.toThrow(
+      /tmux connection not available/
+    );
+  });
+
   test('connect no longer provisions remote fifo dirs or hooks', async () => {
     const fakeClient = new FakeClient();
     const writes: string[] = [];

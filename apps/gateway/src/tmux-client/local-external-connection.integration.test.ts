@@ -35,10 +35,13 @@ function createLocalDevice(session: string): Device {
   };
 }
 
-async function waitFor<T>(fn: () => T | null | undefined, timeoutMs = 10_000): Promise<T> {
+async function waitFor<T>(
+  fn: () => T | null | undefined | Promise<T | null | undefined>,
+  timeoutMs = 10_000
+): Promise<T> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const value = fn();
+    const value = await fn();
     if (value !== null && value !== undefined) {
       return value;
     }
@@ -372,6 +375,100 @@ describe('LocalExternalTmuxConnection integration', () => {
     } finally {
       connection.disconnect();
       ensureCleanSession(sessionName);
+    }
+  }, 20_000);
+
+  // capturePaneText 走独立临时 socket（-L），不触碰默认 socket 上的任何会话。
+  test('capturePaneText reads plain pane text on demand with optional history', async () => {
+    const socketName = `tmex-test-capture-${Date.now()}`;
+    const sessionName = 'tmex-capture-text';
+
+    execSync(
+      `tmux -L ${socketName} new-session -d -x 80 -y 10 -s ${sessionName} "sh -lc 'exec sh'"`,
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    const runOnSocket = async (argv: string[]) => {
+      const subprocess = Bun.spawn(['tmux', '-L', socketName, ...argv.slice(1)], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+        subprocess.exited,
+      ]);
+      return { stdout, stderr, exitCode };
+    };
+
+    const snapshots: StateSnapshotPayload[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: (payload) => {
+          snapshots.push(payload);
+        },
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createLocalDevice(sessionName),
+        run: runOnSocket,
+        ensureGhosttyTerminfo: async () => false,
+        enableSubscription: false,
+      }
+    );
+
+    try {
+      await connection.connect();
+
+      const snapshot = await waitFor(() => snapshots.at(-1)?.session ?? null);
+      const paneId = snapshot.windows[0]?.panes[0]?.id ?? null;
+      expect(paneId).toBeTruthy();
+      if (!paneId) {
+        throw new Error('snapshot missing pane');
+      }
+
+      // 带 SGR 颜色写入，capture 结果必须是去掉转义序列的纯文本
+      connection.sendInput(paneId, "printf '\\033[31mCAPTURE_RED_MARKER\\033[0m\\n'\r");
+      const visibleWithMarker = await waitFor(async () => {
+        const text = await connection.capturePaneText(paneId);
+        return text.includes('CAPTURE_RED_MARKER') ? text : null;
+      });
+      expect(visibleWithMarker).not.toContain('\u001b');
+
+      // 输出 40 行将早期行推出 10 行高的可见区，historyLines 才能取回
+      connection.sendInput(paneId, 'for i in $(seq 1 40); do echo HIST_$i; done\r');
+      const visible = await waitFor(async () => {
+        const text = await connection.capturePaneText(paneId);
+        return text.split('\n').includes('HIST_40') ? text : null;
+      });
+      expect(visible.split('\n')).not.toContain('HIST_1');
+
+      const withHistory = await connection.capturePaneText(paneId, { historyLines: 200 });
+      const historyLines = withHistory.split('\n');
+      expect(historyLines).toContain('HIST_1');
+      expect(historyLines).toContain('HIST_40');
+
+      await expect(connection.capturePaneText('%4242')).rejects.toThrow(
+        /can't find pane|no such pane/i
+      );
+
+      connection.disconnect();
+      await expect(connection.capturePaneText(paneId)).rejects.toThrow(
+        /tmux connection not available/
+      );
+    } finally {
+      connection.disconnect();
+      try {
+        execSync(`tmux -L ${socketName} kill-server`, { stdio: 'ignore' });
+      } catch {
+        // server 已退出则忽略
+      }
+      execSync(`rm -f "\${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${socketName}"`, { stdio: 'ignore' });
     }
   }, 20_000);
 
