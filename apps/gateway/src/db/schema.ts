@@ -2,6 +2,16 @@ import type { EventType } from '@tmex/shared';
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
+export type LlmProviderProtocol = 'openai-chat' | 'openai-responses';
+export type AgentSearchProvider = 'none' | 'tavily' | 'brave';
+export type AgentWriteMode = 'confirm' | 'auto';
+export type AgentSessionStatus = 'idle' | 'running' | 'waiting_confirmation' | 'stopped' | 'error';
+export type AgentMessageRole = 'system' | 'user' | 'assistant' | 'tool';
+export type AgentConfirmationStatus = 'pending' | 'approved' | 'denied' | 'cancelled';
+export type WatchTriggerType = 'match' | 'unchanged' | 'llm';
+export type WatchNoMatchBehavior = 'reset' | 'ignore';
+export type WatchFireMode = 'once' | 'repeat';
+
 export const siteSettings = sqliteTable(
   'site_settings',
   {
@@ -97,7 +107,7 @@ export const llmProviders = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    protocol: text('protocol').notNull(),
+    protocol: text('protocol').$type<LlmProviderProtocol>().notNull(),
     baseUrl: text('base_url').notNull(),
     apiKeyEnc: text('api_key_enc').notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
@@ -118,7 +128,7 @@ export const agentSettings = sqliteTable(
   'agent_settings',
   {
     id: integer('id').primaryKey(),
-    searchProvider: text('search_provider').notNull().default('none'),
+    searchProvider: text('search_provider').$type<AgentSearchProvider>().notNull().default('none'),
     tavilyApiKeyEnc: text('tavily_api_key_enc'),
     braveApiKeyEnc: text('brave_api_key_enc'),
     defaultProviderId: text('default_provider_id').references(() => llmProviders.id, {
@@ -146,11 +156,11 @@ export const agentSessions = sqliteTable(
     providerId: text('provider_id').references(() => llmProviders.id, { onDelete: 'set null' }),
     modelId: text('model_id').notNull(),
     systemPrompt: text('system_prompt'),
-    writeMode: text('write_mode').notNull().default('confirm'),
+    writeMode: text('write_mode').$type<AgentWriteMode>().notNull().default('confirm'),
     useProviderWebSearch: integer('use_provider_web_search', { mode: 'boolean' })
       .notNull()
       .default(false),
-    status: text('status').notNull().default('idle'),
+    status: text('status').$type<AgentSessionStatus>().notNull().default('idle'),
     lastError: text('last_error'),
     maxStepsPerTurn: integer('max_steps_per_turn').notNull().default(25),
     createdAt: text('created_at').notNull(),
@@ -173,7 +183,7 @@ export const agentMessages = sqliteTable(
       .notNull()
       .references(() => agentSessions.id, { onDelete: 'cascade' }),
     seq: integer('seq').notNull(),
-    role: text('role').notNull(),
+    role: text('role').$type<AgentMessageRole>().notNull(),
     content: text('content', { mode: 'json' }).$type<unknown>().notNull(),
     createdAt: text('created_at').notNull(),
   },
@@ -190,7 +200,7 @@ export const agentConfirmations = sqliteTable(
     toolName: text('tool_name').notNull(),
     toolCallId: text('tool_call_id').notNull(),
     inputJson: text('input_json', { mode: 'json' }).$type<unknown>().notNull(),
-    status: text('status').notNull().default('pending'),
+    status: text('status').$type<AgentConfirmationStatus>().notNull().default('pending'),
     reason: text('reason'),
     decidedAt: text('decided_at'),
     createdAt: text('created_at').notNull(),
@@ -213,7 +223,7 @@ export const watchRules = sqliteTable(
       .references(() => devices.id, { onDelete: 'cascade' }),
     paneId: text('pane_id').notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-    triggerType: text('trigger_type').notNull(),
+    triggerType: text('trigger_type').$type<WatchTriggerType>().notNull(),
     pattern: text('pattern'),
     patternFlags: text('pattern_flags').notNull().default(''),
     extractGroup: integer('extract_group').notNull().default(0),
@@ -224,8 +234,11 @@ export const watchRules = sqliteTable(
     summarizeWithLlm: integer('summarize_with_llm', { mode: 'boolean' }).notNull().default(false),
     intervalSeconds: integer('interval_seconds').notNull().default(30),
     unchangedMinutes: integer('unchanged_minutes'),
-    noMatchBehavior: text('no_match_behavior').notNull().default('reset'),
-    fireMode: text('fire_mode').notNull().default('once'),
+    noMatchBehavior: text('no_match_behavior')
+      .$type<WatchNoMatchBehavior>()
+      .notNull()
+      .default('reset'),
+    fireMode: text('fire_mode').$type<WatchFireMode>().notNull().default('once'),
     cooldownSeconds: integer('cooldown_seconds').notNull().default(600),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),

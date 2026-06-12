@@ -9,6 +9,7 @@ import {
   decideAgentConfirmation,
   deleteAgentSession,
   ensureAgentSettingsInitialized,
+  getAgentConfirmationById,
   getAgentSessionById,
   getAgentSessionsByStatus,
   getAgentSettings,
@@ -229,6 +230,30 @@ describe('agent confirmations', () => {
     expect(decided?.status).toBe('approved');
     expect(decided?.decidedAt).not.toBeNull();
     expect(listPendingAgentConfirmations(session.id)).toEqual([]);
+  });
+
+  test('decide on already decided confirmation returns null and keeps state', () => {
+    const session = createAgentSession({ title: 'confirm-cas', modelId: 'm' });
+    const confirmation = createAgentConfirmation({
+      sessionId: session.id,
+      toolName: 'write_terminal',
+      toolCallId: 'call_2',
+      inputJson: { keys: 'rm -rf /tmp/x\n' },
+    });
+
+    const approved = decideAgentConfirmation(confirmation.id, { status: 'approved' });
+    expect(approved?.status).toBe('approved');
+
+    const denied = decideAgentConfirmation(confirmation.id, {
+      status: 'denied',
+      reason: 'too late',
+    });
+    expect(denied).toBeNull();
+
+    const current = getAgentConfirmationById(confirmation.id);
+    expect(current?.status).toBe('approved');
+    expect(current?.reason).toBeNull();
+    expect(current?.decidedAt).toBe(approved?.decidedAt ?? '');
   });
 });
 

@@ -1,16 +1,28 @@
 import { and, asc, desc, eq, gt, max } from 'drizzle-orm';
 import { getDb as getOrmDb } from './client';
-import { agentConfirmations, agentMessages, agentSessions, agentSettings } from './schema';
+import {
+  type AgentConfirmationStatus,
+  type AgentMessageRole,
+  type AgentSessionStatus,
+  type AgentWriteMode,
+  agentConfirmations,
+  agentMessages,
+  agentSessions,
+  agentSettings,
+} from './schema';
 
 export type AgentSettingsRecord = typeof agentSettings.$inferSelect;
 export type AgentSessionRecord = typeof agentSessions.$inferSelect;
 export type AgentMessageRecord = typeof agentMessages.$inferSelect;
 export type AgentConfirmationRecord = typeof agentConfirmations.$inferSelect;
 
-export type AgentSearchProvider = 'none' | 'tavily' | 'brave';
-export type AgentWriteMode = 'confirm' | 'auto';
-export type AgentSessionStatus = 'idle' | 'running' | 'waiting_confirmation' | 'stopped' | 'error';
-export type AgentConfirmationStatus = 'pending' | 'approved' | 'denied' | 'cancelled';
+export type {
+  AgentConfirmationStatus,
+  AgentMessageRole,
+  AgentSearchProvider,
+  AgentSessionStatus,
+  AgentWriteMode,
+} from './schema';
 
 export function ensureAgentSettingsInitialized(): void {
   const orm = getOrmDb();
@@ -174,7 +186,7 @@ export function deleteAgentSession(id: string): void {
 
 export function appendAgentMessage(
   sessionId: string,
-  role: string,
+  role: AgentMessageRole,
   content: unknown
 ): AgentMessageRecord {
   const orm = getOrmDb();
@@ -272,15 +284,16 @@ export function decideAgentConfirmation(
   decision: { status: Exclude<AgentConfirmationStatus, 'pending'>; reason?: string | null }
 ): AgentConfirmationRecord | null {
   const orm = getOrmDb();
-  orm
+  const updated = orm
     .update(agentConfirmations)
     .set({
       status: decision.status,
       reason: decision.reason ?? null,
       decidedAt: new Date().toISOString(),
     })
-    .where(eq(agentConfirmations.id, id))
-    .run();
+    .where(and(eq(agentConfirmations.id, id), eq(agentConfirmations.status, 'pending')))
+    .returning()
+    .get();
 
-  return getAgentConfirmationById(id);
+  return updated ?? null;
 }

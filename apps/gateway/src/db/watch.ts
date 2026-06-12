@@ -1,13 +1,17 @@
 import { desc, eq } from 'drizzle-orm';
 import { getDb as getOrmDb } from './client';
-import { watchRuleState, watchRules } from './schema';
+import {
+  type WatchFireMode,
+  type WatchNoMatchBehavior,
+  type WatchTriggerType,
+  watchRuleState,
+  watchRules,
+} from './schema';
 
 export type WatchRuleRecord = typeof watchRules.$inferSelect;
 export type WatchRuleStateRecord = typeof watchRuleState.$inferSelect;
 
-export type WatchTriggerType = 'match' | 'unchanged' | 'llm';
-export type WatchNoMatchBehavior = 'reset' | 'ignore';
-export type WatchFireMode = 'once' | 'repeat';
+export type { WatchFireMode, WatchNoMatchBehavior, WatchTriggerType } from './schema';
 
 export interface CreateWatchRuleInput {
   name: string;

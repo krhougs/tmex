@@ -1,9 +1,9 @@
 import { desc, eq } from 'drizzle-orm';
 import { getDb as getOrmDb } from './client';
-import { llmProviders } from './schema';
+import { type LlmProviderProtocol, llmProviders } from './schema';
 
 export type LlmProviderRecord = typeof llmProviders.$inferSelect;
-export type LlmProviderProtocol = 'openai-chat' | 'openai-responses';
+export type { LlmProviderProtocol } from './schema';
 
 export interface CreateLlmProviderInput {
   name: string;
