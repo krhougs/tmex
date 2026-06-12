@@ -155,6 +155,9 @@ export function AgentPanel() {
   const pendingConfirmations = useAgentStore((state) =>
     state.activeSessionId ? state.pendingConfirmations[state.activeSessionId] : undefined
   );
+  const sending = useAgentStore((state) =>
+    state.activeSessionId ? state.sending[state.activeSessionId] : undefined
+  );
 
   const snapshots = useTmuxStore((state) => state.snapshots);
 
@@ -376,6 +379,7 @@ export function AgentPanel() {
               size="xs"
               variant="outline"
               className="shrink-0"
+              disabled={Boolean(sending)}
               onClick={() => {
                 void useAgentStore.getState().sendMessage(activeSession.id, retryText);
               }}
@@ -394,7 +398,9 @@ export function AgentPanel() {
         onDecide={handleDecide}
       />
       <ChatInput
-        disabled={!activeSession || activeSession.status === 'waiting_confirmation'}
+        disabled={
+          !activeSession || activeSession.status === 'waiting_confirmation' || Boolean(sending)
+        }
         running={Boolean(running)}
         onSend={(text) => {
           if (activeSession) {

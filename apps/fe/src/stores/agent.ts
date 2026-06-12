@@ -57,6 +57,7 @@ interface AgentState {
 
   ensureInitialized: () => void;
   loadSessions: () => Promise<void>;
+  refreshSession: (sessionId: string) => Promise<void>;
   setActiveSession: (sessionId: string | null) => void;
   setShowAllSessions: (showAll: boolean) => void;
   createSession: (deviceId: string, paneId: string) => Promise<AgentSessionDto | null>;
@@ -190,7 +191,10 @@ function makeDeltaFlusher(setState: SetState) {
                 text: segments[index].text + delta,
               };
             } else {
-              segments.push({ messageId, text: delta, stale: next.staleBarrier });
+              // staleBarrier 不传染给新 messageId：barrier 窗口内已落库消息的残留 delta
+              // 会命中上面的既有 stale 段分支；走到这里的是下一 step 新消息，正常入流，
+              // 避免被 loadHistory 误清导致已显示文本闪缩
+              segments.push({ messageId, text: delta, stale: false });
             }
           }
         }
@@ -276,6 +280,7 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
   };
 
   const handleStatus = (sessionId: string, payload: AgentStatusEventPayload): void => {
+    const known = Boolean(getState().sessions[sessionId]);
     setState((prev) => {
       const session = prev.sessions[sessionId];
       if (!session) return prev;
@@ -290,8 +295,13 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
         },
       };
     });
-    // 标题自动生成等 session 元数据变化也通过 STATUS 通知，拉一次列表保持同步
-    void getState().loadSessions();
+    if (!known) {
+      // 本地未知 session（如别端新建），全量拉列表兜底
+      void getState().loadSessions();
+      return;
+    }
+    // 标题自动生成等 session 元数据变化也通过 STATUS 通知，单拉该 session 保持同步
+    void getState().refreshSession(sessionId);
   };
 
   const handleToolCall = (sessionId: string, payload: AgentToolCallPayload): void => {
@@ -575,6 +585,27 @@ export const useAgentStore = create<AgentState>()(
           }
         } catch (error) {
           console.error('[agent] loadSessions failed:', error);
+        }
+      },
+
+      async refreshSession(sessionId) {
+        try {
+          const res = await fetch(`/api/agent/sessions/${sessionId}`);
+          if (res.status === 404) {
+            // session 已被别端删除，回退全量刷新走统一清理逻辑
+            await get().loadSessions();
+            return;
+          }
+          if (!res.ok) {
+            throw new Error(await parseApiError(res, 'Failed to load agent session'));
+          }
+          const payload = (await res.json()) as { session: AgentSessionDto };
+          set((prev) => {
+            const sessions = { ...prev.sessions, [sessionId]: payload.session };
+            return { sessions, sessionOrder: sortSessionOrder(sessions) };
+          });
+        } catch (error) {
+          console.error('[agent] refreshSession failed:', error);
         }
       },
 
