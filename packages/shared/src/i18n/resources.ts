@@ -311,7 +311,18 @@ export const I18N_RESOURCES = {
       "botNotFound": "Bot not found",
       "chatNotFound": "Chat not found",
       "urlAndSecretRequired": "URL and secret are required",
-      "notFound": "Not found"
+      "notFound": "Not found",
+      "llmProviderNameRequired": "Provider name cannot be empty",
+      "llmProviderProtocolInvalid": "Protocol must be openai-chat or openai-responses",
+      "llmProviderBaseUrlInvalid": "Base URL must start with http:// or https://",
+      "llmProviderApiKeyRequired": "API key cannot be empty",
+      "llmProviderNotFound": "LLM provider not found",
+      "llmProviderDisabled": "LLM provider {{name}} is disabled",
+      "llmNoDefaultProvider": "No LLM provider specified and no default provider configured",
+      "llmNoDefaultModel": "No model specified and no default model configured",
+      "llmDefaultProviderNotFound": "Default provider does not exist",
+      "llmSearchProviderInvalid": "Search provider must be none, tavily or brave",
+      "llmFetchModelsFailed": "Failed to fetch model list: {{detail}}"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -681,7 +692,18 @@ export const I18N_RESOURCES = {
       "botNotFound": "Bot 不存在",
       "chatNotFound": "Chat 不存在",
       "urlAndSecretRequired": "URL and secret required",
-      "notFound": "Not found"
+      "notFound": "Not found",
+      "llmProviderNameRequired": "Provider 名称不能为空",
+      "llmProviderProtocolInvalid": "协议必须是 openai-chat 或 openai-responses",
+      "llmProviderBaseUrlInvalid": "Base URL 必须以 http:// 或 https:// 开头",
+      "llmProviderApiKeyRequired": "API key 不能为空",
+      "llmProviderNotFound": "LLM provider 不存在",
+      "llmProviderDisabled": "LLM provider {{name}} 已被禁用",
+      "llmNoDefaultProvider": "未指定 LLM provider 且未配置默认 provider",
+      "llmNoDefaultModel": "未指定模型且未配置默认模型",
+      "llmDefaultProviderNotFound": "默认 provider 不存在",
+      "llmSearchProviderInvalid": "搜索服务必须是 none、tavily 或 brave",
+      "llmFetchModelsFailed": "拉取模型列表失败：{{detail}}"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -1051,7 +1073,18 @@ export const I18N_RESOURCES = {
       "botNotFound": "Bot が見つかりません",
       "chatNotFound": "チャットが見つかりません",
       "urlAndSecretRequired": "URL とシークレットが必要です",
-      "notFound": "見つかりません"
+      "notFound": "見つかりません",
+      "llmProviderNameRequired": "プロバイダー名は空にできません",
+      "llmProviderProtocolInvalid": "プロトコルは openai-chat または openai-responses である必要があります",
+      "llmProviderBaseUrlInvalid": "Base URL は http:// または https:// で始まる必要があります",
+      "llmProviderApiKeyRequired": "API key は空にできません",
+      "llmProviderNotFound": "LLM プロバイダーが見つかりません",
+      "llmProviderDisabled": "LLM プロバイダー {{name}} は無効化されています",
+      "llmNoDefaultProvider": "LLM プロバイダーが指定されておらず、デフォルトプロバイダーも設定されていません",
+      "llmNoDefaultModel": "モデルが指定されておらず、デフォルトモデルも設定されていません",
+      "llmDefaultProviderNotFound": "デフォルトプロバイダーが存在しません",
+      "llmSearchProviderInvalid": "検索プロバイダーは none、tavily、brave のいずれかである必要があります",
+      "llmFetchModelsFailed": "モデル一覧の取得に失敗しました：{{detail}}"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",

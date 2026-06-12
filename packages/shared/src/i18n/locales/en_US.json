@@ -305,7 +305,18 @@
       "botNotFound": "Bot not found",
       "chatNotFound": "Chat not found",
       "urlAndSecretRequired": "URL and secret are required",
-      "notFound": "Not found"
+      "notFound": "Not found",
+      "llmProviderNameRequired": "Provider name cannot be empty",
+      "llmProviderProtocolInvalid": "Protocol must be openai-chat or openai-responses",
+      "llmProviderBaseUrlInvalid": "Base URL must start with http:// or https://",
+      "llmProviderApiKeyRequired": "API key cannot be empty",
+      "llmProviderNotFound": "LLM provider not found",
+      "llmProviderDisabled": "LLM provider {{name}} is disabled",
+      "llmNoDefaultProvider": "No LLM provider specified and no default provider configured",
+      "llmNoDefaultModel": "No model specified and no default model configured",
+      "llmDefaultProviderNotFound": "Default provider does not exist",
+      "llmSearchProviderInvalid": "Search provider must be none, tavily or brave",
+      "llmFetchModelsFailed": "Failed to fetch model list: {{detail}}"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",

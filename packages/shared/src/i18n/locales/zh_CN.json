@@ -305,7 +305,18 @@
       "botNotFound": "Bot 不存在",
       "chatNotFound": "Chat 不存在",
       "urlAndSecretRequired": "URL and secret required",
-      "notFound": "Not found"
+      "notFound": "Not found",
+      "llmProviderNameRequired": "Provider 名称不能为空",
+      "llmProviderProtocolInvalid": "协议必须是 openai-chat 或 openai-responses",
+      "llmProviderBaseUrlInvalid": "Base URL 必须以 http:// 或 https:// 开头",
+      "llmProviderApiKeyRequired": "API key 不能为空",
+      "llmProviderNotFound": "LLM provider 不存在",
+      "llmProviderDisabled": "LLM provider {{name}} 已被禁用",
+      "llmNoDefaultProvider": "未指定 LLM provider 且未配置默认 provider",
+      "llmNoDefaultModel": "未指定模型且未配置默认模型",
+      "llmDefaultProviderNotFound": "默认 provider 不存在",
+      "llmSearchProviderInvalid": "搜索服务必须是 none、tavily 或 brave",
+      "llmFetchModelsFailed": "拉取模型列表失败：{{detail}}"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",

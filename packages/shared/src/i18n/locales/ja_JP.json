@@ -305,7 +305,18 @@
       "botNotFound": "Bot が見つかりません",
       "chatNotFound": "チャットが見つかりません",
       "urlAndSecretRequired": "URL とシークレットが必要です",
-      "notFound": "見つかりません"
+      "notFound": "見つかりません",
+      "llmProviderNameRequired": "プロバイダー名は空にできません",
+      "llmProviderProtocolInvalid": "プロトコルは openai-chat または openai-responses である必要があります",
+      "llmProviderBaseUrlInvalid": "Base URL は http:// または https:// で始まる必要があります",
+      "llmProviderApiKeyRequired": "API key は空にできません",
+      "llmProviderNotFound": "LLM プロバイダーが見つかりません",
+      "llmProviderDisabled": "LLM プロバイダー {{name}} は無効化されています",
+      "llmNoDefaultProvider": "LLM プロバイダーが指定されておらず、デフォルトプロバイダーも設定されていません",
+      "llmNoDefaultModel": "モデルが指定されておらず、デフォルトモデルも設定されていません",
+      "llmDefaultProviderNotFound": "デフォルトプロバイダーが存在しません",
+      "llmSearchProviderInvalid": "検索プロバイダーは none、tavily、brave のいずれかである必要があります",
+      "llmFetchModelsFailed": "モデル一覧の取得に失敗しました：{{detail}}"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",

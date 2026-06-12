@@ -12,12 +12,16 @@
     "db:migrate": "bun src/db/migrate.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.71",
+    "@ai-sdk/openai-compatible": "^2.0.50",
     "@tmex/shared": "workspace:*",
+    "ai": "^6.0.203",
     "drizzle-orm": "^0.45.1",
     "gramio": "^0.4.12",
     "i18next": "^25.8.5",
     "ssh2": "^1.16.0",
-    "uuid": "^11.0.5"
+    "uuid": "^11.0.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bun": "latest",
