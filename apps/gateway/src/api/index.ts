@@ -43,6 +43,7 @@ import { telegramService } from '../telegram/service';
 import { handleAgentApiRequest } from './agent';
 import { handleLlmApiRequest } from './llm';
 import { handleDeviceTestConnection } from './test-connection';
+import { handleWatchApiRequest } from './watch';
 
 function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device>): boolean {
   if (updates.type !== undefined && updates.type !== existing.type) return true;
@@ -231,6 +232,13 @@ export function handleApiRequest(
     const agentResponse = handleAgentApiRequest(req, path);
     if (agentResponse) {
       return agentResponse;
+    }
+  }
+
+  if (path.startsWith('/api/watch/')) {
+    const watchResponse = handleWatchApiRequest(req, path);
+    if (watchResponse) {
+      return watchResponse;
     }
   }
 
