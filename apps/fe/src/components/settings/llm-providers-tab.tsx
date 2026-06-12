@@ -305,6 +305,7 @@ function ProviderCard({ provider }: ProviderCardProps) {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['llm-providers'] });
+      await queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
       toast.success(t('common.success'));
     },
     onError: (err) => {
@@ -544,14 +545,17 @@ function LlmDefaultsCard({ providers }: LlmDefaultsCardProps) {
     },
   });
 
+  const serverDefaultProviderId = settingsQuery.data?.settings.defaultProviderId ?? null;
+  const serverDefaultModelId = settingsQuery.data?.settings.defaultModelId ?? '';
+  const settingsLoaded = Boolean(settingsQuery.data);
+
   useEffect(() => {
-    const settings = settingsQuery.data?.settings;
-    if (!settings) {
+    if (!settingsLoaded) {
       return;
     }
-    setDefaultProviderId(settings.defaultProviderId);
-    setDefaultModelId(settings.defaultModelId ?? '');
-  }, [settingsQuery.data?.settings]);
+    setDefaultProviderId(serverDefaultProviderId);
+    setDefaultModelId(serverDefaultModelId);
+  }, [settingsLoaded, serverDefaultProviderId, serverDefaultModelId]);
 
   const saveDefaultsMutation = useMutation({
     mutationFn: async () => {

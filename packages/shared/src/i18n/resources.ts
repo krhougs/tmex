@@ -221,6 +221,7 @@ export const I18N_RESOURCES = {
         "keyPlaceholder": "Enter API key",
         "keySetPlaceholder": "Already set, leave blank to keep",
         "clearKey": "Clear",
+        "clearKeyConfirm": "Clear this API key? You will need to enter it again.",
         "loadFailed": "Failed to load search settings",
         "saveFailed": "Failed to save search settings"
       }
@@ -750,6 +751,7 @@ export const I18N_RESOURCES = {
         "keyPlaceholder": "输入 API Key",
         "keySetPlaceholder": "已设置，留空不修改",
         "clearKey": "清除",
+        "clearKeyConfirm": "确定要清除此 API Key 吗？清除后需要重新填写。",
         "loadFailed": "加载搜索设置失败",
         "saveFailed": "保存搜索设置失败"
       }
@@ -1279,6 +1281,7 @@ export const I18N_RESOURCES = {
         "keyPlaceholder": "API キーを入力",
         "keySetPlaceholder": "設定済み、空欄の場合は変更されません",
         "clearKey": "クリア",
+        "clearKeyConfirm": "この API キーをクリアしますか？再度入力が必要になります。",
         "loadFailed": "検索設定の読み込みに失敗しました",
         "saveFailed": "検索設定の保存に失敗しました"
       }

@@ -228,6 +228,7 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await expect(tavilyInput).toHaveValue('');
 
   await page.getByTestId('settings-search-tavily-clear').click();
+  await page.getByTestId('settings-search-clear-confirm').click();
   await expect.poll(() => settingsPatches.some((patch) => patch.tavilyApiKey === '')).toBe(true);
   await expect(tavilyInput).toHaveAttribute('data-key-set', 'false');
 

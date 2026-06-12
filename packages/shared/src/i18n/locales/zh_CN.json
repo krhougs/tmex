@@ -215,6 +215,7 @@
         "keyPlaceholder": "输入 API Key",
         "keySetPlaceholder": "已设置，留空不修改",
         "clearKey": "清除",
+        "clearKeyConfirm": "确定要清除此 API Key 吗？清除后需要重新填写。",
         "loadFailed": "加载搜索设置失败",
         "saveFailed": "保存搜索设置失败"
       }

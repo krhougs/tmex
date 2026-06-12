@@ -215,6 +215,7 @@
         "keyPlaceholder": "API キーを入力",
         "keySetPlaceholder": "設定済み、空欄の場合は変更されません",
         "clearKey": "クリア",
+        "clearKeyConfirm": "この API キーをクリアしますか？再度入力が必要になります。",
         "loadFailed": "検索設定の読み込みに失敗しました",
         "saveFailed": "検索設定の保存に失敗しました"
       }

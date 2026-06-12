@@ -225,6 +225,7 @@ export type TranslationKey =
   | 'settings.search.keyPlaceholder'
   | 'settings.search.keySetPlaceholder'
   | 'settings.search.clearKey'
+  | 'settings.search.clearKeyConfirm'
   | 'settings.search.loadFailed'
   | 'settings.search.saveFailed'
   | 'telegram'

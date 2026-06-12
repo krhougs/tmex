@@ -215,6 +215,7 @@
         "keyPlaceholder": "Enter API key",
         "keySetPlaceholder": "Already set, leave blank to keep",
         "clearKey": "Clear",
+        "clearKeyConfirm": "Clear this API key? You will need to enter it again.",
         "loadFailed": "Failed to load search settings",
         "saveFailed": "Failed to save search settings"
       }

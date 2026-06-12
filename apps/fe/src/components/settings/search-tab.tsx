@@ -9,6 +9,16 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,6 +52,9 @@ export function SearchTab() {
   const [searchProvider, setSearchProvider] = useState<AgentSearchProvider>('none');
   const [tavilyApiKey, setTavilyApiKey] = useState('');
   const [braveApiKey, setBraveApiKey] = useState('');
+  const [pendingClearKey, setPendingClearKey] = useState<'tavilyApiKey' | 'braveApiKey' | null>(
+    null
+  );
 
   const settingsQuery = useQuery({
     queryKey: ['llm-settings'],
@@ -55,13 +68,14 @@ export function SearchTab() {
   });
 
   const settings = settingsQuery.data?.settings;
+  const serverSearchProvider = settings?.searchProvider;
 
   useEffect(() => {
-    if (!settings) {
+    if (!serverSearchProvider) {
       return;
     }
-    setSearchProvider(settings.searchProvider);
-  }, [settings]);
+    setSearchProvider(serverSearchProvider);
+  }, [serverSearchProvider]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -161,8 +175,8 @@ export function SearchTab() {
           value={tavilyApiKey}
           hasKey={settings?.hasTavilyApiKey ?? false}
           onChange={setTavilyApiKey}
-          onClear={() => clearKeyMutation.mutate('tavilyApiKey')}
-          clearing={clearKeyMutation.isPending}
+          onClear={() => setPendingClearKey('tavilyApiKey')}
+          clearing={clearKeyMutation.isPending && clearKeyMutation.variables === 'tavilyApiKey'}
         />
 
         <ApiKeyField
@@ -172,9 +186,41 @@ export function SearchTab() {
           value={braveApiKey}
           hasKey={settings?.hasBraveApiKey ?? false}
           onChange={setBraveApiKey}
-          onClear={() => clearKeyMutation.mutate('braveApiKey')}
-          clearing={clearKeyMutation.isPending}
+          onClear={() => setPendingClearKey('braveApiKey')}
+          clearing={clearKeyMutation.isPending && clearKeyMutation.variables === 'braveApiKey'}
         />
+
+        <AlertDialog
+          open={pendingClearKey !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPendingClearKey(null);
+            }
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('settings.search.clearKey')}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('settings.search.clearKeyConfirm')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                data-testid="settings-search-clear-confirm"
+                onClick={() => {
+                  if (pendingClearKey) {
+                    clearKeyMutation.mutate(pendingClearKey);
+                  }
+                  setPendingClearKey(null);
+                }}
+              >
+                {t('settings.search.clearKey')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <div className="flex justify-end">
           <Button
