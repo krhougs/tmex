@@ -1,3 +1,4 @@
+import { agentSupervisor } from './agent/supervisor';
 import { handleApiRequest } from './api';
 import { config } from './config';
 import { runtimeController } from './control/runtime';
@@ -51,6 +52,7 @@ export async function createGatewayRuntime(
   });
   await telegramService.refresh();
   await pushSupervisor.start();
+  await agentSupervisor.start();
 
   try {
     const settings = getSiteSettings();
@@ -98,6 +100,7 @@ export async function createGatewayRuntime(
     async stop() {
       connectionAlertNotifier.setBroadcaster(null);
       wsServer.closeAll();
+      await agentSupervisor.stop();
       await pushSupervisor.stopAll();
       await tmuxRuntimeRegistry.shutdownAll();
       await telegramService.stopAll();
