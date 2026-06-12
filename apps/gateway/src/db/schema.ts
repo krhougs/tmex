@@ -1,9 +1,8 @@
-import type { EventType } from '@tmex/shared';
+import type { AgentSearchProvider, EventType, LlmProviderProtocol } from '@tmex/shared';
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
-export type LlmProviderProtocol = 'openai-chat' | 'openai-responses';
-export type AgentSearchProvider = 'none' | 'tavily' | 'brave';
+export type { AgentSearchProvider, LlmProviderProtocol } from '@tmex/shared';
 export type AgentWriteMode = 'confirm' | 'auto';
 export type AgentSessionStatus = 'idle' | 'running' | 'waiting_confirmation' | 'stopped' | 'error';
 export type AgentMessageRole = 'system' | 'user' | 'assistant' | 'tool';

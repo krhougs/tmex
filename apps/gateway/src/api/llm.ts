@@ -80,7 +80,26 @@ function toSettingsDto(record: AgentSettingsRecord): AgentLlmSettingsDto {
 }
 
 function isValidBaseUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'http:' || url.protocol === 'https:';
+}
+
+async function readJsonObjectBody(req: Request): Promise<Record<string, unknown> | null> {
+  let parsed: unknown;
+  try {
+    parsed = await req.json();
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as Record<string, unknown>;
 }
 
 async function refreshModelsCache(
@@ -107,22 +126,29 @@ async function handleListProviders(): Promise<Response> {
 }
 
 async function handleCreateProvider(req: Request): Promise<Response> {
-  const body = (await req.json()) as CreateLlmProviderRequest;
+  const raw = await readJsonObjectBody(req);
+  if (!raw) {
+    return json({ error: t('apiError.invalidRequest') }, 400);
+  }
+  const body = raw as unknown as CreateLlmProviderRequest;
 
-  const name = body.name?.trim();
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
   if (!name) {
     return json({ error: t('apiError.llmProviderNameRequired') }, 400);
   }
   if (!PROTOCOLS.includes(body.protocol)) {
     return json({ error: t('apiError.llmProviderProtocolInvalid') }, 400);
   }
-  const baseUrl = body.baseUrl?.trim();
+  const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
   if (!baseUrl || !isValidBaseUrl(baseUrl)) {
     return json({ error: t('apiError.llmProviderBaseUrlInvalid') }, 400);
   }
-  const apiKey = body.apiKey?.trim();
+  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
   if (!apiKey) {
     return json({ error: t('apiError.llmProviderApiKeyRequired') }, 400);
+  }
+  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+    return json({ error: t('apiError.invalidRequest') }, 400);
   }
 
   const created = createLlmProvider({
@@ -143,11 +169,15 @@ async function handleUpdateProvider(req: Request, id: string): Promise<Response>
     return json({ error: t('apiError.llmProviderNotFound') }, 404);
   }
 
-  const body = (await req.json()) as UpdateLlmProviderRequest;
+  const raw = await readJsonObjectBody(req);
+  if (!raw) {
+    return json({ error: t('apiError.invalidRequest') }, 400);
+  }
+  const body = raw as UpdateLlmProviderRequest;
   const updates: Parameters<typeof updateLlmProvider>[1] = {};
 
   if (body.name !== undefined) {
-    const name = body.name.trim();
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) {
       return json({ error: t('apiError.llmProviderNameRequired') }, 400);
     }
@@ -162,7 +192,7 @@ async function handleUpdateProvider(req: Request, id: string): Promise<Response>
   }
 
   if (body.baseUrl !== undefined) {
-    const baseUrl = body.baseUrl.trim();
+    const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
     if (!isValidBaseUrl(baseUrl)) {
       return json({ error: t('apiError.llmProviderBaseUrlInvalid') }, 400);
     }
@@ -170,12 +200,18 @@ async function handleUpdateProvider(req: Request, id: string): Promise<Response>
   }
 
   // apiKey 留空或缺省表示不修改
+  if (body.apiKey !== undefined && typeof body.apiKey !== 'string') {
+    return json({ error: t('apiError.invalidRequest') }, 400);
+  }
   const apiKey = body.apiKey?.trim();
   if (apiKey) {
     updates.apiKeyEnc = await encrypt(apiKey);
   }
 
   if (body.enabled !== undefined) {
+    if (typeof body.enabled !== 'boolean') {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
     updates.enabled = body.enabled;
   }
 
@@ -227,7 +263,11 @@ async function handleGetSettings(): Promise<Response> {
 }
 
 async function handleUpdateSettings(req: Request): Promise<Response> {
-  const body = (await req.json()) as UpdateAgentLlmSettingsRequest;
+  const raw = await readJsonObjectBody(req);
+  if (!raw) {
+    return json({ error: t('apiError.invalidRequest') }, 400);
+  }
+  const body = raw as UpdateAgentLlmSettingsRequest;
   const updates: Parameters<typeof updateAgentSettings>[0] = {};
 
   if (body.searchProvider !== undefined) {
@@ -238,6 +278,9 @@ async function handleUpdateSettings(req: Request): Promise<Response> {
   }
 
   if (body.defaultProviderId !== undefined) {
+    if (body.defaultProviderId !== null && typeof body.defaultProviderId !== 'string') {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
     if (body.defaultProviderId !== null && !getLlmProviderById(body.defaultProviderId)) {
       return json({ error: t('apiError.llmDefaultProviderNotFound') }, 400);
     }
@@ -245,16 +288,25 @@ async function handleUpdateSettings(req: Request): Promise<Response> {
   }
 
   if (body.defaultModelId !== undefined) {
+    if (body.defaultModelId !== null && typeof body.defaultModelId !== 'string') {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
     updates.defaultModelId = body.defaultModelId;
   }
 
   // key 缺省表示不修改，空串表示清除
   if (body.tavilyApiKey !== undefined) {
+    if (typeof body.tavilyApiKey !== 'string') {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
     const value = body.tavilyApiKey.trim();
     updates.tavilyApiKeyEnc = value ? await encrypt(value) : null;
   }
 
   if (body.braveApiKey !== undefined) {
+    if (typeof body.braveApiKey !== 'string') {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
     const value = body.braveApiKey.trim();
     updates.braveApiKeyEnc = value ? await encrypt(value) : null;
   }

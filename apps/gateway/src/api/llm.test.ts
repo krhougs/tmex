@@ -104,7 +104,9 @@ describe('llm provider api', () => {
       { name: '', protocol: 'openai-chat', baseUrl: 'https://x.test/v1', apiKey: 'k' },
       { name: 'a', protocol: 'grpc', baseUrl: 'https://x.test/v1', apiKey: 'k' },
       { name: 'a', protocol: 'openai-chat', baseUrl: 'ftp://x.test/v1', apiKey: 'k' },
+      { name: 'a', protocol: 'openai-chat', baseUrl: 'https://#', apiKey: 'k' },
       { name: 'a', protocol: 'openai-chat', baseUrl: 'https://x.test/v1', apiKey: '' },
+      { name: 42, protocol: 'openai-chat', baseUrl: 'https://x.test/v1', apiKey: 'k' },
     ];
 
     for (const body of cases) {
@@ -112,6 +114,40 @@ describe('llm provider api', () => {
       expect(response.status).toBe(400);
       expect(((await response.json()) as { error: string }).error).toBeString();
     }
+  });
+
+  test('malformed or non-object json body returns 400', async () => {
+    const upstream = createMockModelsServer();
+    const createResponse = await callApi('POST', '/api/llm/providers', {
+      name: 'body-guard',
+      protocol: 'openai-chat',
+      baseUrl: upstream.baseUrl,
+      apiKey: 'sk-k',
+    });
+    const created = ((await createResponse.json()) as { provider: LlmProviderDto }).provider;
+
+    const targets: Array<{ method: string; path: string }> = [
+      { method: 'POST', path: '/api/llm/providers' },
+      { method: 'PATCH', path: `/api/llm/providers/${created.id}` },
+      { method: 'PATCH', path: '/api/llm/settings' },
+    ];
+
+    for (const target of targets) {
+      for (const rawBody of ['{not json', 'null', '[]']) {
+        const req = new Request(`http://localhost${target.path}`, {
+          method: target.method,
+          headers: { 'Content-Type': 'application/json' },
+          body: rawBody,
+        });
+        const response = await handleLlmApiRequest(req, target.path);
+        expect(response).not.toBeNull();
+        expect((response as Response).status).toBe(400);
+        expect(((await (response as Response).json()) as { error: string }).error).toBeString();
+      }
+    }
+
+    const numericName = await callApi('PATCH', `/api/llm/providers/${created.id}`, { name: 42 });
+    expect(numericName.status).toBe(400);
   });
 
   test('list providers returns hasApiKey without secrets', async () => {

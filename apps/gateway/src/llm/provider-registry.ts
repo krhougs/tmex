@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
-import { decrypt } from '../crypto';
+import { decrypt, decryptWithContext } from '../crypto';
 import { getAgentSettings } from '../db/agent';
 import { type LlmProviderRecord, getLlmProviderById } from '../db/llm';
 import { t } from '../i18n';
@@ -40,7 +40,11 @@ export async function resolveLanguageModel(
     throw new Error(t('apiError.llmProviderDisabled', { name: provider.name }));
   }
 
-  const apiKey = await decrypt(provider.apiKeyEnc);
+  const apiKey = await decryptWithContext(provider.apiKeyEnc, {
+    scope: 'llm_provider',
+    entityId: provider.id,
+    field: 'api_key_enc',
+  });
   const baseURL = normalizeBaseUrl(provider.baseUrl);
 
   if (provider.protocol === 'openai-responses') {
