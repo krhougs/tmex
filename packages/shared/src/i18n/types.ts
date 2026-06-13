@@ -191,6 +191,7 @@ export type TranslationKey =
   | 'settings.llm.namePlaceholder'
   | 'settings.llm.baseUrl'
   | 'settings.llm.baseUrlPlaceholder'
+  | 'settings.llm.baseUrlHint'
   | 'settings.llm.protocol'
   | 'settings.llm.apiKey'
   | 'settings.llm.apiKeyPlaceholder'

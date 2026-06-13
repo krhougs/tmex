@@ -147,6 +147,7 @@ export function LlmProvidersTab() {
                 placeholder={t('settings.llm.baseUrlPlaceholder')}
                 className="min-h-10"
               />
+              <p className="text-xs text-muted-foreground">{t('settings.llm.baseUrlHint')}</p>
             </div>
 
             <div className="md:col-span-2 space-y-2">

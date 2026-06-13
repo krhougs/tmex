@@ -8,8 +8,23 @@ import { t } from '../i18n';
 
 const FETCH_MODELS_TIMEOUT_MS = 15_000;
 
-export function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, '');
+// 解析用户输入的 Base URL，参考 NextChat/OneAPI 的后缀约定：
+// - 默认：自动补 `/v1`（已以 `/vN` 结尾则不重复）
+// - `/` 结尾：忽略 v1 版本，路径原样（仅去掉尾部斜杠）
+// - `#`：暂不作为特殊标记，按 URL fragment 丢弃
+// 解析结果用作 AI SDK 的 baseURL 以及 `${base}/models` 的前缀，保证拉模型与推理一致。
+export function resolveBaseUrl(baseUrl: string): string {
+  const withoutFragment = baseUrl.trim().split('#')[0];
+
+  if (withoutFragment.endsWith('/')) {
+    return withoutFragment.replace(/\/+$/, '');
+  }
+
+  if (/\/v\d+$/.test(withoutFragment)) {
+    return withoutFragment;
+  }
+
+  return `${withoutFragment}/v1`;
 }
 
 export async function resolveLanguageModel(
@@ -45,7 +60,7 @@ export async function resolveLanguageModel(
     entityId: provider.id,
     field: 'api_key_enc',
   });
-  const baseURL = normalizeBaseUrl(provider.baseUrl);
+  const baseURL = resolveBaseUrl(provider.baseUrl);
 
   if (provider.protocol === 'openai-responses') {
     return createOpenAI({ baseURL, apiKey }).responses(effectiveModelId);
@@ -81,7 +96,7 @@ export async function resolveProviderWebSearchTool(providerId: string | null): P
   });
 
   return createOpenAI({
-    baseURL: normalizeBaseUrl(provider.baseUrl),
+    baseURL: resolveBaseUrl(provider.baseUrl),
     apiKey,
   }).tools.webSearch();
 }
@@ -91,7 +106,7 @@ export async function fetchProviderModels(
   options: { timeoutMs?: number } = {}
 ): Promise<string[]> {
   const apiKey = await decrypt(provider.apiKeyEnc);
-  const baseURL = normalizeBaseUrl(provider.baseUrl);
+  const baseURL = resolveBaseUrl(provider.baseUrl);
 
   let response: Response;
   try {
