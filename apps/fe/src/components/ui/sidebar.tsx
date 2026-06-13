@@ -272,6 +272,7 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
+          animation="top-down"
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
