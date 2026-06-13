@@ -70,7 +70,14 @@ function RootLayout() {
         >
           <div className="h-[var(--tmex-safe-area-top)]" />
           <Outlet />
-          <div className="h-[var(--tmex-safe-area-bottom)]" />
+          {/* 底部安全区占位：键盘弹起时整页已上移、Home Indicator 区被键盘覆盖，
+              再保留这段会在输入区与键盘之间夹出空白，故弹起时收起 */}
+          <div
+            style={{
+              height: keyboardOffset > 0 ? 0 : 'var(--tmex-safe-area-bottom)',
+              transition: 'height 0.12s ease-out',
+            }}
+          />
         </SidebarInset>
       </SidebarProvider>
     </GlobalDeviceProvider>
