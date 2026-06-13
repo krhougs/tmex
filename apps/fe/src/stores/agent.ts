@@ -62,6 +62,7 @@ export interface CreateSessionOptions {
   modelId?: string | null;
   providerHostedTools?: string[];
   originPaneTitle?: string | null;
+  writeMode?: AgentWriteMode;
 }
 
 interface AgentState {
@@ -76,6 +77,8 @@ interface AgentState {
   queued: Record<string, AgentQueuedMessageDto[] | undefined>;
   sending: Record<string, boolean | undefined>;
   draft: DraftSession | null;
+  // 新建 session 的默认写入模式（浏览器记忆，session 创建前也由开关控制）
+  defaultWriteMode: AgentWriteMode;
 
   ensureInitialized: () => void;
   loadSessions: () => Promise<void>;
@@ -89,6 +92,7 @@ interface AgentState {
   renameSession: (sessionId: string, title: string) => Promise<boolean>;
   deleteSession: (sessionId: string) => Promise<boolean>;
   setWriteMode: (sessionId: string, writeMode: AgentWriteMode) => Promise<void>;
+  setDefaultWriteMode: (writeMode: AgentWriteMode) => void;
   setSessionModel: (sessionId: string, providerId: string | null, modelId: string) => Promise<void>;
   rebindPane: (sessionId: string, paneId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
@@ -644,6 +648,7 @@ export const useAgentStore = create<AgentState>()(
       queued: {},
       sending: {},
       draft: null,
+      defaultWriteMode: 'confirm',
 
       ensureInitialized() {
         setupClientHandlers(set, get);
@@ -743,6 +748,7 @@ export const useAgentStore = create<AgentState>()(
               ...(options?.originPaneTitle !== undefined
                 ? { originPaneTitle: options.originPaneTitle }
                 : {}),
+              writeMode: options?.writeMode ?? get().defaultWriteMode,
             }),
           });
           if (!res.ok) {
@@ -846,6 +852,10 @@ export const useAgentStore = create<AgentState>()(
         } catch (error) {
           toast.error(error instanceof Error ? error.message : String(error));
         }
+      },
+
+      setDefaultWriteMode(writeMode) {
+        set({ defaultWriteMode: writeMode });
       },
 
       async setSessionModel(sessionId, providerId, modelId) {
@@ -1127,6 +1137,7 @@ export const useAgentStore = create<AgentState>()(
       name: 'tmex-agent',
       partialize: (state) => ({
         activeSessionId: state.activeSessionId,
+        defaultWriteMode: state.defaultWriteMode,
       }),
     }
   )
