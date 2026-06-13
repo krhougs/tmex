@@ -635,10 +635,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         style={{ backgroundColor: terminalTheme.background }}
         data-terminal-engine={TERMINAL_ENGINE}
       >
-        <div
-          ref={containerRef}
-          className={`relative min-h-0 w-full flex-1${children ? ' mb-1' : ''}`}
-        >
+        <div ref={containerRef} className="relative min-h-0 w-full flex-1">
           <div ref={mountRef} className="absolute inset-0" />
           <SelectionToolbar
             visible={hasSelection}
