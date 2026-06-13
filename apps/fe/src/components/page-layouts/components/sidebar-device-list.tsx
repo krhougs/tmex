@@ -194,12 +194,11 @@ export function SideBarDeviceList() {
 
   const handleCreateSessionForPane = useCallback(
     (deviceId: string, windowId: string, pane: TmuxPane) => {
-      navigateToPane(deviceId, windowId, pane.id);
+      navigateToPane(deviceId, windowId, pane.id, { keepSidebarOpen: true });
       useAgentStore.getState().startDraft(deviceId, pane.id, pane.title ?? null);
       setSidebarTab('agent');
-      if (isMobile) setOpenMobile(false);
     },
-    [navigateToPane, setSidebarTab, isMobile, setOpenMobile]
+    [navigateToPane, setSidebarTab]
   );
 
   const selectWindow = useTmuxStore((state) => state.selectWindow);
