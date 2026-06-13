@@ -71,41 +71,48 @@ function StatusBarSync() {
 
 // Root layout: 包含全局 Provider 和 Sidebar
 function RootLayout() {
-  // Android 等平台虚拟键盘只缩小 visual viewport，固定布局下会盖住下半屏，
-  // 用 translateY 整体平移避让。transform 不参与布局，不会触发终端容器的
-  // ResizeObserver。offset 为 0 时必须移除 transform：非 none 的 transform
-  // 会成为 fixed 后代的 containing block，破坏 iOS editor dock 的定位。
-  const keyboardOffset = useVirtualKeyboardOffset();
-
   return (
     <GlobalDeviceProvider>
       <WatchEventsInit />
       <SidebarProvider>
         <StatusBarSync />
         <AppSidebar />
-        <SidebarInset
-          className="h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]"
-          style={
-            keyboardOffset > 0
-              ? {
-                  transform: `translateY(-${keyboardOffset}px)`,
-                  transition: 'transform 0.12s ease-out',
-                }
-              : undefined
-          }
-        >
-          <Outlet />
-          {/* 底部安全区占位：键盘弹起时整页已上移、Home Indicator 区被键盘覆盖，
-              再保留这段会在输入区与键盘之间夹出空白，故弹起时收起 */}
-          <div
-            style={{
-              height: keyboardOffset > 0 ? 0 : 'var(--tmex-safe-area-bottom)',
-              transition: 'height 0.12s ease-out',
-            }}
-          />
-        </SidebarInset>
+        <MainInset />
       </SidebarProvider>
     </GlobalDeviceProvider>
+  );
+}
+
+// SidebarInset（<main>）+ 虚拟键盘避让。必须在 SidebarProvider 内部才能读取
+// openMobile：移动端侧边栏 Sheet 打开时终端不可见，此时禁用键盘避让可防止
+// portal 焦点切换导致的 viewport 事件竞态、transform 卡在非零值。
+// transform 不参与布局，不会触发终端容器的 ResizeObserver；offset 为 0 时
+// 必须移除 transform：非 none 的 transform 会成为 fixed 后代的 containing block，
+// 破坏 iOS editor dock 的定位。
+function MainInset() {
+  const { openMobile } = useSidebar();
+  const keyboardOffset = useVirtualKeyboardOffset(openMobile);
+
+  return (
+    <SidebarInset
+      className="h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]"
+      style={
+        keyboardOffset > 0
+          ? {
+              transform: `translateY(-${keyboardOffset}px)`,
+              transition: 'transform 0.12s ease-out',
+            }
+          : undefined
+      }
+    >
+      <Outlet />
+      <div
+        style={{
+          height: keyboardOffset > 0 ? 0 : 'var(--tmex-safe-area-bottom)',
+          transition: 'height 0.12s ease-out',
+        }}
+      />
+    </SidebarInset>
   );
 }
 
