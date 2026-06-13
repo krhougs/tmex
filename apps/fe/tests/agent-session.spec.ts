@@ -7,6 +7,7 @@ import { ensureCleanSession, tmux } from './helpers/tmux';
 
 const REPLY_TEXT = 'Hello from mock e2e agent reply';
 const MOCK_TITLE = 'Mock Session Title';
+const TOOL_DONE_REPLY = 'Tool finished mock follow-up reply';
 
 interface MockLlmServer {
   server: Server;
@@ -41,20 +42,68 @@ function startMockLlmServer(): Promise<MockLlmServer> {
         body += piece;
       });
       req.on('end', () => {
-        let stream = false;
+        let parsed: {
+          stream?: boolean;
+          messages?: Array<{ role?: string; content?: unknown }>;
+        } = {};
         try {
-          stream = Boolean((JSON.parse(body) as { stream?: boolean }).stream);
+          parsed = JSON.parse(body) as typeof parsed;
         } catch {
           // 按非流式处理
         }
+        const stream = Boolean(parsed.stream);
 
         if (stream) {
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
           });
+
+          // 用户消息以 RUN_COMMAND 开头时返回 send_input tool call（needsApproval 走确认流），
+          // 续跑请求（messages 中已有 role=tool）则返回收尾文本
+          const messages = parsed.messages ?? [];
+          let lastUserIndex = -1;
+          for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i]?.role === 'user') {
+              lastUserIndex = i;
+              break;
+            }
+          }
+          const lastUser = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
+          // 只看本轮（最后一条 user 消息之后）是否已有 tool 结果，历史轮次的 tool 消息不算
+          const hasToolMessage = messages.slice(lastUserIndex + 1).some((m) => m.role === 'tool');
+          const lastUserText =
+            typeof lastUser?.content === 'string'
+              ? lastUser.content
+              : JSON.stringify(lastUser?.content ?? '');
+          const commandMatch = lastUserText.match(/RUN_COMMAND ([A-Za-z0-9_ -]+)/);
+
+          if (commandMatch && !hasToolMessage) {
+            res.write(
+              sseChunk({
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: `call_e2e_${Math.random().toString(36).slice(2, 10)}`,
+                    type: 'function',
+                    function: {
+                      name: 'send_input',
+                      arguments: JSON.stringify({ text: commandMatch[1], keys: ['enter'] }),
+                    },
+                  },
+                ],
+              })
+            );
+            res.write(sseChunk({}, 'tool_calls'));
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+          }
+
+          const replyText = commandMatch && hasToolMessage ? TOOL_DONE_REPLY : REPLY_TEXT;
           res.write(sseChunk({ role: 'assistant', content: '' }));
-          for (const word of REPLY_TEXT.split(' ')) {
+          for (const word of replyText.split(' ')) {
             res.write(sseChunk({ content: `${word} ` }));
           }
           res.write(sseChunk({}, 'stop'));
@@ -338,6 +387,78 @@ test.describe
       await pageB.close();
 
       // 清理本用例 session，避免影响后续用例
+      await page.getByTestId('agent-session-switcher').click();
+      const menu = page.getByTestId('agent-session-switcher-menu');
+      await expect(menu).toBeVisible();
+      await menu.locator('[data-testid^="agent-session-delete-"]').first().click();
+      await page.getByTestId('agent-session-delete-confirm').click();
+      await expect(page.getByTestId('agent-session-switcher')).toContainText('No session selected');
+    });
+
+    test('confirm flow: approve executes tool then resumes, deny skips execution', async ({
+      page,
+    }) => {
+      const approveToken = `E2E_APPROVE_${Date.now()}`;
+      const denyToken = `E2E_DENY_${Date.now()}`;
+
+      await page.goto(
+        `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
+      );
+      const panelRoot = page.locator('[data-slot="right-panel"]');
+      if ((await panelRoot.getAttribute('data-state')) !== 'expanded') {
+        await page.getByTestId('right-panel-trigger').first().click();
+      }
+      await expect(page.getByTestId('agent-panel')).toBeVisible();
+
+      // 新建 session（默认 writeMode=confirm）
+      await page.getByTestId('agent-session-switcher').click();
+      await page.getByTestId('agent-session-create').click();
+      await expect(page.getByTestId('agent-session-switcher')).toContainText('New Session');
+      await expect(page.getByTestId('agent-binding-chip')).toHaveAttribute(
+        'data-binding-state',
+        'valid',
+        { timeout: 15_000 }
+      );
+
+      // 第一轮：approve —— tool call 出确认卡片，点允许后工具真实执行并续跑
+      const textarea = page.getByTestId('agent-chat-input-textarea');
+      await expect(textarea).toBeEnabled();
+      await textarea.fill(`RUN_COMMAND echo ${approveToken}`);
+      await page.getByTestId('agent-chat-send').click();
+
+      const approveButton = page.getByTestId('agent-confirm-approve');
+      await expect(approveButton).toBeVisible({ timeout: 20_000 });
+      await approveButton.click();
+      await expect(page.getByTestId('agent-confirm-approve')).toHaveCount(0, { timeout: 15_000 });
+
+      // 工具被真实执行：echo 输出出现在绑定 pane 屏幕上
+      await expect
+        .poll(() => tmux(`capture-pane -t '${paneId}' -p`), { timeout: 20_000 })
+        .toContain(approveToken);
+
+      // 续跑收尾文本上屏，session 回到 idle（输入可用）
+      await expect(page.getByTestId('agent-chat-thread')).toContainText(TOOL_DONE_REPLY, {
+        timeout: 20_000,
+      });
+      await expect(textarea).toBeEnabled({ timeout: 15_000 });
+
+      // 第二轮：deny —— 点拒绝后工具不执行，模型收到拒绝并继续
+      await textarea.fill(`RUN_COMMAND echo ${denyToken}`);
+      await page.getByTestId('agent-chat-send').click();
+
+      const denyButton = page.getByTestId('agent-confirm-deny');
+      await expect(denyButton).toBeVisible({ timeout: 20_000 });
+      await denyButton.click();
+      await expect(page.getByTestId('agent-confirm-deny')).toHaveCount(0, { timeout: 15_000 });
+
+      // 拒绝态卡片出现，session 回到 idle
+      await expect(page.locator('[data-tool-denied="true"]')).toBeVisible({ timeout: 20_000 });
+      await expect(textarea).toBeEnabled({ timeout: 20_000 });
+
+      // 被拒绝的命令从未写入 pane
+      expect(tmux(`capture-pane -t '${paneId}' -p`)).not.toContain(denyToken);
+
+      // 清理本用例 session
       await page.getByTestId('agent-session-switcher').click();
       const menu = page.getByTestId('agent-session-switcher-menu');
       await expect(menu).toBeVisible();
