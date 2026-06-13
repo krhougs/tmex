@@ -388,6 +388,8 @@ export class SwitchBarrier {
     if (stage === 'history') {
       // history 超时: 允许无 history 进入 live，保证不阻塞
       this.sendLiveResume(ws as any, deviceId, expectedToken);
+      // 兜底: sendLiveResume 可能提前 return 未解除门控, 这里无条件解除避免永久 BUFFERING
+      sessionStateStore.stopOutputBuffering(ws, deviceId);
       pending.callbacks.onTimeout?.(stage);
       return;
     }

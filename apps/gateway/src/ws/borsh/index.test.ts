@@ -318,4 +318,43 @@ describe('switch barrier', () => {
     switchBarrier.cleanupClient(ws1);
     switchBarrier.cleanupClient(ws2);
   });
+
+  it('history 超时且 sendLiveResume 提前 return 时应兜底解除门控', () => {
+    const mockWs = {
+      remoteAddress: '127.0.0.1',
+      data: { borshState: createBorshClientState() },
+      send: () => {},
+    } as any;
+
+    sessionStateStore.create(mockWs);
+
+    const deviceId = 'device-gate-leak';
+    const selectToken = crypto.getRandomValues(new Uint8Array(16));
+
+    expect(
+      switchBarrier.startTransaction(mockWs, {
+        deviceId,
+        windowId: '@1',
+        paneId: '%1',
+        selectToken,
+        wantHistory: true,
+        cols: null,
+        rows: null,
+      })
+    ).toBe(true);
+
+    switchBarrier.sendSwitchAck(mockWs, deviceId);
+    expect(sessionStateStore.isBuffering(mockWs, deviceId)).toBe(true);
+
+    // 制造 sendLiveResume 提前 return: borshState 缺失命中 `if (!borshState) return`
+    mockWs.data.borshState = undefined;
+
+    // 直接触发 history 超时, 无需等真实定时器
+    (switchBarrier as any).handleTimeout(mockWs, deviceId, 'history', selectToken);
+
+    // 兜底解除门控生效: 不应残留 BUFFERING
+    expect(sessionStateStore.isBuffering(mockWs, deviceId)).toBe(false);
+
+    switchBarrier.cleanupClient(mockWs);
+  });
 });
