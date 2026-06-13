@@ -34,7 +34,10 @@ export function QueueChips({
   };
 
   return (
-    <div data-testid="agent-queue" className="flex shrink-0 flex-col gap-1.5 border-t px-3 py-2">
+    <div
+      data-testid="agent-queue"
+      className="bg-muted/50 mx-3 mb-2 flex shrink-0 flex-col gap-1.5 rounded-xl px-2.5 py-2"
+    >
       <div className="flex items-center justify-between">
         <span className="text-muted-foreground text-xs font-medium">
           {t('agent.queue.title', { count: queued.length })}
@@ -55,7 +58,7 @@ export function QueueChips({
           <li
             key={item.id}
             data-testid={`agent-queue-item-${item.id}`}
-            className="bg-muted/50 flex items-start gap-1.5 rounded-md px-2 py-1"
+            className="bg-background/60 flex items-start gap-1.5 rounded-lg px-2 py-1"
           >
             {editingId === item.id ? (
               <>

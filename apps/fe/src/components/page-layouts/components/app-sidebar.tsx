@@ -12,8 +12,9 @@ import { SideBarDeviceList } from './sidebar-device-list';
 import { SidebarTitle } from './sidebar-title';
 
 // 灰色轨道(bg-muted)上嵌一个更亮的圆角药丸：亮色用 bg-background(白)，暗色用更亮的半透明覆盖，去边框。
+// rounded-lg 与外层 rounded-xl 轨道同心收敛。
 const tabTriggerClassName =
-  "rounded-md data-active:bg-background data-active:text-foreground data-active:border-transparent data-active:shadow-sm dark:data-active:bg-input/60 dark:data-active:border-transparent text-[13px] [&_svg:not([class*='size-'])]:size-[15px]";
+  "rounded-lg data-active:bg-background data-active:text-foreground data-active:border-transparent group-data-[variant=default]/tabs-list:data-active:shadow-none dark:data-active:bg-input/60 dark:data-active:border-transparent text-[13px] transition-colors duration-200 [&_svg:not([class*='size-'])]:size-[15px]";
 
 const navMainItems = [
   {
@@ -34,10 +35,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader className="gap-5 pt-3 pb-0">
         <SidebarTitle />
         <Tabs
+          className="mb-2.5"
           value={sidebarTab}
           onValueChange={(value) => setSidebarTab(value as typeof sidebarTab)}
         >
-          <TabsList className="w-full p-1 group-data-horizontal/tabs:h-11">
+          <TabsList className="w-full p-1 rounded-xl border border-border/60 group-data-horizontal/tabs:h-11">
             <TabsTrigger
               value="panes"
               data-testid="sidebar-tab-panes"

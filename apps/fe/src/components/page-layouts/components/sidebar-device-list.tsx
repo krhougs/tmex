@@ -675,13 +675,13 @@ function DeviceSection({
     <div
       data-testid={`device-item-${device.id}`}
       className={cn(
-        'rounded-lg border overflow-hidden text-select-none',
-        isSelected ? 'bg-card' : isConnected ? 'bg-card/50' : 'bg-muted/20'
+        'rounded-xl border border-border/60 overflow-hidden text-select-none',
+        isSelected ? 'bg-card' : isConnected ? 'bg-muted/40' : 'bg-muted/20'
       )}
       onClick={isConnected ? undefined : onConnectToggle}
     >
       {/* Device Header - Not selectable, just shows status and controls */}
-      <div className="relative px-3 py-1 border-b bg-muted/30">
+      <div className="relative px-3 py-1.5">
         {isSelected && (
           <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-muted-foreground/70" />
         )}
@@ -836,10 +836,10 @@ function WindowItem({
             'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors pr-7 [@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:pr-12',
             isMobile && 'py-2.5 pr-13',
             isPaneSelected
-              ? 'bg-primary/15 text-primary border border-primary/30'
+              ? 'bg-primary/10 text-primary'
               : window.active
-                ? 'bg-accent text-accent-foreground border border-border/70'
-                : 'hover:bg-accent/50 text-foreground border border-transparent'
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-accent/50 text-foreground'
           )}
         >
           <Badge
@@ -932,10 +932,10 @@ function WindowItem({
                     'w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors pr-13 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-21',
                     isMobile && 'py-2.5 pr-24',
                     isPaneActive
-                      ? 'bg-primary/10 text-primary border border-primary/20'
+                      ? 'bg-primary/10 text-primary'
                       : pane.active
-                        ? 'bg-accent text-accent-foreground border border-border/70'
-                        : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-accent/30 text-muted-foreground'
                   )}
                 >
                   <span className="text-[10px] font-mono opacity-60 w-4">{pane.index}</span>
@@ -1135,8 +1135,8 @@ function PaneSessionBranch({
                 'w-full flex items-center gap-1.5 px-2 py-1 pr-7 rounded-md text-left transition-colors [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-12',
                 isMobile && 'min-h-11 py-2 pr-12',
                 isActive
-                  ? 'bg-primary/10 text-primary border border-primary/20'
-                  : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
+                  ? 'bg-primary/10 text-primary'
+                  : 'hover:bg-accent/30 text-muted-foreground'
               )}
             >
               <Bot className="size-3 shrink-0 opacity-70" />
@@ -1185,7 +1185,7 @@ function OrphanSessions({
   const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border bg-muted/20">
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-xl border border-border/60 bg-muted/20">
       <CollapsibleTrigger
         data-testid="agent-orphan-sessions-trigger"
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
@@ -1218,10 +1218,10 @@ function OrphanSessions({
                 data-testid={`agent-orphan-session-${session.id}`}
                 onClick={() => onSelectSession(session)}
                 className={cn(
-                  'w-full flex flex-col gap-0.5 px-2 py-1.5 pr-7 rounded-md text-left transition-colors',
+                  'w-full flex flex-col gap-0.5 px-2 py-1.5 pr-7 rounded-lg text-left transition-colors',
                   isActive
-                    ? 'bg-primary/10 text-primary border border-primary/20'
-                    : 'hover:bg-accent/30 border border-transparent'
+                    ? 'bg-primary/10 text-primary'
+                    : 'hover:bg-accent/30'
                 )}
               >
                 <span className="flex items-center gap-1.5">

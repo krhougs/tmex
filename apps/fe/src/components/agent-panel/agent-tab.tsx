@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useMatch, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -49,6 +48,8 @@ function ChatInput({
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
+  const uiTheme = useUIStore((state) => state.theme);
+  const chatSurface = uiTheme === 'light' ? '#ffffff' : '#000000';
 
   const submit = (): void => {
     const trimmed = text.trim();
@@ -65,7 +66,11 @@ function ChatInput({
   };
 
   return (
-    <div data-testid="agent-chat-input" className="flex shrink-0 flex-col gap-2 border-t p-3">
+    <div
+      data-testid="agent-chat-input"
+      className="flex shrink-0 flex-col gap-2 mx-3 mb-3 rounded-xl mt-1.5 focus-within:ring-1 focus-within:ring-ring/30"
+      style={{ backgroundColor: chatSurface }}
+    >
       <Textarea
         data-testid="agent-chat-input-textarea"
         value={text}
@@ -78,10 +83,10 @@ function ChatInput({
         }}
         placeholder={t('agent.panel.inputPlaceholder')}
         disabled={disabled}
-        className="max-h-40 min-h-[4.5rem] w-full resize-none text-[13px]"
+        className="max-h-40 min-h-[4.5rem] w-full resize-none border-transparent bg-transparent text-[13px] shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
         rows={3}
       />
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 px-2.5 pb-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {writeModeControl}
           {modelPicker && <div className="min-w-0 flex-1">{modelPicker}</div>}
@@ -189,6 +194,9 @@ export function AgentTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const setSidebarTab = useUIStore((state) => state.setSidebarTab);
+  const uiTheme = useUIStore((state) => state.theme);
+  // 聊天内容区/输入区背景：亮色纯白、暗色纯黑
+  const chatSurface = uiTheme === 'light' ? '#ffffff' : '#000000';
 
   const paneMatch = useMatch('/devices/:deviceId/windows/:windowId/panes/:paneId');
   const routeDeviceId = paneMatch?.params.deviceId ?? null;
@@ -437,12 +445,11 @@ export function AgentTab() {
           )}
         </div>
       </div>
-      <Separator />
 
       {isOrphan && (
         <div
           data-testid="agent-orphan-banner"
-          className="bg-muted/50 text-muted-foreground mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md px-2 py-1.5 text-xs"
+          className="bg-muted/50 text-muted-foreground mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-lg px-2 py-1.5 text-xs"
         >
           <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
           <span className="min-w-0 flex-1">{t('agent.orphan.readonly')}</span>
@@ -452,7 +459,7 @@ export function AgentTab() {
       {activeSession && !isOrphan && paneMismatch && (
         <div
           data-testid="agent-pane-mismatch"
-          className="bg-muted/50 mx-3 mb-1.5 flex shrink-0 flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-xs"
+          className="bg-muted/50 mx-3 mb-1.5 flex shrink-0 flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-xs"
         >
           <CircleAlertIcon className="text-muted-foreground size-3.5 shrink-0" />
           <span className="text-muted-foreground min-w-0 flex-1">
@@ -486,7 +493,7 @@ export function AgentTab() {
       {activeSession?.status === 'error' && activeSession.lastError && (
         <div
           data-testid="agent-error-banner"
-          className="bg-destructive/10 text-destructive mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md px-2 py-1.5 text-xs"
+          className="bg-destructive/10 text-destructive mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-lg px-2 py-1.5 text-xs"
         >
           <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{activeSession.lastError}</span>
@@ -514,7 +521,8 @@ export function AgentTab() {
         emptyText={hasContext ? t('agent.panel.empty') : t('agent.session.selectPaneHint')}
         confirmationByToolCallId={confirmationByToolCallId}
         onDecide={handleDecide}
-        className="bg-muted/50 mx-2 mb-2 overflow-hidden rounded-xl"
+        className="mx-3 mb-2 overflow-hidden rounded-xl"
+        style={{ backgroundColor: chatSurface }}
       />
 
       {activeSession && !isOrphan && queuedItems.length > 0 && (

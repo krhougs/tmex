@@ -316,7 +316,7 @@ export function ToolCallCard({ call, confirmationId, onDecide, className }: Tool
       data-tool-name={call.toolName}
       data-tool-denied={denied || undefined}
       className={cn(
-        'border-border bg-card flex max-w-full min-w-0 flex-col gap-1.5 self-start rounded-md border p-2',
+        'border-border bg-card flex max-w-full min-w-0 flex-col gap-1.5 self-start rounded-lg border p-2',
         errorText !== null && 'border-destructive/50',
         denied && 'opacity-80',
         className

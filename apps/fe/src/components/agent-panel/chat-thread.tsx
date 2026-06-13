@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { UiThreadBlock } from '@/stores/agent-thread';
 import { ArrowDownIcon } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AssistantMessage } from './messages/assistant-message';
@@ -19,6 +19,7 @@ export interface ChatThreadProps {
   confirmationByToolCallId: Map<string, string>;
   onDecide: (confirmationId: string, approved: boolean) => void;
   className?: string;
+  style?: CSSProperties;
 }
 
 function RunningIndicator() {
@@ -38,6 +39,7 @@ export function ChatThread({
   confirmationByToolCallId,
   onDecide,
   className,
+  style,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -79,6 +81,7 @@ export function ChatThread({
       <div
         data-testid="agent-chat-thread"
         className={cn('flex min-h-0 flex-1 items-center justify-center p-4', className)}
+        style={style}
       >
         <p className="text-muted-foreground text-sm">{emptyText}</p>
       </div>
@@ -86,7 +89,7 @@ export function ChatThread({
   }
 
   return (
-    <div className={cn('relative min-h-0 flex-1', className)}>
+    <div className={cn('relative min-h-0 flex-1', className)} style={style}>
       <div
         ref={containerRef}
         data-testid="agent-chat-thread"
