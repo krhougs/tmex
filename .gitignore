@@ -47,6 +47,7 @@ data/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
 
 # 本地工具缓存
 .cache/
