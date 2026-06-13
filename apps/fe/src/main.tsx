@@ -9,7 +9,7 @@ import './index.css';
 import { GlobalDeviceProvider } from '@/components/global-device-provider';
 import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
 import { Separator } from '@/components/ui/separator';
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { WatchEventsInit } from '@/components/watch/watch-events-init';
 import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
 
@@ -44,6 +44,18 @@ const queryClient = new QueryClient({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PageModule = Record<string, any>;
 
+// iOS 26+ standalone: Safari 从 body 背景色推导状态栏颜色。
+// 侧边栏（mobile Sheet）展开时切到 --sidebar，关闭时回到 --background。
+function StatusBarSync() {
+  const { openMobile } = useSidebar();
+
+  useEffect(() => {
+    document.body.style.backgroundColor = openMobile ? 'var(--sidebar)' : 'var(--background)';
+  }, [openMobile]);
+
+  return null;
+}
+
 // Root layout: 包含全局 Provider 和 Sidebar
 function RootLayout() {
   // Android 等平台虚拟键盘只缩小 visual viewport，固定布局下会盖住下半屏，
@@ -56,6 +68,7 @@ function RootLayout() {
     <GlobalDeviceProvider>
       <WatchEventsInit />
       <SidebarProvider>
+        <StatusBarSync />
         <AppSidebar />
         <SidebarInset
           className="h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]"
@@ -68,7 +81,6 @@ function RootLayout() {
               : undefined
           }
         >
-          <div className="h-[var(--tmex-safe-area-top)]" />
           <Outlet />
           {/* 底部安全区占位：键盘弹起时整页已上移、Home Indicator 区被键盘覆盖，
               再保留这段会在输入区与键盘之间夹出空白，故弹起时收起 */}
@@ -178,13 +190,13 @@ createRoot(rootElement).render(
         position="top-right"
         closeButton
         offset={{
-          top: 'calc(16px + var(--tmex-safe-area-top))',
+          top: 'calc(16px + env(safe-area-inset-top, 0px))',
           right: '16px',
           bottom: '16px',
           left: '16px',
         }}
         mobileOffset={{
-          top: 'calc(12px + var(--tmex-safe-area-top))',
+          top: 'calc(12px + env(safe-area-inset-top, 0px))',
           right: '12px',
           bottom: '12px',
           left: '12px',
