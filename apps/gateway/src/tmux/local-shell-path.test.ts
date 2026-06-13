@@ -175,4 +175,45 @@ describe('buildLocalTmuxEnv', () => {
       LC_CTYPE: 'zh_CN.UTF-8',
     });
   });
+
+  test('strips tmex-injected env (app.env) so user shells never inherit them', () => {
+    const result = buildLocalTmuxEnv('/opt/homebrew/bin:/usr/bin:/bin', {
+      HOME: '/Users/alice',
+      USER: 'alice',
+      SHELL: '/bin/zsh',
+      PATH: '/usr/bin:/bin',
+      LANG: 'zh_CN.UTF-8',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+      // 以下均为 tmex 注入，必须被剔除
+      NODE_ENV: 'production',
+      DATABASE_URL: '/Library/Application Support/tmex/data/tmex.db',
+      GATEWAY_PORT: '9883',
+      FE_PORT: '8085',
+      TMEX_MASTER_KEY: 'super-secret-key',
+      TMEX_FE_DIST_DIR: '/Library/Application Support/tmex/resources/fe-dist',
+      TMEX_MIGRATIONS_DIR: '/Library/Application Support/tmex/resources/drizzle',
+      TMEX_BIND_HOST: '0.0.0.0',
+      TMEX_TMUX_TERM_PROGRAM: 'ghostty',
+    });
+
+    // tmex 注入键一个都不剩
+    for (const key of Object.keys(result)) {
+      expect(key.startsWith('TMEX_')).toBe(false);
+    }
+    expect(result.NODE_ENV).toBeUndefined();
+    expect(result.DATABASE_URL).toBeUndefined();
+    expect(result.GATEWAY_PORT).toBeUndefined();
+    expect(result.FE_PORT).toBeUndefined();
+    expect(result.TMEX_MASTER_KEY).toBeUndefined();
+
+    // 用户终端需要的键完整保留
+    expect(result).toEqual({
+      HOME: '/Users/alice',
+      USER: 'alice',
+      SHELL: '/bin/zsh',
+      PATH: '/opt/homebrew/bin:/usr/bin:/bin',
+      LANG: 'zh_CN.UTF-8',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+    });
+  });
 });

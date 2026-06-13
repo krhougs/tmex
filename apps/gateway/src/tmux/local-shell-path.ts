@@ -196,13 +196,28 @@ export function getLocalShellPath(): string | null {
   return defaultLocalShellPathCache.get();
 }
 
+// tmex 自身注入的环境变量（生产由 run.sh 经 app.env 注入 gateway 进程）。
+// 这些绝不能漏进 tmex 拉起的 tmux 服务端——否则用户终端会继承：
+// - 污染正常环境（NODE_ENV=production / DATABASE_URL / 各 TMEX_* 配置）；
+// - 泄露密钥（TMEX_MASTER_KEY 是加密所有凭证的主密钥）。
+// 绝大多数为 TMEX_ 前缀，少数非前缀键单列。
+const TMEX_INJECTED_ENV_EXACT = new Set(['NODE_ENV', 'DATABASE_URL', 'GATEWAY_PORT', 'FE_PORT']);
+
+function isTmexInjectedEnvKey(key: string): boolean {
+  return key.startsWith('TMEX_') || TMEX_INJECTED_ENV_EXACT.has(key);
+}
+
 export function buildLocalTmuxEnv(
   resolvedPath: string | null,
   baseEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
-  const nextEnv: NodeJS.ProcessEnv = {
-    ...baseEnv,
-  };
+  const nextEnv: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (isTmexInjectedEnvKey(key)) {
+      continue;
+    }
+    nextEnv[key] = value;
+  }
 
   if (resolvedPath) {
     nextEnv.PATH = resolvedPath;
