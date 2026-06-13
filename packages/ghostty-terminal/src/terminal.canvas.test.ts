@@ -829,6 +829,44 @@ describe('GhosttyTerminalController canvas baseline', () => {
     disposable.dispose();
   });
 
+  // Android 的 Enter 同样不发 keydown，换行走 beforeinput 的 insertLineBreak/
+  // insertParagraph 且 data 为空。keyCode：Enter=58。
+  test('beforeinput insertLineBreak should emit Enter key (Android)', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    const textarea = findElementsByTag(dom.document.body, 'div').find(
+      (el) => el.className === 'xterm-helper-textarea'
+    );
+
+    if (textarea) {
+      textarea.dispatchEvent({ type: 'keydown', keyCode: 229, key: 'Unidentified', code: '' });
+      textarea.dispatchEvent({ type: 'beforeinput', inputType: 'insertParagraph', data: null });
+    }
+
+    expect(received).toEqual(['key:press:58:0']);
+
+    disposable.dispose();
+  });
+
   // 组字过程中的删除（autocorrect 删除待选区）不应发到终端，等 compositionend 统一提交
   test('beforeinput delete during composition should be ignored', async () => {
     dom = installFakeDom();

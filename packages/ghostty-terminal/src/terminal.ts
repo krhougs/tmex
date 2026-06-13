@@ -118,6 +118,15 @@ class TerminalBuffer implements CompatibleTerminalBuffer {
   }
 }
 
+// Android Gboard 在 contenteditable 上对这些按键不发 keydown（报 keyCode 229），
+// 只通过 beforeinput 的 inputType 体现且 data 多为空。按等价按键编码补发。
+const SYNTHETIC_KEY_BY_INPUT_TYPE: Record<string, string> = {
+  deleteContentBackward: 'Backspace',
+  deleteContentForward: 'Delete',
+  insertLineBreak: 'Enter',
+  insertParagraph: 'Enter',
+};
+
 function shouldEncodeOnKeyDown(event: KeyboardEvent): boolean {
   const isPlainText = event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey;
   if (isPlainText) {
@@ -984,17 +993,13 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         return;
       }
 
-      // Android Gboard 在 contenteditable 上不发 Backspace/Delete 的 keydown
-      // （报 keyCode 229），删除只通过 beforeinput 的 deleteContent* 体现且 data 为空。
-      // 按等价按键编码补发；iOS/桌面的删除走 keydown 且已 preventDefault，不会再触发此分支。
-      if (
-        event.inputType === 'deleteContentBackward' ||
-        event.inputType === 'deleteContentForward'
-      ) {
+      // Android 把退格/删除/换行等只通过 beforeinput 的 inputType 体现（无 keydown，
+      // 报 keyCode 229），data 多为空。按等价按键编码补发；iOS/桌面这些键走 keydown
+      // 且已 preventDefault、会抑制后续 beforeinput，两路径互斥不会重复触发。
+      const syntheticKey = SYNTHETIC_KEY_BY_INPUT_TYPE[event.inputType ?? ''];
+      if (syntheticKey) {
         event.preventDefault();
-        const payload = this.encodeSyntheticKey(
-          event.inputType === 'deleteContentForward' ? 'Delete' : 'Backspace'
-        );
+        const payload = this.encodeSyntheticKey(syntheticKey);
         if (payload) {
           this.emitData(payload);
         }
