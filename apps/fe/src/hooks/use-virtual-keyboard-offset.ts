@@ -8,17 +8,18 @@ import { useEffect, useState } from 'react';
 // 容器内时输出非零，供布局根做 translateY 视觉平移——绝不改变任何容器尺寸，
 // 因此不会触发终端的 ResizeObserver / tmux resize。
 //
-// disabled 为 true 时（如移动端侧边栏 Sheet 打开）直接返回 0 并摘除所有监听：
-// 此时终端在遮罩之下不可见，避让平移无意义，且焦点在 portal 内的切换容易
-// 导致 viewport 事件时序竞态、offset 卡在非零值。
+// iOS Safari 不识别 interactive-widget=resizes-visual，键盘弹出时会隐式 scroll
+// layout viewport 让聚焦元素可见。即使 html/body 声明了 overflow:hidden，
+// 收键盘后 scrollY 也不一定归零，表现为页面底部多出一块空白。每次 update
+// 都会检查并复位 document scroll——对 Android 无副作用（scrollY 恒 0）。
+//
+// disabled 为 true 时（移动端侧边栏 Sheet 打开）只跳过 offset 计算，事件监听
+// 和 scroll 复位仍然生效——agent 聊天 textarea 虽在 Sheet portal 内，但 iOS
+// 的隐式 scroll 同样会偏移 Sheet 下方的终端布局。
 export function useVirtualKeyboardOffset(disabled?: boolean): number {
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
-    if (disabled) {
-      setOffset(0);
-      return;
-    }
     if (!needsManualKeyboardAvoidance()) {
       return;
     }
@@ -30,6 +31,15 @@ export function useVirtualKeyboardOffset(disabled?: boolean): number {
     let frameId: number | null = null;
 
     const update = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+
+      if (disabled) {
+        setOffset(0);
+        return;
+      }
+
       const active = document.activeElement;
       const shouldAvoid =
         active instanceof Element && active.closest('[data-virtual-keyboard-avoid]') !== null;
