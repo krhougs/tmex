@@ -6,25 +6,31 @@
 // 才能发起续跑（见 appendApprovalResponsesIfReady）。
 
 import { wsBorsh } from '@tmex/shared';
-import { getSiteSettings } from '../db';
+import { getDeviceById, getSiteSettings } from '../db';
 import {
   type AgentConfirmationRecord,
   type AgentMessageRecord,
+  type AgentQueuedMessageRecord,
   type AgentSessionRecord,
   appendAgentMessage,
   decideAgentConfirmation,
+  deleteQueuedAgentMessage,
+  enqueueAgentMessage,
   getAgentConfirmationById,
   getAgentSessionById,
   getAgentSessionsByStatus,
   getMaxAgentMessageSeq,
+  getQueuedAgentMessageById,
   listAgentMessages,
   listPendingAgentConfirmations,
+  listQueuedAgentMessages,
   updateAgentSession,
+  updateQueuedAgentMessage,
 } from '../db/agent';
 import { t } from '../i18n';
 import { telegramService } from '../telegram/service';
-import { detectSecrets } from './secret-scan';
 import { AgentRun, type AgentRunDeps } from './run';
+import { detectSecrets } from './secret-scan';
 import { type AgentWsHub, agentWsHub } from './ws-hub';
 
 export class AgentSessionNotFoundError extends Error {
@@ -60,6 +66,39 @@ export class AgentConfirmationAlreadyDecidedError extends Error {
     super(t('apiError.agentConfirmationAlreadyDecided'));
     this.name = 'AgentConfirmationAlreadyDecidedError';
   }
+}
+
+export class AgentSessionOrphanedError extends Error {
+  constructor() {
+    super(t('apiError.agentSessionOrphaned'));
+    this.name = 'AgentSessionOrphanedError';
+  }
+}
+
+export class AgentQueuedMessageNotFoundError extends Error {
+  constructor() {
+    super(t('apiError.agentQueuedMessageNotFound'));
+    this.name = 'AgentQueuedMessageNotFoundError';
+  }
+}
+
+/** 提交用户消息的结果：idle 时直接落库发起 run；running 时进入队列 */
+export type SubmitUserMessageResult =
+  | { kind: 'message'; record: AgentMessageRecord }
+  | { kind: 'queued'; record: AgentQueuedMessageRecord };
+
+/** 会话是否孤立：绑定设备被删 / 缺失（后端可靠判定；pane 关闭但设备在线由前端判定屏蔽） */
+function isSessionOrphan(session: AgentSessionRecord): boolean {
+  return !session.deviceId || !getDeviceById(session.deviceId);
+}
+
+function toQueuedWire(record: AgentQueuedMessageRecord): {
+  id: string;
+  seq: number;
+  text: string;
+  createdAt: string;
+} {
+  return { id: record.id, seq: record.seq, text: record.text, createdAt: record.createdAt };
 }
 
 interface ActiveRun {
@@ -121,6 +160,7 @@ export class AgentSupervisor {
           input: c.inputJson,
           createdAt: c.createdAt,
         })),
+        queuedMessages: listQueuedAgentMessages(sessionId).map(toQueuedWire),
         lastMessageSeq: getMaxAgentMessageSeq(sessionId),
       };
     });
@@ -169,14 +209,32 @@ export class AgentSupervisor {
     this.activeRuns.clear();
   }
 
-  submitUserMessage(sessionId: string, text: string): AgentMessageRecord {
+  /**
+   * 提交用户消息：
+   * - 运行中 → 入队（可选 steer 立即注入）；
+   * - 空闲/停止/出错 → 直接落库并发起 run。
+   * orphan 会话拒绝输入。
+   */
+  submitUserMessage(sessionId: string, text: string, steer = false): SubmitUserMessageResult {
     const session = getAgentSessionById(sessionId);
     if (!session) {
       throw new AgentSessionNotFoundError();
     }
-    if (this.activeRuns.has(sessionId)) {
-      throw new AgentSessionBusyError();
+    if (isSessionOrphan(session)) {
+      throw new AgentSessionOrphanedError();
     }
+
+    // 运行中：入队，不打断（steer=true 时请求立即注入）
+    if (this.activeRuns.has(sessionId)) {
+      const queued = enqueueAgentMessage(sessionId, text);
+      this.warnIfCredentialText(session, text);
+      this.broadcastQueue(sessionId);
+      if (steer) {
+        this.activeRuns.get(sessionId)?.run.requestSteer();
+      }
+      return { kind: 'queued', record: queued };
+    }
+
     if (session.status === 'waiting_confirmation') {
       if (listPendingAgentConfirmations(sessionId).length > 0) {
         throw new AgentAwaitingConfirmationError();
@@ -190,7 +248,49 @@ export class AgentSupervisor {
     // 用户输入凭证检测：不改写内容（照常发 LLM + 落库），仅 UI + 推送告警数据可能泄露。
     this.warnIfCredential(session, record, text);
     this.startRun(sessionId);
-    return record;
+    return { kind: 'message', record };
+  }
+
+  /** 编辑队列中的消息（仅改文本） */
+  editQueuedMessage(itemId: string, text: string): AgentQueuedMessageRecord {
+    const existing = getQueuedAgentMessageById(itemId);
+    if (!existing) {
+      throw new AgentQueuedMessageNotFoundError();
+    }
+    const updated = updateQueuedAgentMessage(itemId, text);
+    if (!updated) {
+      throw new AgentQueuedMessageNotFoundError();
+    }
+    this.broadcastQueue(existing.sessionId);
+    return updated;
+  }
+
+  /** 撤回队列中的消息 */
+  withdrawQueuedMessage(itemId: string): void {
+    const existing = getQueuedAgentMessageById(itemId);
+    if (!existing) {
+      throw new AgentQueuedMessageNotFoundError();
+    }
+    deleteQueuedAgentMessage(itemId);
+    this.broadcastQueue(existing.sessionId);
+  }
+
+  private broadcastQueue(sessionId: string): void {
+    this.deps.hub.broadcastAgentEvent(
+      sessionId,
+      wsBorsh.AGENT_EVENT_QUEUE_UPDATED,
+      { queued: listQueuedAgentMessages(sessionId).map(toQueuedWire) },
+      0
+    );
+  }
+
+  private warnIfCredentialText(session: AgentSessionRecord, text: string): void {
+    const matches = detectSecrets(text);
+    if (matches.length === 0) {
+      return;
+    }
+    const types = [...new Set(matches.map((m) => m.type))];
+    void this.pushCredentialWarning(session, types);
   }
 
   private warnIfCredential(
@@ -212,10 +312,7 @@ export class AgentSupervisor {
     void this.pushCredentialWarning(session, types);
   }
 
-  private async pushCredentialWarning(
-    session: AgentSessionRecord,
-    types: string[]
-  ): Promise<void> {
+  private async pushCredentialWarning(session: AgentSessionRecord, types: string[]): Promise<void> {
     try {
       const settings = getSiteSettings();
       if (!settings.enableTelegramNotificationPush) {

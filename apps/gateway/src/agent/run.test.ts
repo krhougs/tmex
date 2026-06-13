@@ -62,6 +62,20 @@ function slowSseResponse(chunks: unknown[], delayMs: number): Response {
   return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });
 }
 
+/** 发完 chunks 后挂起不关闭（模拟上游 SSE stall），用于看门狗测试 */
+function hangingSseResponse(chunks: unknown[]): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const c of chunks) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(c)}\n\n`));
+      }
+      // 故意不 close：连接保持打开，不再有数据
+    },
+  });
+  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });
+}
+
 interface RecordedRequest {
   body: { messages: Array<Record<string, unknown>>; tools?: unknown[] };
 }
@@ -126,6 +140,7 @@ interface HarnessOptions {
   screen?: string;
   deltaFlushIntervalMs?: number;
   generatedTitle?: string;
+  streamIdleTimeoutMs?: number;
 }
 
 function createHarness(options: HarnessOptions): TestHarness {
@@ -191,6 +206,7 @@ function createHarness(options: HarnessOptions): TestHarness {
     deltaFlushIntervalMs: options.deltaFlushIntervalMs ?? 10,
     retryDelaysMs: [1, 1, 1],
     llmMaxRetries: 0,
+    streamIdleTimeoutMs: options.streamIdleTimeoutMs ?? 90_000,
     notifyTurnFinished: true,
   };
 
@@ -564,6 +580,25 @@ describe('AgentRun 核心循环', () => {
 
     // 不应该跑满 5 个 step（fail-fast 在第 2 次失败时 abort）
     expect(mock.requests.length).toBeLessThanOrEqual(3);
+  });
+
+  test('流空闲看门狗：上游 SSE stall 时 abort 并落 error', async () => {
+    const mock = createMockChatServer(() =>
+      // 发一个 assistant 片段后挂起不关闭，模拟上游 stall
+      hangingSseResponse([chunk({ role: 'assistant', content: 'partial' })])
+    );
+    servers.push(mock.server);
+
+    const harness = createHarness({ baseUrl: mock.baseUrl, streamIdleTimeoutMs: 80 });
+    appendAgentMessage(harness.session.id, 'user', { role: 'user', content: 'hi' });
+
+    const run = new AgentRun(harness.session.id, harness.deps);
+    const outcome = await run.execute();
+
+    expect(outcome).toBe('error');
+    const session = getAgentSessionById(harness.session.id);
+    expect(session?.status).toBe('error');
+    expect(eventsOfType(harness, wsBorsh.AGENT_EVENT_ERROR).length).toBe(1);
   });
 
   test('节流广播：高频 delta 合帧（广播帧数远小于 delta 数）', async () => {

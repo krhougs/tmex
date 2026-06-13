@@ -18,14 +18,20 @@ import {
   type AgentSessionRecord,
   appendAgentMessage,
   createAgentConfirmation,
+  deleteAllQueuedAgentMessages,
   getAgentSessionById,
   getMaxAgentMessageSeq,
   listAgentMessages,
+  listQueuedAgentMessages,
   updateAgentSession,
 } from '../db/agent';
 import { eventNotifier } from '../events';
 import { t } from '../i18n';
-import { resolveLanguageModel, resolveProviderWebSearchTool } from '../llm/provider-registry';
+import {
+  resolveLanguageModel,
+  resolveProviderHostedTools,
+  resolveProviderWebSearchTool,
+} from '../llm/provider-registry';
 import {
   type EmulatorStreamSource,
   type PaneEmulator,
@@ -105,13 +111,24 @@ export function applyMessageWindow(
 
 export type AgentRunOutcome = 'idle' | 'waiting_confirmation' | 'stopped' | 'interrupted' | 'error';
 
+/** runOnce 内部结果：'steer' 表示需 drain 队列后续跑（不逃逸出 execute） */
+type RunOnceResult = AgentRunOutcome | 'steer';
+
 export type AgentStopReason = 'manual' | 'shutdown';
 
 export interface AgentRunDeps {
   resolveModel: (providerId: string | null, modelId: string | null) => Promise<LanguageModel>;
   resolveProviderWebSearchTool: (providerId: string | null) => Promise<Tool | null>;
+  resolveProviderHostedTools: (
+    providerId: string | null,
+    keys: readonly string[]
+  ) => Promise<Record<string, Tool>>;
   createWebSearchTool: () => Promise<Tool | null>;
   createFetchUrlTool: () => Tool;
+  /** 是否有排队消息（step 边界注入判定） */
+  hasQueuedMessages: (sessionId: string) => boolean;
+  /** 取出并清空排队消息（返回文本，按 seq 序），副作用：删除行 + 广播队列更新 */
+  drainQueuedMessages: (sessionId: string) => string[];
   acquireRuntime: (deviceId: string) => Promise<TerminalRuntimeLike>;
   releaseRuntime: (deviceId: string, runtime?: TerminalRuntimeLike) => Promise<void>;
   broadcast: <K extends keyof AgentEventPayloadMap>(
@@ -131,14 +148,27 @@ export interface AgentRunDeps {
   retryDelaysMs: number[];
   /** 传给 AI SDK 的单请求级重试次数（指数退避由 SDK 处理） */
   llmMaxRetries: number;
+  /** 流空闲看门狗：超过该时长没有任何 stream part 到达即视为上游 stall，abort 并落 error */
+  streamIdleTimeoutMs: number;
   notifyTurnFinished: boolean;
 }
 
 const defaultDeps: AgentRunDeps = {
   resolveModel: resolveLanguageModel,
   resolveProviderWebSearchTool,
+  resolveProviderHostedTools,
   createWebSearchTool: () => createWebSearchTool(),
   createFetchUrlTool: () => createFetchUrlTool(),
+  hasQueuedMessages: (sessionId) => listQueuedAgentMessages(sessionId).length > 0,
+  drainQueuedMessages: (sessionId) => {
+    const items = listQueuedAgentMessages(sessionId);
+    if (items.length === 0) {
+      return [];
+    }
+    deleteAllQueuedAgentMessages(sessionId);
+    agentWsHub.broadcastAgentEvent(sessionId, wsBorsh.AGENT_EVENT_QUEUE_UPDATED, { queued: [] }, 0);
+    return items.map((item) => item.text);
+  },
   acquireRuntime: (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
   releaseRuntime: (deviceId, runtime) => tmuxRuntimeRegistry.release(deviceId, runtime),
   broadcast: (sessionId, eventType, payload, seq) =>
@@ -153,6 +183,7 @@ const defaultDeps: AgentRunDeps = {
   deltaFlushMaxBytes: 2048,
   retryDelaysMs: [1000, 2000, 4000],
   llmMaxRetries: 3,
+  streamIdleTimeoutMs: 90_000,
   notifyTurnFinished: true,
 };
 
@@ -222,11 +253,16 @@ export class AgentRun {
   readonly sessionId: string;
 
   private readonly deps: AgentRunDeps;
-  private readonly abortController = new AbortController();
+  // 每个 runOnce 迭代重建（steer 续跑需要新的可用 signal）；requestStop/steer 作用于当前迭代。
+  private abortController = new AbortController();
   private stopReason: AgentStopReason | null = null;
+  // 手动 steer / step 边界注入触发：abort 当前流后 drain 队列续跑（区别于 stop/error 收尾）
+  private steerRequested = false;
   private terminalFailureStreak = 0;
   private terminalFatal = false;
   private terminalFatalMessage = '';
+  // 流空闲看门狗触发：上游 SSE stall，abort 后按 error 收尾而非 stopped
+  private stalled = false;
 
   // 当前 run 期间该 pane 的 headless 模拟器（流式读屏 + run_command），run 结束释放。
   private emulator: PaneEmulator | null = null;
@@ -262,6 +298,15 @@ export class AgentRun {
       return;
     }
     this.stopReason = reason;
+    this.abortController.abort();
+  }
+
+  /** 手动 steer：立即中断当前流（mid-step），随后 drain 队列续跑。stop 优先，已 stop 时忽略。 */
+  requestSteer(): void {
+    if (this.stopReason) {
+      return;
+    }
+    this.steerRequested = true;
     this.abortController.abort();
   }
 
@@ -303,8 +348,17 @@ export class AgentRun {
 
       let attempt = 0;
       while (true) {
+        if (this.stopReason) {
+          return this.finishAborted(session);
+        }
+        // 每个迭代重建 abort controller：steer 续跑需要一个未 abort 的新 signal。
+        this.abortController = new AbortController();
+        this.steerRequested = false;
+        this.stalled = false;
+
+        let result: RunOnceResult;
         try {
-          return await this.runOnce(session, runtime);
+          result = await this.runOnce(session, runtime);
         } catch (error) {
           this.clearFlushTimer();
           if (this.stopReason || this.abortController.signal.aborted) {
@@ -322,6 +376,26 @@ export class AgentRun {
           }
           return this.finishError(session, toErrorMessage(error));
         }
+
+        if (result === 'steer') {
+          // 队列注入：drain 成 user 消息后续跑，status 持续 running 无缝衔接。
+          attempt = 0;
+          const drained = this.deps.drainQueuedMessages(this.sessionId);
+          for (const text of drained) {
+            const record = appendAgentMessage(this.sessionId, 'user', {
+              role: 'user',
+              content: text,
+            });
+            this.broadcast(wsBorsh.AGENT_EVENT_MESSAGE_PERSISTED, {
+              messageId: record.id,
+              seq: record.seq,
+              role: record.role,
+            });
+          }
+          continue;
+        }
+
+        return result;
       }
     } finally {
       this.clearFlushTimer();
@@ -346,7 +420,7 @@ export class AgentRun {
   private async runOnce(
     session: AgentSessionRecord,
     runtime: TerminalRuntimeLike | null
-  ): Promise<AgentRunOutcome> {
+  ): Promise<RunOnceResult> {
     const messages = applyMessageWindow(
       listAgentMessages(this.sessionId).map((record) => record.content as ModelMessage)
     );
@@ -388,6 +462,9 @@ export class AgentRun {
       // 否则多轮工具调用会报 "Item with id 'rs_...' not found / store=false"。
       // namespace 'openai' 只作用于 responses 模型，对 openai-chat（compatible）无副作用。
       providerOptions: { openai: { store: false } },
+      onError: ({ error }) => {
+        console.error(`[agent-run] streamText error for ${this.sessionId}:`, error);
+      },
       onStepFinish: (step) => {
         // step.response.messages 是累积的（含此前 step 与续跑的 initial 工具结果），只落新增部分
         const responseMessages = step.response.messages;
@@ -408,73 +485,117 @@ export class AgentRun {
         this.flushDeltas();
         this.textBuffer = '';
         this.reasoningBuffer = '';
+
+        // 默认 step 边界注入：本 step 落库后若有排队消息，优雅中断当前流，drain 后续跑。
+        if (
+          !this.steerRequested &&
+          !this.stopReason &&
+          this.deps.hasQueuedMessages(this.sessionId)
+        ) {
+          this.steerRequested = true;
+          this.abortController.abort();
+        }
       },
     });
 
-    for await (const part of result.fullStream) {
-      switch (part.type) {
-        case 'text-delta':
-          this.queueTextDelta(part.id, part.text);
-          break;
-        case 'reasoning-delta':
-          this.queueReasoningDelta(part.id, part.text);
-          break;
-        case 'tool-call':
-          this.flushDeltas();
-          this.broadcast(wsBorsh.AGENT_EVENT_TOOL_CALL, {
-            toolCallId: part.toolCallId,
-            toolName: part.toolName,
-            input: part.input,
-          });
-          break;
-        case 'tool-result':
-          this.flushDeltas();
-          this.broadcast(wsBorsh.AGENT_EVENT_TOOL_RESULT, {
-            toolCallId: part.toolCallId,
-            toolName: part.toolName,
-            output: part.output,
-          });
-          break;
-        case 'tool-error':
-          this.flushDeltas();
-          this.broadcast(wsBorsh.AGENT_EVENT_TOOL_RESULT, {
-            toolCallId: part.toolCallId,
-            toolName: part.toolName,
-            output: toErrorMessage(part.error),
-            isError: true,
-          });
-          break;
-        case 'tool-output-denied':
-          this.flushDeltas();
-          this.broadcast(wsBorsh.AGENT_EVENT_TOOL_RESULT, {
-            toolCallId: part.toolCallId,
-            toolName: part.toolName,
-            output: 'execution denied by user',
-            isError: true,
-          });
-          break;
-        case 'tool-approval-request':
-          approvals.push({
-            approvalId: part.approvalId,
-            toolCallId: part.toolCall.toolCallId,
-            toolName: part.toolCall.toolName,
-            input: part.toolCall.input,
-          });
-          break;
-        case 'error':
-          streamError = part.error;
-          break;
-        case 'abort':
-          aborted = true;
-          break;
-        default:
-          break;
+    // 流空闲看门狗：每收到一个 part 重置；超时视为上游 stall，abort 当前流避免无限挂起。
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetIdleTimer = (): void => {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+      idleTimer = setTimeout(() => {
+        this.stalled = true;
+        this.abortController.abort();
+      }, this.deps.streamIdleTimeoutMs);
+    };
+
+    try {
+      resetIdleTimer();
+      for await (const part of result.fullStream) {
+        resetIdleTimer();
+        switch (part.type) {
+          case 'text-delta':
+            this.queueTextDelta(part.id, part.text);
+            break;
+          case 'reasoning-delta':
+            this.queueReasoningDelta(part.id, part.text);
+            break;
+          case 'tool-call':
+            this.flushDeltas();
+            this.broadcast(wsBorsh.AGENT_EVENT_TOOL_CALL, {
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              input: part.input,
+            });
+            break;
+          case 'tool-result':
+            this.flushDeltas();
+            this.broadcast(wsBorsh.AGENT_EVENT_TOOL_RESULT, {
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              output: part.output,
+            });
+            break;
+          case 'tool-error':
+            this.flushDeltas();
+            this.broadcast(wsBorsh.AGENT_EVENT_TOOL_RESULT, {
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              output: toErrorMessage(part.error),
+              isError: true,
+            });
+            break;
+          case 'tool-output-denied':
+            this.flushDeltas();
+            this.broadcast(wsBorsh.AGENT_EVENT_TOOL_RESULT, {
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              output: 'execution denied by user',
+              isError: true,
+            });
+            break;
+          case 'tool-approval-request':
+            approvals.push({
+              approvalId: part.approvalId,
+              toolCallId: part.toolCall.toolCallId,
+              toolName: part.toolCall.toolName,
+              input: part.toolCall.input,
+            });
+            break;
+          case 'error':
+            streamError = part.error;
+            break;
+          case 'abort':
+            aborted = true;
+            break;
+          default:
+            break;
+        }
+      }
+    } finally {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
       }
     }
 
     this.flushDeltas();
 
-    if (aborted || this.stopReason || this.abortController.signal.aborted) {
+    if (this.stalled) {
+      return this.finishError(session, t('agent.error.streamStalled'));
+    }
+
+    // stop（手动/shutdown）优先于 steer 收尾
+    if (this.stopReason) {
+      return this.finishAborted(session);
+    }
+
+    // steer / step 边界注入：abort 当前流后交由 execute drain 队列续跑（status 保持 running）
+    if (this.steerRequested) {
+      return 'steer';
+    }
+
+    if (aborted || this.abortController.signal.aborted) {
       return this.finishAborted(session);
     }
 
@@ -484,6 +605,11 @@ export class AgentRun {
 
     if (approvals.length > 0) {
       return this.finishWaitingConfirmation(session, approvals);
+    }
+
+    // 自然完成：若在收尾窗口又有排队消息，转 steer 续跑而非落 idle
+    if (this.deps.hasQueuedMessages(this.sessionId)) {
+      return 'steer';
     }
 
     await this.maybeGenerateTitle(session, model);
@@ -523,6 +649,15 @@ export class AgentRun {
       if (webSearch) {
         tools.web_search = webSearch;
       }
+    }
+
+    // provider 原生 hosted 工具（image_generation 等；仅 openai-responses 生效，内部 gating）
+    if (session.providerHostedTools && session.providerHostedTools.length > 0) {
+      const hostedTools = await this.deps.resolveProviderHostedTools(
+        session.providerId,
+        session.providerHostedTools
+      );
+      Object.assign(tools, hostedTools);
     }
 
     tools.fetch_url = this.deps.createFetchUrlTool();

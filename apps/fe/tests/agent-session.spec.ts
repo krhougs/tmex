@@ -1,8 +1,11 @@
 // Agent 会话端到端：mock OpenAI server 注册为 provider，
-// 覆盖 创建/发消息流式上屏/重命名/删除/provider 不可达 error banner。
+// 覆盖 创建/发消息流式上屏/续跑确认流/provider 不可达 error banner。
+// UI 已从右侧 Panel 迁移到左 Sidebar 的 Agent Tab；会话挂在 Panes 树里。
+// 进入 Agent Tab 且当前路由有 pane 时自动进入草稿态（直接可输入），
+// 首条消息发送才落库创建 session。
 
 import { type Server, createServer } from 'node:http';
-import { type APIRequestContext, expect, test } from '@playwright/test';
+import { type APIRequestContext, type Page, expect, test } from '@playwright/test';
 import { ensureCleanSession, tmux } from './helpers/tmux';
 
 const REPLY_TEXT = 'Hello from mock e2e agent reply';
@@ -13,6 +16,13 @@ interface MockLlmServer {
   server: Server;
   port: number;
   baseUrl: string;
+}
+
+// 进入 Agent Tab（桌面端 sidebar 默认展开，直接点 Tab 触发器）。
+// 当前路由有 pane 时 agent-tab 会自动进入草稿态，输入区即可用。
+async function openAgentTab(page: Page): Promise<void> {
+  await page.getByTestId('sidebar-tab-agent').click();
+  await expect(page.getByTestId('agent-tab')).toBeVisible();
 }
 
 function sseChunk(delta: Record<string, unknown>, finishReason: string | null = null): string {
@@ -102,13 +112,33 @@ function startMockLlmServer(): Promise<MockLlmServer> {
           }
 
           const replyText = commandMatch && hasToolMessage ? TOOL_DONE_REPLY : REPLY_TEXT;
+          // 含 SLOW_REPLY 标记的轮次拉长流式过程，让 running 态可被观测（队列用例）
+          const slow = lastUserText.includes('SLOW_REPLY');
           res.write(sseChunk({ role: 'assistant', content: '' }));
-          for (const word of replyText.split(' ')) {
+          const words = replyText.split(' ');
+          const finish = (): void => {
+            res.write(sseChunk({}, 'stop'));
+            res.write('data: [DONE]\n\n');
+            res.end();
+          };
+          if (slow) {
+            let i = 0;
+            const tick = (): void => {
+              if (i >= words.length) {
+                finish();
+                return;
+              }
+              res.write(sseChunk({ content: `${words[i]} ` }));
+              i += 1;
+              setTimeout(tick, 600);
+            };
+            tick();
+            return;
+          }
+          for (const word of words) {
             res.write(sseChunk({ content: `${word} ` }));
           }
-          res.write(sseChunk({}, 'stop'));
-          res.write('data: [DONE]\n\n');
-          res.end();
+          finish();
           return;
         }
 
@@ -250,30 +280,12 @@ test.describe
       );
       await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      // 打开 agent 面板
-      const panelRoot = page.locator('[data-slot="right-panel"]');
-      if ((await panelRoot.getAttribute('data-state')) !== 'expanded') {
-        await page.getByTestId('right-panel-trigger').first().click();
-      }
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
-
-      // 新建 session（绑定当前 pane）
-      await page.getByTestId('agent-session-switcher').click();
-      await expect(page.getByTestId('agent-session-switcher-menu')).toBeVisible();
-      await page.getByTestId('agent-session-create').click();
-      await expect(page.getByTestId('agent-session-switcher')).toContainText('New Session');
-
-      // 绑定 chip 显示且有效
-      await expect(page.getByTestId('agent-binding-chip')).toBeVisible();
-      await expect(page.getByTestId('agent-binding-chip')).toHaveAttribute(
-        'data-binding-state',
-        'valid',
-        { timeout: 15_000 }
-      );
-
-      // 发送消息：user 气泡 + assistant 流式文本上屏
+      // 进入 Agent Tab → 当前 pane 自动起草，输入区可用（无需手动新建）
+      await openAgentTab(page);
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeEnabled();
+
+      // 发送消息：草稿落库创建 session，user 气泡 + assistant 流式文本上屏
       await textarea.fill('hello agent');
       await page.getByTestId('agent-chat-send').click();
 
@@ -282,17 +294,27 @@ test.describe
         timeout: 20_000,
       });
 
+      // session 落库后绑定 chip 显示且有效
+      await expect(page.getByTestId('agent-binding-chip')).toBeVisible();
+      await expect(page.getByTestId('agent-binding-chip')).toHaveAttribute(
+        'data-binding-state',
+        'valid',
+        { timeout: 15_000 }
+      );
+
       // turn 结束：发送按钮回归（停止按钮消失）
       await expect(page.getByTestId('agent-chat-send')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('agent-chat-stop')).toHaveCount(0);
 
-      // 标题自动生成（验证 STATUS 事件驱动列表刷新链路）
-      await expect(page.getByTestId('agent-session-switcher')).toContainText(MOCK_TITLE, {
-        timeout: 15_000,
-      });
+      // 标题自动生成：Panes 树里出现对应会话节点（验证 STATUS 事件驱动列表刷新链路）
+      await page.getByTestId('sidebar-tab-panes').click();
+      await expect(
+        page.locator('[data-testid^="agent-session-item-"]', { hasText: MOCK_TITLE })
+      ).toBeVisible({ timeout: 15_000 });
 
-      // 刷新后会话与历史恢复
+      // 刷新后会话与历史恢复（sidebarTab 与 activeSessionId 均持久化）
       await page.reload();
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
+      await openAgentTab(page);
       await expect(page.getByTestId('agent-chat-thread')).toContainText(REPLY_TEXT, {
         timeout: 15_000,
       });
@@ -303,79 +325,139 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      const panelRoot = page.locator('[data-slot="right-panel"]');
-      if ((await panelRoot.getAttribute('data-state')) !== 'expanded') {
-        await page.getByTestId('right-panel-trigger').first().click();
-      }
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      // 新 context 无 localStorage，先从列表选中上个用例创建的 session
-      const switcher = page.getByTestId('agent-session-switcher');
-      const menu = page.getByTestId('agent-session-switcher-menu');
-      await switcher.click();
-      await expect(menu).toBeVisible();
-      await expect(menu).toContainText(MOCK_TITLE, { timeout: 15_000 });
-      await menu.locator('[data-testid^="agent-session-item-"]', { hasText: MOCK_TITLE }).click();
-      await expect(switcher).toContainText(MOCK_TITLE);
+      // 串行套件共享 pane，前序用例已留存会话；先记录已有会话 id，
+      // 再显式新建并发消息落库，挑出新出现的 id 精准定位（标题统一是 MOCK_TITLE）
+      await openAgentTab(page);
+      await page.getByTestId('sidebar-tab-panes').click();
+      const existingIds = new Set(
+        await page
+          .locator('[data-testid^="agent-session-item-"]')
+          .evaluateAll((nodes) =>
+            nodes.map((n) => n.getAttribute('data-testid')?.replace('agent-session-item-', ''))
+          )
+      );
 
-      await switcher.click();
-      await expect(menu).toBeVisible();
+      await openAgentTab(page);
+      await page.getByTestId('agent-session-new').click();
+      const textarea = page.getByTestId('agent-chat-input-textarea');
+      await expect(textarea).toBeEnabled();
+      await textarea.fill('rename target session');
+      await page.getByTestId('agent-chat-send').click();
+      await expect(page.getByTestId('agent-chat-thread')).toContainText(REPLY_TEXT, {
+        timeout: 20_000,
+      });
 
-      const renameButton = menu.locator('[data-testid^="agent-session-rename-"]').first();
-      await renameButton.click();
+      // 标题自动生成后切到 Panes 树，挑出新出现的会话节点
+      await page.getByTestId('sidebar-tab-panes').click();
+      let sessionId = '';
+      await expect
+        .poll(
+          async () => {
+            const ids = await page
+              .locator('[data-testid^="agent-session-item-"]')
+              .evaluateAll((nodes) =>
+                nodes.map((n) =>
+                  n.getAttribute('data-testid')?.replace('agent-session-item-', '')
+                )
+              );
+            const fresh = ids.find((id): id is string => Boolean(id) && !existingIds.has(id));
+            if (fresh) sessionId = fresh;
+            return sessionId;
+          },
+          { timeout: 15_000 }
+        )
+        .not.toBe('');
+
+      // Rename：打开菜单 → Rename → 改名 → 断言树里标题更新
+      await page.getByTestId(`agent-session-menu-${sessionId}`).click();
+      await page.getByTestId('agent-session-rename').click();
       const renameInput = page.getByTestId('agent-session-rename-input');
       await expect(renameInput).toBeVisible();
-      await renameInput.fill('Renamed by e2e');
+      const renamedTitle = `Renamed ${Date.now()}`;
+      await renameInput.fill(renamedTitle);
       await page.getByTestId('agent-session-rename-save').click();
-      await expect(switcher).toContainText('Renamed by e2e');
 
-      // 删除（带确认）
-      await switcher.click();
-      await expect(menu).toBeVisible();
-      await menu.locator('[data-testid^="agent-session-delete-"]').first().click();
-      await expect(page.getByTestId('agent-session-delete-dialog')).toBeVisible();
+      const renamedItem = page.locator(`[data-testid="agent-session-item-${sessionId}"]`);
+      await expect(renamedItem).toContainText(renamedTitle, { timeout: 15_000 });
+
+      // Delete：打开菜单 → Delete → 确认 → 断言节点消失
+      await page.getByTestId(`agent-session-menu-${sessionId}`).click();
+      await page.getByTestId('agent-session-delete').click();
       await page.getByTestId('agent-session-delete-confirm').click();
-      await expect(switcher).toContainText('No session selected');
+
+      await expect(
+        page.locator(`[data-testid="agent-session-item-${sessionId}"]`)
+      ).toHaveCount(0, { timeout: 15_000 });
+    });
+
+    test('running session enqueues further messages', async ({ page }) => {
+      await page.goto(
+        `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
+      );
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await openAgentTab(page);
+
+      const textarea = page.getByTestId('agent-chat-input-textarea');
+      await expect(textarea).toBeEnabled();
+
+      // 发首条消息进入 running（SLOW_REPLY 拉长流式，stop 按钮出现）
+      await textarea.fill('first message SLOW_REPLY');
+      await page.getByTestId('agent-chat-send').click();
+      await expect(page.getByTestId('agent-chat-stop')).toBeVisible({ timeout: 15_000 });
+
+      // running 中输入框仍可用（不再禁用），再发消息进队列
+      await expect(textarea).toBeEnabled();
+      await textarea.fill('queued while running');
+      await page.getByTestId('agent-chat-send').click();
+      await expect(page.getByTestId('agent-queue')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('agent-queue')).toContainText('queued while running');
+
+      // turn 结束后回到 idle，stop 按钮消失，发送按钮回归
+      await expect(page.getByTestId('agent-chat-stop')).toHaveCount(0, { timeout: 20_000 });
+      await expect(page.getByTestId('agent-chat-send')).toBeVisible();
     });
 
     test('two tabs stay in sync while streaming', async ({ page, context }) => {
+      test.setTimeout(90_000);
       const paneUrl = `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`;
 
       await page.goto(paneUrl);
-      const panelRoot = page.locator('[data-slot="right-panel"]');
-      if ((await panelRoot.getAttribute('data-state')) !== 'expanded') {
-        await page.getByTestId('right-panel-trigger').first().click();
-      }
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await openAgentTab(page);
 
-      // 创建 session（写入 localStorage 的 activeSessionId，B 标签页打开即选中同一 session）
-      await page.getByTestId('agent-session-switcher').click();
-      await page.getByTestId('agent-session-create').click();
-      await expect(page.getByTestId('agent-session-switcher')).toContainText('New Session');
+      // 发消息创建 session（activeSessionId 持久化进同 context 的 localStorage，
+      // B 标签页打开即选中同一 session）。SLOW_REPLY 拉长流式，确保 B 挂载订阅时
+      // 本轮仍在进行中，走 WS 推流同步路径。
+      const textarea = page.getByTestId('agent-chat-input-textarea');
+      await expect(textarea).toBeEnabled();
+      await textarea.fill('sync across tabs SLOW_REPLY');
+      await page.getByTestId('agent-chat-send').click();
+      await expect(page.getByTestId('agent-user-message')).toContainText('sync across tabs');
 
       const pageB = await context.newPage();
       await pageB.goto(paneUrl);
-      const panelRootB = pageB.locator('[data-slot="right-panel"]');
-      if ((await panelRootB.getAttribute('data-state')) !== 'expanded') {
-        await pageB.getByTestId('right-panel-trigger').first().click();
-      }
-      await expect(pageB.getByTestId('agent-panel')).toBeVisible();
-      await expect(pageB.getByTestId('agent-session-switcher')).toContainText('New Session');
+      await expect(pageB.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      // A 发消息，B 通过 WS 订阅同步看到 user 消息与流式回复
-      const textarea = page.getByTestId('agent-chat-input-textarea');
-      await expect(textarea).toBeEnabled();
-      await textarea.fill('sync across tabs');
-      await page.getByTestId('agent-chat-send').click();
+      // B 从 Panes 树显式选中同一 session（setActiveSession→subscribe+loadHistory，
+      // 比依赖 rehydration 时序更稳），随后通过 WS 订阅/历史回放同步内容
+      await pageB.getByTestId('sidebar-tab-panes').click();
+      const sessionItemB = pageB
+        .locator('[data-testid^="agent-session-item-"]')
+        .first();
+      await expect(sessionItemB).toBeVisible({ timeout: 20_000 });
+      await sessionItemB.click();
+      await expect(pageB.getByTestId('agent-tab')).toBeVisible();
 
       await expect(pageB.getByTestId('agent-chat-thread')).toContainText('sync across tabs', {
-        timeout: 20_000,
+        timeout: 30_000,
       });
       await expect(pageB.getByTestId('agent-chat-thread')).toContainText(REPLY_TEXT, {
-        timeout: 20_000,
+        timeout: 30_000,
       });
       await expect(page.getByTestId('agent-chat-thread')).toContainText(REPLY_TEXT, {
-        timeout: 20_000,
+        timeout: 30_000,
       });
 
       await page.screenshot({
@@ -385,14 +467,6 @@ test.describe
         path: 'test-results/agent-session-two-tabs-tab-b.png',
       });
       await pageB.close();
-
-      // 清理本用例 session，避免影响后续用例
-      await page.getByTestId('agent-session-switcher').click();
-      const menu = page.getByTestId('agent-session-switcher-menu');
-      await expect(menu).toBeVisible();
-      await menu.locator('[data-testid^="agent-session-delete-"]').first().click();
-      await page.getByTestId('agent-session-delete-confirm').click();
-      await expect(page.getByTestId('agent-session-switcher')).toContainText('No session selected');
     });
 
     test('confirm flow: approve executes tool then resumes, deny skips execution', async ({
@@ -404,25 +478,15 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      const panelRoot = page.locator('[data-slot="right-panel"]');
-      if ((await panelRoot.getAttribute('data-state')) !== 'expanded') {
-        await page.getByTestId('right-panel-trigger').first().click();
-      }
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      // 新建 session（默认 writeMode=confirm）
-      await page.getByTestId('agent-session-switcher').click();
-      await page.getByTestId('agent-session-create').click();
-      await expect(page.getByTestId('agent-session-switcher')).toContainText('New Session');
-      await expect(page.getByTestId('agent-binding-chip')).toHaveAttribute(
-        'data-binding-state',
-        'valid',
-        { timeout: 15_000 }
-      );
-
-      // 第一轮：approve —— tool call 出确认卡片，点允许后工具真实执行并续跑
+      // 进入 Agent Tab，显式新建一个干净草稿会话（默认 writeMode=confirm）
+      await openAgentTab(page);
+      await page.getByTestId('agent-session-new').click();
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeEnabled();
+
+      // 第一轮：approve —— tool call 出确认卡片，点允许后工具真实执行并续跑
       await textarea.fill(`RUN_COMMAND echo ${approveToken}`);
       await page.getByTestId('agent-chat-send').click();
 
@@ -457,14 +521,6 @@ test.describe
 
       // 被拒绝的命令从未写入 pane
       expect(tmux(`capture-pane -t '${paneId}' -p`)).not.toContain(denyToken);
-
-      // 清理本用例 session
-      await page.getByTestId('agent-session-switcher').click();
-      const menu = page.getByTestId('agent-session-switcher-menu');
-      await expect(menu).toBeVisible();
-      await menu.locator('[data-testid^="agent-session-delete-"]').first().click();
-      await page.getByTestId('agent-session-delete-confirm').click();
-      await expect(page.getByTestId('agent-session-switcher')).toContainText('No session selected');
     });
 
     test('provider unreachable shows error banner with retry', async ({ page, request }) => {
@@ -491,16 +547,10 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      const panelRoot = page.locator('[data-slot="right-panel"]');
-      if ((await panelRoot.getAttribute('data-state')) !== 'expanded') {
-        await page.getByTestId('right-panel-trigger').first().click();
-      }
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      await page.getByTestId('agent-session-switcher').click();
-      await page.getByTestId('agent-session-create').click();
-      await expect(page.getByTestId('agent-session-switcher')).toContainText('New Session');
-
+      await openAgentTab(page);
+      await page.getByTestId('agent-session-new').click();
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeEnabled();
       await textarea.fill('this will fail');

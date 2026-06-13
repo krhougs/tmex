@@ -1,10 +1,13 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel, Tool } from 'ai';
+import { HOSTED_TOOL_FACTORIES } from '../agent/tools/hosted';
 import { decrypt, decryptWithContext } from '../crypto';
 import { getAgentSettings } from '../db/agent';
 import { type LlmProviderRecord, getLlmProviderById } from '../db/llm';
 import { t } from '../i18n';
+
+type OpenAIClient = ReturnType<typeof createOpenAI>;
 
 const FETCH_MODELS_TIMEOUT_MS = 15_000;
 
@@ -73,13 +76,12 @@ export async function resolveLanguageModel(
   }).chatModel(effectiveModelId);
 }
 
-// session.useProviderWebSearch=true 且 provider 协议为 openai-responses 时使用；
-// 协议不匹配返回 null（创建 session 时 REST 层已校验互斥，这里兜底）。
-export async function resolveProviderWebSearchTool(providerId: string | null): Promise<Tool | null> {
-  let effectiveProviderId = providerId;
-  if (!effectiveProviderId) {
-    effectiveProviderId = getAgentSettings().defaultProviderId;
-  }
+// 解析一个 openai-responses 协议 provider 的 OpenAI client（hosted 工具 / web_search 共用）。
+// 协议不匹配 / provider 不存在 / 未启用 → 返回 null。
+export async function resolveOpenAIResponsesProvider(
+  providerId: string | null
+): Promise<OpenAIClient | null> {
+  const effectiveProviderId = providerId ?? getAgentSettings().defaultProviderId;
   if (!effectiveProviderId) {
     return null;
   }
@@ -95,10 +97,39 @@ export async function resolveProviderWebSearchTool(providerId: string | null): P
     field: 'api_key_enc',
   });
 
-  return createOpenAI({
-    baseURL: resolveBaseUrl(provider.baseUrl),
-    apiKey,
-  }).tools.webSearch();
+  return createOpenAI({ baseURL: resolveBaseUrl(provider.baseUrl), apiKey });
+}
+
+// session.useProviderWebSearch=true 且 provider 协议为 openai-responses 时使用；
+// 协议不匹配返回 null（创建 session 时 REST 层已校验互斥，这里兜底）。
+export async function resolveProviderWebSearchTool(
+  providerId: string | null
+): Promise<Tool | null> {
+  const client = await resolveOpenAIResponsesProvider(providerId);
+  return client ? (client.tools.webSearch() as unknown as Tool) : null;
+}
+
+// 解析 session 启用的 provider 原生 hosted 工具集（仅 openai-responses 生效）。
+// 未知 key 忽略；非 responses provider / 空列表 → 返回 {}。
+export async function resolveProviderHostedTools(
+  providerId: string | null,
+  keys: readonly string[]
+): Promise<Record<string, Tool>> {
+  if (!keys || keys.length === 0) {
+    return {};
+  }
+  const client = await resolveOpenAIResponsesProvider(providerId);
+  if (!client) {
+    return {};
+  }
+  const tools: Record<string, Tool> = {};
+  for (const key of keys) {
+    const factory = HOSTED_TOOL_FACTORIES[key];
+    if (factory) {
+      tools[key] = factory(client);
+    }
+  }
+  return tools;
 }
 
 export async function fetchProviderModels(
@@ -135,7 +166,9 @@ export async function fetchProviderModels(
     const body = (await response.text().catch(() => '')).slice(0, 500);
     throw fetchModelsError(
       `HTTP ${response.status}`,
-      new Error(`GET ${modelsUrl} -> HTTP ${response.status} ${response.statusText}${body ? `\n${body}` : ''}`)
+      new Error(
+        `GET ${modelsUrl} -> HTTP ${response.status} ${response.statusText}${body ? `\n${body}` : ''}`
+      )
     );
   }
 

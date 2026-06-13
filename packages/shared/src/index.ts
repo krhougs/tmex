@@ -140,6 +140,8 @@ export type {
   AgentSessionWireStatus,
   AgentConfirmationWireStatus,
   AgentPendingConfirmation,
+  AgentQueuedMessageWire,
+  AgentQueueUpdatedPayload,
   AgentSyncEventPayload,
   AgentStatusEventPayload,
   AgentTextDeltaPayload,
@@ -453,6 +455,14 @@ export type LlmProviderProtocol = 'openai-chat' | 'openai-responses';
 
 export type AgentSearchProvider = 'none' | 'tavily' | 'brave';
 
+export type LlmModelSource = 'fetched' | 'manual';
+
+export interface LlmModelInfo {
+  id: string;
+  source: LlmModelSource;
+  enabled: boolean;
+}
+
 export interface LlmProviderDto {
   id: string;
   name: string;
@@ -460,7 +470,10 @@ export interface LlmProviderDto {
   baseUrl: string;
   hasApiKey: boolean;
   enabled: boolean;
+  /** effective 启用模型列表 =（拉取 ∪ 手动）− 禁用，供 Agent/默认模型选择器使用 */
   models: string[];
+  /** 全量模型（含来源与启用态），供设置页逐个启停 */
+  modelDetails: LlmModelInfo[];
   modelsFetchedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -490,6 +503,10 @@ export interface UpdateLlmProviderRequest {
   /** 留空或缺省表示不修改 */
   apiKey?: string;
   enabled?: boolean;
+  /** 手动添加的模型 id 全量覆盖 */
+  manualModels?: string[];
+  /** 被禁用的模型 id 全量覆盖 */
+  disabledModels?: string[];
 }
 
 export interface UpdateLlmProviderResponse {
@@ -551,11 +568,24 @@ export interface AgentSessionDto {
   systemPrompt: string | null;
   writeMode: AgentWriteMode;
   useProviderWebSearch: boolean;
+  /** 启用的 provider 原生 hosted 工具 key（如 image_generation） */
+  providerHostedTools: string[];
+  /** 起源元数据：创建时绑定 pane 的终端标题/进程名（旧记录为 null） */
+  originPaneTitle: string | null;
+  originProcessName: string | null;
   status: AgentSessionStatus;
   lastError: string | null;
   maxStepsPerTurn: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AgentQueuedMessageDto {
+  id: string;
+  sessionId: string;
+  seq: number;
+  text: string;
+  createdAt: string;
 }
 
 export interface AgentMessageDto {
@@ -592,6 +622,9 @@ export interface CreateAgentSessionRequest {
   systemPrompt?: string | null;
   writeMode?: AgentWriteMode;
   useProviderWebSearch?: boolean;
+  providerHostedTools?: string[];
+  /** 前端可附带 snapshot 的 pane 标题作为起源元数据兜底（进程名由后端采集） */
+  originPaneTitle?: string | null;
   maxStepsPerTurn?: number;
 }
 
@@ -603,6 +636,7 @@ export interface UpdateAgentSessionRequest {
   systemPrompt?: string | null;
   writeMode?: AgentWriteMode;
   useProviderWebSearch?: boolean;
+  providerHostedTools?: string[];
   maxStepsPerTurn?: number;
 }
 
@@ -615,6 +649,20 @@ export interface ListAgentMessagesResponse {
 }
 
 export interface PostAgentMessageRequest {
+  text: string;
+}
+
+export interface ListAgentQueuedMessagesResponse {
+  queued: AgentQueuedMessageDto[];
+}
+
+export interface EnqueueAgentMessageRequest {
+  text: string;
+  /** true 表示立即 steer（中断当前 step 注入）；缺省/false 为等下一 step 边界注入 */
+  steer?: boolean;
+}
+
+export interface EditQueuedAgentMessageRequest {
   text: string;
 }
 

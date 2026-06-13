@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StrictMode, Suspense, lazy, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Outlet, RouterProvider, createBrowserRouter, useParams } from 'react-router';
 import { Toaster } from 'sonner';
@@ -8,15 +8,10 @@ import './index.css';
 
 import { GlobalDeviceProvider } from '@/components/global-device-provider';
 import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
-import { RightPanel, RightPanelProvider, RightPanelTrigger } from '@/components/ui/right-panel';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { WatchEventsInit } from '@/components/watch/watch-events-init';
 import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
-
-const AgentPanel = lazy(() =>
-  import('@/components/agent-panel').then((m) => ({ default: m.AgentPanel }))
-);
 
 function applyInitialTheme(): void {
   try {
@@ -62,29 +57,21 @@ function RootLayout() {
       <WatchEventsInit />
       <SidebarProvider>
         <AppSidebar />
-        <RightPanelProvider>
-          <SidebarInset
-            className="h-dvh overflow-hidden"
-            style={
-              keyboardOffset > 0
-                ? {
-                    transform: `translateY(-${keyboardOffset}px)`,
-                    transition: 'transform 0.12s ease-out',
-                  }
-                : undefined
-            }
-          >
-            <div className="h-[var(--tmex-safe-area-top)]" />
-            <Outlet />
-            <div className="h-[var(--tmex-safe-area-bottom)]" />
-          </SidebarInset>
-          {/* 桌面端 fixed 容器在 SidebarInset 的 transform 之外，不受虚拟键盘避让影响 */}
-          <RightPanel>
-            <Suspense fallback={null}>
-              <AgentPanel />
-            </Suspense>
-          </RightPanel>
-        </RightPanelProvider>
+        <SidebarInset
+          className="h-dvh overflow-hidden"
+          style={
+            keyboardOffset > 0
+              ? {
+                  transform: `translateY(-${keyboardOffset}px)`,
+                  transition: 'transform 0.12s ease-out',
+                }
+              : undefined
+          }
+        >
+          <div className="h-[var(--tmex-safe-area-top)]" />
+          <Outlet />
+          <div className="h-[var(--tmex-safe-area-bottom)]" />
+        </SidebarInset>
       </SidebarProvider>
     </GlobalDeviceProvider>
   );
@@ -121,7 +108,6 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
         </div>
         <div className="flex shrink-0 items-center gap-1 px-4">
           {PageActions && <PageActions {...params} />}
-          <RightPanelTrigger />
         </div>
       </header>
 

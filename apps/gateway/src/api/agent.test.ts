@@ -28,7 +28,7 @@ let responsesProviderId = '';
 
 interface StubSupervisorOverrides {
   isSessionActive?: (sessionId: string) => boolean;
-  submitUserMessage?: (sessionId: string, text: string) => AgentMessageRecord;
+  submitUserMessage?: (sessionId: string, text: string) => unknown;
   stopSession?: (sessionId: string) => Promise<void>;
   resolveConfirmation?: (id: string, approved: boolean, reason?: string) => unknown;
 }
@@ -38,8 +38,10 @@ function stubSupervisor(overrides: StubSupervisorOverrides = {}): AgentSuperviso
     isSessionActive: overrides.isSessionActive ?? (() => false),
     submitUserMessage:
       overrides.submitUserMessage ??
-      ((sessionId: string, text: string) =>
-        appendAgentMessage(sessionId, 'user', { role: 'user', content: text })),
+      ((sessionId: string, text: string) => ({
+        kind: 'message' as const,
+        record: appendAgentMessage(sessionId, 'user', { role: 'user', content: text }),
+      })),
     stopSession: overrides.stopSession ?? (async () => {}),
     resolveConfirmation:
       overrides.resolveConfirmation ??

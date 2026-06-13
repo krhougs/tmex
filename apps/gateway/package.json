@@ -11,6 +11,7 @@
     "test:live:llm": "NODE_ENV=test bun test ./src/llm/provider-live.integration.ts",
     "test:live:llm-api": "NODE_ENV=test bun test ./src/api/llm-api-live.integration.ts",
     "test:live:search": "NODE_ENV=test bun test ./src/agent/tools/web-search-live.integration.ts",
+    "test:live:hosted-tool": "NODE_ENV=test bun test ./src/agent/agent-hosted-tool.integration.ts",
     "test:live": "NODE_ENV=test bun test ./src/llm/provider-live.integration.ts ./src/api/llm-api-live.integration.ts ./src/agent/tools/web-search-live.integration.ts",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "bun src/db/migrate.ts"

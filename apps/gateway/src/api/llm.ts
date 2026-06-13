@@ -12,6 +12,7 @@ import { getAgentSettings, updateAgentSettings } from '../db/agent';
 import type { AgentSettingsRecord } from '../db/agent';
 import {
   type LlmProviderRecord,
+  computeProviderModels,
   createLlmProvider,
   deleteLlmProvider,
   getAllLlmProviders,
@@ -54,6 +55,7 @@ export function handleLlmApiRequest(
 }
 
 function toProviderDto(record: LlmProviderRecord): LlmProviderDto {
+  const { effective, modelDetails } = computeProviderModels(record);
   return {
     id: record.id,
     name: record.name,
@@ -61,7 +63,8 @@ function toProviderDto(record: LlmProviderRecord): LlmProviderDto {
     baseUrl: record.baseUrl,
     hasApiKey: record.apiKeyEnc.length > 0,
     enabled: record.enabled,
-    models: record.modelsCache ?? [],
+    models: effective,
+    modelDetails,
     modelsFetchedAt: record.modelsFetchedAt,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -219,6 +222,23 @@ async function handleUpdateProvider(req: Request, id: string): Promise<Response>
       return json({ error: t('apiError.invalidRequest') }, 400);
     }
     updates.enabled = body.enabled;
+  }
+
+  const isStringArray = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((item) => typeof item === 'string');
+
+  if (body.manualModels !== undefined) {
+    if (!isStringArray(body.manualModels)) {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
+    updates.manualModels = [...new Set(body.manualModels.map((m) => m.trim()).filter(Boolean))];
+  }
+
+  if (body.disabledModels !== undefined) {
+    if (!isStringArray(body.disabledModels)) {
+      return json({ error: t('apiError.invalidRequest') }, 400);
+    }
+    updates.disabledModels = [...new Set(body.disabledModels.map((m) => m.trim()).filter(Boolean))];
   }
 
   let provider = updateLlmProvider(id, updates);

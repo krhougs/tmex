@@ -186,6 +186,11 @@
         "apiKeyPlaceholder": "输入 API Key",
         "apiKeySetPlaceholder": "已设置，留空不修改",
         "addProvider": "添加提供商",
+        "editProvider": "编辑供应商",
+        "formHint": "配置供应商连接与模型",
+        "models": "模型",
+        "modelManual": "手动",
+        "addModelPlaceholder": "添加模型 ID",
         "empty": "暂无提供商",
         "refreshModels": "刷新模型",
         "modelsCount": "{{total}} 个模型",
@@ -372,6 +377,10 @@
       "agentWriteModeInvalid": "写入模式必须是 confirm 或 auto",
       "agentMaxStepsInvalid": "每回合最大步数必须在 1-100 之间",
       "agentProviderWebSearchRequiresResponses": "Provider 内置搜索仅支持 openai-responses 协议",
+      "agentHostedToolUnknown": "未知的 hosted 工具：{{name}}",
+      "agentHostedToolRequiresResponses": "Provider hosted 工具仅支持 openai-responses 协议",
+      "agentSessionOrphaned": "该 Agent 会话已孤立（绑定终端已不存在），仅可只读查看",
+      "agentQueuedMessageNotFound": "排队消息不存在",
       "agentConfirmationNotFound": "确认请求不存在",
       "agentConfirmationAlreadyDecided": "确认请求已被处理",
       "agentMessageTextRequired": "消息内容不能为空",
@@ -449,9 +458,38 @@
       "newWindow": "新建窗口",
       "closeWindow": "关闭窗口",
       "closePane": "关闭 pane",
-      "addDevice": "添加设备"
+      "addDevice": "添加设备",
+      "tab": {
+        "panes": "Panes",
+        "agent": "Agent",
+        "files": "Files"
+      },
+      "orphanedSessions": "孤立会话"
     },
     "agent": {
+      "error": {
+        "streamStalled": "模型停止响应（上游流无响应），请重试。"
+      },
+      "model": {
+        "select": "选择模型",
+        "placeholder": "模型",
+        "noProviders": "暂无模型 — 请先在设置中配置供应商"
+      },
+      "queue": {
+        "title": "队列（{{count}}）",
+        "steer": "立即注入",
+        "steerHint": "中断当前步骤并立即注入队列",
+        "withdraw": "撤回"
+      },
+      "orphan": {
+        "readonly": "该会话已孤立（绑定终端已不存在），仅可只读查看",
+        "title": "孤立会话",
+        "process": "进程",
+        "startedAt": "创建于"
+      },
+      "files": {
+        "comingSoon": "Coming Soon"
+      },
       "panel": {
         "title": "Agent",
         "empty": "选择或创建一个会话",
@@ -464,6 +502,8 @@
       "session": {
         "none": "未选择会话",
         "new": "新建会话",
+        "switch": "切换会话",
+        "selectPaneHint": "请在 Panes 标签中选择一个 pane 来开启会话",
         "noSessions": "暂无会话",
         "showAll": "显示全部会话",
         "rename": "重命名会话",

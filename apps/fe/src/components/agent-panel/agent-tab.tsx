@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useMatch, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
-import { RightPanelTrigger } from '@/components/ui/right-panel';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,42 +10,58 @@ import { cn } from '@/lib/utils';
 import { useAgentStore } from '@/stores/agent';
 import { type UiThreadBlock, buildThreadBlocks, lastUserMessageText } from '@/stores/agent-thread';
 import { useTmuxStore } from '@/stores/tmux';
+import { useUIStore } from '@/stores/ui';
 import { buildTerminalLabel } from '@/utils/terminalMeta';
 import { useQuery } from '@tanstack/react-query';
 import type { AgentSessionDto, Device, StateSnapshotPayload } from '@tmex/shared';
-import { CircleAlertIcon, SendIcon, SquareIcon, TerminalIcon } from 'lucide-react';
+import {
+  CircleAlertIcon,
+  ListTreeIcon,
+  PlusIcon,
+  SendIcon,
+  SquareIcon,
+  TerminalIcon,
+  ZapIcon,
+} from 'lucide-react';
 
 import { ChatThread } from './chat-thread';
-import { SessionSwitcher } from './session-switcher';
+import { ModelPicker } from './model-picker';
+import { QueueChips } from './queue-chips';
 
-export function ChatInput({
+function ChatInput({
   onSend,
+  onSteer,
   onStop,
   running,
+  steerable,
   disabled,
-  className,
 }: {
   onSend?: (text: string) => void;
+  onSteer?: (text: string) => void;
   onStop?: () => void;
   running?: boolean;
+  steerable?: boolean;
   disabled?: boolean;
-  className?: string;
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
 
-  const submit = () => {
+  const submit = (): void => {
     const trimmed = text.trim();
-    if (!trimmed || disabled || running) return;
+    if (!trimmed || disabled) return;
     onSend?.(trimmed);
     setText('');
   };
 
+  const steer = (): void => {
+    const trimmed = text.trim();
+    if (!trimmed || disabled) return;
+    onSteer?.(trimmed);
+    setText('');
+  };
+
   return (
-    <div
-      data-testid="agent-chat-input"
-      className={cn('flex shrink-0 items-end gap-2 border-t p-3', className)}
-    >
+    <div data-testid="agent-chat-input" className="flex shrink-0 items-end gap-2 border-t p-3">
       <Textarea
         data-testid="agent-chat-input-textarea"
         value={text}
@@ -63,15 +78,40 @@ export function ChatInput({
         rows={1}
       />
       {running ? (
-        <Button
-          data-testid="agent-chat-stop"
-          size="icon"
-          variant="destructive"
-          onClick={() => onStop?.()}
-          aria-label={t('agent.panel.stop')}
-        >
-          <SquareIcon />
-        </Button>
+        <div className="flex shrink-0 items-end gap-1.5">
+          {steerable && (
+            <Button
+              data-testid="agent-chat-steer"
+              size="icon"
+              variant="outline"
+              disabled={disabled || text.trim().length === 0}
+              onClick={steer}
+              aria-label={t('agent.queue.steer')}
+              title={t('agent.queue.steerHint')}
+            >
+              <ZapIcon />
+            </Button>
+          )}
+          <Button
+            data-testid="agent-chat-send"
+            size="icon"
+            variant="secondary"
+            disabled={disabled || text.trim().length === 0}
+            onClick={submit}
+            aria-label={t('agent.panel.send')}
+          >
+            <SendIcon />
+          </Button>
+          <Button
+            data-testid="agent-chat-stop"
+            size="icon"
+            variant="destructive"
+            onClick={() => onStop?.()}
+            aria-label={t('agent.panel.stop')}
+          >
+            <SquareIcon />
+          </Button>
+        </div>
       ) : (
         <Button
           data-testid="agent-chat-send"
@@ -134,18 +174,18 @@ function resolveBinding(
   };
 }
 
-export function AgentPanel() {
+export function AgentTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const setSidebarTab = useUIStore((state) => state.setSidebarTab);
 
   const paneMatch = useMatch('/devices/:deviceId/windows/:windowId/panes/:paneId');
   const routeDeviceId = paneMatch?.params.deviceId ?? null;
   const routePaneId = paneMatch?.params.paneId ?? null;
 
   const sessions = useAgentStore((state) => state.sessions);
-  const sessionOrder = useAgentStore((state) => state.sessionOrder);
   const activeSessionId = useAgentStore((state) => state.activeSessionId);
-  const showAllSessions = useAgentStore((state) => state.showAllSessions);
+  const draft = useAgentStore((state) => state.draft);
   const messages = useAgentStore((state) =>
     state.activeSessionId ? state.messages[state.activeSessionId] : undefined
   );
@@ -157,6 +197,9 @@ export function AgentPanel() {
   );
   const sending = useAgentStore((state) =>
     state.activeSessionId ? state.sending[state.activeSessionId] : undefined
+  );
+  const queued = useAgentStore((state) =>
+    state.activeSessionId ? state.queued[state.activeSessionId] : undefined
   );
 
   const snapshots = useTmuxStore((state) => state.snapshots);
@@ -179,19 +222,23 @@ export function AgentPanel() {
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : undefined;
 
-  const visibleSessions = useMemo(() => {
-    const ordered = sessionOrder
-      .map((id) => sessions[id])
-      .filter((session): session is AgentSessionDto => Boolean(session));
-    if (showAllSessions || !routePaneId || !routeDeviceId) {
-      return ordered;
+  // 当前路由 pane 的 snapshot 标题，用作新建会话的起源元数据
+  const routePaneTitle = useMemo(() => {
+    if (!routeDeviceId || !routePaneId) return null;
+    const windows = snapshots[routeDeviceId]?.session?.windows;
+    for (const window of windows ?? []) {
+      const pane = window.panes.find((candidate) => candidate.id === routePaneId);
+      if (pane) return pane.title ?? null;
     }
-    return ordered.filter(
-      (session) =>
-        session.id === activeSessionId ||
-        (session.deviceId === routeDeviceId && session.paneId === routePaneId)
-    );
-  }, [sessionOrder, sessions, showAllSessions, routeDeviceId, routePaneId, activeSessionId]);
+    return null;
+  }, [routeDeviceId, routePaneId, snapshots]);
+
+  // 空态即草稿态：进入 agent tab 且有路由 pane 但无会话/草稿时自动起草
+  useEffect(() => {
+    if (!activeSession && !draft && routeDeviceId && routePaneId) {
+      useAgentStore.getState().startDraft(routeDeviceId, routePaneId, routePaneTitle);
+    }
+  }, [activeSession, draft, routeDeviceId, routePaneId, routePaneTitle]);
 
   const confirmationByToolCallId = useMemo(() => {
     const map = new Map<string, string>();
@@ -203,7 +250,6 @@ export function AgentPanel() {
 
   const blocks = useMemo(() => {
     const merged = buildThreadBlocks(messages, inProgress);
-    // approval 等待中的 tool-call 可能尚无对应卡片（assistant 消息还没拉到），合成卡片兜底
     const knownToolCallIds = new Set<string>();
     for (const block of merged) {
       if (block.kind === 'tool-call') {
@@ -242,6 +288,16 @@ export function AgentPanel() {
   const running = activeSession?.status === 'running';
   const retryText = lastUserMessageText(messages);
 
+  // 孤立会话：设备缺失 / 不在列表 / pane 在快照中已不存在 → 仅可只读查看
+  const isOrphan = Boolean(
+    activeSession &&
+      (!activeSession.deviceId ||
+        !devicesData?.devices?.some((device) => device.id === activeSession.deviceId) ||
+        binding?.state === 'invalid')
+  );
+
+  const queuedItems = queued ?? [];
+
   const handleDecide = (confirmationId: string, approved: boolean): void => {
     if (!activeSessionId) return;
     void useAgentStore.getState().decideConfirmation(activeSessionId, confirmationId, approved);
@@ -260,38 +316,99 @@ export function AgentPanel() {
     }
   };
 
+  const handleNewSession = (): void => {
+    if (!routeDeviceId || !routePaneId) return;
+    useAgentStore.getState().startDraft(routeDeviceId, routePaneId, routePaneTitle);
+  };
+
+  const handleModelChange = (providerId: string | null, modelId: string): void => {
+    if (activeSession) {
+      void useAgentStore.getState().setSessionModel(activeSession.id, providerId, modelId);
+    } else if (draft) {
+      useAgentStore.getState().updateDraft({ providerId, modelId });
+    }
+  };
+
+  const handleSend = (text: string): void => {
+    const store = useAgentStore.getState();
+    if (activeSession) {
+      if (activeSession.status === 'running') {
+        void store.enqueueMessage(activeSession.id, text);
+      } else {
+        void store.sendMessage(activeSession.id, text);
+      }
+      return;
+    }
+    if (draft) {
+      void (async () => {
+        const session = await store.materializeDraft();
+        if (session) await store.sendMessage(session.id, text);
+      })();
+    }
+  };
+
+  const handleSteer = (text: string): void => {
+    if (!activeSession) return;
+    void useAgentStore.getState().enqueueMessage(activeSession.id, text, true);
+  };
+
+  const handleQueueSteer = (): void => {
+    if (!activeSession) return;
+    const first = queuedItems[0];
+    if (!first) return;
+    const store = useAgentStore.getState();
+    void (async () => {
+      await store.withdrawQueuedMessage(activeSession.id, first.id);
+      await store.enqueueMessage(activeSession.id, first.text, true);
+    })();
+  };
+
+  const modelProviderId = activeSession ? activeSession.providerId : (draft?.providerId ?? null);
+  const modelId = activeSession ? activeSession.modelId : (draft?.modelId ?? null);
+  const hasContext = Boolean(activeSession || draft);
+  const inputDisabled =
+    isOrphan || !hasContext || activeSession?.status === 'waiting_confirmation' || Boolean(sending);
+
   return (
-    <div data-testid="agent-panel" className="flex h-full min-h-0 flex-col">
-      <header
-        data-testid="agent-panel-header"
-        className="flex h-12 shrink-0 items-center gap-2 px-3 md:h-16"
-      >
+    <div data-testid="agent-tab" className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
         <span className="text-sm font-semibold">{t('agent.panel.title')}</span>
-        <Separator orientation="vertical" className="shrink-0 data-[orientation=vertical]:h-4" />
-        <div className="min-w-0 flex-1">
-          <SessionSwitcher
-            sessions={visibleSessions}
-            currentSessionId={activeSessionId}
-            showAll={showAllSessions}
-            onToggleShowAll={(showAll) => useAgentStore.getState().setShowAllSessions(showAll)}
-            onSelect={(sessionId) => useAgentStore.getState().setActiveSession(sessionId)}
-            onCreate={() => {
-              if (routeDeviceId && routePaneId) {
-                void useAgentStore.getState().createSession(routeDeviceId, routePaneId);
-              }
-            }}
-            onRename={(sessionId, title) => {
-              void useAgentStore.getState().renameSession(sessionId, title);
-            }}
-            onDelete={(sessionId) => {
-              void useAgentStore.getState().deleteSession(sessionId);
-            }}
-            createDisabled={!routeDeviceId || !routePaneId}
-            createDisabledReason={t('agent.session.createDisabledNoPane')}
-          />
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <Button
+            data-testid="agent-session-switch"
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => setSidebarTab('panes')}
+            aria-label={t('agent.session.switch')}
+            title={t('agent.session.switch')}
+          >
+            <ListTreeIcon />
+          </Button>
+          <Button
+            data-testid="agent-session-new"
+            size="icon-sm"
+            variant="ghost"
+            disabled={!routeDeviceId || !routePaneId}
+            onClick={handleNewSession}
+            aria-label={t('agent.session.new')}
+            title={
+              !routeDeviceId || !routePaneId
+                ? t('agent.session.selectPaneHint')
+                : t('agent.session.new')
+            }
+          >
+            <PlusIcon />
+          </Button>
         </div>
-        <RightPanelTrigger className="shrink-0" data-testid="right-panel-close" />
-      </header>
+      </div>
+      <div className="px-3 pb-2">
+        <ModelPicker
+          providerId={modelProviderId}
+          modelId={modelId}
+          onChange={handleModelChange}
+          disabled={running}
+        />
+      </div>
       <Separator />
 
       {activeSession && binding && (
@@ -323,6 +440,7 @@ export function AgentPanel() {
             <Switch
               data-testid="agent-write-mode-switch"
               checked={activeSession.writeMode === 'auto'}
+              disabled={isOrphan}
               onCheckedChange={(checked) => {
                 void useAgentStore
                   .getState()
@@ -333,7 +451,17 @@ export function AgentPanel() {
         </div>
       )}
 
-      {activeSession && paneMismatch && (
+      {isOrphan && (
+        <div
+          data-testid="agent-orphan-banner"
+          className="bg-muted/50 text-muted-foreground mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md px-2 py-1.5 text-xs"
+        >
+          <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">{t('agent.orphan.readonly')}</span>
+        </div>
+      )}
+
+      {activeSession && !isOrphan && paneMismatch && (
         <div
           data-testid="agent-pane-mismatch"
           className="bg-muted/50 mx-3 mb-1.5 flex shrink-0 flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-xs"
@@ -374,7 +502,7 @@ export function AgentPanel() {
         >
           <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{activeSession.lastError}</span>
-          {retryText && (
+          {retryText && !isOrphan && (
             <Button
               data-testid="agent-error-retry"
               size="xs"
@@ -392,23 +520,33 @@ export function AgentPanel() {
       )}
 
       <ChatThread
-        key={activeSession?.id ?? 'none'}
+        key={activeSession?.id ?? (draft ? 'draft' : 'none')}
         blocks={activeSession ? blocks : []}
         running={Boolean(running)}
-        emptyText={t('agent.panel.empty')}
+        emptyText={hasContext ? t('agent.panel.empty') : t('agent.session.selectPaneHint')}
         confirmationByToolCallId={confirmationByToolCallId}
         onDecide={handleDecide}
       />
-      <ChatInput
-        disabled={
-          !activeSession || activeSession.status === 'waiting_confirmation' || Boolean(sending)
-        }
-        running={Boolean(running)}
-        onSend={(text) => {
-          if (activeSession) {
-            void useAgentStore.getState().sendMessage(activeSession.id, text);
+
+      {activeSession && !isOrphan && queuedItems.length > 0 && (
+        <QueueChips
+          queued={queuedItems}
+          onEdit={(itemId, text) =>
+            void useAgentStore.getState().editQueuedMessage(activeSession.id, itemId, text)
           }
-        }}
+          onWithdraw={(itemId) =>
+            void useAgentStore.getState().withdrawQueuedMessage(activeSession.id, itemId)
+          }
+          onSteer={handleQueueSteer}
+        />
+      )}
+
+      <ChatInput
+        disabled={inputDisabled}
+        running={Boolean(running)}
+        steerable={Boolean(activeSession)}
+        onSend={handleSend}
+        onSteer={handleSteer}
         onStop={() => {
           if (activeSession) {
             void useAgentStore.getState().stopSession(activeSession.id);

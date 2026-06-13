@@ -192,6 +192,11 @@ export const I18N_RESOURCES = {
         "apiKeyPlaceholder": "Enter API key",
         "apiKeySetPlaceholder": "Already set, leave blank to keep",
         "addProvider": "Add Provider",
+        "editProvider": "Edit Provider",
+        "formHint": "Configure the provider connection and models",
+        "models": "Models",
+        "modelManual": "Manual",
+        "addModelPlaceholder": "Add a model ID",
         "empty": "No providers yet",
         "refreshModels": "Refresh Models",
         "modelsCount": "{{total}} models",
@@ -378,6 +383,10 @@ export const I18N_RESOURCES = {
       "agentWriteModeInvalid": "Write mode must be confirm or auto",
       "agentMaxStepsInvalid": "Max steps per turn must be between 1 and 100",
       "agentProviderWebSearchRequiresResponses": "Provider built-in web search requires the openai-responses protocol",
+      "agentHostedToolUnknown": "Unknown hosted tool: {{name}}",
+      "agentHostedToolRequiresResponses": "Provider hosted tools require the openai-responses protocol",
+      "agentSessionOrphaned": "This agent session is orphaned (its terminal is gone) and is read-only",
+      "agentQueuedMessageNotFound": "Queued message not found",
       "agentConfirmationNotFound": "Confirmation not found",
       "agentConfirmationAlreadyDecided": "Confirmation has already been decided",
       "agentMessageTextRequired": "Message text is required",
@@ -455,9 +464,38 @@ export const I18N_RESOURCES = {
       "newWindow": "Create Window",
       "closeWindow": "Close Window",
       "closePane": "Close Pane",
-      "addDevice": "Add Device"
+      "addDevice": "Add Device",
+      "tab": {
+        "panes": "Panes",
+        "agent": "Agent",
+        "files": "Files"
+      },
+      "orphanedSessions": "Orphaned sessions"
     },
     "agent": {
+      "error": {
+        "streamStalled": "The model stopped responding (upstream stream stalled). Please retry."
+      },
+      "model": {
+        "select": "Select model",
+        "placeholder": "Model",
+        "noProviders": "No models — configure a provider in Settings"
+      },
+      "queue": {
+        "title": "Queued ({{count}})",
+        "steer": "Steer now",
+        "steerHint": "Interrupt the current step and inject the queue now",
+        "withdraw": "Withdraw"
+      },
+      "orphan": {
+        "readonly": "This session is orphaned (its terminal is gone) — read-only",
+        "title": "Orphaned",
+        "process": "Process",
+        "startedAt": "Started"
+      },
+      "files": {
+        "comingSoon": "Coming Soon"
+      },
       "panel": {
         "title": "Agent",
         "empty": "Select or create a session",
@@ -470,6 +508,8 @@ export const I18N_RESOURCES = {
       "session": {
         "none": "No session selected",
         "new": "New session",
+        "switch": "Switch session",
+        "selectPaneHint": "Select a pane in the Panes tab to start a session",
         "noSessions": "No sessions yet",
         "showAll": "Show all sessions",
         "rename": "Rename session",
@@ -835,6 +875,11 @@ export const I18N_RESOURCES = {
         "apiKeyPlaceholder": "输入 API Key",
         "apiKeySetPlaceholder": "已设置，留空不修改",
         "addProvider": "添加提供商",
+        "editProvider": "编辑供应商",
+        "formHint": "配置供应商连接与模型",
+        "models": "模型",
+        "modelManual": "手动",
+        "addModelPlaceholder": "添加模型 ID",
         "empty": "暂无提供商",
         "refreshModels": "刷新模型",
         "modelsCount": "{{total}} 个模型",
@@ -1021,6 +1066,10 @@ export const I18N_RESOURCES = {
       "agentWriteModeInvalid": "写入模式必须是 confirm 或 auto",
       "agentMaxStepsInvalid": "每回合最大步数必须在 1-100 之间",
       "agentProviderWebSearchRequiresResponses": "Provider 内置搜索仅支持 openai-responses 协议",
+      "agentHostedToolUnknown": "未知的 hosted 工具：{{name}}",
+      "agentHostedToolRequiresResponses": "Provider hosted 工具仅支持 openai-responses 协议",
+      "agentSessionOrphaned": "该 Agent 会话已孤立（绑定终端已不存在），仅可只读查看",
+      "agentQueuedMessageNotFound": "排队消息不存在",
       "agentConfirmationNotFound": "确认请求不存在",
       "agentConfirmationAlreadyDecided": "确认请求已被处理",
       "agentMessageTextRequired": "消息内容不能为空",
@@ -1098,9 +1147,38 @@ export const I18N_RESOURCES = {
       "newWindow": "新建窗口",
       "closeWindow": "关闭窗口",
       "closePane": "关闭 pane",
-      "addDevice": "添加设备"
+      "addDevice": "添加设备",
+      "tab": {
+        "panes": "Panes",
+        "agent": "Agent",
+        "files": "Files"
+      },
+      "orphanedSessions": "孤立会话"
     },
     "agent": {
+      "error": {
+        "streamStalled": "模型停止响应（上游流无响应），请重试。"
+      },
+      "model": {
+        "select": "选择模型",
+        "placeholder": "模型",
+        "noProviders": "暂无模型 — 请先在设置中配置供应商"
+      },
+      "queue": {
+        "title": "队列（{{count}}）",
+        "steer": "立即注入",
+        "steerHint": "中断当前步骤并立即注入队列",
+        "withdraw": "撤回"
+      },
+      "orphan": {
+        "readonly": "该会话已孤立（绑定终端已不存在），仅可只读查看",
+        "title": "孤立会话",
+        "process": "进程",
+        "startedAt": "创建于"
+      },
+      "files": {
+        "comingSoon": "Coming Soon"
+      },
       "panel": {
         "title": "Agent",
         "empty": "选择或创建一个会话",
@@ -1113,6 +1191,8 @@ export const I18N_RESOURCES = {
       "session": {
         "none": "未选择会话",
         "new": "新建会话",
+        "switch": "切换会话",
+        "selectPaneHint": "请在 Panes 标签中选择一个 pane 来开启会话",
         "noSessions": "暂无会话",
         "showAll": "显示全部会话",
         "rename": "重命名会话",
@@ -1478,6 +1558,11 @@ export const I18N_RESOURCES = {
         "apiKeyPlaceholder": "API キーを入力",
         "apiKeySetPlaceholder": "設定済み、空欄の場合は変更されません",
         "addProvider": "プロバイダーを追加",
+        "editProvider": "プロバイダーを編集",
+        "formHint": "プロバイダーの接続とモデルを設定",
+        "models": "モデル",
+        "modelManual": "手動",
+        "addModelPlaceholder": "モデル ID を追加",
         "empty": "プロバイダーはまだありません",
         "refreshModels": "モデルを更新",
         "modelsCount": "{{total}} 個のモデル",
@@ -1664,6 +1749,10 @@ export const I18N_RESOURCES = {
       "agentWriteModeInvalid": "書き込みモードは confirm または auto である必要があります",
       "agentMaxStepsInvalid": "1 ターンあたりの最大ステップ数は 1〜100 の範囲で指定してください",
       "agentProviderWebSearchRequiresResponses": "プロバイダ内蔵の Web 検索は openai-responses プロトコルのみ対応しています",
+      "agentHostedToolUnknown": "不明な hosted ツール: {{name}}",
+      "agentHostedToolRequiresResponses": "プロバイダの hosted ツールは openai-responses プロトコルのみ対応しています",
+      "agentSessionOrphaned": "この Agent セッションは孤立しており（端末が存在しません）、読み取り専用です",
+      "agentQueuedMessageNotFound": "キューのメッセージが存在しません",
       "agentConfirmationNotFound": "確認リクエストが存在しません",
       "agentConfirmationAlreadyDecided": "確認リクエストは既に処理済みです",
       "agentMessageTextRequired": "メッセージ内容を入力してください",
@@ -1741,9 +1830,38 @@ export const I18N_RESOURCES = {
       "newWindow": "ウィンドウを作成",
       "closeWindow": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
-      "addDevice": "デバイスを追加"
+      "addDevice": "デバイスを追加",
+      "tab": {
+        "panes": "Panes",
+        "agent": "Agent",
+        "files": "Files"
+      },
+      "orphanedSessions": "孤立セッション"
     },
     "agent": {
+      "error": {
+        "streamStalled": "モデルが応答を停止しました（上流ストリームが停止）。再試行してください。"
+      },
+      "model": {
+        "select": "モデルを選択",
+        "placeholder": "モデル",
+        "noProviders": "モデルがありません — 設定でプロバイダーを構成してください"
+      },
+      "queue": {
+        "title": "キュー（{{count}}）",
+        "steer": "今すぐ注入",
+        "steerHint": "現在のステップを中断してキューを今すぐ注入",
+        "withdraw": "取り消し"
+      },
+      "orphan": {
+        "readonly": "このセッションは孤立しており（端末が存在しません）、読み取り専用です",
+        "title": "孤立セッション",
+        "process": "プロセス",
+        "startedAt": "作成日時"
+      },
+      "files": {
+        "comingSoon": "Coming Soon"
+      },
       "panel": {
         "title": "Agent",
         "empty": "セッションを選択または作成してください",
@@ -1756,6 +1874,8 @@ export const I18N_RESOURCES = {
       "session": {
         "none": "セッション未選択",
         "new": "新規セッション",
+        "switch": "セッションを切り替え",
+        "selectPaneHint": "Panes タブでペインを選択してセッションを開始してください",
         "noSessions": "セッションがありません",
         "showAll": "すべてのセッションを表示",
         "rename": "セッション名を変更",

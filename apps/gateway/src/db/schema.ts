@@ -22,7 +22,9 @@ export const siteSettings = sqliteTable(
     enableBrowserBellToast: integer('enable_browser_bell_toast', { mode: 'boolean' })
       .notNull()
       .default(true),
-    enableBrowserNotificationToast: integer('enable_browser_notification_toast', { mode: 'boolean' })
+    enableBrowserNotificationToast: integer('enable_browser_notification_toast', {
+      mode: 'boolean',
+    })
       .notNull()
       .default(true),
     enableTelegramBellPush: integer('enable_telegram_bell_push', { mode: 'boolean' })
@@ -38,9 +40,7 @@ export const siteSettings = sqliteTable(
     language: text('language').notNull().default('en_US'),
     updatedAt: text('updated_at').notNull(),
   },
-  (table) => [
-    check('site_settings_singleton_check', sql`${table.id} = 1`),
-  ]
+  (table) => [check('site_settings_singleton_check', sql`${table.id} = 1`)]
 );
 
 export const devices = sqliteTable(
@@ -112,6 +112,13 @@ export const llmProviders = sqliteTable(
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     modelsCache: text('models_cache', { mode: 'json' }).$type<string[]>(),
     modelsFetchedAt: text('models_fetched_at'),
+    // 用户手动添加的模型 id（不会被刷新覆盖）
+    manualModels: text('manual_models', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    // 被用户禁用的模型 id（来自 modelsCache 或 manualModels），从可选列表中剔除
+    disabledModels: text('disabled_models', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -159,6 +166,14 @@ export const agentSessions = sqliteTable(
     useProviderWebSearch: integer('use_provider_web_search', { mode: 'boolean' })
       .notNull()
       .default(false),
+    // 启用的 provider 原生 hosted 工具 key 列表（如 image_generation；仅 openai-responses 生效）
+    providerHostedTools: text('provider_hosted_tools', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    // 起源元数据：创建会话时绑定 pane 的终端标题与进程名（旧记录为 null，前端不显示）
+    originPaneTitle: text('origin_pane_title'),
+    originProcessName: text('origin_process_name'),
     status: text('status').$type<AgentSessionStatus>().notNull().default('idle'),
     lastError: text('last_error'),
     maxStepsPerTurn: integer('max_steps_per_turn').notNull().default(25),
@@ -188,6 +203,17 @@ export const agentMessages = sqliteTable(
   },
   (table) => [unique('agent_messages_session_seq_unique').on(table.sessionId, table.seq)]
 );
+
+// 运行中排队的用户消息（step 边界注入 / 手动 steer）；可编辑/撤回；落库保证多端同步 + 重启不丢
+export const agentQueuedMessages = sqliteTable('agent_queued_messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => agentSessions.id, { onDelete: 'cascade' }),
+  seq: integer('seq').notNull(),
+  text: text('text').notNull(),
+  createdAt: text('created_at').notNull(),
+});
 
 export const agentConfirmations = sqliteTable(
   'agent_confirmations',

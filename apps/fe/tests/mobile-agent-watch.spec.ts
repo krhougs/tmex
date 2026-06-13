@@ -1,5 +1,6 @@
-// 移动端视口 spot check：375x812 下 agent 面板以 Sheet 形态打开、
-// 输入框可见可用；WatchDialog 可打开且表单可达。真后端 + 本机 tmux。
+// 移动端视口 spot check：375x812 下 agent 现为左 Sidebar 的 Agent Tab，
+// sidebar 以 Sheet 形态打开；进入 Agent Tab 后输入框可见可用。
+// WatchDialog 可打开且表单可达。真后端 + 本机 tmux。
 
 import { expect, test } from '@playwright/test';
 import { ensureCleanSession, tmux } from './helpers/tmux';
@@ -39,29 +40,35 @@ test.describe
       ensureCleanSession(sessionName);
     });
 
-    test('agent panel opens as full-screen sheet with usable input', async ({ page }) => {
+    test('agent tab opens in sidebar sheet with usable input', async ({ page }) => {
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
       await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      await page.getByTestId('right-panel-trigger').first().click();
-      await expect(page.getByTestId('mobile-right-panel-sheet')).toBeVisible();
-      await expect(page.getByTestId('agent-panel')).toBeVisible();
+      // 移动端：从顶栏打开 sidebar Sheet，再切到 Agent Tab
+      await page.getByTestId('mobile-sidebar-open').click();
+      await expect(page.getByTestId('mobile-sidebar-sheet')).toBeVisible();
 
-      // 输入框在视口内可见可用（session 未创建时也应渲染输入区骨架或提示）
+      await page.getByTestId('sidebar-tab-agent').click();
+      await expect(page.getByTestId('agent-tab')).toBeVisible();
+
+      // 当前 pane 自动起草，输入框在视口内可见可用
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeVisible();
       await expect(textarea).toBeInViewport();
+      await expect(textarea).toBeEnabled();
 
-      // session 切换器可用（菜单能弹出）
-      await page.getByTestId('agent-session-switcher').click();
-      await expect(page.getByTestId('agent-session-switcher-menu')).toBeVisible();
-      await page.keyboard.press('Escape');
+      // 模型选择器可见（Agent Tab 头部）
+      await expect(page.getByTestId('agent-model-picker')).toBeVisible();
+
+      // 切回 Panes Tab：设备会话树可达
+      await page.getByTestId('sidebar-tab-panes').click();
+      await expect(page.getByTestId('agent-tab')).toHaveCount(0);
 
       // 关闭 Sheet 回到终端
-      await page.getByTestId('right-panel-close').click();
-      await expect(page.getByTestId('mobile-right-panel-sheet')).toHaveCount(0);
+      await page.getByTestId('mobile-sidebar-close').click();
+      await expect(page.getByTestId('mobile-sidebar-sheet')).toHaveCount(0);
     });
 
     test('watch dialog opens and rule form is reachable', async ({ page }) => {

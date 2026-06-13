@@ -1,6 +1,3 @@
-export { AgentPanel, ChatInput } from './agent-panel';
+export { AgentTab } from './agent-tab';
+export { FilesTab } from './files-tab';
 export { ChatThread } from './chat-thread';
-export {
-  SessionSwitcher,
-  type SessionSwitcherProps,
-} from './session-switcher';

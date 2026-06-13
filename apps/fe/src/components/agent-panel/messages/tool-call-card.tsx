@@ -213,16 +213,84 @@ function FetchUrlBody({ call }: { call: UiToolCall }) {
   );
 }
 
-function GenericBody({ call }: { call: UiToolCall }) {
+const BASE64_IMAGE_RE = /^[A-Za-z0-9+/]{256,}={0,2}$/;
+const IMAGE_URL_RE = /^https?:\/\/\S+\.(png|jpe?g|webp|gif)(\?\S*)?$/i;
+
+function asImageSrc(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  if (value.startsWith('data:image/')) return value;
+  if (IMAGE_URL_RE.test(value)) return value;
+  // 裸 base64（如 OpenAI image_generation 的 { result }）默认按 png 处理
+  if (BASE64_IMAGE_RE.test(value.replace(/\s/g, ''))) {
+    return `data:image/png;base64,${value.replace(/\s/g, '')}`;
+  }
+  return null;
+}
+
+/** 通用：从 tool output 探测可内联渲染的图片（image_generation 的 result / image / images 等字段） */
+function extractToolImages(call: UiToolCall): string[] {
+  if (!call.resolved || call.isError || call.denied) return [];
+  const images: string[] = [];
+  const visit = (value: unknown, depth: number): void => {
+    if (images.length >= 8 || depth > 3) return;
+    const src = asImageSrc(value);
+    if (src) {
+      images.push(src);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1);
+      return;
+    }
+    if (isRecord(value)) {
+      for (const key of ['result', 'image', 'images', 'url', 'b64_json', 'data']) {
+        if (key in value) visit(value[key], depth + 1);
+      }
+    }
+  };
+  visit(call.output, 0);
+  return [...new Set(images)];
+}
+
+function ToolImages({ images }: { images: string[] }) {
+  if (images.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {images.map((src, index) => (
+        <a
+          // biome-ignore lint/suspicious/noArrayIndexKey: 顺序稳定的图片列表
+          key={index}
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block"
+        >
+          <img
+            src={src}
+            alt="generated"
+            className="max-h-64 max-w-full rounded-md border border-border object-contain"
+            loading="lazy"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function GenericBody({ call, hideOutput }: { call: UiToolCall; hideOutput?: boolean }) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1.5">
       {call.input !== undefined && (
         <CollapsedText label={t('agent.tool.input')} text={asText(call.input)} />
       )}
-      {call.resolved && !call.isError && !call.denied && call.output !== undefined && (
-        <CollapsedText label={t('agent.tool.result')} text={asText(call.output)} />
-      )}
+      {!hideOutput &&
+        call.resolved &&
+        !call.isError &&
+        !call.denied &&
+        call.output !== undefined && (
+          <CollapsedText label={t('agent.tool.result')} text={asText(call.output)} />
+        )}
     </div>
   );
 }
@@ -239,6 +307,8 @@ export function ToolCallCard({ call, confirmationId, onDecide, className }: Tool
   const toolLabel = ['send_input', 'read_screen', 'web_search', 'fetch_url'].includes(call.toolName)
     ? t(toolLabelKey)
     : call.toolName;
+
+  const images = extractToolImages(call);
 
   return (
     <div
@@ -273,8 +343,10 @@ export function ToolCallCard({ call, confirmationId, onDecide, className }: Tool
       {call.toolName === 'web_search' && <WebSearchBody call={call} />}
       {call.toolName === 'fetch_url' && <FetchUrlBody call={call} />}
       {!['send_input', 'read_screen', 'web_search', 'fetch_url'].includes(call.toolName) && (
-        <GenericBody call={call} />
+        <GenericBody call={call} hideOutput={images.length > 0} />
       )}
+
+      <ToolImages images={images} />
 
       {errorText !== null && (
         <p className="text-destructive text-xs break-words whitespace-pre-wrap">{errorText}</p>

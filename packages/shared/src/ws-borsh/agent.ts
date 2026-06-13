@@ -16,6 +16,7 @@ export const AGENT_EVENT_MESSAGE_PERSISTED = 9;
 export const AGENT_EVENT_ERROR = 10;
 export const AGENT_EVENT_TURN_FINISHED = 11;
 export const AGENT_EVENT_CREDENTIAL_WARNING = 12;
+export const AGENT_EVENT_QUEUE_UPDATED = 13;
 
 // ========== WATCH_EVENT eventType (u8) ==========
 
@@ -42,6 +43,13 @@ export interface AgentPendingConfirmation {
   createdAt: string;
 }
 
+export interface AgentQueuedMessageWire {
+  id: string;
+  seq: number;
+  text: string;
+  createdAt: string;
+}
+
 // AGENT_EVENT_SYNC：订阅成功后服务端单发的全量同步
 export interface AgentSyncEventPayload {
   status: AgentSessionWireStatus;
@@ -50,6 +58,8 @@ export interface AgentSyncEventPayload {
   inProgressText: string;
   inProgressReasoning: string;
   pendingConfirmations: AgentPendingConfirmation[];
+  // 排队中的用户消息（运行中入队 / steer）
+  queuedMessages: AgentQueuedMessageWire[];
   // 已持久化消息的最大 seq（无消息时为 -1），客户端据此走 REST 增量拉取
   lastMessageSeq: number;
 }
@@ -128,6 +138,11 @@ export interface AgentCredentialWarningPayload {
   types: string[];
 }
 
+// AGENT_EVENT_QUEUE_UPDATED：排队消息列表变化（入队 / 编辑 / 撤回 / drain）
+export interface AgentQueueUpdatedPayload {
+  queued: AgentQueuedMessageWire[];
+}
+
 // ========== Watch payload 类型 ==========
 
 // WATCH_EVENT_TRIGGERED
@@ -162,6 +177,7 @@ export interface AgentEventPayloadMap {
   [AGENT_EVENT_ERROR]: AgentErrorEventPayload;
   [AGENT_EVENT_TURN_FINISHED]: AgentTurnFinishedPayload;
   [AGENT_EVENT_CREDENTIAL_WARNING]: AgentCredentialWarningPayload;
+  [AGENT_EVENT_QUEUE_UPDATED]: AgentQueueUpdatedPayload;
 }
 
 export interface WatchEventPayloadMap {

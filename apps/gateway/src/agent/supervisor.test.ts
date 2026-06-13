@@ -14,6 +14,7 @@ import {
   getAgentSessionById,
   listAgentMessages,
   listPendingAgentConfirmations,
+  listQueuedAgentMessages,
   updateAgentSession,
 } from '../db/agent';
 import { getDb as getOrmDb } from '../db/client';
@@ -24,6 +25,7 @@ import {
   AgentConfirmationNotFoundError,
   AgentSessionBusyError,
   AgentSessionNotFoundError,
+  AgentSessionOrphanedError,
   AgentSupervisor,
 } from './supervisor';
 import type { TerminalRuntimeLike } from './tools/terminal';
@@ -228,7 +230,7 @@ beforeAll(() => {
 });
 
 describe('AgentSupervisor - 互斥与基本流程', () => {
-  test('submitUserMessage 落库 user 消息并发起 run；运行中再发抛 Busy（409 语义）', async () => {
+  test('submitUserMessage 落库 user 消息并发起 run；运行中再发进入队列', async () => {
     const mock = createMockChatServer(() =>
       slowSseResponse([chunk({ role: 'assistant', content: 'thinking...' }), chunk({}, 'stop')], 60)
     );
@@ -237,20 +239,30 @@ describe('AgentSupervisor - 互斥与基本流程', () => {
     const harness = createSupervisorHarness({ baseUrl: mock.baseUrl });
     await harness.supervisor.start();
 
-    const record = harness.supervisor.submitUserMessage(harness.session.id, 'hello agent');
-    expect(record.role).toBe('user');
-    expect(record.content).toEqual({ role: 'user', content: 'hello agent' });
+    const first = harness.supervisor.submitUserMessage(harness.session.id, 'hello agent');
+    expect(first.kind).toBe('message');
+    if (first.kind !== 'message') throw new Error('expected message');
+    expect(first.record.role).toBe('user');
+    expect(first.record.content).toEqual({ role: 'user', content: 'hello agent' });
 
-    expect(() => harness.supervisor.submitUserMessage(harness.session.id, 'again')).toThrow(
-      AgentSessionBusyError
+    // 运行中再发：进入队列而非抛 Busy
+    const queued = harness.supervisor.submitUserMessage(harness.session.id, 'again');
+    expect(queued.kind).toBe('queued');
+    if (queued.kind !== 'queued') throw new Error('expected queued');
+    expect(queued.record.text).toBe('again');
+    const queueEvents = harness.broadcasts.filter(
+      (b) => b.eventType === wsBorsh.AGENT_EVENT_QUEUE_UPDATED
     );
+    expect(queueEvents.length).toBeGreaterThan(0);
 
     await harness.waitForIdle();
     expect(getAgentSessionById(harness.session.id)?.status).toBe('idle');
 
     // run 结束后可再次发消息
     const second = harness.supervisor.submitUserMessage(harness.session.id, 'second');
-    expect(second.seq).toBeGreaterThan(record.seq);
+    expect(second.kind).toBe('message');
+    if (second.kind !== 'message') throw new Error('expected message');
+    expect(second.record.seq).toBeGreaterThan(first.record.seq);
     await harness.waitForIdle();
   });
 
@@ -264,7 +276,9 @@ describe('AgentSupervisor - 互斥与基本流程', () => {
     await harness.supervisor.start();
 
     const text = 'token is ghp_0123456789abcdefghijABCDEFGHIJ0123 please use it';
-    const record = harness.supervisor.submitUserMessage(harness.session.id, text);
+    const result = harness.supervisor.submitUserMessage(harness.session.id, text);
+    if (result.kind !== 'message') throw new Error('expected message');
+    const record = result.record;
     // 内容原样落库，未被消毒
     expect(record.content).toEqual({ role: 'user', content: text });
 
@@ -325,6 +339,46 @@ describe('AgentSupervisor - 互斥与基本流程', () => {
 
     expect(() => harness.supervisor.submitUserMessage(harness.session.id, 'hey')).toThrow(
       AgentAwaitingConfirmationError
+    );
+  });
+
+  test('运行中入队 → step 边界注入续跑（两条 user 消息都被处理，队列清空）', async () => {
+    const mock = createMockChatServer(() =>
+      slowSseResponse([chunk({ role: 'assistant', content: 'ok' }), chunk({}, 'stop')], 60)
+    );
+    servers.push(mock.server);
+    const harness = createSupervisorHarness({ baseUrl: mock.baseUrl });
+    await harness.supervisor.start();
+
+    const first = harness.supervisor.submitUserMessage(harness.session.id, 'first');
+    expect(first.kind).toBe('message');
+    // 运行中入队第二条
+    const queued = harness.supervisor.submitUserMessage(harness.session.id, 'second');
+    expect(queued.kind).toBe('queued');
+
+    await harness.waitForIdle();
+
+    const userTexts = listAgentMessages(harness.session.id)
+      .filter((m) => m.role === 'user')
+      .map((m) => (m.content as { content?: unknown }).content);
+    expect(userTexts).toEqual(['first', 'second']);
+    expect(listQueuedAgentMessages(harness.session.id)).toHaveLength(0);
+  });
+
+  test('orphan 会话（无设备绑定）拒绝发消息', async () => {
+    const mock = createMockChatServer(() => sseResponse([chunk({}, 'stop')]));
+    servers.push(mock.server);
+    const harness = createSupervisorHarness({ baseUrl: mock.baseUrl });
+    await harness.supervisor.start();
+
+    const orphan = createAgentSession({
+      title: 'orphan',
+      deviceId: null,
+      paneId: null,
+      modelId: 'mock-model',
+    });
+    expect(() => harness.supervisor.submitUserMessage(orphan.id, 'hi')).toThrow(
+      AgentSessionOrphanedError
     );
   });
 });

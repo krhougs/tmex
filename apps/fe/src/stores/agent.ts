@@ -6,6 +6,7 @@ import { buildAgentSubscribe, buildAgentUnsubscribe } from '@/ws-borsh';
 import type {
   AgentConfirmationDto,
   AgentMessageDto,
+  AgentQueuedMessageDto,
   AgentSessionDto,
   AgentSessionStatus,
   AgentWriteMode,
@@ -16,6 +17,7 @@ import type {
   AgentCredentialWarningPayload,
   AgentErrorEventPayload,
   AgentMessagePersistedPayload,
+  AgentQueueUpdatedPayload,
   AgentReasoningDeltaPayload,
   AgentStatusEventPayload,
   AgentSyncEventPayload,
@@ -44,30 +46,56 @@ export interface PendingConfirmationUi {
   createdAt: string;
 }
 
+/** 未持久化的草稿会话：首条消息发送时才落库（空草稿不进 DB） */
+export interface DraftSession {
+  deviceId: string;
+  paneId: string;
+  providerId: string | null;
+  modelId: string | null;
+  /** snapshot 中该 pane 的标题，作为起源元数据兜底 */
+  paneTitle: string | null;
+}
+
+/** 创建会话的可选参数（草稿物化时传入） */
+export interface CreateSessionOptions {
+  providerId?: string | null;
+  modelId?: string | null;
+  providerHostedTools?: string[];
+  originPaneTitle?: string | null;
+}
+
 interface AgentState {
   sessions: Record<string, AgentSessionDto | undefined>;
   sessionOrder: string[];
   sessionsLoaded: boolean;
   activeSessionId: string | null;
-  showAllSessions: boolean;
   messages: Record<string, AgentMessageDto[] | undefined>;
   historyLoaded: Record<string, boolean | undefined>;
   inProgress: Record<string, SessionInProgress | undefined>;
   pendingConfirmations: Record<string, PendingConfirmationUi[] | undefined>;
+  queued: Record<string, AgentQueuedMessageDto[] | undefined>;
   sending: Record<string, boolean | undefined>;
+  draft: DraftSession | null;
 
   ensureInitialized: () => void;
   loadSessions: () => Promise<void>;
   refreshSession: (sessionId: string) => Promise<void>;
   setActiveSession: (sessionId: string | null) => void;
-  setShowAllSessions: (showAll: boolean) => void;
-  createSession: (deviceId: string, paneId: string) => Promise<AgentSessionDto | null>;
+  createSession: (
+    deviceId: string,
+    paneId: string,
+    options?: CreateSessionOptions
+  ) => Promise<AgentSessionDto | null>;
   renameSession: (sessionId: string, title: string) => Promise<boolean>;
   deleteSession: (sessionId: string) => Promise<boolean>;
   setWriteMode: (sessionId: string, writeMode: AgentWriteMode) => Promise<void>;
+  setSessionModel: (sessionId: string, providerId: string | null, modelId: string) => Promise<void>;
   rebindPane: (sessionId: string, paneId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
   sendMessage: (sessionId: string, text: string) => Promise<boolean>;
+  enqueueMessage: (sessionId: string, text: string, steer?: boolean) => Promise<void>;
+  editQueuedMessage: (sessionId: string, itemId: string, text: string) => Promise<void>;
+  withdrawQueuedMessage: (sessionId: string, itemId: string) => Promise<void>;
   stopSession: (sessionId: string) => Promise<void>;
   decideConfirmation: (
     sessionId: string,
@@ -75,6 +103,11 @@ interface AgentState {
     approved: boolean,
     reason?: string
   ) => Promise<void>;
+  // 草稿会话
+  startDraft: (deviceId: string, paneId: string, paneTitle: string | null) => void;
+  updateDraft: (patch: Partial<Pick<DraftSession, 'providerId' | 'modelId'>>) => void;
+  clearDraft: () => void;
+  materializeDraft: () => Promise<AgentSessionDto | null>;
 }
 
 async function parseApiError(res: Response, fallback: string): Promise<string> {
@@ -282,6 +315,16 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
             createdAt: confirmation.createdAt,
           })),
         },
+        queued: {
+          ...prev.queued,
+          [sessionId]: payload.queuedMessages.map((item) => ({
+            id: item.id,
+            sessionId,
+            seq: item.seq,
+            text: item.text,
+            createdAt: item.createdAt,
+          })),
+        },
       };
     });
 
@@ -486,6 +529,21 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
     });
   };
 
+  const handleQueueUpdated = (sessionId: string, payload: AgentQueueUpdatedPayload): void => {
+    setState((prev) => ({
+      queued: {
+        ...prev.queued,
+        [sessionId]: payload.queued.map((item) => ({
+          id: item.id,
+          sessionId,
+          seq: item.seq,
+          text: item.text,
+          createdAt: item.createdAt,
+        })),
+      },
+    }));
+  };
+
   client.onMessage((msg) => {
     if (msg.kind !== wsBorsh.KIND_AGENT_EVENT) {
       return;
@@ -551,6 +609,9 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
       case wsBorsh.AGENT_EVENT_CREDENTIAL_WARNING:
         handleCredentialWarning(sessionId, payload as AgentCredentialWarningPayload);
         return;
+      case wsBorsh.AGENT_EVENT_QUEUE_UPDATED:
+        handleQueueUpdated(sessionId, payload as AgentQueueUpdatedPayload);
+        return;
       default:
         return;
     }
@@ -576,12 +637,13 @@ export const useAgentStore = create<AgentState>()(
       sessionOrder: [],
       sessionsLoaded: false,
       activeSessionId: null,
-      showAllSessions: false,
       messages: {},
       historyLoaded: {},
       inProgress: {},
       pendingConfirmations: {},
+      queued: {},
       sending: {},
+      draft: null,
 
       ensureInitialized() {
         setupClientHandlers(set, get);
@@ -651,7 +713,8 @@ export const useAgentStore = create<AgentState>()(
           sendUnsubscribe(previous);
         }
 
-        set({ activeSessionId: sessionId });
+        // 选中真实会话即退出草稿态
+        set({ activeSessionId: sessionId, draft: null });
 
         if (sessionId) {
           subscribedSessions.add(sessionId);
@@ -662,16 +725,25 @@ export const useAgentStore = create<AgentState>()(
         }
       },
 
-      setShowAllSessions(showAll) {
-        set({ showAllSessions: showAll });
-      },
-
-      async createSession(deviceId, paneId) {
+      async createSession(deviceId, paneId, options) {
         try {
           const res = await fetch('/api/agent/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId, paneId }),
+            body: JSON.stringify({
+              deviceId,
+              paneId,
+              ...(options?.providerId !== undefined ? { providerId: options.providerId } : {}),
+              ...(options?.modelId !== undefined && options.modelId !== null
+                ? { modelId: options.modelId }
+                : {}),
+              ...(options?.providerHostedTools !== undefined
+                ? { providerHostedTools: options.providerHostedTools }
+                : {}),
+              ...(options?.originPaneTitle !== undefined
+                ? { originPaneTitle: options.originPaneTitle }
+                : {}),
+            }),
           });
           if (!res.ok) {
             throw new Error(await parseApiError(res, 'Failed to create agent session'));
@@ -740,6 +812,8 @@ export const useAgentStore = create<AgentState>()(
             delete inProgress[sessionId];
             const pendingConfirmations = { ...prev.pendingConfirmations };
             delete pendingConfirmations[sessionId];
+            const queued = { ...prev.queued };
+            delete queued[sessionId];
             return {
               sessions,
               sessionOrder: sortSessionOrder(sessions),
@@ -747,6 +821,7 @@ export const useAgentStore = create<AgentState>()(
               historyLoaded,
               inProgress,
               pendingConfirmations,
+              queued,
             };
           });
           return true;
@@ -765,6 +840,23 @@ export const useAgentStore = create<AgentState>()(
           });
           if (!res.ok) {
             throw new Error(await parseApiError(res, 'Failed to update write mode'));
+          }
+          const payload = (await res.json()) as { session: AgentSessionDto };
+          set((prev) => ({ sessions: { ...prev.sessions, [sessionId]: payload.session } }));
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : String(error));
+        }
+      },
+
+      async setSessionModel(sessionId, providerId, modelId) {
+        try {
+          const res = await fetch(`/api/agent/sessions/${sessionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerId, modelId }),
+          });
+          if (!res.ok) {
+            throw new Error(await parseApiError(res, 'Failed to update model'));
           }
           const payload = (await res.json()) as { session: AgentSessionDto };
           set((prev) => ({ sessions: { ...prev.sessions, [sessionId]: payload.session } }));
@@ -852,22 +944,29 @@ export const useAgentStore = create<AgentState>()(
           if (!res.ok) {
             throw new Error(await parseApiError(res, 'Failed to send message'));
           }
-          const payload = (await res.json()) as { message: AgentMessageDto };
-          set((prev) => {
-            const session = prev.sessions[sessionId];
-            return {
-              messages: {
-                ...prev.messages,
-                [sessionId]: mergeMessages(prev.messages[sessionId], [payload.message]),
-              },
-              sessions: session
-                ? {
-                    ...prev.sessions,
-                    [sessionId]: { ...session, status: 'running', lastError: null },
-                  }
-                : prev.sessions,
-            };
-          });
+          const payload = (await res.json()) as {
+            message?: AgentMessageDto;
+            queued?: AgentQueuedMessageDto;
+          };
+          // 运行中后端会入队（QUEUE_UPDATED 事件负责更新队列态），此处仅处理直接落库的消息
+          if (payload.message) {
+            const message = payload.message;
+            set((prev) => {
+              const session = prev.sessions[sessionId];
+              return {
+                messages: {
+                  ...prev.messages,
+                  [sessionId]: mergeMessages(prev.messages[sessionId], [message]),
+                },
+                sessions: session
+                  ? {
+                      ...prev.sessions,
+                      [sessionId]: { ...session, status: 'running', lastError: null },
+                    }
+                  : prev.sessions,
+              };
+            });
+          }
           return true;
         } catch (error) {
           toast.error(error instanceof Error ? error.message : String(error));
@@ -875,6 +974,81 @@ export const useAgentStore = create<AgentState>()(
         } finally {
           set((prev) => ({ sending: { ...prev.sending, [sessionId]: false } }));
         }
+      },
+
+      async enqueueMessage(sessionId, text, steer = false) {
+        try {
+          const res = await fetch(`/api/agent/sessions/${sessionId}/queue`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, steer }),
+          });
+          if (!res.ok) {
+            throw new Error(await parseApiError(res, 'Failed to queue message'));
+          }
+          // 队列态由 AGENT_EVENT_QUEUE_UPDATED 驱动；message（已落库）的情况由 WS 增量补史
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : String(error));
+        }
+      },
+
+      async editQueuedMessage(_sessionId, itemId, text) {
+        try {
+          const res = await fetch(`/api/agent/queue/${itemId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          });
+          if (!res.ok) {
+            throw new Error(await parseApiError(res, 'Failed to edit queued message'));
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : String(error));
+        }
+      },
+
+      async withdrawQueuedMessage(_sessionId, itemId) {
+        try {
+          const res = await fetch(`/api/agent/queue/${itemId}`, { method: 'DELETE' });
+          if (!res.ok) {
+            throw new Error(await parseApiError(res, 'Failed to withdraw queued message'));
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : String(error));
+        }
+      },
+
+      startDraft(deviceId, paneId, paneTitle) {
+        const previous = get().activeSessionId;
+        if (previous && subscribedSessions.has(previous)) {
+          subscribedSessions.delete(previous);
+          sendUnsubscribe(previous);
+        }
+        // 默认模型继承全局默认（modelId=null → 后端回退默认）；provider 同理
+        set({
+          activeSessionId: null,
+          draft: { deviceId, paneId, providerId: null, modelId: null, paneTitle },
+        });
+      },
+
+      updateDraft(patch) {
+        set((prev) => (prev.draft ? { draft: { ...prev.draft, ...patch } } : prev));
+      },
+
+      clearDraft() {
+        set({ draft: null });
+      },
+
+      async materializeDraft() {
+        const draft = get().draft;
+        if (!draft) return null;
+        const session = await get().createSession(draft.deviceId, draft.paneId, {
+          providerId: draft.providerId,
+          modelId: draft.modelId,
+          originPaneTitle: draft.paneTitle,
+        });
+        // createSession 成功会 setActiveSession（其内部清 draft）
+        return session;
       },
 
       async stopSession(sessionId) {
@@ -953,7 +1127,6 @@ export const useAgentStore = create<AgentState>()(
       name: 'tmex-agent',
       partialize: (state) => ({
         activeSessionId: state.activeSessionId,
-        showAllSessions: state.showAllSessions,
       }),
     }
   )

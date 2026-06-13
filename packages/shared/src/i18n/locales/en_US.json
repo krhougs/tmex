@@ -186,6 +186,11 @@
         "apiKeyPlaceholder": "Enter API key",
         "apiKeySetPlaceholder": "Already set, leave blank to keep",
         "addProvider": "Add Provider",
+        "editProvider": "Edit Provider",
+        "formHint": "Configure the provider connection and models",
+        "models": "Models",
+        "modelManual": "Manual",
+        "addModelPlaceholder": "Add a model ID",
         "empty": "No providers yet",
         "refreshModels": "Refresh Models",
         "modelsCount": "{{total}} models",
@@ -372,6 +377,10 @@
       "agentWriteModeInvalid": "Write mode must be confirm or auto",
       "agentMaxStepsInvalid": "Max steps per turn must be between 1 and 100",
       "agentProviderWebSearchRequiresResponses": "Provider built-in web search requires the openai-responses protocol",
+      "agentHostedToolUnknown": "Unknown hosted tool: {{name}}",
+      "agentHostedToolRequiresResponses": "Provider hosted tools require the openai-responses protocol",
+      "agentSessionOrphaned": "This agent session is orphaned (its terminal is gone) and is read-only",
+      "agentQueuedMessageNotFound": "Queued message not found",
       "agentConfirmationNotFound": "Confirmation not found",
       "agentConfirmationAlreadyDecided": "Confirmation has already been decided",
       "agentMessageTextRequired": "Message text is required",
@@ -449,9 +458,38 @@
       "newWindow": "Create Window",
       "closeWindow": "Close Window",
       "closePane": "Close Pane",
-      "addDevice": "Add Device"
+      "addDevice": "Add Device",
+      "tab": {
+        "panes": "Panes",
+        "agent": "Agent",
+        "files": "Files"
+      },
+      "orphanedSessions": "Orphaned sessions"
     },
     "agent": {
+      "error": {
+        "streamStalled": "The model stopped responding (upstream stream stalled). Please retry."
+      },
+      "model": {
+        "select": "Select model",
+        "placeholder": "Model",
+        "noProviders": "No models — configure a provider in Settings"
+      },
+      "queue": {
+        "title": "Queued ({{count}})",
+        "steer": "Steer now",
+        "steerHint": "Interrupt the current step and inject the queue now",
+        "withdraw": "Withdraw"
+      },
+      "orphan": {
+        "readonly": "This session is orphaned (its terminal is gone) — read-only",
+        "title": "Orphaned",
+        "process": "Process",
+        "startedAt": "Started"
+      },
+      "files": {
+        "comingSoon": "Coming Soon"
+      },
       "panel": {
         "title": "Agent",
         "empty": "Select or create a session",
@@ -464,6 +502,8 @@
       "session": {
         "none": "No session selected",
         "new": "New session",
+        "switch": "Switch session",
+        "selectPaneHint": "Select a pane in the Panes tab to start a session",
         "noSessions": "No sessions yet",
         "showAll": "Show all sessions",
         "rename": "Rename session",

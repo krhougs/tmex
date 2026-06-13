@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
 
+type ModelSource = 'fetched' | 'manual';
+
+interface MockModel {
+  id: string;
+  source: ModelSource;
+  enabled: boolean;
+}
+
 interface MockProvider {
   id: string;
   name: string;
@@ -8,6 +16,7 @@ interface MockProvider {
   hasApiKey: boolean;
   enabled: boolean;
   models: string[];
+  modelDetails: MockModel[];
   modelsFetchedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -20,6 +29,14 @@ interface MockSettings {
   defaultProviderId: string | null;
   defaultModelId: string | null;
   updatedAt: string;
+}
+
+function effectiveModels(details: MockModel[]): string[] {
+  return details.filter((model) => model.enabled).map((model) => model.id);
+}
+
+function fetchedDetails(ids: string[]): MockModel[] {
+  return ids.map((id) => ({ id, source: 'fetched', enabled: true }));
 }
 
 test('settings: llm providers crud, defaults, search provider keys', async ({ page }) => {
@@ -57,6 +74,8 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
       } | null;
       const now = new Date().toISOString();
       providerSeq += 1;
+      // Provider creation triggers an upstream model fetch on the backend.
+      const details = fetchedDetails(['model-alpha', 'model-beta']);
       const provider: MockProvider = {
         id: `e2e-llm-prov-${providerSeq}`,
         name: body?.name ?? `provider-${providerSeq}`,
@@ -64,7 +83,8 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
         baseUrl: body?.baseUrl ?? 'https://example.com/v1',
         hasApiKey: Boolean(body?.apiKey),
         enabled: body?.enabled ?? true,
-        models: ['model-alpha', 'model-beta'],
+        models: effectiveModels(details),
+        modelDetails: details,
         modelsFetchedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -81,7 +101,9 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
         await route.fulfill({ status: 404, json: { error: 'not found' } });
         return;
       }
-      provider.models = ['model-alpha', 'model-beta', 'model-gamma'];
+      const manual = provider.modelDetails.filter((model) => model.source === 'manual');
+      provider.modelDetails = [...fetchedDetails(['model-alpha', 'model-beta', 'model-gamma']), ...manual];
+      provider.models = effectiveModels(provider.modelDetails);
       provider.modelsFetchedAt = new Date().toISOString();
       await route.fulfill({ status: 200, json: { models: provider.models } });
       return;
@@ -100,12 +122,29 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
         baseUrl?: string;
         apiKey?: string;
         enabled?: boolean;
+        manualModels?: string[];
+        disabledModels?: string[];
       } | null;
       if (body?.name !== undefined) provider.name = body.name;
       if (body?.protocol !== undefined) provider.protocol = body.protocol;
       if (body?.baseUrl !== undefined) provider.baseUrl = body.baseUrl;
       if (body?.apiKey) provider.hasApiKey = true;
       if (body?.enabled !== undefined) provider.enabled = body.enabled;
+
+      if (body?.manualModels !== undefined || body?.disabledModels !== undefined) {
+        const disabled = new Set(body?.disabledModels ?? []);
+        const fetched = provider.modelDetails
+          .filter((model) => model.source === 'fetched')
+          .map((model) => ({ ...model, enabled: !disabled.has(model.id) }));
+        const manual = (body?.manualModels ?? []).map<MockModel>((id) => ({
+          id,
+          source: 'manual',
+          enabled: !disabled.has(id),
+        }));
+        provider.modelDetails = [...fetched, ...manual];
+        provider.models = effectiveModels(provider.modelDetails);
+      }
+
       provider.updatedAt = new Date().toISOString();
       await route.fulfill({ status: 200, json: { provider } });
       return;
@@ -160,35 +199,64 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await page.goto('/settings');
   await expect(page.getByTestId('settings-page')).toBeVisible();
 
-  // LLM tab: empty state, then create provider.
+  // LLM tab: empty state, then create provider via Add modal.
   await page.getByTestId('settings-tab-llm').click();
   await expect(page.getByTestId('llm-providers-section')).toBeVisible();
   await expect(page.getByTestId('llm-providers-empty')).toBeVisible();
 
-  await page.getByTestId('llm-provider-name-input').fill(providerName);
-  await page.getByTestId('llm-provider-baseurl-input').fill('https://example.com/v1');
-  await page.getByTestId('llm-provider-apikey-input').fill('sk-e2e-dummy');
   await page.getByTestId('llm-provider-add').click();
+  const addModal = page.getByTestId('llm-provider-add-modal');
+  await expect(addModal).toBeVisible();
+  await addModal.getByTestId('llm-provider-name-input').fill(providerName);
+  await addModal.getByTestId('llm-provider-baseurl-input').fill('https://example.com/v1');
+  await addModal.getByTestId('llm-provider-apikey-input').fill('sk-e2e-dummy');
+  await addModal.getByTestId('llm-provider-form-submit').click();
+  await expect(addModal).toBeHidden();
 
-  const providerCard = page.locator(`[data-provider-name="${providerName}"]`);
-  await expect(providerCard).toBeVisible();
+  const providerRow = page.locator(`[data-provider-name="${providerName}"]`);
+  await expect(providerRow).toBeVisible();
+  const providerId = (await providerRow.getAttribute('data-testid'))!.replace(
+    'llm-provider-row-',
+    ''
+  );
 
-  // Stored apiKey is write-only: card input shows "already set" placeholder and stays empty.
-  const cardApiKeyInput = providerCard.locator('[data-testid^="llm-provider-apikey-"]');
-  await expect(cardApiKeyInput).toHaveAttribute('data-key-set', 'true');
-  await expect(cardApiKeyInput).toHaveValue('');
-  const placeholder = await cardApiKeyInput.getAttribute('placeholder');
+  // Refresh models from the row updates the cached count badge.
+  await expect(providerRow).toContainText('2');
+  await providerRow.getByTestId(`llm-provider-refresh-models-${providerId}`).click();
+  await expect(providerRow).toContainText('3');
+
+  // Edit modal: stored apiKey is write-only (placeholder + empty value), models are managed inline.
+  await providerRow.getByTestId(`llm-provider-edit-${providerId}`).click();
+  const editModal = page.getByTestId(`llm-provider-edit-modal-${providerId}`);
+  await expect(editModal).toBeVisible();
+
+  const editApiKeyInput = editModal.getByTestId('llm-provider-apikey-input');
+  await expect(editApiKeyInput).toHaveAttribute('data-key-set', 'true');
+  await expect(editApiKeyInput).toHaveValue('');
+  const placeholder = await editApiKeyInput.getAttribute('placeholder');
   expect(placeholder).toBeTruthy();
 
-  // Models cache is visible after expanding.
-  await providerCard.locator('[data-testid^="llm-provider-toggle-models-"]').click();
-  const modelsList = providerCard.locator('[data-testid^="llm-provider-models-"]');
+  // Models cache (fetched) is visible in the modal.
+  const modelsList = editModal.getByTestId('llm-provider-models');
   await expect(modelsList).toBeVisible();
-  await expect(modelsList).toContainText('model-alpha');
+  await expect(modelsList.getByTestId('llm-provider-model-model-alpha')).toBeVisible();
+  await expect(modelsList.getByTestId('llm-provider-model-model-gamma')).toBeVisible();
 
-  // Refresh models updates the cache.
-  await providerCard.locator('[data-testid^="llm-provider-refresh-models-"]').click();
-  await expect(modelsList).toContainText('model-gamma');
+  // Disable a fetched model + add a manual model, then save.
+  await modelsList.getByTestId('llm-provider-model-toggle-model-beta').click();
+  await modelsList.getByTestId('llm-provider-add-model-input').fill('manual-model-x');
+  await modelsList.getByTestId('llm-provider-add-model').click();
+  await expect(modelsList.getByTestId('llm-provider-model-manual-model-x')).toBeVisible();
+
+  await editModal.getByTestId('llm-provider-form-submit').click();
+  await expect(editModal).toBeHidden();
+
+  // After save the effective models drop model-beta and gain manual-model-x.
+  await expect.poll(() => providers[0]?.models).toEqual([
+    'model-alpha',
+    'model-gamma',
+    'manual-model-x',
+  ]);
 
   // Global defaults: pick provider + type model id, then save.
   await page.getByTestId('llm-default-provider-select').click();
@@ -204,6 +272,10 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
       )
     )
     .toBe(true);
+
+  // Row enable toggle flips provider.enabled on the backend.
+  await providerRow.getByTestId(`llm-provider-enabled-${providerId}`).click();
+  await expect.poll(() => providers[0]?.enabled).toBe(false);
 
   // Search tab: pick tavily and save key.
   await page.getByTestId('settings-tab-search').click();
@@ -234,7 +306,7 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
 
   // Delete provider via confirm dialog.
   await page.getByTestId('settings-tab-llm').click();
-  await providerCard.locator('[data-testid^="llm-provider-delete-"]').first().click();
-  await page.locator('[data-testid^="llm-provider-delete-confirm-"]').click();
-  await expect(providerCard).toHaveCount(0);
+  await providerRow.getByTestId(`llm-provider-delete-${providerId}`).click();
+  await page.getByTestId(`llm-provider-delete-confirm-${providerId}`).click();
+  await expect(providerRow).toHaveCount(0);
 });

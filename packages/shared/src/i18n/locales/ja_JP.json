@@ -186,6 +186,11 @@
         "apiKeyPlaceholder": "API キーを入力",
         "apiKeySetPlaceholder": "設定済み、空欄の場合は変更されません",
         "addProvider": "プロバイダーを追加",
+        "editProvider": "プロバイダーを編集",
+        "formHint": "プロバイダーの接続とモデルを設定",
+        "models": "モデル",
+        "modelManual": "手動",
+        "addModelPlaceholder": "モデル ID を追加",
         "empty": "プロバイダーはまだありません",
         "refreshModels": "モデルを更新",
         "modelsCount": "{{total}} 個のモデル",
@@ -372,6 +377,10 @@
       "agentWriteModeInvalid": "書き込みモードは confirm または auto である必要があります",
       "agentMaxStepsInvalid": "1 ターンあたりの最大ステップ数は 1〜100 の範囲で指定してください",
       "agentProviderWebSearchRequiresResponses": "プロバイダ内蔵の Web 検索は openai-responses プロトコルのみ対応しています",
+      "agentHostedToolUnknown": "不明な hosted ツール: {{name}}",
+      "agentHostedToolRequiresResponses": "プロバイダの hosted ツールは openai-responses プロトコルのみ対応しています",
+      "agentSessionOrphaned": "この Agent セッションは孤立しており（端末が存在しません）、読み取り専用です",
+      "agentQueuedMessageNotFound": "キューのメッセージが存在しません",
       "agentConfirmationNotFound": "確認リクエストが存在しません",
       "agentConfirmationAlreadyDecided": "確認リクエストは既に処理済みです",
       "agentMessageTextRequired": "メッセージ内容を入力してください",
@@ -449,9 +458,38 @@
       "newWindow": "ウィンドウを作成",
       "closeWindow": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
-      "addDevice": "デバイスを追加"
+      "addDevice": "デバイスを追加",
+      "tab": {
+        "panes": "Panes",
+        "agent": "Agent",
+        "files": "Files"
+      },
+      "orphanedSessions": "孤立セッション"
     },
     "agent": {
+      "error": {
+        "streamStalled": "モデルが応答を停止しました（上流ストリームが停止）。再試行してください。"
+      },
+      "model": {
+        "select": "モデルを選択",
+        "placeholder": "モデル",
+        "noProviders": "モデルがありません — 設定でプロバイダーを構成してください"
+      },
+      "queue": {
+        "title": "キュー（{{count}}）",
+        "steer": "今すぐ注入",
+        "steerHint": "現在のステップを中断してキューを今すぐ注入",
+        "withdraw": "取り消し"
+      },
+      "orphan": {
+        "readonly": "このセッションは孤立しており（端末が存在しません）、読み取り専用です",
+        "title": "孤立セッション",
+        "process": "プロセス",
+        "startedAt": "作成日時"
+      },
+      "files": {
+        "comingSoon": "Coming Soon"
+      },
       "panel": {
         "title": "Agent",
         "empty": "セッションを選択または作成してください",
@@ -464,6 +502,8 @@
       "session": {
         "none": "セッション未選択",
         "new": "新規セッション",
+        "switch": "セッションを切り替え",
+        "selectPaneHint": "Panes タブでペインを選択してセッションを開始してください",
         "noSessions": "セッションがありません",
         "showAll": "すべてのセッションを表示",
         "rename": "セッション名を変更",

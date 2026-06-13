@@ -7,6 +7,7 @@ import {
   type AgentWriteMode,
   agentConfirmations,
   agentMessages,
+  agentQueuedMessages,
   agentSessions,
   agentSettings,
 } from './schema';
@@ -14,6 +15,7 @@ import {
 export type AgentSettingsRecord = typeof agentSettings.$inferSelect;
 export type AgentSessionRecord = typeof agentSessions.$inferSelect;
 export type AgentMessageRecord = typeof agentMessages.$inferSelect;
+export type AgentQueuedMessageRecord = typeof agentQueuedMessages.$inferSelect;
 export type AgentConfirmationRecord = typeof agentConfirmations.$inferSelect;
 
 export type {
@@ -97,6 +99,9 @@ export interface CreateAgentSessionInput {
   systemPrompt?: string | null;
   writeMode?: AgentWriteMode;
   useProviderWebSearch?: boolean;
+  providerHostedTools?: string[];
+  originPaneTitle?: string | null;
+  originProcessName?: string | null;
   maxStepsPerTurn?: number;
 }
 
@@ -113,6 +118,9 @@ export function createAgentSession(input: CreateAgentSessionInput): AgentSession
     systemPrompt: input.systemPrompt ?? null,
     writeMode: input.writeMode ?? 'confirm',
     useProviderWebSearch: input.useProviderWebSearch ?? false,
+    providerHostedTools: input.providerHostedTools ?? [],
+    originPaneTitle: input.originPaneTitle ?? null,
+    originProcessName: input.originProcessName ?? null,
     status: 'idle',
     lastError: null,
     maxStepsPerTurn: input.maxStepsPerTurn ?? 25,
@@ -166,6 +174,7 @@ export function updateAgentSession(
     'systemPrompt',
     'writeMode',
     'useProviderWebSearch',
+    'providerHostedTools',
     'status',
     'lastError',
     'maxStepsPerTurn',
@@ -239,6 +248,75 @@ export function getMaxAgentMessageSeq(sessionId: string): number {
     .where(eq(agentMessages.sessionId, sessionId))
     .get();
   return row?.maxSeq ?? -1;
+}
+
+// ========== 排队消息（运行中入队 / steer / 编辑撤回） ==========
+
+export function enqueueAgentMessage(sessionId: string, text: string): AgentQueuedMessageRecord {
+  const orm = getOrmDb();
+  const id = crypto.randomUUID();
+
+  orm.transaction((tx) => {
+    const current = tx
+      .select({ maxSeq: max(agentQueuedMessages.seq) })
+      .from(agentQueuedMessages)
+      .where(eq(agentQueuedMessages.sessionId, sessionId))
+      .get();
+
+    tx.insert(agentQueuedMessages)
+      .values({
+        id,
+        sessionId,
+        seq: (current?.maxSeq ?? -1) + 1,
+        text,
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+  });
+
+  const created = orm
+    .select()
+    .from(agentQueuedMessages)
+    .where(eq(agentQueuedMessages.id, id))
+    .get();
+  if (!created) {
+    throw new Error('failed to enqueue agent message');
+  }
+  return created;
+}
+
+export function listQueuedAgentMessages(sessionId: string): AgentQueuedMessageRecord[] {
+  const orm = getOrmDb();
+  return orm
+    .select()
+    .from(agentQueuedMessages)
+    .where(eq(agentQueuedMessages.sessionId, sessionId))
+    .orderBy(asc(agentQueuedMessages.seq))
+    .all();
+}
+
+export function getQueuedAgentMessageById(id: string): AgentQueuedMessageRecord | null {
+  const orm = getOrmDb();
+  return orm.select().from(agentQueuedMessages).where(eq(agentQueuedMessages.id, id)).get() ?? null;
+}
+
+export function updateQueuedAgentMessage(
+  id: string,
+  text: string
+): AgentQueuedMessageRecord | null {
+  const orm = getOrmDb();
+  orm.update(agentQueuedMessages).set({ text }).where(eq(agentQueuedMessages.id, id)).run();
+  return getQueuedAgentMessageById(id);
+}
+
+export function deleteQueuedAgentMessage(id: string): void {
+  const orm = getOrmDb();
+  orm.delete(agentQueuedMessages).where(eq(agentQueuedMessages.id, id)).run();
+}
+
+export function deleteAllQueuedAgentMessages(sessionId: string): void {
+  const orm = getOrmDb();
+  orm.delete(agentQueuedMessages).where(eq(agentQueuedMessages.sessionId, sessionId)).run();
 }
 
 export interface CreateAgentConfirmationInput {

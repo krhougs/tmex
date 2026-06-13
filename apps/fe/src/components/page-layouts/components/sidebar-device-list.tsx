@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -32,18 +33,25 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
 import { WatchDialog } from '@/components/watch/watch-dialog';
 import { cn } from '@/lib/utils';
+import { useAgentStore } from '@/stores/agent';
+import { useUIStore } from '@/stores/ui';
 import { useQuery } from '@tanstack/react-query';
-import type { Device, TmuxPane, TmuxWindow } from '@tmex/shared';
+import type { AgentSessionDto, Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
 import {
+  Bot,
+  ChevronRight,
   EllipsisVertical,
   Globe,
+  History,
   Monitor,
+  MoreHorizontal,
   Pencil,
   Plus,
   Power,
   PowerOff,
   Radar,
+  Trash2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -69,12 +77,39 @@ import { useSiteStore } from '../../../stores/site';
 import { useTmuxStore } from '../../../stores/tmux';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../../../utils/tmuxUrl';
 
+function StatusDot({ status }: { status: AgentSessionDto['status'] }) {
+  return (
+    <span
+      className={cn(
+        'size-2 shrink-0 rounded-full',
+        status === 'running'
+          ? 'bg-emerald-500 animate-pulse'
+          : status === 'error'
+            ? 'bg-destructive'
+            : status === 'waiting_confirmation'
+              ? 'bg-amber-500'
+              : 'bg-muted-foreground/40'
+      )}
+    />
+  );
+}
+
 export function SideBarDeviceList() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const { toggleDevice } = useGlobalDevice();
+
+  const agentSessions = useAgentStore((state) => state.sessions);
+  const activeSessionId = useAgentStore((state) => state.activeSessionId);
+  const setSidebarTab = useUIStore((state) => state.setSidebarTab);
+
+  useEffect(() => {
+    const store = useAgentStore.getState();
+    store.ensureInitialized();
+    void store.loadSessions();
+  }, []);
 
   // Get selected window/pane from URL
   const paneMatch = matchPath(
@@ -138,6 +173,32 @@ export function SideBarDeviceList() {
       );
     },
     [handleNavigate]
+  );
+
+  const handleSelectSession = useCallback(
+    (session: AgentSessionDto) => {
+      useAgentStore.getState().setActiveSession(session.id);
+      setSidebarTab('agent');
+      if (session.deviceId && session.paneId) {
+        const windows = useTmuxStore.getState().snapshots[session.deviceId]?.session?.windows;
+        const window = windows?.find((w) => w.panes.some((p) => p.id === session.paneId));
+        if (window) {
+          navigateToPane(session.deviceId, window.id, session.paneId);
+        }
+      }
+      if (isMobile) setOpenMobile(false);
+    },
+    [setSidebarTab, navigateToPane, isMobile, setOpenMobile]
+  );
+
+  const handleCreateSessionForPane = useCallback(
+    (deviceId: string, windowId: string, pane: TmuxPane) => {
+      navigateToPane(deviceId, windowId, pane.id);
+      useAgentStore.getState().startDraft(deviceId, pane.id, pane.title ?? null);
+      setSidebarTab('agent');
+      if (isMobile) setOpenMobile(false);
+    },
+    [navigateToPane, setSidebarTab, isMobile, setOpenMobile]
   );
 
   const selectWindow = useTmuxStore((state) => state.selectWindow);
@@ -289,6 +350,37 @@ export function SideBarDeviceList() {
     setWatchTarget({ deviceId, paneId });
   }, []);
 
+  const [sessionRenameCandidate, setSessionRenameCandidate] = useState<AgentSessionDto | null>(
+    null
+  );
+  const [sessionRenameValue, setSessionRenameValue] = useState('');
+  const [sessionDeleteCandidate, setSessionDeleteCandidate] = useState<AgentSessionDto | null>(
+    null
+  );
+
+  const requestRenameSession = useCallback((session: AgentSessionDto) => {
+    setSessionRenameValue(session.title);
+    setSessionRenameCandidate(session);
+  }, []);
+
+  const confirmRenameSession = useCallback(() => {
+    if (!sessionRenameCandidate) return;
+    const trimmed = sessionRenameValue.trim();
+    if (!trimmed) return;
+    void useAgentStore.getState().renameSession(sessionRenameCandidate.id, trimmed);
+    setSessionRenameCandidate(null);
+  }, [sessionRenameCandidate, sessionRenameValue]);
+
+  const requestDeleteSession = useCallback((session: AgentSessionDto) => {
+    setSessionDeleteCandidate(session);
+  }, []);
+
+  const confirmDeleteSession = useCallback(() => {
+    if (!sessionDeleteCandidate) return;
+    void useAgentStore.getState().deleteSession(sessionDeleteCandidate.id);
+    setSessionDeleteCandidate(null);
+  }, [sessionDeleteCandidate]);
+
   const devices = devicesData?.devices ?? [];
   const sortedDevices = useMemo(
     () =>
@@ -297,6 +389,27 @@ export function SideBarDeviceList() {
       ),
     [devices, language]
   );
+
+  // 会话按 device:pane 分组挂到对应 pane 节点；设备缺失/不在列表的归为孤立
+  const { sessionsByPane, orphanSessions } = useMemo(() => {
+    const knownDeviceIds = new Set(devices.map((device) => device.id));
+    const byPane = new Map<string, AgentSessionDto[]>();
+    const orphans: AgentSessionDto[] = [];
+    const ordered = Object.values(agentSessions)
+      .filter((session): session is AgentSessionDto => Boolean(session))
+      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    for (const session of ordered) {
+      if (!session.deviceId || !session.paneId || !knownDeviceIds.has(session.deviceId)) {
+        orphans.push(session);
+        continue;
+      }
+      const key = `${session.deviceId}:${session.paneId}`;
+      const list = byPane.get(key);
+      if (list) list.push(session);
+      else byPane.set(key, [session]);
+    }
+    return { sessionsByPane: byPane, orphanSessions: orphans };
+  }, [agentSessions, devices]);
 
   return (
     <SidebarGroup className="flex flex-col flex-1 min-h-0">
@@ -322,12 +435,28 @@ export function SideBarDeviceList() {
               onPaneClick={navigateToPane}
               onWindowClick={navigateToWindow}
               onWatchPane={requestWatchPane}
+              sessionsByPane={sessionsByPane}
+              activeSessionId={activeSessionId}
+              onSelectSession={handleSelectSession}
+              onCreateSessionForPane={handleCreateSessionForPane}
+              onRenameSession={requestRenameSession}
+              onDeleteSession={requestDeleteSession}
             />
           ))}
           {sortedDevices.length === 0 && (
             <div className="text-center text-sm text-muted-foreground py-4">
               {t('sidebar.noDevices')}
             </div>
+          )}
+
+          {orphanSessions.length > 0 && (
+            <OrphanSessions
+              sessions={orphanSessions}
+              activeSessionId={activeSessionId}
+              onSelectSession={handleSelectSession}
+              onRenameSession={requestRenameSession}
+              onDeleteSession={requestDeleteSession}
+            />
           )}
         </div>
       </ScrollArea>
@@ -410,6 +539,78 @@ export function SideBarDeviceList() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={sessionRenameCandidate !== null}
+        onOpenChange={(open) => !open && setSessionRenameCandidate(null)}
+      >
+        <DialogContent data-testid="agent-session-rename-dialog">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              confirmRenameSession();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t('agent.session.renameTitle')}</DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <Input
+                autoFocus
+                maxLength={120}
+                value={sessionRenameValue}
+                onChange={(e) => setSessionRenameValue(e.target.value)}
+                placeholder={t('agent.session.renamePlaceholder')}
+                data-testid="agent-session-rename-input"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSessionRenameCandidate(null)}
+              >
+                {t('agent.session.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                disabled={!sessionRenameValue.trim()}
+                data-testid="agent-session-rename-save"
+              >
+                {t('agent.session.save')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={sessionDeleteCandidate !== null}
+        onOpenChange={(open) => !open && setSessionDeleteCandidate(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10">
+              <X className="h-5 w-5 text-destructive" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>{t('agent.session.deleteTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('agent.session.deleteDesc', { title: sessionDeleteCandidate?.title ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!sessionDeleteCandidate}
+              onClick={confirmDeleteSession}
+              data-testid="agent-session-delete-confirm"
+            >
+              {t('agent.session.deleteConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {watchTarget && (
         <WatchDialog
           open
@@ -437,6 +638,12 @@ interface DeviceSectionProps {
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
   onWatchPane: (deviceId: string, paneId: string) => void;
+  sessionsByPane: Map<string, AgentSessionDto[]>;
+  activeSessionId: string | null;
+  onSelectSession: (session: AgentSessionDto) => void;
+  onCreateSessionForPane: (deviceId: string, windowId: string, pane: TmuxPane) => void;
+  onRenameSession: (session: AgentSessionDto) => void;
+  onDeleteSession: (session: AgentSessionDto) => void;
 }
 
 function DeviceSection({
@@ -454,6 +661,12 @@ function DeviceSection({
   onPaneClick,
   onWindowClick,
   onWatchPane,
+  sessionsByPane,
+  activeSessionId,
+  onSelectSession,
+  onCreateSessionForPane,
+  onRenameSession,
+  onDeleteSession,
 }: DeviceSectionProps) {
   const { t } = useTranslation();
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
@@ -538,6 +751,12 @@ function DeviceSection({
               onClosePane={onClosePane}
               onRenameWindow={onRenameWindow}
               onWatchPane={onWatchPane}
+              sessionsByPane={sessionsByPane}
+              activeSessionId={activeSessionId}
+              onSelectSession={onSelectSession}
+              onCreateSessionForPane={onCreateSessionForPane}
+              onRenameSession={onRenameSession}
+              onDeleteSession={onDeleteSession}
             />
           ))}
 
@@ -570,6 +789,12 @@ interface WindowItemProps {
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
   onRenameWindow: (deviceId: string, windowId: string) => void;
   onWatchPane: (deviceId: string, paneId: string) => void;
+  sessionsByPane: Map<string, AgentSessionDto[]>;
+  activeSessionId: string | null;
+  onSelectSession: (session: AgentSessionDto) => void;
+  onCreateSessionForPane: (deviceId: string, windowId: string, pane: TmuxPane) => void;
+  onRenameSession: (session: AgentSessionDto) => void;
+  onDeleteSession: (session: AgentSessionDto) => void;
 }
 
 function WindowItem({
@@ -583,6 +808,12 @@ function WindowItem({
   onClosePane,
   onRenameWindow,
   onWatchPane,
+  sessionsByPane,
+  activeSessionId,
+  onSelectSession,
+  onCreateSessionForPane,
+  onRenameSession,
+  onDeleteSession,
 }: WindowItemProps) {
   const { t } = useTranslation();
   const { isMobile } = useSidebar();
@@ -770,11 +1001,244 @@ function WindowItem({
                 >
                   <span className={cn('leading-none', isMobile ? 'text-base' : 'text-xs')}>×</span>
                 </button>
+
+                <PaneSessionBranch
+                  sessions={sessionsByPane.get(`${deviceId}:${pane.id}`)}
+                  activeSessionId={activeSessionId}
+                  onSelectSession={onSelectSession}
+                  onCreateSession={() => onCreateSessionForPane(deviceId, window.id, pane)}
+                  onRenameSession={onRenameSession}
+                  onDeleteSession={onDeleteSession}
+                />
               </div>
             );
           })}
         </div>
       )}
+
+      {/* 单 pane 窗口不渲染 pane 列表，会话挂在窗口节点下 */}
+      {!hasMultiplePanes && window.panes[0] && (
+        <div className="ml-4 pl-2 border-l border-border/50">
+          <PaneSessionBranch
+            sessions={sessionsByPane.get(`${deviceId}:${window.panes[0].id}`)}
+            activeSessionId={activeSessionId}
+            onSelectSession={onSelectSession}
+            onCreateSession={() => onCreateSessionForPane(deviceId, window.id, window.panes[0])}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
+          />
+        </div>
+      )}
     </div>
+  );
+}
+
+function SessionActionsMenu({
+  session,
+  onRenameSession,
+  onDeleteSession,
+  className,
+}: {
+  session: AgentSessionDto;
+  onRenameSession: (session: AgentSessionDto) => void;
+  onDeleteSession: (session: AgentSessionDto) => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const { isMobile } = useSidebar();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-testid={`agent-session-menu-${session.id}`}
+            aria-label={t('agent.session.rename')}
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              'size-5 shrink-0 text-muted-foreground transition-opacity data-popup-open:opacity-100',
+              isMobile
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100',
+              className
+            )}
+          />
+        }
+      >
+        <MoreHorizontal className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
+      >
+        <DropdownMenuItem
+          data-testid="agent-session-rename"
+          className={cn(
+            '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+            isMobile && 'py-3 px-2.5 text-base gap-2.5'
+          )}
+          onClick={() => onRenameSession(session)}
+        >
+          <Pencil className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+          {t('agent.session.rename')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          variant="destructive"
+          data-testid="agent-session-delete"
+          className={cn(
+            '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+            isMobile && 'py-3 px-2.5 text-base gap-2.5'
+          )}
+          onClick={() => onDeleteSession(session)}
+        >
+          <Trash2 className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+          {t('agent.session.delete')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function PaneSessionBranch({
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onCreateSession,
+  onRenameSession,
+  onDeleteSession,
+}: {
+  sessions: AgentSessionDto[] | undefined;
+  activeSessionId: string | null;
+  onSelectSession: (session: AgentSessionDto) => void;
+  onCreateSession: () => void;
+  onRenameSession: (session: AgentSessionDto) => void;
+  onDeleteSession: (session: AgentSessionDto) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="mt-1 space-y-0.5">
+      {sessions?.map((session) => {
+        const isActive = session.id === activeSessionId;
+        return (
+          <div key={session.id} className="group relative">
+            <button
+              type="button"
+              data-testid={`agent-session-item-${session.id}`}
+              onClick={() => onSelectSession(session)}
+              className={cn(
+                'w-full flex items-center gap-1.5 px-2 py-1 pr-7 rounded-md text-left transition-colors',
+                isActive
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
+              )}
+            >
+              <Bot className="size-3 shrink-0 opacity-70" />
+              <span className="min-w-0 flex-1 truncate text-[11px]">{session.title}</span>
+              <StatusDot status={session.status} />
+            </button>
+            <div className="absolute right-0.5 top-1/2 -translate-y-1/2">
+              <SessionActionsMenu
+                session={session}
+                onRenameSession={onRenameSession}
+                onDeleteSession={onDeleteSession}
+              />
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        data-testid="agent-session-create-inline"
+        onClick={onCreateSession}
+        className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-left transition-colors text-muted-foreground/70 hover:text-foreground hover:bg-accent/20"
+      >
+        <Plus className="size-3 shrink-0" />
+        <span className="text-[11px]">{t('agent.session.new')}</span>
+      </button>
+    </div>
+  );
+}
+
+function OrphanSessions({
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onRenameSession,
+  onDeleteSession,
+}: {
+  sessions: AgentSessionDto[];
+  activeSessionId: string | null;
+  onSelectSession: (session: AgentSessionDto) => void;
+  onRenameSession: (session: AgentSessionDto) => void;
+  onDeleteSession: (session: AgentSessionDto) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border bg-muted/20">
+      <CollapsibleTrigger
+        data-testid="agent-orphan-sessions-trigger"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+      >
+        <History className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="flex-1 truncate text-xs font-medium text-muted-foreground">
+          {t('agent.orphan.title', { count: sessions.length })}
+        </span>
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90'
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-0.5 px-1.5 pb-1.5">
+        {sessions.map((session) => {
+          const isActive = session.id === activeSessionId;
+          const meta = [
+            session.originPaneTitle,
+            session.originProcessName,
+            session.createdAt
+              ? new Date(session.createdAt).toLocaleString(toBCP47(language))
+              : null,
+          ].filter((value): value is string => Boolean(value));
+          return (
+            <div key={session.id} className="group relative">
+              <button
+                type="button"
+                data-testid={`agent-orphan-session-${session.id}`}
+                onClick={() => onSelectSession(session)}
+                className={cn(
+                  'w-full flex flex-col gap-0.5 px-2 py-1.5 pr-7 rounded-md text-left transition-colors',
+                  isActive
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'hover:bg-accent/30 border border-transparent'
+                )}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Bot className="size-3 shrink-0 opacity-70" />
+                  <span className="min-w-0 flex-1 truncate text-[11px]">{session.title}</span>
+                  <StatusDot status={session.status} />
+                </span>
+                {meta.length > 0 && (
+                  <span className="truncate pl-[18px] text-[10px] text-muted-foreground">
+                    {meta.join(' · ')}
+                  </span>
+                )}
+              </button>
+              <div className="absolute right-0.5 top-1.5">
+                <SessionActionsMenu
+                  session={session}
+                  onRenameSession={onRenameSession}
+                  onDeleteSession={onDeleteSession}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
