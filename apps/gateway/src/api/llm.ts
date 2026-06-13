@@ -113,9 +113,14 @@ async function refreshModelsCache(
     });
     return { provider: updated ?? provider, models };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // 模型拉取失败原本只回传给 toast，服务端无日志、dev 排查无从下手。
+    console.warn(
+      `[llm] 拉取模型列表失败 provider=${provider.name}(${provider.id}) baseUrl=${provider.baseUrl}: ${message}`
+    );
     return {
       provider,
-      modelsError: error instanceof Error ? error.message : String(error),
+      modelsError: message,
     };
   }
 }

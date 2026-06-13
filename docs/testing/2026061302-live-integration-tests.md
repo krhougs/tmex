@@ -48,6 +48,7 @@ bun run --filter @tmex/gateway test:live          # 全部
 | 脚本 | 文件 | 内容 |
 | --- | --- | --- |
 | `test:live:llm` | `src/llm/provider-live.integration.ts` | `fetchProviderModels` 拉到非空列表且含 `TEST_LLM_MODEL`；`resolveLanguageModel` + `generateText` 真实对话 |
+| `test:live:llm-api` | `src/api/llm-api-live.integration.ts` | 走真实 `handleLlmApiRequest`（非 mock）打真实 endpoint：创建（自动拉模型，UI 实际路径）/ 列表 / 刷新 / 设默认 / 真实对话 / provider 内置搜索工具 / 删除 |
 | `test:live:search` | `src/agent/tools/web-search-live.integration.ts` | `createWebSearchTool` 注入真实 key，Tavily / Brave 各跑一次真实搜索并校验返回 |
 
 ## 注意
