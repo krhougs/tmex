@@ -18,6 +18,7 @@ import {
   ListTreeIcon,
   PlusIcon,
   SendIcon,
+  SparklesIcon,
   SquareIcon,
   TerminalIcon,
   ZapIcon,
@@ -545,6 +546,13 @@ export function AgentTab() {
 
       {hasContext && (
         <div className={draftEmpty ? 'flex min-h-0 flex-1 flex-col justify-center' : 'contents'}>
+          {draftEmpty && (
+            <div className="flex flex-col items-center gap-2 px-6 pb-6 text-center">
+              <SparklesIcon className="text-muted-foreground size-9" />
+              <h3 className="text-sm font-medium">{t('agent.welcome.title')}</h3>
+              <p className="text-muted-foreground text-xs">{t('agent.welcome.subtitle')}</p>
+            </div>
+          )}
           <ChatInput
             disabled={inputDisabled}
             running={Boolean(running)}

@@ -506,6 +506,10 @@
         "retry": "再試行",
         "scrollToBottom": "最下部へ"
       },
+      "welcome": {
+        "title": "新しい Agent チャット",
+        "subtitle": "タスクを入力して、選択した端末での作業を始めましょう"
+      },
       "session": {
         "none": "セッション未選択",
         "new": "新規エージェントセッション",

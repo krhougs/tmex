@@ -512,6 +512,10 @@ export const I18N_RESOURCES = {
         "retry": "Retry",
         "scrollToBottom": "Scroll to bottom"
       },
+      "welcome": {
+        "title": "New Agent chat",
+        "subtitle": "Describe your task to start working in the selected terminal"
+      },
       "session": {
         "none": "No session selected",
         "new": "New agent session",
@@ -1204,6 +1208,10 @@ export const I18N_RESOURCES = {
         "retry": "重试",
         "scrollToBottom": "回到底部"
       },
+      "welcome": {
+        "title": "新建 Agent 对话",
+        "subtitle": "向 Agent 描述你的需求，开始在所选终端中协作"
+      },
       "session": {
         "none": "未选择会话",
         "new": "新建 Agent 会话",
@@ -1895,6 +1903,10 @@ export const I18N_RESOURCES = {
         "stop": "停止",
         "retry": "再試行",
         "scrollToBottom": "最下部へ"
+      },
+      "welcome": {
+        "title": "新しい Agent チャット",
+        "subtitle": "タスクを入力して、選択した端末での作業を始めましょう"
       },
       "session": {
         "none": "セッション未選択",

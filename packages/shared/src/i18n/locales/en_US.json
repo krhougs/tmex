@@ -506,6 +506,10 @@
         "retry": "Retry",
         "scrollToBottom": "Scroll to bottom"
       },
+      "welcome": {
+        "title": "New Agent chat",
+        "subtitle": "Describe your task to start working in the selected terminal"
+      },
       "session": {
         "none": "No session selected",
         "new": "New agent session",
