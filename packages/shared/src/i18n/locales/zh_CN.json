@@ -505,7 +505,7 @@
       },
       "session": {
         "none": "未选择会话",
-        "new": "新建会话",
+        "new": "新建 Agent 会话",
         "switch": "切换会话",
         "selectPaneHint": "请在 Panes 标签中选择一个 pane 来开启会话",
         "noSessions": "暂无会话",

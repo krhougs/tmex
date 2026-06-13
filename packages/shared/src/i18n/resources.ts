@@ -511,7 +511,7 @@ export const I18N_RESOURCES = {
       },
       "session": {
         "none": "No session selected",
-        "new": "New session",
+        "new": "New agent session",
         "switch": "Switch session",
         "selectPaneHint": "Select a pane in the Panes tab to start a session",
         "noSessions": "No sessions yet",
@@ -1200,7 +1200,7 @@ export const I18N_RESOURCES = {
       },
       "session": {
         "none": "未选择会话",
-        "new": "新建会话",
+        "new": "新建 Agent 会话",
         "switch": "切换会话",
         "selectPaneHint": "请在 Panes 标签中选择一个 pane 来开启会话",
         "noSessions": "暂无会话",
@@ -1889,7 +1889,7 @@ export const I18N_RESOURCES = {
       },
       "session": {
         "none": "セッション未選択",
-        "new": "新規セッション",
+        "new": "新規エージェントセッション",
         "switch": "セッションを切り替え",
         "selectPaneHint": "Panes タブでペインを選択してセッションを開始してください",
         "noSessions": "セッションがありません",

@@ -505,7 +505,7 @@
       },
       "session": {
         "none": "No session selected",
-        "new": "New session",
+        "new": "New agent session",
         "switch": "Switch session",
         "selectPaneHint": "Select a pane in the Panes tab to start a session",
         "noSessions": "No sessions yet",

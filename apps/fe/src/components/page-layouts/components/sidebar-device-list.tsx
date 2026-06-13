@@ -1068,6 +1068,7 @@ function WindowItem({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
+            backdrop
             className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
           >
             <DropdownMenuItem
@@ -1080,6 +1081,17 @@ function WindowItem({
             >
               <Pencil className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
               {t('window.rename')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid={`window-menu-new-session-${window.id}`}
+              className={cn(
+                '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                isMobile && 'py-3 px-2.5 text-base gap-2.5'
+              )}
+              onClick={() => onCreateSessionForPane(deviceId, window.id, selectedPaneInWindow || window.panes[0])}
+            >
+              <Plus className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+              {t('agent.session.new')}
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
@@ -1135,12 +1147,11 @@ function WindowItem({
 
       {/* 单 pane 窗口不渲染 pane 列表，会话挂在窗口节点下 */}
       {!hasMultiplePanes && window.panes[0] && (
-        <div className="ml-4 pl-2 border-l border-border/50">
+        <div className="ml-[36px] pl-2 border-l border-border/50">
           <PaneSessionBranch
             sessions={sessionsByPane.get(`${deviceId}:${window.panes[0].id}`)}
             activeSessionId={activeSessionId}
             onSelectSession={onSelectSession}
-            onCreateSession={() => onCreateSessionForPane(deviceId, window.id, window.panes[0])}
             onRenameSession={onRenameSession}
             onDeleteSession={onDeleteSession}
           />
@@ -1254,6 +1265,7 @@ function PaneRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
+          backdrop
           className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
         >
           <DropdownMenuItem
@@ -1296,7 +1308,6 @@ function PaneRow({
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={onSelectSession}
-        onCreateSession={onCreateSession}
         onRenameSession={onRenameSession}
         onDeleteSession={onDeleteSession}
       />
@@ -1345,6 +1356,7 @@ function SessionActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
+        backdrop
         className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
       >
         <DropdownMenuItem
@@ -1379,14 +1391,12 @@ function PaneSessionBranch({
   sessions,
   activeSessionId,
   onSelectSession,
-  onCreateSession,
   onRenameSession,
   onDeleteSession,
 }: {
   sessions: AgentSessionDto[] | undefined;
   activeSessionId: string | null;
   onSelectSession: (session: AgentSessionDto) => void;
-  onCreateSession: () => void;
   onRenameSession: (session: AgentSessionDto) => void;
   onDeleteSession: (session: AgentSessionDto) => void;
 }) {
@@ -1424,16 +1434,7 @@ function PaneSessionBranch({
             </div>
           </div>
         );
-      })}
-      <button
-        type="button"
-        data-testid="agent-session-create-inline"
-        onClick={onCreateSession}
-        className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-left transition-colors text-muted-foreground/70 hover:text-foreground hover:bg-accent/20"
-      >
-        <Plus className="size-3 shrink-0" />
-        <span className="text-[11px]">{t('agent.session.new')}</span>
-      </button>
+      }      )}
     </div>
   );
 }
