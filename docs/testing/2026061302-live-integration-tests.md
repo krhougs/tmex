@@ -55,3 +55,6 @@ bun run --filter @tmex/gateway test:live          # 全部
 - `test.env.local` 含真实密钥，**不提交、不外泄**。
 - 默认 `bun test`、CI 不受影响（不发现 `*.integration.ts`）。
 - 实测会真实消耗 LLM / 搜索配额，按需手动跑。
+- `test:live:*` 脚本已强制 `NODE_ENV=test`：交互式 shell 常从安装版 `app.env` 继承
+  `NODE_ENV=production`，那样 `loadEnv` 会走生产分支、不读 `test.env.local` 导致凭证缺失。
+  脚本内置 `NODE_ENV=test` 后，新开终端直接 `bun run ... test:live` 即可，无需手动前缀。
