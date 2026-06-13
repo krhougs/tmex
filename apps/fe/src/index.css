@@ -56,6 +56,9 @@
   --sidebar-border: var(--base-200);
   --sidebar-ring: var(--base-800);
 
+  /* Agent 聊天内容区/输入区背景（与语义 token 解耦，明暗各一档） */
+  --chat-surface: #fcfcfc;
+
   --display-weight: 700;
 
   --fc-button-bg-color: var(--primary);
@@ -103,6 +106,8 @@
   --sidebar-accent-foreground: var(--base-200);
   --sidebar-border: var(--base-800);
   --sidebar-ring: var(--base-200);
+
+  --chat-surface: #121212;
 }
 
 @theme inline {
@@ -133,6 +138,7 @@
   --radius-xl: calc(var(--radius) + 4px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-chat-surface: var(--chat-surface);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);

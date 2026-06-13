@@ -48,8 +48,6 @@ function ChatInput({
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
-  const uiTheme = useUIStore((state) => state.theme);
-  const chatSurface = uiTheme === 'light' ? '#ffffff' : '#000000';
 
   const submit = (): void => {
     const trimmed = text.trim();
@@ -68,8 +66,7 @@ function ChatInput({
   return (
     <div
       data-testid="agent-chat-input"
-      className="flex shrink-0 flex-col gap-2 mx-3 mb-3 rounded-xl mt-1.5 focus-within:ring-1 focus-within:ring-ring/30"
-      style={{ backgroundColor: chatSurface }}
+      className="bg-chat-surface flex shrink-0 flex-col gap-2 mx-3 mb-2.5 rounded-xl mt-1.5 focus-within:ring-1 focus-within:ring-ring/30"
     >
       <Textarea
         data-testid="agent-chat-input-textarea"
@@ -194,9 +191,6 @@ export function AgentTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const setSidebarTab = useUIStore((state) => state.setSidebarTab);
-  const uiTheme = useUIStore((state) => state.theme);
-  // 聊天内容区/输入区背景：亮色纯白、暗色纯黑
-  const chatSurface = uiTheme === 'light' ? '#ffffff' : '#000000';
 
   const paneMatch = useMatch('/devices/:deviceId/windows/:windowId/panes/:paneId');
   const routeDeviceId = paneMatch?.params.deviceId ?? null;
@@ -521,8 +515,7 @@ export function AgentTab() {
         emptyText={hasContext ? t('agent.panel.empty') : t('agent.session.selectPaneHint')}
         confirmationByToolCallId={confirmationByToolCallId}
         onDecide={handleDecide}
-        className="mx-3 mb-2 overflow-hidden rounded-xl"
-        style={{ backgroundColor: chatSurface }}
+        className="bg-chat-surface mx-3 mb-2 overflow-hidden rounded-xl"
       />
 
       {activeSession && !isOrphan && queuedItems.length > 0 && (
