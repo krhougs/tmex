@@ -29,6 +29,9 @@ describe('system prompt 组装', () => {
     expect(out).toContain('## Know your actual working environment');
     expect(out).toContain('## Terminal window size');
     expect(out).toContain('## Terminal tools');
+    expect(out).toContain('run_command');
+    expect(out).toContain('entered_tui');
+    expect(out).toContain('mode="cli"');
     expect(out).toContain('## Network devices');
     expect(out).toContain('MikroTik');
     expect(out).toContain('Juniper');

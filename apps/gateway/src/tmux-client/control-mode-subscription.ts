@@ -6,6 +6,7 @@ import {
 import {
   type PaneStreamNotification,
   type PaneStreamParser,
+  type PromptMarker,
   createPaneStreamParser,
 } from './pane-stream-parser';
 
@@ -31,6 +32,7 @@ export interface ControlModeSubscriptionCallbacks {
   onTitle: (paneId: string, title: string) => void;
   onBell: (paneId: string) => void;
   onNotification: (paneId: string, notification: PaneStreamNotification) => void;
+  onPromptMarker?: (paneId: string, marker: PromptMarker) => void;
   onStructureChanged: () => void;
   onExit: (reason: string | null) => void;
   onBlockEnd?: (block: ControlModeBlock) => void;
@@ -60,6 +62,7 @@ export function createControlModeSubscription(
       onTitle: (title) => callbacks.onTitle(paneId, title),
       onBell: () => callbacks.onBell(paneId),
       onNotification: (notification) => callbacks.onNotification(paneId, notification),
+      onPromptMarker: (marker) => callbacks.onPromptMarker?.(paneId, marker),
     });
     paneParsers.set(paneId, parser);
     return parser;

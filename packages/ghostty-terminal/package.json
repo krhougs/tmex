@@ -9,7 +9,8 @@
     "src"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./headless": "./src/headless.ts"
   },
   "scripts": {
     "update:wasm": "bash ./scripts/build-wasm.sh",

@@ -26,8 +26,26 @@ import {
 import { eventNotifier } from '../events';
 import { t } from '../i18n';
 import { resolveLanguageModel, resolveProviderWebSearchTool } from '../llm/provider-registry';
+import {
+  type EmulatorStreamSource,
+  type PaneEmulator,
+  PaneEmulatorRegistry,
+} from '../tmux-client/pane-emulator';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
 import { createRedactionMiddleware } from './redaction-middleware';
+
+/** 全局 per-pane 模拟器池（引用计数复用 + 显式 free，见 pane-emulator.ts）。 */
+const paneEmulatorRegistry = new PaneEmulatorRegistry();
+
+/** runtime 是否具备模拟器所需的流订阅能力（stub runtime 没有则退回 capture）。 */
+function asEmulatorSource(runtime: unknown): EmulatorStreamSource | null {
+  const candidate = runtime as Partial<EmulatorStreamSource>;
+  return typeof candidate?.subscribe === 'function' &&
+    typeof candidate?.capturePaneText === 'function' &&
+    typeof candidate?.getPaneInfo === 'function'
+    ? (candidate as EmulatorStreamSource)
+    : null;
+}
 import {
   buildAgentSystemPrompt,
   buildTitleGenerationPrompt,
@@ -210,6 +228,9 @@ export class AgentRun {
   private terminalFatal = false;
   private terminalFatalMessage = '';
 
+  // 当前 run 期间该 pane 的 headless 模拟器（流式读屏 + run_command），run 结束释放。
+  private emulator: PaneEmulator | null = null;
+
   private eventSeq = 0;
 
   // 进行中回合的累积文本（供 sync 回放），step 落库后清空
@@ -264,6 +285,20 @@ export class AgentRun {
             `failed to acquire terminal runtime: ${toErrorMessage(error)}`
           );
         }
+        // 尽力获取 headless 模拟器（流式读屏 + run_command）；失败则退回 capture-pane。
+        const source = asEmulatorSource(runtime);
+        if (source) {
+          try {
+            this.emulator = await paneEmulatorRegistry.acquire(
+              runtimeDeviceId,
+              session.paneId,
+              source
+            );
+          } catch (error) {
+            console.error(`[agent-run] failed to acquire pane emulator: ${toErrorMessage(error)}`);
+            this.emulator = null;
+          }
+        }
       }
 
       let attempt = 0;
@@ -290,6 +325,14 @@ export class AgentRun {
       }
     } finally {
       this.clearFlushTimer();
+      if (this.emulator && runtimeDeviceId && session.paneId) {
+        this.emulator = null;
+        try {
+          await paneEmulatorRegistry.release(runtimeDeviceId, session.paneId);
+        } catch (error) {
+          console.error(`[agent-run] failed to release pane emulator:`, error);
+        }
+      }
       if (runtime && runtimeDeviceId) {
         try {
           await this.deps.releaseRuntime(runtimeDeviceId, runtime);
@@ -459,6 +502,7 @@ export class AgentRun {
         createTerminalTools({
           paneId: session.paneId,
           getRuntime: () => runtime,
+          getEmulator: () => this.emulator,
           needsApprovalForWrite: session.writeMode === 'confirm',
           onFailure: () => this.recordTerminalFailure(),
           onSuccess: () => {

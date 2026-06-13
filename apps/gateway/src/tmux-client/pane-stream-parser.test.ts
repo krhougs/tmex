@@ -26,6 +26,66 @@ function bytes(...parts: Array<number | string | Uint8Array>): Uint8Array {
   return new Uint8Array(output);
 }
 
+describe('pane stream parser - OSC 133 prompt markers', () => {
+  function collectMarkers() {
+    const markers: Array<{ kind: string; exitCode: number | null; params: string[] }> = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell: () => {},
+      onNotification: () => {},
+      onPromptMarker: (marker) => markers.push(marker),
+    });
+    return { parser, markers };
+  }
+
+  const ST = bytes(0x1b, 0x5c);
+
+  test('C 输出开始（ST 结尾）从输出剥离并上抛', () => {
+    const { parser, markers } = collectMarkers();
+    const output = parser.push(bytes('X', 0x1b, ']', '133;C', ST, 'Y'));
+    expect(Array.from(output)).toEqual([0x58, 0x59]);
+    expect(markers).toEqual([{ kind: 'C', exitCode: null, params: [] }]);
+  });
+
+  test('D 命令结束带退出码', () => {
+    const { parser, markers } = collectMarkers();
+    parser.push(bytes(0x1b, ']', '133;D;0', ST));
+    parser.push(bytes(0x1b, ']', '133;D;1', 0x07));
+    expect(markers).toEqual([
+      { kind: 'D', exitCode: 0, params: ['0'] },
+      { kind: 'D', exitCode: 1, params: ['1'] },
+    ]);
+  });
+
+  test('D 带 nonce 参数', () => {
+    const { parser, markers } = collectMarkers();
+    parser.push(bytes(0x1b, ']', '133;D;137;tmex=abc123', ST));
+    expect(markers[0]).toEqual({ kind: 'D', exitCode: 137, params: ['137', 'tmex=abc123'] });
+  });
+
+  test('A/B 提示符标记', () => {
+    const { parser, markers } = collectMarkers();
+    parser.push(bytes(0x1b, ']', '133;A', ST, 0x1b, ']', '133;B', ST));
+    expect(markers.map((m) => m.kind)).toEqual(['A', 'B']);
+  });
+
+  test('tmux passthrough 包裹的 OSC 133 也能解析', () => {
+    const { parser, markers } = collectMarkers();
+    // 外层 DCS：ESC P tmux ; <body> ESC \；body 内每个 ESC 都被加倍（1b 1b）。
+    // 内层目标序列 = ESC ] 133;D;0 ESC \  →  body = 1b1b 5d 133;D;0 1b1b 5c
+    parser.push(
+      bytes(0x1b, 'Ptmux;', 0x1b, 0x1b, 0x5d, '133;D;0', 0x1b, 0x1b, 0x5c, 0x1b, 0x5c)
+    );
+    expect(markers).toEqual([{ kind: 'D', exitCode: 0, params: ['0'] }]);
+  });
+
+  test('未知子命令忽略', () => {
+    const { parser, markers } = collectMarkers();
+    parser.push(bytes(0x1b, ']', '133;Z', ST));
+    expect(markers).toEqual([]);
+  });
+});
+
 describe('pane stream parser', () => {
   test('emits bare BEL as bell and removes it from output', () => {
     const bells: number[] = [];

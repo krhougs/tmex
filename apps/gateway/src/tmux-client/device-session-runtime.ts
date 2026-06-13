@@ -3,6 +3,7 @@ import type { StateSnapshotPayload } from '@tmex/shared';
 import { getDeviceById } from '../db';
 import type { PaneInfo } from './capture-history';
 import type { TmuxConnectionOptions } from './connection-types';
+import type { PromptMarker } from './pane-stream-parser';
 import type { TmuxEvent } from './events';
 import { LocalExternalTmuxConnection } from './local-external-connection';
 import { SshExternalTmuxConnection } from './ssh-external-connection';
@@ -29,6 +30,7 @@ export interface DeviceSessionRuntimeListener {
   onEvent?: (event: TmuxEvent) => void;
   onTerminalOutput?: (paneId: string, data: Uint8Array) => void;
   onTerminalHistory?: (paneId: string, data: string, alternateScreen: boolean) => void;
+  onPromptMarker?: (paneId: string, marker: PromptMarker) => void;
   onSnapshot?: (payload: StateSnapshotPayload) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
@@ -71,6 +73,9 @@ export class DeviceSessionRuntime {
       },
       onTerminalHistory: (paneId, data, alternateScreen) => {
         this.broadcast((listener) => listener.onTerminalHistory?.(paneId, data, alternateScreen));
+      },
+      onPromptMarker: (paneId, marker) => {
+        this.broadcast((listener) => listener.onPromptMarker?.(paneId, marker));
       },
       onSnapshot: (payload) => {
         this.broadcast((listener) => listener.onSnapshot?.(payload));

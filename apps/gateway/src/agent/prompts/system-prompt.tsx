@@ -90,36 +90,41 @@ const WindowSize = () => (
 const TerminalTools = ({ writeMode }: { writeMode: 'confirm' | 'auto' }) => (
   <Section title="## Terminal tools">
     <Item>
-      Before acting, call read_screen to understand the current terminal state. Never assume what is
-      on screen.
+      Before acting, call read_screen (the live rendered screen) and get_pane_info to understand the
+      current state. Never assume what is on screen.
     </Item>
     <Item>
-      After send_input, verify the effect with the returned screen tail, or call read_screen again.
-      Long-running commands may need additional reads.
+      Detect the environment first, then pick the right tool: a POSIX shell (bash/zsh/sh/fish), a
+      network-device CLI (Cisco-style etc.), or a full-screen TUI (alternateScreen=true).
     </Item>
     <Item>
-      Send one logical command at a time. Use the keys parameter for control sequences (enter,
-      ctrl_c, arrows, ...) instead of embedding raw escape codes in text.
+      To RUN A COMMAND and capture its FULL output, use run_command (not send_input). It is not
+      truncated to the screen. On a POSIX shell pass shell=&lt;flavor&gt; to also get the exit code.
+      For a network device pass mode="cli" (completion is detected by the prompt reappearing; there
+      is no exit code — check likelyError); consider disablePagingCommand (e.g. "terminal length
+      0").
     </Item>
     <Item>
-      Use get_pane_info to inspect pane size, cursor, alternate-screen state, and the current
-      foreground command before typing.
+      If run_command returns status="entered_tui", the command opened a full-screen program — switch
+      to the interactive tools below. Use expect to stop early at a password or [y/N] prompt.
+    </Item>
+    <Item>
+      For interactive programs and TUIs (editors, pagers, top, menuconfig, REPLs) use send_input to
+      send keystrokes (use the keys parameter for enter/ctrl_c/arrows) and read_screen to see the
+      rendered screen. read_screen reflects the true TUI grid; send_input returns the new output
+      (line mode) or the full re-rendered screen (TUI mode).
     </Item>
     {writeMode === 'confirm' ? (
       <Item>
-        Every send_input call requires explicit user approval. If the user denies a request, do not
-        retry the same input; ask the user instead.
+        Every send_input and run_command call requires explicit user approval. If the user denies a
+        request, do not retry the same input; ask the user instead.
       </Item>
     ) : (
       <Item>
-        send_input executes without per-call confirmation. Be extra conservative with anything
-        destructive.
+        send_input and run_command execute without per-call confirmation. Be extra conservative with
+        anything destructive.
       </Item>
     )}
-    <Item>
-      The pane may be running an interactive program (editor, REPL, pager, device CLI). Identify it
-      from the screen before typing.
-    </Item>
   </Section>
 );
 

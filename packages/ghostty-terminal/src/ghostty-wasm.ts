@@ -1,5 +1,8 @@
-import ghosttyWasmUrl from './assets/ghostty-vt.wasm?url';
 import type { GhosttyCellDimensions, GhosttyTheme } from './types';
+
+// 跨打包器解析 wasm 资源：`new URL(rel, import.meta.url)` 是 Vite 推荐写法，Bun（运行/打包）
+// 也支持，避免 `?url` 后缀只有 Vite 能解析、bun build 报无法 resolve 的问题。
+const ghosttyWasmUrl = new URL('./assets/ghostty-vt.wasm', import.meta.url).href;
 
 const GHOSTTY_SUCCESS = 0;
 const GHOSTTY_OUT_OF_SPACE = -3;
@@ -1377,14 +1380,17 @@ export class GhosttyBindings {
 }
 
 async function loadGhosttyWasmBytes(source: string): Promise<ArrayBuffer> {
+  const isFileUrl = source.startsWith('file://');
+  const path = isFileUrl ? decodeURIComponent(new URL(source).pathname) : source;
   const isFilePath =
-    source.startsWith('/') ||
-    source.startsWith('./') ||
-    source.startsWith('../') ||
-    /^[A-Za-z]:[\\/]/.test(source);
+    isFileUrl ||
+    path.startsWith('/') ||
+    path.startsWith('./') ||
+    path.startsWith('../') ||
+    /^[A-Za-z]:[\\/]/.test(path);
 
   if (isFilePath && typeof Bun !== 'undefined') {
-    return Bun.file(source).arrayBuffer();
+    return Bun.file(path).arrayBuffer();
   }
 
   const response = await fetch(source);

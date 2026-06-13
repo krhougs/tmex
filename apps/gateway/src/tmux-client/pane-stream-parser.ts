@@ -22,10 +22,20 @@ export type PaneStreamNotification = {
   body: string;
 };
 
+// OSC 133 语义提示符标记（FinalTerm / shell 集成）：A 提示符开始 / B 命令开始 /
+// C 输出开始 / D 命令结束（带退出码）。run_command 据此划分命令块。
+export type PromptMarker = {
+  kind: 'A' | 'B' | 'C' | 'D';
+  exitCode: number | null;
+  // kind 之后的分号分隔参数（如 D 的退出码、我们注入的 tmex=<nonce>）
+  params: string[];
+};
+
 export interface PaneStreamParserOptions {
   onTitle: (title: string) => void;
   onBell: () => void;
   onNotification: (notification: PaneStreamNotification) => void;
+  onPromptMarker?: (marker: PromptMarker) => void;
 }
 
 export interface PaneStreamParser {
@@ -154,6 +164,20 @@ export function createPaneStreamParser(options: PaneStreamParserOptions): PaneSt
           options.onNotification({ source: 'osc1337', body: 'RequestAttention' });
         }
         return;
+      case '133': {
+        const parts = payload.split(';');
+        const kind = parts[0];
+        if (kind !== 'A' && kind !== 'B' && kind !== 'C' && kind !== 'D') {
+          return;
+        }
+        let exitCode: number | null = null;
+        if (kind === 'D' && parts[1] !== undefined && parts[1] !== '') {
+          const parsed = Number.parseInt(parts[1], 10);
+          exitCode = Number.isNaN(parsed) ? null : parsed;
+        }
+        options.onPromptMarker?.({ kind, exitCode, params: parts.slice(1) });
+        return;
+      }
       default:
         return;
     }
@@ -296,6 +320,7 @@ export function createPaneStreamParser(options: PaneStreamParserOptions): PaneSt
               oscKind === '2' ||
               oscKind === '9' ||
               oscKind === '99' ||
+              oscKind === '133' ||
               oscKind === '777' ||
               oscKind === '1337'
                 ? 'osc-body'

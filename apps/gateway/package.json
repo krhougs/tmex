@@ -21,6 +21,7 @@
     "@tmex/shared": "workspace:*",
     "ai": "^6.0.203",
     "drizzle-orm": "^0.45.1",
+    "ghostty-terminal": "workspace:*",
     "gramio": "^0.4.12",
     "i18next": "^25.8.5",
     "ssh2": "^1.16.0",

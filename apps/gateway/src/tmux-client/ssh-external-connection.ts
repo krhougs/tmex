@@ -628,6 +628,9 @@ export class SshExternalTmuxConnection {
       onNotification: (paneId, notification) => {
         this.emitNotification(paneId, notification);
       },
+      onPromptMarker: (paneId, marker) => {
+        this.callbacks.onPromptMarker?.(paneId, marker);
+      },
       onStructureChanged: () => {
         this.requestSnapshot();
       },
