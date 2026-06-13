@@ -59,6 +59,10 @@
   /* Agent 聊天内容区/输入区背景（与语义 token 解耦，明暗各一档） */
   --chat-surface: #fcfcfc;
 
+  /* 终端快捷按钮配色：取自 seoul256 亮色终端主题，须与 components/terminal/theme.ts 保持一致 */
+  --terminal-shortcut-fg: #616161;
+  --terminal-shortcut-bg: #e1e1e1;
+
   --display-weight: 700;
 
   --fc-button-bg-color: var(--primary);
@@ -108,6 +112,10 @@
   --sidebar-ring: var(--base-200);
 
   --chat-surface: #121212;
+
+  /* 终端快捷按钮配色：取自 seoul256 暗色终端主题，须与 components/terminal/theme.ts 保持一致 */
+  --terminal-shortcut-fg: #d0d0d0;
+  --terminal-shortcut-bg: #262626;
 }
 
 @theme inline {
@@ -210,6 +218,23 @@
   [data-slot="drawer-overlay"] {
     @apply bg-black/20! backdrop-blur-sm;
   }
+}
+
+/* 终端快捷按钮：与 seoul256 终端配色融为一体的单色幽灵按钮。
+   规则置于 layer 之外，以覆盖 Button variant 的工具类配色（无需 !important）。 */
+.terminal-shortcut-btn {
+  color: var(--terminal-shortcut-fg);
+  background-color: color-mix(in srgb, var(--terminal-shortcut-fg) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--terminal-shortcut-fg) 18%, transparent);
+}
+
+.terminal-shortcut-btn:hover {
+  color: var(--terminal-shortcut-fg);
+  background-color: color-mix(in srgb, var(--terminal-shortcut-fg) 16%, transparent);
+}
+
+.terminal-shortcut-btn:active {
+  background-color: color-mix(in srgb, var(--terminal-shortcut-fg) 26%, transparent);
 }
 
 @import "./app.css";

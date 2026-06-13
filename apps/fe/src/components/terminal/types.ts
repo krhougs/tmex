@@ -1,4 +1,5 @@
 import type { CompatibleTerminalLike } from 'ghostty-terminal';
+import type { ReactNode } from 'react';
 
 export type TerminalTheme = 'light' | 'dark';
 
@@ -12,6 +13,8 @@ export interface TerminalProps {
   onData?: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
   onSync: (cols: number, rows: number) => void;
+  /** 拼接在终端容器最下方的内容（如快捷键栏），会占据终端可视区域下方的空间 */
+  children?: ReactNode;
 }
 
 export interface TerminalRef {

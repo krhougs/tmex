@@ -88,20 +88,17 @@ const ShortcutsBar = memo(function ShortcutsBar({
   inputMode,
 }: ShortcutsBarProps) {
   return (
-    <div
-      className="terminal-shortcuts-strip my-2 bg-muted rounded-xl"
-      data-testid="terminal-shortcuts-strip"
-    >
+    <div className="terminal-shortcuts-strip" data-testid="terminal-shortcuts-strip">
       <div
-        className="shortcut-row flex items-center gap-1.5 p-2 overflow-x-auto scrollbar-thin"
+        className="shortcut-row flex items-center gap-1.5 py-2 overflow-x-auto scrollbar-thin"
         data-testid="editor-shortcuts-row"
       >
         {EDITOR_SHORTCUTS.map((shortcut) => (
           <Button
             key={shortcut.key}
-            variant="secondary"
+            variant="ghost"
             size="sm"
-            className="h-7 min-w-9 px-2.5 rounded-full text-[11px] font-medium tracking-wide shrink-0 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
+            className="terminal-shortcut-btn h-7 min-w-9 px-2.5 rounded-full text-[11px] font-medium tracking-wide shrink-0 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
             title={shortcut.label}
             aria-label={shortcut.label}
             data-testid={`editor-shortcut-${shortcut.key}`}
@@ -909,7 +906,17 @@ export default function DevicePage() {
                 isSelectionInvalid={isSelectionInvalid}
                 onResize={handleResize}
                 onSync={handleSync}
-              />
+              >
+                {/* direct 模式：快捷键栏拼在终端可视区域下方，与终端共用 seoul256 配色 */}
+                {inputMode === 'direct' && (
+                  <ShortcutsBar
+                    onSend={handleSendShortcut}
+                    disabled={!canInteractWithPane}
+                    isMobile={isMobile}
+                    inputMode={inputMode}
+                  />
+                )}
+              </TerminalComponent>
             </div>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
@@ -959,18 +966,6 @@ export default function DevicePage() {
           </div>
         )}
       </div>
-
-      {/* 快捷键栏：PC端和移动端 direct 模式都在终端下方 */}
-      {inputMode === 'direct' && (
-        <div className="">
-          <ShortcutsBar
-            onSend={handleSendShortcut}
-            disabled={!canInteractWithPane}
-            isMobile={isMobile}
-            inputMode={inputMode}
-          />
-        </div>
-      )}
 
       {inputMode === 'editor' && (
         <div

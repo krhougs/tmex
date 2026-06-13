@@ -158,7 +158,17 @@ function clearE2eTerminalProbe(terminal: CompatibleTerminalLike | null): void {
 
 export const Terminal = forwardRef<TerminalRef, TerminalProps>(
   (
-    { deviceId, paneId, theme, inputMode, deviceConnected, isSelectionInvalid, onResize, onSync },
+    {
+      deviceId,
+      paneId,
+      theme,
+      inputMode,
+      deviceConnected,
+      isSelectionInvalid,
+      onResize,
+      onSync,
+      children,
+    },
     ref
   ) => {
     const [instance, setInstance] = useState<CompatibleTerminalLike | null>(null);
@@ -621,19 +631,24 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
     return (
       <div
-        ref={containerRef}
-        className="h-full w-full relative"
+        className="flex h-full w-full flex-col"
         style={{ backgroundColor: terminalTheme.background }}
         data-terminal-engine={TERMINAL_ENGINE}
       >
-        <div ref={mountRef} className="absolute inset-0" />
-        <SelectionToolbar
-          visible={hasSelection}
-          canPaste={inputMode === 'direct' && deviceConnected && !isSelectionInvalid}
-          onCopy={handleCopySelection}
-          onPaste={handlePasteClipboard}
-          onDismiss={handleDismissSelection}
-        />
+        <div
+          ref={containerRef}
+          className={`relative min-h-0 w-full flex-1${children ? ' mb-1' : ''}`}
+        >
+          <div ref={mountRef} className="absolute inset-0" />
+          <SelectionToolbar
+            visible={hasSelection}
+            canPaste={inputMode === 'direct' && deviceConnected && !isSelectionInvalid}
+            onCopy={handleCopySelection}
+            onPaste={handlePasteClipboard}
+            onDismiss={handleDismissSelection}
+          />
+        </div>
+        {children}
       </div>
     );
   }

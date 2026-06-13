@@ -112,7 +112,7 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
       </header>
 
       {/* Page content */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 !pt-0 p-2 md:p-4 mb-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 !pt-0 p-2 md:p-4">
         <div className="bg-muted/50 min-h-0 flex-1 overflow-auto overscroll-auto rounded-xl [-webkit-overflow-scrolling:touch]">
           {Page ? <Page /> : null}
         </div>
