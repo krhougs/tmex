@@ -340,7 +340,7 @@ describe('fetch_url', () => {
         status: 302,
         headers: { Location: `http://public.example.com/hop${counter}` },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const tool = createFetchUrlTool({ fetchImpl }) as unknown as ExecutableTool;
     const output = (await tool.execute(
