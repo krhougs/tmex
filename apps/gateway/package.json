@@ -8,6 +8,9 @@
     "start": "./scripts/run-with-ssh-agent.sh dist/index.js",
     "test": "bun test",
     "test:ssh-agent-local": "bun test ./src/tmux/ssh-agent-local.integration.ts",
+    "test:live:llm": "bun test ./src/llm/provider-live.integration.ts",
+    "test:live:search": "bun test ./src/agent/tools/web-search-live.integration.ts",
+    "test:live": "bun test ./src/llm/provider-live.integration.ts ./src/agent/tools/web-search-live.integration.ts",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "bun src/db/migrate.ts"
   },
