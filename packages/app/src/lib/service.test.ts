@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildSystemdServiceContent } from './service';
+import { buildLaunchdPlist, buildSystemdServiceContent } from './service';
 
 describe('buildSystemdServiceContent', () => {
   test('renders absolute WorkingDirectory without wrapping quotes', () => {
@@ -16,5 +16,20 @@ describe('buildSystemdServiceContent', () => {
     expect(content).toContain('SyslogIdentifier=tmex');
     expect(content).toContain('StandardOutput=journal');
     expect(content).toContain('StandardError=journal');
+    expect(content).toContain('KillMode=process');
+  });
+});
+
+describe('buildLaunchdPlist', () => {
+  test('declares AbandonProcessGroup alongside KeepAlive', () => {
+    const content = buildLaunchdPlist({
+      serviceName: 'tmex',
+      installDir: '/Users/krhougs/Library/Application Support/tmex',
+      runScriptPath: '/Users/krhougs/Library/Application Support/tmex/run.sh',
+      autostart: true,
+    });
+
+    expect(content).toContain('<key>KeepAlive</key>');
+    expect(content).toContain('<key>AbandonProcessGroup</key>\n  <true/>');
   });
 });

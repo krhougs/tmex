@@ -56,6 +56,7 @@ After=network.target
 
 [Service]
 Type=simple
+KillMode=process
 WorkingDirectory=${escapedInstallDir}
 SyslogIdentifier=tmex
 StandardOutput=journal
@@ -79,7 +80,7 @@ function escapeXml(value: string): string {
     .replaceAll("'", '&apos;');
 }
 
-function buildLaunchdPlist({
+export function buildLaunchdPlist({
   serviceName,
   runScriptPath,
   installDir,
@@ -102,6 +103,8 @@ function buildLaunchdPlist({
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
+  <true/>
+  <key>AbandonProcessGroup</key>
   <true/>
   <key>StandardOutPath</key>
   <string>${escapeXml(join(installDir, 'tmex.log'))}</string>
