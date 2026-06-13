@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMatch, useNavigate } from 'react-router';
 
@@ -35,6 +35,8 @@ function ChatInput({
   running,
   steerable,
   disabled,
+  modelPicker,
+  writeModeControl,
 }: {
   onSend?: (text: string) => void;
   onSteer?: (text: string) => void;
@@ -42,6 +44,8 @@ function ChatInput({
   running?: boolean;
   steerable?: boolean;
   disabled?: boolean;
+  modelPicker?: ReactNode;
+  writeModeControl?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
@@ -61,7 +65,7 @@ function ChatInput({
   };
 
   return (
-    <div data-testid="agent-chat-input" className="flex shrink-0 items-end gap-2 border-t p-3">
+    <div data-testid="agent-chat-input" className="flex shrink-0 flex-col gap-2 border-t p-3">
       <Textarea
         data-testid="agent-chat-input-textarea"
         value={text}
@@ -74,55 +78,62 @@ function ChatInput({
         }}
         placeholder={t('agent.panel.inputPlaceholder')}
         disabled={disabled}
-        className="max-h-40 min-h-9 flex-1 resize-none"
-        rows={1}
+        className="max-h-40 min-h-[4.5rem] w-full resize-none text-[13px]"
+        rows={3}
       />
-      {running ? (
-        <div className="flex shrink-0 items-end gap-1.5">
-          {steerable && (
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {writeModeControl}
+          {modelPicker && <div className="min-w-0 flex-1">{modelPicker}</div>}
+        </div>
+        {running ? (
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {steerable && (
+              <Button
+                data-testid="agent-chat-steer"
+                size="icon"
+                variant="outline"
+                disabled={disabled || text.trim().length === 0}
+                onClick={steer}
+                aria-label={t('agent.queue.steer')}
+                title={t('agent.queue.steerHint')}
+              >
+                <ZapIcon />
+              </Button>
+            )}
             <Button
-              data-testid="agent-chat-steer"
+              data-testid="agent-chat-send"
               size="icon"
-              variant="outline"
+              variant="secondary"
               disabled={disabled || text.trim().length === 0}
-              onClick={steer}
-              aria-label={t('agent.queue.steer')}
-              title={t('agent.queue.steerHint')}
+              onClick={submit}
+              aria-label={t('agent.panel.send')}
             >
-              <ZapIcon />
+              <SendIcon />
             </Button>
-          )}
+            <Button
+              data-testid="agent-chat-stop"
+              size="icon"
+              variant="destructive"
+              onClick={() => onStop?.()}
+              aria-label={t('agent.panel.stop')}
+            >
+              <SquareIcon />
+            </Button>
+          </div>
+        ) : (
           <Button
             data-testid="agent-chat-send"
             size="icon"
-            variant="secondary"
+            className="ml-auto shrink-0"
             disabled={disabled || text.trim().length === 0}
             onClick={submit}
             aria-label={t('agent.panel.send')}
           >
             <SendIcon />
           </Button>
-          <Button
-            data-testid="agent-chat-stop"
-            size="icon"
-            variant="destructive"
-            onClick={() => onStop?.()}
-            aria-label={t('agent.panel.stop')}
-          >
-            <SquareIcon />
-          </Button>
-        </div>
-      ) : (
-        <Button
-          data-testid="agent-chat-send"
-          size="icon"
-          disabled={disabled || text.trim().length === 0}
-          onClick={submit}
-          aria-label={t('agent.panel.send')}
-        >
-          <SendIcon />
-        </Button>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -366,53 +377,15 @@ export function AgentTab() {
   const modelProviderId = activeSession ? activeSession.providerId : (draft?.providerId ?? null);
   const modelId = activeSession ? activeSession.modelId : (draft?.modelId ?? null);
   const hasContext = Boolean(activeSession || draft);
+  // 新建按钮仅在「有内容的活动会话」时显示；草稿态/空会话本身即新会话，隐藏之
+  const showNewSession = Boolean(activeSession && (messages?.length ?? 0) > 0);
   const inputDisabled =
     isOrphan || !hasContext || activeSession?.status === 'waiting_confirmation' || Boolean(sending);
 
   return (
     <div data-testid="agent-tab" className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-        <span className="text-sm font-semibold">{t('agent.panel.title')}</span>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button
-            data-testid="agent-session-switch"
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => setSidebarTab('panes')}
-            aria-label={t('agent.session.switch')}
-            title={t('agent.session.switch')}
-          >
-            <ListTreeIcon />
-          </Button>
-          <Button
-            data-testid="agent-session-new"
-            size="icon-sm"
-            variant="ghost"
-            disabled={!routeDeviceId || !routePaneId}
-            onClick={handleNewSession}
-            aria-label={t('agent.session.new')}
-            title={
-              !routeDeviceId || !routePaneId
-                ? t('agent.session.selectPaneHint')
-                : t('agent.session.new')
-            }
-          >
-            <PlusIcon />
-          </Button>
-        </div>
-      </div>
-      <div className="px-3 pb-2">
-        <ModelPicker
-          providerId={modelProviderId}
-          modelId={modelId}
-          onChange={handleModelChange}
-          disabled={running}
-        />
-      </div>
-      <Separator />
-
-      {activeSession && binding && (
-        <div className="flex shrink-0 items-center gap-2 px-3 py-1.5">
+        {activeSession && binding ? (
           <button
             type="button"
             data-testid="agent-binding-chip"
@@ -431,25 +404,40 @@ export function AgentTab() {
               <span className="shrink-0">· {t('agent.binding.invalid')}</span>
             )}
           </button>
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            <span className="text-muted-foreground text-xs">
-              {activeSession.writeMode === 'auto'
-                ? t('agent.writeMode.auto')
-                : t('agent.writeMode.confirm')}
-            </span>
-            <Switch
-              data-testid="agent-write-mode-switch"
-              checked={activeSession.writeMode === 'auto'}
-              disabled={isOrphan}
-              onCheckedChange={(checked) => {
-                void useAgentStore
-                  .getState()
-                  .setWriteMode(activeSession.id, checked ? 'auto' : 'confirm');
-              }}
-            />
-          </div>
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <Button
+            data-testid="agent-session-switch"
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => setSidebarTab('panes')}
+            aria-label={t('agent.session.switch')}
+            title={t('agent.session.switch')}
+          >
+            <ListTreeIcon />
+          </Button>
+          {showNewSession && (
+            <Button
+              data-testid="agent-session-new"
+              size="icon-sm"
+              variant="ghost"
+              disabled={!routeDeviceId || !routePaneId}
+              onClick={handleNewSession}
+              aria-label={t('agent.session.new')}
+              title={
+                !routeDeviceId || !routePaneId
+                  ? t('agent.session.selectPaneHint')
+                  : t('agent.session.new')
+              }
+            >
+              <PlusIcon />
+            </Button>
+          )}
         </div>
-      )}
+      </div>
+      <Separator />
 
       {isOrphan && (
         <div
@@ -526,6 +514,7 @@ export function AgentTab() {
         emptyText={hasContext ? t('agent.panel.empty') : t('agent.session.selectPaneHint')}
         confirmationByToolCallId={confirmationByToolCallId}
         onDecide={handleDecide}
+        className="bg-muted/50 mx-2 mb-2 overflow-hidden rounded-xl"
       />
 
       {activeSession && !isOrphan && queuedItems.length > 0 && (
@@ -552,6 +541,37 @@ export function AgentTab() {
             void useAgentStore.getState().stopSession(activeSession.id);
           }
         }}
+        modelPicker={
+          hasContext ? (
+            <ModelPicker
+              providerId={modelProviderId}
+              modelId={modelId}
+              onChange={handleModelChange}
+              disabled={running}
+            />
+          ) : undefined
+        }
+        writeModeControl={
+          activeSession ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="text-muted-foreground text-xs">
+                {activeSession.writeMode === 'auto'
+                  ? t('agent.writeMode.auto')
+                  : t('agent.writeMode.confirm')}
+              </span>
+              <Switch
+                data-testid="agent-write-mode-switch"
+                checked={activeSession.writeMode === 'auto'}
+                disabled={isOrphan}
+                onCheckedChange={(checked) => {
+                  void useAgentStore
+                    .getState()
+                    .setWriteMode(activeSession.id, checked ? 'auto' : 'confirm');
+                }}
+              />
+            </div>
+          ) : undefined
+        }
       />
     </div>
   );

@@ -5,10 +5,10 @@ import {
   SelectItem,
   SelectLabel,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
-import type { LlmProviderDto } from '@tmex/shared';
+import type { GetAgentLlmSettingsResponse, LlmProviderDto } from '@tmex/shared';
 import { useTranslation } from 'react-i18next';
 
 const SEP = '::';
@@ -30,11 +30,13 @@ export function ModelPicker({
   modelId,
   onChange,
   disabled,
+  className,
 }: {
   providerId: string | null;
   modelId: string | null;
   onChange: (providerId: string | null, modelId: string) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const { t } = useTranslation();
   const { data } = useQuery({
@@ -47,12 +49,34 @@ export function ModelPicker({
     throwOnError: false,
   });
 
+  const { data: settingsData } = useQuery({
+    queryKey: ['llm-settings'],
+    queryFn: async () => {
+      const res = await fetch('/api/llm/settings');
+      if (!res.ok) throw new Error('Failed to load settings');
+      return (await res.json()) as GetAgentLlmSettingsResponse;
+    },
+    throwOnError: false,
+  });
+
   const providers = (data?.providers ?? []).filter((p) => p.enabled && p.models.length > 0);
-  const current = modelId ? encodeModelValue(providerId, modelId) : '';
+
+  // effective 选中 = 显式 providerId/modelId ?? 全局默认
+  const effectiveProviderId = providerId ?? settingsData?.settings.defaultProviderId ?? null;
+  const effectiveModelId = modelId ?? settingsData?.settings.defaultModelId ?? null;
+
+  const current = effectiveModelId ? encodeModelValue(effectiveProviderId, effectiveModelId) : '';
   // 当前模型可能不在已启用列表里（如被禁用/旧值）——补一个占位项保证可显示
   const hasCurrent = providers.some(
-    (p) => (p.id === providerId || (!providerId && false)) && p.models.includes(modelId ?? '')
+    (p) => p.id === effectiveProviderId && p.models.includes(effectiveModelId ?? '')
   );
+
+  const effectiveProviderName = providers.find((p) => p.id === effectiveProviderId)?.name ?? null;
+  const triggerLabel = effectiveModelId
+    ? effectiveProviderName
+      ? `${effectiveProviderName}/${effectiveModelId}`
+      : effectiveModelId
+    : t('agent.model.placeholder');
 
   return (
     <Select
@@ -66,16 +90,19 @@ export function ModelPicker({
     >
       <SelectTrigger
         size="sm"
-        className="h-7 w-full min-w-0"
+        className={cn(
+          'h-7 w-full min-w-0 border-transparent bg-transparent text-muted-foreground text-xs hover:border-border/40 dark:bg-transparent dark:hover:bg-transparent',
+          className
+        )}
         data-testid="agent-model-picker"
         aria-label={t('agent.model.select')}
       >
-        <SelectValue placeholder={t('agent.model.placeholder')} />
+        <span className="min-w-0 truncate">{triggerLabel}</span>
       </SelectTrigger>
       <SelectContent>
-        {!hasCurrent && modelId && (
+        {!hasCurrent && effectiveModelId && (
           <SelectItem value={current} className="text-muted-foreground">
-            {modelId}
+            {effectiveModelId}
           </SelectItem>
         )}
         {providers.map((provider) => (

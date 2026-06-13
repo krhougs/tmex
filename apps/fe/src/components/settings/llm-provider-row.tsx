@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { LlmProviderDto } from '@tmex/shared';
-import { Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Boxes, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 
+import { LlmProviderModelsModal } from './llm-provider-models-modal';
 import { parseApiError } from './llm-providers-api';
 
 function maskBaseUrl(baseUrl: string): string {
@@ -39,6 +40,7 @@ export function LlmProviderRow({ provider, onEdit }: LlmProviderRowProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showModelsModal, setShowModelsModal] = useState(false);
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -140,6 +142,15 @@ export function LlmProviderRow({ provider, onEdit }: LlmProviderRowProps) {
         <Button
           variant="ghost"
           size="icon-sm"
+          title={t('settings.llm.models')}
+          data-testid={`llm-provider-models-${provider.id}`}
+          onClick={() => setShowModelsModal(true)}
+        >
+          <Boxes className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           title={t('common.edit')}
           data-testid={`llm-provider-edit-${provider.id}`}
           onClick={() => onEdit(provider)}
@@ -157,6 +168,12 @@ export function LlmProviderRow({ provider, onEdit }: LlmProviderRowProps) {
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </div>
+
+      <LlmProviderModelsModal
+        open={showModelsModal}
+        onOpenChange={setShowModelsModal}
+        provider={provider}
+      />
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>

@@ -30,7 +30,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { LlmProviderModels, type ModelDraft } from './llm-provider-models';
 import { parseApiError } from './llm-providers-api';
 
 const PROTOCOL_OPTIONS: LlmProviderProtocol[] = ['openai-chat', 'openai-responses'];
@@ -44,14 +43,6 @@ interface LlmProviderFormModalProps {
   provider?: LlmProviderDto;
 }
 
-function toModelDrafts(provider: LlmProviderDto): ModelDraft[] {
-  return provider.modelDetails.map((model) => ({
-    id: model.id,
-    source: model.source,
-    enabled: model.enabled,
-  }));
-}
-
 export function LlmProviderFormModal({ open, onOpenChange, provider }: LlmProviderFormModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -61,7 +52,6 @@ export function LlmProviderFormModal({ open, onOpenChange, provider }: LlmProvid
   const [baseUrl, setBaseUrl] = useState('');
   const [protocol, setProtocol] = useState<LlmProviderProtocol>('openai-chat');
   const [apiKey, setApiKey] = useState('');
-  const [models, setModels] = useState<ModelDraft[]>([]);
 
   useEffect(() => {
     if (!open) {
@@ -71,7 +61,6 @@ export function LlmProviderFormModal({ open, onOpenChange, provider }: LlmProvid
     setBaseUrl(provider?.baseUrl ?? '');
     setProtocol(provider?.protocol ?? 'openai-chat');
     setApiKey('');
-    setModels(provider ? toModelDrafts(provider) : []);
   }, [open, provider]);
 
   const createMutation = useMutation({
@@ -112,14 +101,10 @@ export function LlmProviderFormModal({ open, onOpenChange, provider }: LlmProvid
       if (!provider) {
         throw new Error(t('settings.llm.updateFailed'));
       }
-      const manualModels = models.filter((m) => m.source === 'manual').map((m) => m.id);
-      const disabledModels = models.filter((m) => !m.enabled).map((m) => m.id);
       const payload: UpdateLlmProviderRequest = {
         name: name.trim(),
         baseUrl: baseUrl.trim(),
         protocol,
-        manualModels,
-        disabledModels,
       };
       if (apiKey.trim()) {
         payload.apiKey = apiKey.trim();
@@ -253,13 +238,6 @@ export function LlmProviderFormModal({ open, onOpenChange, provider }: LlmProvid
               className={FIELD_CLASS}
             />
           </div>
-
-          {isEdit && (
-            <div className="space-y-1.5">
-              <span className="block text-sm font-medium">{t('settings.llm.models')}</span>
-              <LlmProviderModels models={models} onChange={setModels} />
-            </div>
-          )}
         </div>
 
         <DialogFooter>

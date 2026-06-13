@@ -225,7 +225,7 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await providerRow.getByTestId(`llm-provider-refresh-models-${providerId}`).click();
   await expect(providerRow).toContainText('3');
 
-  // Edit modal: stored apiKey is write-only (placeholder + empty value), models are managed inline.
+  // Edit modal: connection fields only; stored apiKey is write-only (placeholder + empty value).
   await providerRow.getByTestId(`llm-provider-edit-${providerId}`).click();
   const editModal = page.getByTestId(`llm-provider-edit-modal-${providerId}`);
   await expect(editModal).toBeVisible();
@@ -236,8 +236,17 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   const placeholder = await editApiKeyInput.getAttribute('placeholder');
   expect(placeholder).toBeTruthy();
 
-  // Models cache (fetched) is visible in the modal.
-  const modelsList = editModal.getByTestId('llm-provider-models');
+  // Models are no longer managed inside the edit modal.
+  await expect(editModal.getByTestId('llm-provider-models')).toHaveCount(0);
+  await editModal.getByTestId('llm-provider-form-submit').click();
+  await expect(editModal).toBeHidden();
+
+  // Models are managed via a dedicated modal opened from the row.
+  await providerRow.getByTestId(`llm-provider-models-${providerId}`).click();
+  const modelsModal = page.getByTestId(`llm-provider-models-modal-${providerId}`);
+  await expect(modelsModal).toBeVisible();
+
+  const modelsList = modelsModal.getByTestId('llm-provider-models');
   await expect(modelsList).toBeVisible();
   await expect(modelsList.getByTestId('llm-provider-model-model-alpha')).toBeVisible();
   await expect(modelsList.getByTestId('llm-provider-model-model-gamma')).toBeVisible();
@@ -248,8 +257,8 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await modelsList.getByTestId('llm-provider-add-model').click();
   await expect(modelsList.getByTestId('llm-provider-model-manual-model-x')).toBeVisible();
 
-  await editModal.getByTestId('llm-provider-form-submit').click();
-  await expect(editModal).toBeHidden();
+  await modelsModal.getByTestId(`llm-provider-models-save-${providerId}`).click();
+  await expect(modelsModal).toBeHidden();
 
   // After save the effective models drop model-beta and gain manual-model-x.
   await expect.poll(() => providers[0]?.models).toEqual([

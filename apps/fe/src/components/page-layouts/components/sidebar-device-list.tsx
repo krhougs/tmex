@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { SidebarGroup, SidebarGroupLabel, useSidebar } from '@/components/ui/sidebar';
+import { SidebarGroup, useSidebar } from '@/components/ui/sidebar';
 import { WatchDialog } from '@/components/watch/watch-dialog';
 import { cn } from '@/lib/utils';
 import { useAgentStore } from '@/stores/agent';
@@ -151,15 +151,15 @@ export function SideBarDeviceList() {
   }, [devicesData, hydrateDeviceErrors]);
 
   const handleNavigate = useCallback(
-    (to: string, options?: { replace?: boolean }) => {
+    (to: string, options?: { replace?: boolean; keepSidebarOpen?: boolean }) => {
       navigate(to, { replace: options?.replace ?? true });
-      if (isMobile) setOpenMobile(false);
+      if (isMobile && !options?.keepSidebarOpen) setOpenMobile(false);
     },
     [navigate, isMobile, setOpenMobile]
   );
 
   const navigateToPane = useCallback(
-    (deviceId: string, windowId: string, paneId: string) => {
+    (deviceId: string, windowId: string, paneId: string, options?: { keepSidebarOpen?: boolean }) => {
       // Clear any pending navigation to prevent interference
       pendingNavigationRef.current = null;
 
@@ -169,7 +169,8 @@ export function SideBarDeviceList() {
         })
       );
       handleNavigate(
-        `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`
+        `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(paneId)}`,
+        { keepSidebarOpen: options?.keepSidebarOpen }
       );
     },
     [handleNavigate]
@@ -183,12 +184,12 @@ export function SideBarDeviceList() {
         const windows = useTmuxStore.getState().snapshots[session.deviceId]?.session?.windows;
         const window = windows?.find((w) => w.panes.some((p) => p.id === session.paneId));
         if (window) {
-          navigateToPane(session.deviceId, window.id, session.paneId);
+          // Agent 聊天就在侧边栏内：导航到对应 pane 提供上下文，但移动端保持 Sheet 打开
+          navigateToPane(session.deviceId, window.id, session.paneId, { keepSidebarOpen: true });
         }
       }
-      if (isMobile) setOpenMobile(false);
     },
-    [setSidebarTab, navigateToPane, isMobile, setOpenMobile]
+    [setSidebarTab, navigateToPane]
   );
 
   const handleCreateSessionForPane = useCallback(
@@ -412,10 +413,9 @@ export function SideBarDeviceList() {
   }, [agentSessions, devices]);
 
   return (
-    <SidebarGroup className="flex flex-col flex-1 min-h-0">
-      <SidebarGroupLabel>{t('device.devices')}</SidebarGroupLabel>
+    <SidebarGroup className="flex flex-col flex-1 min-h-0 pt-0">
       <ScrollArea className="flex-1 min-h-0">
-        <div className="space-y-1.5 py-2">
+        <div className="space-y-1.5 pb-2 pt-1">
           {sortedDevices.map((device) => (
             <DeviceSection
               key={device.id}
@@ -1038,14 +1038,17 @@ function SessionActionsMenu({
   onRenameSession,
   onDeleteSession,
   className,
+  enlargeOnTouch = false,
 }: {
   session: AgentSessionDto;
   onRenameSession: (session: AgentSessionDto) => void;
   onDeleteSession: (session: AgentSessionDto) => void;
   className?: string;
+  enlargeOnTouch?: boolean;
 }) {
   const { t } = useTranslation();
   const { isMobile } = useSidebar();
+  const enlarged = enlargeOnTouch && isMobile;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -1061,12 +1064,13 @@ function SessionActionsMenu({
               isMobile
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100',
+              enlarged && 'size-9',
               className
             )}
           />
         }
       >
-        <MoreHorizontal className="size-3.5" />
+        <MoreHorizontal className={cn('size-3.5', enlarged && 'size-5')} />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
@@ -1116,8 +1120,9 @@ function PaneSessionBranch({
   onDeleteSession: (session: AgentSessionDto) => void;
 }) {
   const { t } = useTranslation();
+  const { isMobile } = useSidebar();
   return (
-    <div className="mt-1 space-y-0.5">
+    <div className="mt-1 space-y-0.5 [@media(any-pointer:coarse)]:space-y-1">
       {sessions?.map((session) => {
         const isActive = session.id === activeSessionId;
         return (
@@ -1127,7 +1132,8 @@ function PaneSessionBranch({
               data-testid={`agent-session-item-${session.id}`}
               onClick={() => onSelectSession(session)}
               className={cn(
-                'w-full flex items-center gap-1.5 px-2 py-1 pr-7 rounded-md text-left transition-colors',
+                'w-full flex items-center gap-1.5 px-2 py-1 pr-7 rounded-md text-left transition-colors [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-12',
+                isMobile && 'min-h-11 py-2 pr-12',
                 isActive
                   ? 'bg-primary/10 text-primary border border-primary/20'
                   : 'hover:bg-accent/30 text-muted-foreground border border-transparent'
@@ -1142,6 +1148,7 @@ function PaneSessionBranch({
                 session={session}
                 onRenameSession={onRenameSession}
                 onDeleteSession={onDeleteSession}
+                enlargeOnTouch
               />
             </div>
           </div>

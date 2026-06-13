@@ -339,8 +339,9 @@ test.describe
           )
       );
 
+      // 进入 Agent Tab 即自动进入草稿态（干净空会话），无需点新建按钮
+      // （草稿态下新建按钮被隐藏，因为草稿本身就是「新会话」状态）
       await openAgentTab(page);
-      await page.getByTestId('agent-session-new').click();
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeEnabled();
       await textarea.fill('rename target session');
@@ -480,9 +481,8 @@ test.describe
       );
       await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
-      // 进入 Agent Tab，显式新建一个干净草稿会话（默认 writeMode=confirm）
+      // 进入 Agent Tab 即得到干净草稿会话（默认 writeMode=confirm）
       await openAgentTab(page);
-      await page.getByTestId('agent-session-new').click();
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeEnabled();
 
@@ -549,8 +549,8 @@ test.describe
       );
       await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
 
+      // 进入 Agent Tab 即得到干净草稿会话，无需点新建按钮
       await openAgentTab(page);
-      await page.getByTestId('agent-session-new').click();
       const textarea = page.getByTestId('agent-chat-input-textarea');
       await expect(textarea).toBeEnabled();
       await textarea.fill('this will fail');

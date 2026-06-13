@@ -200,6 +200,8 @@ export type TranslationKey =
   | 'settings.llm.editProvider'
   | 'settings.llm.formHint'
   | 'settings.llm.models'
+  | 'settings.llm.modelsTitle'
+  | 'settings.llm.modelsHint'
   | 'settings.llm.modelManual'
   | 'settings.llm.addModelPlaceholder'
   | 'settings.llm.empty'
