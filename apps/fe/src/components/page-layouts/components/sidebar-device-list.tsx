@@ -505,7 +505,7 @@ export function SideBarDeviceList() {
         onDragEnd={handleDeviceDragEnd}
       >
         <ScrollArea className="flex-1 min-h-0">
-          <div className="space-y-1.5 pb-2 pt-1">
+          <div className="space-y-1.5 pb-2 pt-1 select-none [-webkit-user-select:none] [-webkit-touch-callout:none]">
             <SortableContext
               items={sortedDevices.map((d) => d.id)}
               strategy={verticalListSortingStrategy}
@@ -792,7 +792,7 @@ function DeviceSection({
       style={{ transform: CSS.Translate.toString(transform), transition }}
       data-testid={`device-item-${device.id}`}
       className={cn(
-        'group/device rounded-xl border border-border/60 overflow-hidden text-select-none',
+        'group/device rounded-xl border border-border/60 overflow-hidden',
         isSelected ? 'bg-card' : isConnected ? 'bg-muted/40' : 'bg-muted/20',
         isDragging && 'opacity-60 shadow-lg'
       )}
@@ -811,12 +811,12 @@ function DeviceSection({
             {...listeners}
             aria-label={t('device.dragHandle')}
             onClick={(e) => e.stopPropagation()}
-            className="touch-none cursor-grab shrink-0 -ml-1 text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover/device:opacity-100 [@media(any-pointer:coarse)]:opacity-100"
+            className="touch-none cursor-grab shrink-0 -ml-1 text-muted-foreground/50 hover:text-muted-foreground opacity-100"
           >
             <GripVertical className="h-3.5 w-3.5 [@media(any-pointer:coarse)]:h-5 [@media(any-pointer:coarse)]:w-5" />
           </button>
           <DeviceIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="flex-1 truncate text-xs font-medium text-select-none">
+          <span className="flex-1 truncate text-xs font-medium">
             {device.name}
           </span>
 
@@ -1003,7 +1003,7 @@ function WindowItem({
           aria-label={t('window.dragHandle')}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            'touch-none cursor-grab shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100',
+            'touch-none cursor-grab shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground opacity-100',
             isMobile ? 'h-9 w-4' : 'h-6 w-3.5 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:w-4'
           )}
         >
@@ -1215,7 +1215,7 @@ function PaneRow({
           aria-label={t('window.dragHandlePane')}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            'touch-none cursor-grab shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100',
+            'touch-none cursor-grab shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground opacity-100',
             isMobile ? 'h-9 w-4' : 'h-6 w-3 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:w-4'
           )}
         >
