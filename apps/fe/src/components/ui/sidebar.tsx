@@ -28,13 +28,18 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH_MOBILE = "100vw"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
-const SIDEBAR_WIDTH_DEFAULT_PX = 256
-const SIDEBAR_WIDTH_MIN_PX = 192
-const SIDEBAR_WIDTH_MAX_PX = 480
+const SIDEBAR_WIDTH_DEFAULT_PX = 320
+const SIDEBAR_WIDTH_MIN_PX = 320
+const SIDEBAR_WIDTH_MAX_RESERVE_PX = 450
 const SIDEBAR_WIDTH_STORAGE_KEY = "tmex_sidebar_width"
 
+function sidebarMaxWidth() {
+  const viewport = typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth
+  return Math.max(SIDEBAR_WIDTH_MIN_PX, viewport - SIDEBAR_WIDTH_MAX_RESERVE_PX)
+}
+
 function clampSidebarWidth(value: number) {
-  return Math.min(SIDEBAR_WIDTH_MAX_PX, Math.max(SIDEBAR_WIDTH_MIN_PX, Math.round(value)))
+  return Math.min(sidebarMaxWidth(), Math.max(SIDEBAR_WIDTH_MIN_PX, Math.round(value)))
 }
 
 type SidebarContextProps = {
@@ -79,24 +84,40 @@ function SidebarProvider({
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
 
+  // preferredWidthRef 保存用户期望宽度（仅受下限约束、不被视口裁剪），
+  // 实际展示的 width 再按当前视口 clamp，这样窗口缩小后再放大能恢复原宽度。
+  const preferredWidthRef = React.useRef<number>(SIDEBAR_WIDTH_DEFAULT_PX)
   const [width, _setWidth] = React.useState<number>(() => {
     if (typeof window === "undefined") return SIDEBAR_WIDTH_DEFAULT_PX
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
-    return Number.isFinite(stored) && stored > 0
-      ? clampSidebarWidth(stored)
-      : SIDEBAR_WIDTH_DEFAULT_PX
+    const preferred =
+      Number.isFinite(stored) && stored > 0
+        ? Math.max(SIDEBAR_WIDTH_MIN_PX, Math.round(stored))
+        : SIDEBAR_WIDTH_DEFAULT_PX
+    preferredWidthRef.current = preferred
+    return clampSidebarWidth(preferred)
   })
   const [isResizing, setIsResizing] = React.useState(false)
 
   const setWidth = React.useCallback((value: number) => {
-    const next = clampSidebarWidth(value)
-    _setWidth(next)
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next))
+    const preferred = Math.max(SIDEBAR_WIDTH_MIN_PX, Math.round(value))
+    preferredWidthRef.current = preferred
+    _setWidth(clampSidebarWidth(value))
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(preferred))
   }, [])
 
   const resetWidth = React.useCallback(() => {
-    _setWidth(SIDEBAR_WIDTH_DEFAULT_PX)
+    preferredWidthRef.current = SIDEBAR_WIDTH_DEFAULT_PX
+    _setWidth(clampSidebarWidth(SIDEBAR_WIDTH_DEFAULT_PX))
     window.localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY)
+  }, [])
+
+  React.useEffect(() => {
+    const onResize = () => {
+      _setWidth(clampSidebarWidth(preferredWidthRef.current))
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
   }, [])
 
   // This is the internal state of the sidebar.
