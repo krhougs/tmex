@@ -29,6 +29,7 @@ function createSnapshot(): StateSnapshotPayload {
               windowId: '@1',
               index: 1,
               title: 'second',
+              currentCommand: 'vim',
               active: true,
               width: 80,
               height: 24,
@@ -46,6 +47,7 @@ function createSnapshot(): StateSnapshotPayload {
               windowId: '@2',
               index: 0,
               title: 'ops-1',
+              currentCommand: 'htop',
               active: true,
               width: 120,
               height: 30,
@@ -74,6 +76,8 @@ describe('resolvePaneContext', () => {
       windowIndex: 0,
       paneIndex: 1,
       paneUrl: 'https://tmex.example.com/devices/device-1/windows/%401/panes/%2512',
+      paneTitle: 'second',
+      paneCurrentCommand: 'vim',
     });
   });
 
@@ -91,6 +95,8 @@ describe('resolvePaneContext', () => {
       windowIndex: 1,
       paneIndex: 0,
       paneUrl: 'https://tmex.example.com/devices/device-1/windows/%402/panes/%2521',
+      paneTitle: 'ops-1',
+      paneCurrentCommand: 'htop',
     });
   });
 

@@ -3,10 +3,6 @@ import { getAllWebhookEndpoints, getSiteSettings } from '../db';
 import { t } from '../i18n';
 import { telegramService } from '../telegram/service';
 
-function sanitizeMarkdownV2(input: string): string {
-  return input.replace(/([_\*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
-}
-
 function escapeTelegramHtmlText(input: string): string {
   return input.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -194,7 +190,7 @@ export class EventNotifier {
     }
 
     const message = this.formatTelegramMessage(event, settings);
-    await telegramService.sendToAuthorizedChats({ text: message });
+    await telegramService.sendToAuthorizedChats({ text: message, parseMode: 'HTML' });
   }
 
   private buildTerminalTopbarLabel(event: WebhookEvent): string {
@@ -214,6 +210,22 @@ export class EventNotifier {
     });
   }
 
+  /** pane 当前标题 / 进程行（HTML 转义；仅在快照有值时输出），三类通知共用 */
+  private buildPaneMetaLines(event: WebhookEvent): string[] {
+    const lines: string[] = [];
+    if (event.tmux?.paneTitle) {
+      lines.push(
+        `${escapeTelegramHtmlText(t('notification.paneTitle'))}：${escapeTelegramHtmlText(event.tmux.paneTitle)}`
+      );
+    }
+    if (event.tmux?.paneCurrentCommand) {
+      lines.push(
+        `${escapeTelegramHtmlText(t('notification.process'))}：${escapeTelegramHtmlText(event.tmux.paneCurrentCommand)}`
+      );
+    }
+    return lines;
+  }
+
   private formatTelegramBellMessage(event: WebhookEvent): string {
     const title = t('notification.telegramBell.title', {
       siteName: event.site.name,
@@ -221,6 +233,7 @@ export class EventNotifier {
     });
 
     const lines = [escapeTelegramHtmlText(title)];
+    lines.push(...this.buildPaneMetaLines(event));
 
     const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
     if (paneUrl) {
@@ -247,6 +260,8 @@ export class EventNotifier {
     if (body) {
       lines.push(escapeTelegramHtmlText(body));
     }
+
+    lines.push(...this.buildPaneMetaLines(event));
 
     const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
     const topbarLabel = this.buildTerminalTopbarLabel(event);
@@ -286,36 +301,42 @@ export class EventNotifier {
       watch_rule_error: '👁️',
     };
 
-    const paneUrl = buildPaneUrl(event);
-
+    const esc = escapeTelegramHtmlText;
     const eventTypeLabel = t(`notification.eventType.${event.eventType}` as const);
 
     const lines = [
-      `${emojiMap[event.eventType] ?? '📢'} ${eventTypeLabel}`,
-      `${t('notification.site')}：${event.site.name}`,
-      `${t('notification.time')}：${new Date(event.timestamp).toLocaleString(toBCP47(settings.language))}`,
-      `${t('notification.device')}：${event.device.name} (${event.device.type})`,
+      `${emojiMap[event.eventType] ?? '📢'} ${esc(eventTypeLabel)}`,
+      `${esc(t('notification.site'))}：${esc(event.site.name)}`,
+      `${esc(t('notification.time'))}：${esc(new Date(event.timestamp).toLocaleString(toBCP47(settings.language)))}`,
+      `${esc(t('notification.device'))}：${esc(event.device.name)} (${esc(event.device.type)})`,
       event.tmux?.windowIndex !== undefined
-        ? `${t('notification.window')}：${event.tmux.windowIndex} (${event.tmux.windowId ?? '-'})`
+        ? `${esc(t('notification.window'))}：${event.tmux.windowIndex} (${esc(event.tmux.windowId ?? '-')})`
         : event.tmux?.windowId
-          ? `${t('notification.window')}：${event.tmux.windowId}`
-          : `${t('notification.window')}：-`,
+          ? `${esc(t('notification.window'))}：${esc(event.tmux.windowId)}`
+          : `${esc(t('notification.window'))}：-`,
       event.tmux?.paneIndex !== undefined
-        ? `${t('notification.pane')}：${event.tmux.paneIndex} (${event.tmux.paneId ?? '-'})`
+        ? `${esc(t('notification.pane'))}：${event.tmux.paneIndex} (${esc(event.tmux.paneId ?? '-')})`
         : event.tmux?.paneId
-          ? `${t('notification.pane')}：${event.tmux.paneId}`
-          : `${t('notification.pane')}：-`,
+          ? `${esc(t('notification.pane'))}：${esc(event.tmux.paneId)}`
+          : `${esc(t('notification.pane'))}：-`,
     ];
 
-    if (paneUrl) {
-      lines.push(`${t('notification.directLink')}：${paneUrl}`);
-    }
+    lines.push(...this.buildPaneMetaLines(event));
 
     if (event.payload?.message && typeof event.payload.message === 'string') {
-      lines.push(`${t('notification.message')}：${event.payload.message}`);
+      lines.push(`${esc(t('notification.message'))}：${esc(event.payload.message)}`);
     }
 
-    return lines.map((line) => sanitizeMarkdownV2(line)).join('\n');
+    const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
+    if (paneUrl) {
+      const tgSafePaneUrl = encodePercentForTelegramUrl(paneUrl);
+      lines.push(
+        '',
+        `<a href="${escapeTelegramHtmlAttribute(tgSafePaneUrl)}">${esc(t('notification.directLink'))}</a>`
+      );
+    }
+
+    return lines.join('\n');
   }
 
   private async generateHmac(secret: string, message: string): Promise<string> {

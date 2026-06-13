@@ -85,7 +85,7 @@ function respondToPayload(
     return { stdout: '@1|0|main|1\n', exitCode: 0 };
   }
   if (payload.includes(`'list-panes' '-s' '-t' '${session}'`)) {
-    return { stdout: '%1|@1|0|bash|1|80|24|1\n', exitCode: 0 };
+    return { stdout: '%1|@1|0|bash|1|80|24|1|node\n', exitCode: 0 };
   }
   return null;
 }
@@ -373,6 +373,7 @@ describe('SshExternalTmuxConnection', () => {
                   windowId: '@1',
                   index: 0,
                   title: 'bash',
+                  currentCommand: 'node',
                   active: true,
                   width: 80,
                   height: 24,

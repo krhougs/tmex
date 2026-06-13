@@ -18,6 +18,7 @@ import { getDeviceById, getSiteSettings } from '../db';
 import {
   type WatchRuleRecord,
   type WatchRuleStateRecord,
+  deleteWatchRule,
   getEnabledWatchRules,
   getWatchRuleById,
   getWatchRuleState,
@@ -28,6 +29,7 @@ import { eventNotifier } from '../events';
 import { t } from '../i18n';
 import { resolveLanguageModel } from '../llm/provider-registry';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
+import { isTargetMissingMessage } from '../tmux-client/target-missing';
 import { type PaneLocationContext, resolvePaneContext } from '../tmux/bell-context';
 import { type WatchEvalOutput, evaluateWatchRule } from './evaluator';
 
@@ -62,6 +64,7 @@ export interface WatchServiceDeps {
     id: string,
     updates: Partial<Omit<WatchRuleRecord, 'id' | 'createdAt' | 'updatedAt'>>
   ) => WatchRuleRecord | null;
+  deleteRule: (id: string) => void;
   acquireRuntime: (deviceId: string) => Promise<WatchRuntimeLike>;
   releaseRuntime: (deviceId: string, runtime?: WatchRuntimeLike) => Promise<void>;
   resolveModel: (providerId: string | null, modelId: string | null) => Promise<LanguageModel>;
@@ -93,6 +96,7 @@ const defaultDeps: WatchServiceDeps = {
   getState: getWatchRuleState,
   upsertState: upsertWatchRuleState,
   updateRule: updateWatchRule,
+  deleteRule: deleteWatchRule,
   acquireRuntime: (deviceId) => tmuxRuntimeRegistry.acquire(deviceId),
   releaseRuntime: (deviceId, runtime) => tmuxRuntimeRegistry.release(deviceId, runtime),
   resolveModel: resolveLanguageModel,
@@ -439,7 +443,13 @@ export class WatchService {
       if (!this.rules.has(rule.id)) {
         return;
       }
-      await this.recordRuleError(rule, toErrorMessage(error), now);
+      const message = toErrorMessage(error);
+      if (isTargetMissingMessage(message)) {
+        // pane 已销毁：pane id 不会复用，规则永久失效——直接删除，不等连续失败累计
+        await this.handlePaneGone(rule);
+        return;
+      }
+      await this.recordRuleError(rule, message, now);
       return;
     }
     if (!this.rules.has(rule.id)) {
@@ -638,6 +648,31 @@ export class WatchService {
     }
   }
 
+  /** pane 已销毁：立即删除规则并发清理通知；在 tick 内调用，用 teardownRule 避免自等死锁 */
+  private async handlePaneGone(rule: WatchRuleRecord): Promise<void> {
+    this.deps.deleteRule(rule.id);
+    await this.teardownRule(rule.id);
+    this.samples.delete(rule.id);
+
+    const message = t('notification.watch.paneGone', {
+      name: rule.name,
+      paneId: rule.paneId,
+    });
+    // 直接带 rule.paneId，不走会回退到无关存活 pane 的解析，避免通知指向错误 pane
+    await this.safeNotify(
+      'watch_rule_error',
+      rule,
+      {
+        message,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        paneGone: true,
+      },
+      { paneId: rule.paneId }
+    );
+    this.broadcastSafe(rule, wsBorsh.WATCH_EVENT_RULE_ERROR, { message });
+  }
+
   private async disableRuleForErrors(
     rule: WatchRuleRecord,
     errorCount: number,
@@ -785,6 +820,8 @@ export class WatchService {
           paneId: paneContext.paneId ?? rule.paneId,
           paneIndex: paneContext.paneIndex,
           paneUrl: paneContext.paneUrl,
+          paneTitle: paneContext.paneTitle,
+          paneCurrentCommand: paneContext.paneCurrentCommand,
         },
         payload,
       });

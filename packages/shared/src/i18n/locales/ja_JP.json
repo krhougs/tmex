@@ -428,6 +428,8 @@
       "time": "時間",
       "directLink": "直接リンク",
       "message": "メッセージ",
+      "paneTitle": "タイトル",
+      "process": "プロセス",
       "telegramBell": {
         "title": "🔔 {{siteName}} からのベル：{{terminalTopbarLabel}}",
         "viewLink": "表示",
@@ -446,7 +448,8 @@
         "summaryTriggered": "Watch「{{name}}」：{{summary}}",
         "unconfirmedSuffix": "（モデル利用不可のため LLM 未確認）",
         "modelUnavailable": "Watch「{{name}}」のモデル呼び出しに失敗しました：{{message}}",
-        "ruleError": "Watch「{{name}}」が {{count}} 回連続で失敗したため自動停止しました：{{message}}"
+        "ruleError": "Watch「{{name}}」が {{count}} 回連続で失敗したため自動停止しました：{{message}}",
+        "paneGone": "Watch「{{name}}」のペイン（{{paneId}}）が破棄されたため、ルールを削除しました"
       }
     },
     "sidebar": {

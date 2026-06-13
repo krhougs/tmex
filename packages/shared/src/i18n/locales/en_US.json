@@ -428,6 +428,8 @@
       "time": "Time",
       "directLink": "Direct Link",
       "message": "Message",
+      "paneTitle": "Title",
+      "process": "Process",
       "telegramBell": {
         "title": "🔔 Bell from {{siteName}}: {{terminalTopbarLabel}}",
         "viewLink": "Click to view",
@@ -446,7 +448,8 @@
         "summaryTriggered": "Watch \"{{name}}\": {{summary}}",
         "unconfirmedSuffix": " (model unavailable, not LLM-confirmed)",
         "modelUnavailable": "Watch \"{{name}}\" model call failed: {{message}}",
-        "ruleError": "Watch \"{{name}}\" failed {{count}} times in a row and has been disabled: {{message}}"
+        "ruleError": "Watch \"{{name}}\" failed {{count}} times in a row and has been disabled: {{message}}",
+        "paneGone": "Watch \"{{name}}\" pane ({{paneId}}) was destroyed; the rule has been removed"
       }
     },
     "sidebar": {

@@ -75,6 +75,8 @@ const defaultDeps: PushSupervisorDeps = {
         windowIndex: bell.windowIndex,
         paneIndex: bell.paneIndex,
         paneUrl: bell.paneUrl,
+        paneTitle: bell.paneTitle,
+        paneCurrentCommand: bell.paneCurrentCommand,
       },
       payload: {
         message: t('notification.eventType.terminal_bell'),
@@ -101,6 +103,8 @@ const defaultDeps: PushSupervisorDeps = {
         windowIndex: notification.windowIndex,
         paneIndex: notification.paneIndex,
         paneUrl: notification.paneUrl,
+        paneTitle: notification.paneTitle,
+        paneCurrentCommand: notification.paneCurrentCommand,
       },
       payload: {
         source: notification.source,

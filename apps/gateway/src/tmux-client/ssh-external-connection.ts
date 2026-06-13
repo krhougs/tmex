@@ -93,6 +93,20 @@ function splitSnapshotFields(line: string, fieldCount: number): string[] {
     ];
   }
 
+  if (fieldCount === 9) {
+    return [
+      parts[0] ?? '',
+      parts[1] ?? '',
+      parts[2] ?? '',
+      parts.slice(3, -5).join(SNAPSHOT_FIELD_SEPARATOR),
+      parts.at(-5) ?? '',
+      parts.at(-4) ?? '',
+      parts.at(-3) ?? '',
+      parts.at(-2) ?? '',
+      parts.at(-1) ?? '',
+    ];
+  }
+
   return parts;
 }
 
@@ -874,7 +888,7 @@ export class SshExternalTmuxConnection {
         '-t',
         this.sessionName,
         '-F',
-        '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}',
+        '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}',
       ]),
     ]);
 
@@ -955,8 +969,8 @@ export class SshExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw] =
-        splitSnapshotFields(line, 8);
+      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw, currentCommandRaw] =
+        splitSnapshotFields(line, 9);
       if (!paneId || !windowId) {
         continue;
       }
@@ -968,6 +982,7 @@ export class SshExternalTmuxConnection {
         windowId,
         index: Number.isNaN(index) ? 0 : index,
         title: this.pendingPaneTitles.get(paneId) ?? (titleRaw?.trim() ? titleRaw : undefined),
+        currentCommand: currentCommandRaw?.trim() ? currentCommandRaw.trim() : undefined,
         // pane_active 是窗口内 active；list-panes -s 下每个窗口都有一个
         active: activeRaw === '1',
         width: Number.isNaN(width) ? 0 : width,

@@ -434,6 +434,8 @@ export const I18N_RESOURCES = {
       "time": "Time",
       "directLink": "Direct Link",
       "message": "Message",
+      "paneTitle": "Title",
+      "process": "Process",
       "telegramBell": {
         "title": "🔔 Bell from {{siteName}}: {{terminalTopbarLabel}}",
         "viewLink": "Click to view",
@@ -452,7 +454,8 @@ export const I18N_RESOURCES = {
         "summaryTriggered": "Watch \"{{name}}\": {{summary}}",
         "unconfirmedSuffix": " (model unavailable, not LLM-confirmed)",
         "modelUnavailable": "Watch \"{{name}}\" model call failed: {{message}}",
-        "ruleError": "Watch \"{{name}}\" failed {{count}} times in a row and has been disabled: {{message}}"
+        "ruleError": "Watch \"{{name}}\" failed {{count}} times in a row and has been disabled: {{message}}",
+        "paneGone": "Watch \"{{name}}\" pane ({{paneId}}) was destroyed; the rule has been removed"
       }
     },
     "sidebar": {
@@ -1123,6 +1126,8 @@ export const I18N_RESOURCES = {
       "time": "时间",
       "directLink": "直达",
       "message": "信息",
+      "paneTitle": "标题",
+      "process": "进程",
       "telegramBell": {
         "title": "🔔 来自 {{siteName}} 的 Bell：{{terminalTopbarLabel}}",
         "viewLink": "点击查看",
@@ -1141,7 +1146,8 @@ export const I18N_RESOURCES = {
         "summaryTriggered": "监控「{{name}}」：{{summary}}",
         "unconfirmedSuffix": "（模型不可用，未经 LLM 二次确认）",
         "modelUnavailable": "监控「{{name}}」模型调用失败：{{message}}",
-        "ruleError": "监控「{{name}}」连续失败 {{count}} 次，已自动停用：{{message}}"
+        "ruleError": "监控「{{name}}」连续失败 {{count}} 次，已自动停用：{{message}}",
+        "paneGone": "监控「{{name}}」的 Pane（{{paneId}}）已销毁，规则已自动删除"
       }
     },
     "sidebar": {
@@ -1812,6 +1818,8 @@ export const I18N_RESOURCES = {
       "time": "時間",
       "directLink": "直接リンク",
       "message": "メッセージ",
+      "paneTitle": "タイトル",
+      "process": "プロセス",
       "telegramBell": {
         "title": "🔔 {{siteName}} からのベル：{{terminalTopbarLabel}}",
         "viewLink": "表示",
@@ -1830,7 +1838,8 @@ export const I18N_RESOURCES = {
         "summaryTriggered": "Watch「{{name}}」：{{summary}}",
         "unconfirmedSuffix": "（モデル利用不可のため LLM 未確認）",
         "modelUnavailable": "Watch「{{name}}」のモデル呼び出しに失敗しました：{{message}}",
-        "ruleError": "Watch「{{name}}」が {{count}} 回連続で失敗したため自動停止しました：{{message}}"
+        "ruleError": "Watch「{{name}}」が {{count}} 回連続で失敗したため自動停止しました：{{message}}",
+        "paneGone": "Watch「{{name}}」のペイン（{{paneId}}）が破棄されたため、ルールを削除しました"
       }
     },
     "sidebar": {

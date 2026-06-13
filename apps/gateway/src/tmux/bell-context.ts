@@ -9,7 +9,13 @@ interface ResolvePaneContextOptions {
 
 export type PaneLocationContext = Pick<
   TmuxBellEventData & TmuxNotificationEventData,
-  'windowId' | 'paneId' | 'windowIndex' | 'paneIndex' | 'paneUrl'
+  | 'windowId'
+  | 'paneId'
+  | 'windowIndex'
+  | 'paneIndex'
+  | 'paneUrl'
+  | 'paneTitle'
+  | 'paneCurrentCommand'
 >;
 
 function pickPaneById(
@@ -79,5 +85,8 @@ export function resolvePaneContext(options: ResolvePaneContextOptions): PaneLoca
     windowIndex: targetWindow?.index,
     paneIndex: targetPane?.index,
     paneUrl,
+    // 标题/进程跟随实际解析到的 pane（与 paneIndex/paneUrl 同源），快照缺失则留空
+    paneTitle: targetPane?.title,
+    paneCurrentCommand: targetPane?.currentCommand,
   };
 }

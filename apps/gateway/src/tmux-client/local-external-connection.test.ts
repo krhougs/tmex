@@ -94,7 +94,7 @@ function createRunStub(
       return ok('@1\t0\tmain\t1\n');
     }
     if (command.startsWith(`list-panes -s -t ${session}`)) {
-      return ok('%1\t@1\t0\tbash\t1\t80\t24\t1\n');
+      return ok('%1\t@1\t0\tbash\t1\t80\t24\t1\tnode\n');
     }
     throw new Error(`unexpected command: ${argv.join(' ')}`);
   };
@@ -238,7 +238,7 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
       'tmux display-message -p -t tmex-snapshot #{session_id}\t#{session_name}',
       'tmux list-windows -t tmex-snapshot -F #{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
-      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{window_active}',
+      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{window_active}\t#{pane_current_command}',
     ]);
     expect(snapshots).toEqual([
       {
@@ -258,6 +258,7 @@ describe('LocalExternalTmuxConnection', () => {
                   windowId: '@1',
                   index: 0,
                   title: 'bash',
+                  currentCommand: 'node',
                   active: true,
                   width: 80,
                   height: 24,

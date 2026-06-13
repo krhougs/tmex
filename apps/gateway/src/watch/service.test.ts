@@ -691,12 +691,12 @@ describe('WatchService - 错误与自动停用', () => {
     const rule = harness.makeRule({ pattern: 'X', fireMode: 'repeat' });
     await harness.service.start();
 
-    // 先失败几次再成功：计数重置
-    harness.setCaptureError(new Error("can't find pane: %1"));
+    // 先失败几次再成功：计数重置（非 pane-missing 的一般错误才走累计路径）
+    harness.setCaptureError(new Error('capture timeout'));
     await harness.service.tickRule(rule.id);
     await harness.service.tickRule(rule.id);
     expect(getWatchRuleState(rule.id)?.consecutiveErrors).toBe(2);
-    expect(getWatchRuleState(rule.id)?.lastError).toContain("can't find pane");
+    expect(getWatchRuleState(rule.id)?.lastError).toContain('capture timeout');
 
     harness.setCaptureError(null);
     harness.setScreen('all good\n');
@@ -705,7 +705,7 @@ describe('WatchService - 错误与自动停用', () => {
     expect(getWatchRuleState(rule.id)?.lastError).toBeNull();
 
     // 连续失败 10 次：自动停用
-    harness.setCaptureError(new Error("can't find pane: %1"));
+    harness.setCaptureError(new Error('capture timeout'));
     for (let i = 0; i < 10; i++) {
       await harness.service.tickRule(rule.id);
     }
@@ -717,6 +717,32 @@ describe('WatchService - 错误与自动停用', () => {
     expect(String((ruleErrors[0].event.payload as Record<string, unknown>).message)).toContain(
       rule.name
     );
+    expect(
+      harness.broadcasts.filter((b) => b.eventType === wsBorsh.WATCH_EVENT_RULE_ERROR)
+    ).toHaveLength(1);
+
+    await harness.service.stop();
+  });
+
+  test('pane 销毁（target missing）：单次 tick 即删除规则 + watch_rule_error 通知与广播', async () => {
+    const harness = createHarness({ errorThreshold: 10 });
+    const rule = harness.makeRule({ pattern: 'X', fireMode: 'repeat' });
+    await harness.service.start();
+
+    harness.setCaptureError(new Error("can't find pane: %1"));
+    await harness.service.tickRule(rule.id);
+
+    // 立即删除：不累计 consecutiveErrors、不等阈值
+    expect(getWatchRuleById(rule.id)).toBeNull();
+    expect(harness.service.isRuleScheduled(rule.id)).toBe(false);
+
+    const ruleErrors = harness.notifications.filter((n) => n.eventType === 'watch_rule_error');
+    expect(ruleErrors).toHaveLength(1);
+    const payload = ruleErrors[0].event.payload as Record<string, unknown>;
+    expect(payload.paneGone).toBe(true);
+    expect(String(payload.message)).toContain(rule.name);
+    expect(ruleErrors[0].event.tmux?.paneId).toBe('%1');
+
     expect(
       harness.broadcasts.filter((b) => b.eventType === wsBorsh.WATCH_EVENT_RULE_ERROR)
     ).toHaveLength(1);

@@ -428,6 +428,8 @@
       "time": "时间",
       "directLink": "直达",
       "message": "信息",
+      "paneTitle": "标题",
+      "process": "进程",
       "telegramBell": {
         "title": "🔔 来自 {{siteName}} 的 Bell：{{terminalTopbarLabel}}",
         "viewLink": "点击查看",
@@ -446,7 +448,8 @@
         "summaryTriggered": "监控「{{name}}」：{{summary}}",
         "unconfirmedSuffix": "（模型不可用，未经 LLM 二次确认）",
         "modelUnavailable": "监控「{{name}}」模型调用失败：{{message}}",
-        "ruleError": "监控「{{name}}」连续失败 {{count}} 次，已自动停用：{{message}}"
+        "ruleError": "监控「{{name}}」连续失败 {{count}} 次，已自动停用：{{message}}",
+        "paneGone": "监控「{{name}}」的 Pane（{{paneId}}）已销毁，规则已自动删除"
       }
     },
     "sidebar": {

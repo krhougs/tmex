@@ -94,7 +94,7 @@ describe('EventNotifier telegram bell settings & html formatting', () => {
     }
   });
 
-  test('non-bell telegram notifications are unaffected by bell switch', async () => {
+  test('non-bell telegram notifications use HTML mode with escaped content (issue #4 regression)', async () => {
     const calls: Array<{ text: string; parseMode?: 'HTML' | 'MarkdownV2' }> = [];
     const originalSend = telegramService.sendToAuthorizedChats;
     telegramService.sendToAuthorizedChats = async (params) => {
@@ -102,25 +102,48 @@ describe('EventNotifier telegram bell settings & html formatting', () => {
     };
 
     try {
+      // 关 bell 开关：非 bell 事件仍应照常发送
       updateSiteSettings({
         enableTelegramBellPush: false,
       });
 
-      await eventNotifier.notify('session_created', {
+      await eventNotifier.notify('watch_rule_error', {
         site: {
-          name: 'tmex',
+          name: 'shanghai-macmini',
           url: 'https://tmex.example.com',
         },
         device: {
           id: 'device-other',
-          name: 'dev-2',
+          name: 'local <1>&',
           type: 'local',
+        },
+        tmux: {
+          windowId: '@137',
+          paneId: '%242',
+          windowIndex: 0,
+          paneIndex: 0,
+          paneTitle: 'vim main.rs',
+          paneCurrentCommand: 'vim',
+        },
+        payload: {
+          message: "监控「卡住」连续失败 10 次，已自动停用：can't find pane: %2965",
         },
       });
 
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.parseMode).toBeUndefined();
-      expect(calls[0]?.text).toContain('Session Created');
+      expect(calls[0]?.parseMode).toBe('HTML');
+      const text = calls[0]?.text ?? '';
+      expect(text).toContain('Watch Rule Error');
+      // 问题1 回归：不再把 MarkdownV2 转义反斜杠当纯文本发出
+      expect(text).not.toContain('\\-');
+      expect(text).not.toContain('\\(');
+      expect(text).not.toContain('\\.');
+      // HTML 转义：尖括号与 & 被正确转义
+      expect(text).toContain('local &lt;1&gt;&amp;');
+      // 增强：通知含 pane 标题与进程
+      expect(text).toContain('vim main.rs');
+      // 原始消息原样呈现（含中文与特殊符号）
+      expect(text).toContain('监控「卡住」连续失败 10 次');
     } finally {
       telegramService.sendToAuthorizedChats = originalSend;
       updateSiteSettings({

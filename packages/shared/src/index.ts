@@ -246,6 +246,8 @@ export interface TmuxPane {
   windowId: string;
   index: number;
   title?: string;
+  /** pane 当前运行的进程名（tmux #{pane_current_command}） */
+  currentCommand?: string;
   active: boolean;
   width: number;
   height: number;
@@ -268,6 +270,8 @@ export interface TmuxBellEventData {
   windowIndex?: number;
   paneIndex?: number;
   paneUrl?: string;
+  paneTitle?: string;
+  paneCurrentCommand?: string;
 }
 
 export type NotificationSource = 'osc9' | 'osc99' | 'osc777' | 'osc1337';
@@ -281,6 +285,8 @@ export interface TmuxNotificationEventData {
   windowIndex?: number;
   paneIndex?: number;
   paneUrl?: string;
+  paneTitle?: string;
+  paneCurrentCommand?: string;
 }
 
 export type TmuxEventType =
@@ -360,6 +366,8 @@ export interface WebhookEvent {
     paneId?: string;
     paneIndex?: number;
     paneUrl?: string;
+    paneTitle?: string;
+    paneCurrentCommand?: string;
   };
   payload?: Record<string, unknown>;
 }
