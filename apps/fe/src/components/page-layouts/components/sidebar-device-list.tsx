@@ -1135,7 +1135,6 @@ function WindowItem({
                   sessions={sessionsByPane.get(`${deviceId}:${pane.id}`)}
                   activeSessionId={activeSessionId}
                   onSelectSession={onSelectSession}
-                  onCreateSession={() => onCreateSessionForPane(deviceId, window.id, pane)}
                   onRenameSession={onRenameSession}
                   onDeleteSession={onDeleteSession}
                 />
@@ -1173,7 +1172,6 @@ function PaneRow({
   sessions,
   activeSessionId,
   onSelectSession,
-  onCreateSession,
   onRenameSession,
   onDeleteSession,
 }: {
@@ -1188,7 +1186,6 @@ function PaneRow({
   sessions: AgentSessionDto[] | undefined;
   activeSessionId: string | null;
   onSelectSession: (session: AgentSessionDto) => void;
-  onCreateSession: () => void;
   onRenameSession: (session: AgentSessionDto) => void;
   onDeleteSession: (session: AgentSessionDto) => void;
 }) {
@@ -1400,7 +1397,6 @@ function PaneSessionBranch({
   onRenameSession: (session: AgentSessionDto) => void;
   onDeleteSession: (session: AgentSessionDto) => void;
 }) {
-  const { t } = useTranslation();
   const { isMobile } = useSidebar();
   return (
     <div className="mt-1 space-y-0.5 [@media(any-pointer:coarse)]:space-y-1">
