@@ -67,9 +67,10 @@
 - `a3a2184` fix(fe): watch review fixes for provider mismatch display and toast length
 
 ### Task 11 端到端验证 + 补缺口 e2e + 文档（本次）
-- test(e2e): 确认流 UI 全链路（mock tool call → 卡片 → 允许执行/拒绝跳过）+ 移动端 spot check
-- fix(gateway): web.test.ts 消除新增 tsc 错误
-- docs: agent/watch 两篇 overview 文档 + 本结果存档
+- `9d31a53` fix(gateway): web 工具测试消除新增 tsc 错误
+- `3b90669` docs(agent,watch): 终端 AI Agent 与 Watch 监控总览文档
+- `55fdc55` docs(prompt-archives): Task 11 prompt 与 plan-00 执行结果存档
+- `9332464` test(e2e): agent 确认流 UI 全链路与移动端 agent/watch spot check
 
 ## 全量回归结果（Task 11）
 
