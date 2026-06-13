@@ -321,6 +321,12 @@ export class AgentRun {
       stopWhen: stepCountIs(Math.max(1, session.maxStepsPerTurn)),
       abortSignal: this.abortController.signal,
       maxRetries: this.deps.llmMaxRetries,
+      // Responses 协议（reasoning 模型）默认把带 id 的 item（reasoning rs_ / 工具调用）
+      // 发成 item_reference，依赖服务端持久化。tmex 自己持久化并每轮回放消息（无状态），
+      // 与此冲突——store=false 让 SDK 改为内联发送（reasoning 走 encrypted_content），
+      // 否则多轮工具调用会报 "Item with id 'rs_...' not found / store=false"。
+      // namespace 'openai' 只作用于 responses 模型，对 openai-chat（compatible）无副作用。
+      providerOptions: { openai: { store: false } },
       onStepFinish: (step) => {
         // step.response.messages 是累积的（含此前 step 与续跑的 initial 工具结果），只落新增部分
         const responseMessages = step.response.messages;

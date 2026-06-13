@@ -6,8 +6,9 @@
 
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { resolve } from 'node:path';
-import { generateText } from 'ai';
+import { generateText, stepCountIs, tool } from 'ai';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+import { z } from 'zod';
 import { encrypt } from '../crypto';
 import { getDb as getOrmDb } from '../db/client';
 import { type LlmProviderProtocol, createLlmProvider } from '../db/llm';
@@ -55,4 +56,31 @@ describe('LLM provider live integration', () => {
 
     expect(result.text.trim().length).toBeGreaterThan(0);
   });
+
+  // Responses 协议（reasoning 模型）多轮工具调用：上一轮的 reasoning / tool-call item
+  // 带 id，默认会被发成 item_reference 依赖服务端存储；tmex 无状态回放需 store=false
+  // 改为内联发送，否则报 "Item with id '...' not found / store=false"（见 agent/run.ts）。
+  test.if(protocol === 'openai-responses')(
+    'Responses 多轮工具调用在 store:false 下成功（回放带 id 的 item）',
+    async () => {
+      const provider = await createLiveProvider();
+      const model = await resolveLanguageModel(provider.id, env.TEST_LLM_MODEL);
+      const add = tool({
+        description: 'Add two integers',
+        inputSchema: z.object({ a: z.number(), b: z.number() }),
+        execute: async ({ a, b }) => String(a + b),
+      });
+
+      const result = await generateText({
+        model,
+        tools: { add },
+        stopWhen: stepCountIs(5),
+        providerOptions: { openai: { store: false } },
+        prompt: 'Use the add tool to compute 2 + 3, then reply with just the number.',
+      });
+
+      expect(result.steps.length).toBeGreaterThan(1);
+      expect(result.text).toContain('5');
+    }
+  );
 });
