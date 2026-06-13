@@ -58,7 +58,7 @@ function RootLayout() {
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset
-          className="h-dvh overflow-hidden"
+          className="h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]"
           style={
             keyboardOffset > 0
               ? {
