@@ -18,6 +18,7 @@ function createDevice(): Device {
     authMode: 'password',
     passwordEnc: 'encrypted-password',
     session: 'tmex',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -33,6 +34,7 @@ function createPasswordMisconfiguredDevice(): Device {
     username: 'alice',
     authMode: 'password',
     session: 'tmex',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

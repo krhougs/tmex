@@ -13,6 +13,7 @@ function createConfigRefDevice(): Device {
     authMode: 'configRef',
     sshConfigRef: 'prod-alias',
     session: 'tmex',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -28,6 +29,7 @@ function createAgentDevice(): Device {
     username: 'root',
     authMode: 'agent',
     session: 'tmex',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

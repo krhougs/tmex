@@ -12,6 +12,7 @@ function createDevice(id: string): Device {
     type: 'local',
     session: 'tmex',
     authMode: 'auto',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

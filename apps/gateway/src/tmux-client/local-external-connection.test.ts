@@ -31,6 +31,7 @@ function createDevice(session = 'tmex-test'): Device {
     type: 'local',
     authMode: 'auto',
     session,
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

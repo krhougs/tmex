@@ -16,6 +16,7 @@ function createDevice(): Device {
     username: 'root',
     authMode: 'agent',
     session: 'main1',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -28,6 +29,7 @@ function createLocalDevice(): Device {
     type: 'local',
     authMode: 'auto',
     session: 'tmex',
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

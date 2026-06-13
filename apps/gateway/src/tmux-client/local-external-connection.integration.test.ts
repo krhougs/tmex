@@ -30,6 +30,7 @@ function createLocalDevice(session: string): Device {
     type: 'local',
     authMode: 'auto',
     session,
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

@@ -30,6 +30,7 @@ import {
   getDeviceById,
   getDeviceRuntimeStatus,
   getSiteSettings,
+  reorderDevices,
   getTelegramBotById,
   getTelegramBotsWithStats,
   listTelegramChatsByBot,
@@ -163,6 +164,10 @@ export function handleApiRequest(
   }
   if (path === '/api/devices' && req.method === 'POST') {
     return handleCreateDevice(req);
+  }
+  // 精确匹配必须放在 /api/devices/:id 通配之前，避免 'order' 被当作 deviceId
+  if (path === '/api/devices/order' && req.method === 'PUT') {
+    return handleReorderDevices(req);
   }
   if (path.match(/^\/api\/devices\/[^/]+$/) && req.method === 'GET') {
     return handleGetDevice(path.split('/')[3]);
@@ -319,6 +324,8 @@ async function handleCreateDevice(req: Request): Promise<Response> {
     privateKeyPassphraseEnc: body.privateKeyPassphrase
       ? await encrypt(body.privateKeyPassphrase)
       : undefined,
+    // 实际 sort_order 由 createDevice 计算（排到末尾），此处占位
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -326,7 +333,7 @@ async function handleCreateDevice(req: Request): Promise<Response> {
   createDevice(device);
   await pushSupervisor.upsert(device.id);
 
-  return json({ device }, 201);
+  return json({ device: getDeviceById(device.id) ?? device }, 201);
 }
 
 async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
@@ -359,6 +366,16 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
 
   const device = getDeviceById(id);
   return json({ device });
+}
+
+async function handleReorderDevices(req: Request): Promise<Response> {
+  const body = (await req.json()) as { deviceIds?: unknown };
+  if (!Array.isArray(body.deviceIds) || body.deviceIds.some((id) => typeof id !== 'string')) {
+    return json({ error: t('apiError.invalidRequest') }, 400);
+  }
+
+  reorderDevices(body.deviceIds as string[]);
+  return json({ devices: getAllDevices().map(enrichDeviceWithRuntime) });
 }
 
 async function handleDeleteDevice(id: string): Promise<Response> {

@@ -43,6 +43,13 @@
       "when": 1781352058503,
       "tag": "0005_fancy_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1781381082588,
+      "tag": "0006_bitter_bushwacker",
+      "breakpoints": true
     }
   ]
 }

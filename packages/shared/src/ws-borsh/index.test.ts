@@ -13,6 +13,8 @@ import {
   KIND_AGENT_UNSUBSCRIBE,
   KIND_CHUNK,
   KIND_PING,
+  KIND_TMUX_REORDER_PANES,
+  KIND_TMUX_REORDER_WINDOWS,
   KIND_WATCH_EVENT,
   MAGIC,
   WATCH_EVENT_TRIGGERED,
@@ -36,6 +38,8 @@ import {
   AgentSubscribeSchema,
   AgentUnsubscribeSchema,
   PingPongSchema,
+  TmuxReorderPanesSchema,
+  TmuxReorderWindowsSchema,
   WatchEventSchema,
 } from './schema';
 
@@ -330,6 +334,38 @@ describe('kind', () => {
     expect(kindToString(KIND_AGENT_EVENT)).toBe('AGENT_EVENT');
     expect(kindToString(KIND_WATCH_EVENT)).toBe('WATCH_EVENT');
     expect(kindToString(0x9999)).toBe('UNKNOWN(0x9999)');
+  });
+});
+
+describe('tmux reorder 协议消息', () => {
+  it('REORDER_WINDOWS/REORDER_PANES kind 有效且可读名', () => {
+    expect(isValidKind(KIND_TMUX_REORDER_WINDOWS)).toBe(true);
+    expect(isValidKind(KIND_TMUX_REORDER_PANES)).toBe(true);
+    expect(kindToString(KIND_TMUX_REORDER_WINDOWS)).toBe('TMUX_REORDER_WINDOWS');
+    expect(kindToString(KIND_TMUX_REORDER_PANES)).toBe('TMUX_REORDER_PANES');
+  });
+
+  it('TmuxReorderWindows payload roundtrip（含字符串数组）', () => {
+    const data = { deviceId: 'dev-1', windowIds: ['@2', '@0', '@1'] };
+    const decoded = decodePayload(TmuxReorderWindowsSchema, encodePayload(TmuxReorderWindowsSchema, data));
+    expect(decoded.deviceId).toBe('dev-1');
+    expect(decoded.windowIds).toEqual(['@2', '@0', '@1']);
+  });
+
+  it('TmuxReorderPanes payload roundtrip', () => {
+    const data = { deviceId: 'dev-1', windowId: '@0', paneIds: ['%3', '%1', '%2'] };
+    const decoded = decodePayload(TmuxReorderPanesSchema, encodePayload(TmuxReorderPanesSchema, data));
+    expect(decoded.deviceId).toBe('dev-1');
+    expect(decoded.windowId).toBe('@0');
+    expect(decoded.paneIds).toEqual(['%3', '%1', '%2']);
+  });
+
+  it('空数组 roundtrip', () => {
+    const decoded = decodePayload(
+      TmuxReorderWindowsSchema,
+      encodePayload(TmuxReorderWindowsSchema, { deviceId: 'd', windowIds: [] })
+    );
+    expect(decoded.windowIds).toEqual([]);
   });
 });
 

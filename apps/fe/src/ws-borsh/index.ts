@@ -41,6 +41,8 @@ export {
   buildTmuxClosePane,
   buildTmuxRenameWindow,
   buildTmuxSetWindowStyle,
+  buildTmuxReorderWindows,
+  buildTmuxReorderPanes,
   buildTermInput,
   buildTermPaste,
   buildTermResize,

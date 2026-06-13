@@ -40,6 +40,8 @@ export interface Device {
   passwordEnc?: string;
   privateKeyEnc?: string;
   privateKeyPassphraseEnc?: string;
+  // device tree 中的自定义显示顺序，升序；越小越靠前
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }

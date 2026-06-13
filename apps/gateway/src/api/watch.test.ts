@@ -143,6 +143,7 @@ beforeAll(async () => {
     session: 'tmex-test',
     authMode: 'auto',
     port: 22,
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   });

@@ -35,14 +35,33 @@ import { WatchDialog } from '@/components/watch/watch-dialog';
 import { cn } from '@/lib/utils';
 import { useAgentStore } from '@/stores/agent';
 import { useUIStore } from '@/stores/ui';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AgentSessionDto, Device, TmuxPane, TmuxWindow } from '@tmex/shared';
 import { toBCP47 } from '@tmex/shared';
+import {
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   Bot,
   ChevronRight,
   EllipsisVertical,
   Globe,
+  GripVertical,
   History,
   Monitor,
   MoreHorizontal,
@@ -55,6 +74,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { buildWindowDisplayName, buildWindowTitleParts } from '../../../utils/terminalMeta';
 
 type DeviceListItem = Device & {
@@ -91,6 +111,19 @@ function StatusDot({ status }: { status: AgentSessionDto['status'] }) {
               : 'bg-muted-foreground/40'
       )}
     />
+  );
+}
+
+// device/window/pane 三层共用的拖拽 sensors：
+// - 鼠标走 distance 约束（按下移动 8px 即激活，无 delay），根治 PC「按下即拖」起不来；
+// - 触摸走 delay 约束（长按 250ms 激活，移动 >5px 视为滚动手势让位原生滚动）；
+// - 键盘走 sortable 的 coordinateGetter（可访问性）。
+// 注：旧版 @dnd-kit/core PointerSensor 无法按 pointerType 分别配约束，故必须拆 Mouse + Touch。
+function useDeviceTreeSensors() {
+  return useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 }
 
@@ -381,13 +414,66 @@ export function SideBarDeviceList() {
     setSessionDeleteCandidate(null);
   }, [sessionDeleteCandidate]);
 
+  const queryClient = useQueryClient();
+  const deviceSensors = useDeviceTreeSensors();
+
+  const reorderDevicesMutation = useMutation({
+    mutationFn: async (deviceIds: string[]) => {
+      const res = await fetch('/api/devices/order', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceIds }),
+      });
+      if (!res.ok) throw new Error('Failed to reorder devices');
+      return res.json() as Promise<{ devices: DeviceListItem[] }>;
+    },
+    onMutate: async (deviceIds: string[]) => {
+      await queryClient.cancelQueries({ queryKey: ['devices'] });
+      const previous = queryClient.getQueryData<{ devices: DeviceListItem[] }>(['devices']);
+      if (previous) {
+        const byId = new Map(previous.devices.map((d) => [d.id, d]));
+        const reordered = deviceIds
+          .map((id, index) => {
+            const d = byId.get(id);
+            return d ? { ...d, sortOrder: index } : undefined;
+          })
+          .filter((d): d is DeviceListItem => d !== undefined);
+        const rest = previous.devices.filter((d) => !deviceIds.includes(d.id));
+        queryClient.setQueryData(['devices'], { devices: [...reordered, ...rest] });
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(['devices'], context.previous);
+      toast.error(t('device.reorderFailed'));
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['devices'] });
+    },
+  });
+
   const devices = devicesData?.devices ?? [];
   const sortedDevices = useMemo(
     () =>
-      [...devices].sort((a, b) =>
-        a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })
+      [...devices].sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder ||
+          a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })
       ),
     [devices, language]
+  );
+
+  const handleDeviceDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const ids = sortedDevices.map((d) => d.id);
+      const oldIndex = ids.indexOf(String(active.id));
+      const newIndex = ids.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return;
+      reorderDevicesMutation.mutate(arrayMove(ids, oldIndex, newIndex));
+    },
+    [sortedDevices, reorderDevicesMutation]
   );
 
   // 会话按 device:pane 分组挂到对应 pane 节点；设备缺失/不在列表的归为孤立
@@ -413,12 +499,21 @@ export function SideBarDeviceList() {
 
   return (
     <SidebarGroup className="flex flex-col flex-1 min-h-0 pt-0">
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="space-y-1.5 pb-2 pt-1">
-          {sortedDevices.map((device) => (
-            <DeviceSection
-              key={device.id}
-              device={device}
+      <DndContext
+        sensors={deviceSensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDeviceDragEnd}
+      >
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="space-y-1.5 pb-2 pt-1">
+            <SortableContext
+              items={sortedDevices.map((d) => d.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {sortedDevices.map((device) => (
+                <DeviceSection
+                  key={device.id}
+                  device={device}
               windows={snapshots[device.id]?.session?.windows ?? null}
               isConnected={connectedDevices.has(device.id)}
               isSelected={device.id === selectedDeviceId}
@@ -440,25 +535,27 @@ export function SideBarDeviceList() {
               onCreateSessionForPane={handleCreateSessionForPane}
               onRenameSession={requestRenameSession}
               onDeleteSession={requestDeleteSession}
-            />
-          ))}
-          {sortedDevices.length === 0 && (
-            <div className="text-center text-sm text-muted-foreground py-4">
-              {t('sidebar.noDevices')}
-            </div>
-          )}
+                />
+              ))}
+            </SortableContext>
+            {sortedDevices.length === 0 && (
+              <div className="text-center text-sm text-muted-foreground py-4">
+                {t('sidebar.noDevices')}
+              </div>
+            )}
 
-          {orphanSessions.length > 0 && (
-            <OrphanSessions
-              sessions={orphanSessions}
-              activeSessionId={activeSessionId}
-              onSelectSession={handleSelectSession}
-              onRenameSession={requestRenameSession}
-              onDeleteSession={requestDeleteSession}
-            />
-          )}
-        </div>
-      </ScrollArea>
+            {orphanSessions.length > 0 && (
+              <OrphanSessions
+                sessions={orphanSessions}
+                activeSessionId={activeSessionId}
+                onSelectSession={handleSelectSession}
+                onRenameSession={requestRenameSession}
+                onDeleteSession={requestDeleteSession}
+              />
+            )}
+          </div>
+        </ScrollArea>
+      </DndContext>
 
       <AlertDialog
         open={closeCandidate !== null}
@@ -669,13 +766,35 @@ function DeviceSection({
 }: DeviceSectionProps) {
   const { t } = useTranslation();
   const DeviceIcon = device.type === 'local' ? Monitor : Globe;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: device.id });
+  const windowSensors = useDeviceTreeSensors();
+  const handleWindowDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !windows) return;
+    const ids = windows.map((w) => w.id);
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    useTmuxStore.getState().reorderWindows(device.id, arrayMove(ids, oldIndex, newIndex));
+  };
 
   return (
     <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
       data-testid={`device-item-${device.id}`}
       className={cn(
-        'rounded-xl border border-border/60 overflow-hidden text-select-none',
-        isSelected ? 'bg-card' : isConnected ? 'bg-muted/40' : 'bg-muted/20'
+        'group/device rounded-xl border border-border/60 overflow-hidden text-select-none',
+        isSelected ? 'bg-card' : isConnected ? 'bg-muted/40' : 'bg-muted/20',
+        isDragging && 'opacity-60 shadow-lg'
       )}
       onClick={isConnected ? undefined : onConnectToggle}
     >
@@ -685,7 +804,18 @@ function DeviceSection({
           <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-muted-foreground/70" />
         )}
         <div className="flex items-center gap-2">
-          <DeviceIcon className="ml-1 h-4 w-4 text-muted-foreground shrink-0" />
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...attributes}
+            {...listeners}
+            aria-label={t('device.dragHandle')}
+            onClick={(e) => e.stopPropagation()}
+            className="touch-none cursor-grab shrink-0 -ml-1 text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover/device:opacity-100 [@media(any-pointer:coarse)]:opacity-100"
+          >
+            <GripVertical className="h-3.5 w-3.5 [@media(any-pointer:coarse)]:h-5 [@media(any-pointer:coarse)]:w-5" />
+          </button>
+          <DeviceIcon className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="flex-1 truncate text-xs font-medium text-select-none">
             {device.name}
           </span>
@@ -737,27 +867,40 @@ function DeviceSection({
             </div>
           )}
 
-          {windows?.map((window) => (
-            <WindowItem
-              key={window.id}
-              deviceId={device.id}
-              window={window}
-              isSelected={window.id === selectedWindowId}
-              selectedPaneId={selectedPaneId}
-              onPaneClick={onPaneClick}
-              onWindowClick={onWindowClick}
-              onCloseWindow={onCloseWindow}
-              onClosePane={onClosePane}
-              onRenameWindow={onRenameWindow}
-              onWatchPane={onWatchPane}
-              sessionsByPane={sessionsByPane}
-              activeSessionId={activeSessionId}
-              onSelectSession={onSelectSession}
-              onCreateSessionForPane={onCreateSessionForPane}
-              onRenameSession={onRenameSession}
-              onDeleteSession={onDeleteSession}
-            />
-          ))}
+          {windows && windows.length > 0 && (
+            <DndContext
+              sensors={windowSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleWindowDragEnd}
+            >
+              <SortableContext
+                items={windows.map((w) => w.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {windows.map((window) => (
+                  <WindowItem
+                    key={window.id}
+                    deviceId={device.id}
+                    window={window}
+                    isSelected={window.id === selectedWindowId}
+                    selectedPaneId={selectedPaneId}
+                    onPaneClick={onPaneClick}
+                    onWindowClick={onWindowClick}
+                    onCloseWindow={onCloseWindow}
+                    onClosePane={onClosePane}
+                    onRenameWindow={onRenameWindow}
+                    onWatchPane={onWatchPane}
+                    sessionsByPane={sessionsByPane}
+                    activeSessionId={activeSessionId}
+                    onSelectSession={onSelectSession}
+                    onCreateSessionForPane={onCreateSessionForPane}
+                    onRenameSession={onRenameSession}
+                    onDeleteSession={onDeleteSession}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          )}
 
           {/* New Window Button */}
           <button
@@ -823,16 +966,55 @@ function WindowItem({
   const selectedPaneInWindow = window.panes.find((p) => p.id === selectedPaneId);
   const isPaneSelected = isSelected && Boolean(selectedPaneInWindow);
 
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: window.id });
+
+  const paneSensors = useDeviceTreeSensors();
+  const handlePaneDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = window.panes.map((p) => p.id);
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    useTmuxStore.getState().reorderPanes(deviceId, window.id, arrayMove(ids, oldIndex, newIndex));
+  };
+
   return (
-    <div className="space-y-1">
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn('space-y-1', isDragging && 'opacity-60')}
+    >
       {/* Window Header - Clickable */}
-      <div className="group relative">
+      <div className="group relative flex items-center gap-1">
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          aria-label={t('window.dragHandle')}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            'touch-none cursor-grab shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100',
+            isMobile ? 'h-9 w-4' : 'h-6 w-3.5 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:w-4'
+          )}
+        >
+          <GripVertical className={cn(isMobile ? 'h-4 w-4' : 'h-3.5 w-3.5')} />
+        </button>
         <button
           type="button"
           onClick={() => onWindowClick(deviceId, window.id, window.panes)}
           data-testid={`window-item-${window.id}`}
           className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors pr-7 [@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:pr-12',
+            'flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors pr-7 [@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:pr-12',
             isMobile && 'py-2.5 pr-13',
             isPaneSelected
               ? 'bg-primary/10 text-primary'
@@ -918,90 +1100,26 @@ function WindowItem({
       {/* Panes List - Only show if window has multiple panes */}
       {hasMultiplePanes && (
         <div className="ml-4 pl-2 border-l border-border/50 space-y-1 [@media(any-pointer:coarse)]:space-y-1.5">
-          {window.panes.map((pane) => {
-            const isPaneActive = pane.id === selectedPaneId;
-
-            return (
-              <div key={pane.id} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => onPaneClick(deviceId, window.id, pane.id)}
-                  data-testid={`pane-item-${pane.id}`}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors pr-13 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-21',
-                    isMobile && 'py-2.5 pr-24',
-                    isPaneActive
-                      ? 'bg-primary/10 text-primary'
-                      : pane.active
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-accent/30 text-muted-foreground'
-                  )}
-                >
-                  <span className="text-[10px] font-mono opacity-60 w-4">{pane.index}</span>
-
-                  <span className="flex-1 text-xs line-clamp-2 break-all">
-                    {pane.title || `Pane ${pane.index}`}
-                  </span>
-                </button>
-
-                {/* Pane Actions Menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    data-testid={`pane-menu-${pane.id}`}
-                    aria-label={t('watch.openMonitor')}
-                    className={cn(
-                      'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity data-popup-open:opacity-100',
-                      isMobile
-                        ? 'h-11 w-11 right-11 rounded-lg bg-background/40 opacity-100'
-                        : 'h-5 w-5 right-7 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-10.5 [@media(any-pointer:coarse)]:rounded-lg',
-                      isPaneActive
-                        ? 'opacity-100'
-                        : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
-                    )}
-                  >
-                    <EllipsisVertical className={cn(isMobile ? 'h-5 w-5' : 'h-3.5 w-3.5')} />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
-                  >
-                    <DropdownMenuItem
-                      data-testid={`pane-watch-${pane.id}`}
-                      className={cn(
-                        '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
-                        isMobile && 'py-3 px-2.5 text-base gap-2.5'
-                      )}
-                      onClick={() => onWatchPane(deviceId, pane.id)}
-                    >
-                      <Radar className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
-                      {t('watch.openMonitor')}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                {/* Close Pane Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClosePane(deviceId, window.id, pane.id);
-                  }}
-                  data-testid={`pane-close-${pane.id}`}
-                  className={cn(
-                    'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
-                    isMobile
-                      ? 'h-11 w-11 right-0 rounded-lg bg-background/40 opacity-100'
-                      : 'h-5 w-5 right-1.5 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-0.5 [@media(any-pointer:coarse)]:rounded-lg',
-                    isPaneActive
-                      ? 'opacity-100'
-                      : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
-                  )}
-                  title={t('window.closePane')}
-                >
-                  <span className={cn('leading-none', isMobile ? 'text-base' : 'text-xs')}>×</span>
-                </button>
-
-                <PaneSessionBranch
+          <DndContext
+            sensors={paneSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handlePaneDragEnd}
+          >
+            <SortableContext
+              items={window.panes.map((p) => p.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {window.panes.map((pane) => (
+                <PaneRow
+                  key={pane.id}
+                  deviceId={deviceId}
+                  windowId={window.id}
+                  pane={pane}
+                  isActive={pane.id === selectedPaneId}
+                  isMobile={isMobile}
+                  onPaneClick={onPaneClick}
+                  onClosePane={onClosePane}
+                  onWatchPane={onWatchPane}
                   sessions={sessionsByPane.get(`${deviceId}:${pane.id}`)}
                   activeSessionId={activeSessionId}
                   onSelectSession={onSelectSession}
@@ -1009,9 +1127,9 @@ function WindowItem({
                   onRenameSession={onRenameSession}
                   onDeleteSession={onDeleteSession}
                 />
-              </div>
-            );
-          })}
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
 
@@ -1028,6 +1146,160 @@ function WindowItem({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function PaneRow({
+  deviceId,
+  windowId,
+  pane,
+  isActive,
+  isMobile,
+  onPaneClick,
+  onClosePane,
+  onWatchPane,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onCreateSession,
+  onRenameSession,
+  onDeleteSession,
+}: {
+  deviceId: string;
+  windowId: string;
+  pane: TmuxPane;
+  isActive: boolean;
+  isMobile: boolean;
+  onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
+  onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
+  onWatchPane: (deviceId: string, paneId: string) => void;
+  sessions: AgentSessionDto[] | undefined;
+  activeSessionId: string | null;
+  onSelectSession: (session: AgentSessionDto) => void;
+  onCreateSession: () => void;
+  onRenameSession: (session: AgentSessionDto) => void;
+  onDeleteSession: (session: AgentSessionDto) => void;
+}) {
+  const { t } = useTranslation();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: pane.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn('group relative', isDragging && 'opacity-60')}
+    >
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          aria-label={t('window.dragHandlePane')}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            'touch-none cursor-grab shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100',
+            isMobile ? 'h-9 w-4' : 'h-6 w-3 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:w-4'
+          )}
+        >
+          <GripVertical className={cn(isMobile ? 'h-4 w-4' : 'h-3 w-3')} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onPaneClick(deviceId, windowId, pane.id)}
+          data-testid={`pane-item-${pane.id}`}
+          className={cn(
+            'flex-1 min-w-0 flex items-center gap-2 px-2 py-1 rounded-lg text-left transition-colors pr-13 [@media(any-pointer:coarse)]:py-2 [@media(any-pointer:coarse)]:pr-21',
+            isMobile && 'py-2.5 pr-24',
+            isActive
+              ? 'bg-primary/10 text-primary'
+              : pane.active
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-accent/30 text-muted-foreground'
+          )}
+        >
+          <span className="text-[10px] font-mono opacity-60 w-4">{pane.index}</span>
+
+          <span className="flex-1 text-xs line-clamp-2 break-all">
+            {pane.title || `Pane ${pane.index}`}
+          </span>
+        </button>
+      </div>
+
+      {/* Pane Actions Menu */}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          data-testid={`pane-menu-${pane.id}`}
+          aria-label={t('watch.openMonitor')}
+          className={cn(
+            'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity data-popup-open:opacity-100',
+            isMobile
+              ? 'h-11 w-11 right-11 rounded-lg bg-background/40 opacity-100'
+              : 'h-5 w-5 right-7 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-10.5 [@media(any-pointer:coarse)]:rounded-lg',
+            isActive
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
+          )}
+        >
+          <EllipsisVertical className={cn(isMobile ? 'h-5 w-5' : 'h-3.5 w-3.5')} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
+        >
+          <DropdownMenuItem
+            data-testid={`pane-watch-${pane.id}`}
+            className={cn(
+              '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+              isMobile && 'py-3 px-2.5 text-base gap-2.5'
+            )}
+            onClick={() => onWatchPane(deviceId, pane.id)}
+          >
+            <Radar className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+            {t('watch.openMonitor')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Close Pane Button */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClosePane(deviceId, windowId, pane.id);
+        }}
+        data-testid={`pane-close-${pane.id}`}
+        className={cn(
+          'absolute top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground transition-opacity',
+          isMobile
+            ? 'h-11 w-11 right-0 rounded-lg bg-background/40 opacity-100'
+            : 'h-5 w-5 right-1.5 [@media(any-pointer:coarse)]:h-10 [@media(any-pointer:coarse)]:w-10 [@media(any-pointer:coarse)]:right-0.5 [@media(any-pointer:coarse)]:rounded-lg',
+          isActive
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 [@media(any-pointer:coarse)]:opacity-100'
+        )}
+        title={t('window.closePane')}
+      >
+        <span className={cn('leading-none', isMobile ? 'text-base' : 'text-xs')}>×</span>
+      </button>
+
+      <PaneSessionBranch
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={onSelectSession}
+        onCreateSession={onCreateSession}
+        onRenameSession={onRenameSession}
+        onDeleteSession={onDeleteSession}
+      />
     </div>
   );
 }

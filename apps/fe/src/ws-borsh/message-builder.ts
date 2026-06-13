@@ -116,6 +116,30 @@ export function buildTmuxSetWindowStyle(
   return { kind: wsBorsh.KIND_TMUX_SET_WINDOW_STYLE, payload };
 }
 
+export function buildTmuxReorderWindows(
+  deviceId: string,
+  windowIds: string[]
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxReorderWindowsSchema, {
+    deviceId,
+    windowIds,
+  });
+  return { kind: wsBorsh.KIND_TMUX_REORDER_WINDOWS, payload };
+}
+
+export function buildTmuxReorderPanes(
+  deviceId: string,
+  windowId: string,
+  paneIds: string[]
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxReorderPanesSchema, {
+    deviceId,
+    windowId,
+    paneIds,
+  });
+  return { kind: wsBorsh.KIND_TMUX_REORDER_PANES, payload };
+}
+
 export function buildTermInput(
   deviceId: string,
   paneId: string,

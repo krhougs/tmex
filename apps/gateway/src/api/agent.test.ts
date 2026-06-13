@@ -93,6 +93,7 @@ beforeAll(() => {
     session: 'tmex-test',
     authMode: 'agent',
     port: 22,
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   });

@@ -2,7 +2,7 @@ import type { EventDevicePayload, StateSnapshotPayload, TmuxEventType } from '@t
 import { wsBorsh } from '@tmex/shared';
 import type { Server, ServerWebSocket } from 'bun';
 import { agentWsHub } from '../agent/ws-hub';
-import { getSiteSettings } from '../db';
+import { getDeviceTreeOrder, getSiteSettings, setPaneOrder, setWindowOrder } from '../db';
 import { t } from '../i18n';
 import type {
   DeviceSessionRuntime,
@@ -15,6 +15,7 @@ import { type BorshClientState, createBorshClientState } from './borsh/codec-bor
 import { sessionStateStore } from './borsh/session-state';
 import { switchBarrier } from './borsh/switch-barrier';
 import { classifySshError } from './error-classify';
+import { applyDeviceTreeOverlay } from './overlay-utils';
 
 interface ClientState {
   borshState: BorshClientState;
@@ -350,6 +351,18 @@ export class WebSocketServer {
         return;
       }
 
+      case wsBorsh.KIND_TMUX_REORDER_WINDOWS: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxReorderWindowsSchema, payload);
+        this.handleReorderWindows(decoded.deviceId, decoded.windowIds);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_REORDER_PANES: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxReorderPanesSchema, payload);
+        this.handleReorderPanes(decoded.deviceId, decoded.windowId, decoded.paneIds);
+        return;
+      }
+
       case wsBorsh.KIND_TERM_INPUT: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermInputSchema, payload);
         if (decoded.isComposing) return;
@@ -541,9 +554,7 @@ export class WebSocketServer {
     this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_CONNECTED, connectedPayload);
 
     if (entry.lastSnapshot) {
-      const snapshotBytes = wsBorsh.encodeStateSnapshot(
-        this.applyWindowCustomNames(entry.lastSnapshot)
-      );
+      const snapshotBytes = this.encodeSnapshotWithOverlays(entry.lastSnapshot);
       this.sendChunked(ws, wsBorsh.KIND_STATE_SNAPSHOT, snapshotBytes);
     } else {
       entry.runtime.requestSnapshot();
@@ -691,6 +702,21 @@ export class WebSocketServer {
     entry.runtime.setWindowStyle(style);
   }
 
+  // window / pane 重排：纯显示层 overlay，写库后立即用上一份快照重广播（不触碰 tmux、不打 poll）
+  private handleReorderWindows(deviceId: string, windowIds: string[]): void {
+    setWindowOrder(deviceId, windowIds);
+    const entry = this.connections.get(deviceId);
+    if (!entry?.lastSnapshot) return;
+    this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
+  private handleReorderPanes(deviceId: string, windowId: string, paneIds: string[]): void {
+    setPaneOrder(deviceId, windowId, paneIds);
+    const entry = this.connections.get(deviceId);
+    if (!entry?.lastSnapshot) return;
+    this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
   private applyWindowCustomNames(payload: StateSnapshotPayload): StateSnapshotPayload {
     const names = this.windowCustomNames.get(payload.deviceId);
     if (!names?.size || !payload.session) return payload;
@@ -714,8 +740,14 @@ export class WebSocketServer {
     };
   }
 
+  // 链式 overlay：先按 device_tree_order 重排数组（同步读 DB，单一真源），再叠加自定义窗口名
+  private encodeSnapshotWithOverlays(payload: StateSnapshotPayload): Uint8Array {
+    const ordered = applyDeviceTreeOverlay(payload, getDeviceTreeOrder(payload.deviceId));
+    return wsBorsh.encodeStateSnapshot(this.applyWindowCustomNames(ordered));
+  }
+
   private sendSnapshotToClients(entry: DeviceConnectionEntry, payload: StateSnapshotPayload): void {
-    const payloadBytes = wsBorsh.encodeStateSnapshot(this.applyWindowCustomNames(payload));
+    const payloadBytes = this.encodeSnapshotWithOverlays(payload);
     for (const client of entry.clients) {
       this.sendChunked(client, wsBorsh.KIND_STATE_SNAPSHOT, payloadBytes);
     }

@@ -58,6 +58,7 @@ export const devices = sqliteTable(
     passwordEnc: text('password_enc'),
     privateKeyEnc: text('private_key_enc'),
     privateKeyPassphraseEnc: text('private_key_passphrase_enc'),
+    sortOrder: integer('sort_order').notNull().default(0),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -297,6 +298,20 @@ export const watchRuleState = sqliteTable('watch_rule_state', {
   modelUnavailableNotified: integer('model_unavailable_notified', { mode: 'boolean' })
     .notNull()
     .default(false),
+});
+
+// device tree 中 window / pane 的自定义显示顺序（overlay，不触碰 tmux 真实布局）
+// windows: 有序 windowId 列表；panes: windowId -> 有序 paneId 列表
+export const deviceTreeOrder = sqliteTable('device_tree_order', {
+  deviceId: text('device_id')
+    .primaryKey()
+    .references(() => devices.id, { onDelete: 'cascade' }),
+  windows: text('windows', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  panes: text('panes', { mode: 'json' })
+    .$type<Record<string, string[]>>()
+    .notNull()
+    .default({}),
+  updatedAt: text('updated_at').notNull(),
 });
 
 export const telegramBotChats = sqliteTable(

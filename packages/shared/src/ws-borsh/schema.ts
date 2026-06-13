@@ -118,6 +118,17 @@ export const TmuxSetWindowStyleSchema = b.struct({
   style: b.string(),
 });
 
+export const TmuxReorderWindowsSchema = b.struct({
+  deviceId: b.string(),
+  windowIds: b.vec(b.string()),
+});
+
+export const TmuxReorderPanesSchema = b.struct({
+  deviceId: b.string(),
+  windowId: b.string(),
+  paneIds: b.vec(b.string()),
+});
+
 export const TmuxEventSchema = b.struct({
   deviceId: b.string(),
   eventType: b.u8(),

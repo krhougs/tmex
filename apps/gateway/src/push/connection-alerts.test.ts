@@ -12,6 +12,7 @@ function makeDevice(id: string): Device {
     username: 'root',
     session: 'tmex',
     authMode: 'password',
+    sortOrder: 0,
     createdAt: '2026-04-18T00:00:00Z',
     updatedAt: '2026-04-18T00:00:00Z',
   };

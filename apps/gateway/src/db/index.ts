@@ -13,18 +13,25 @@ import {
   type TelegramChatType,
   type WebhookEndpoint,
 } from '@tmex/shared';
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq, max } from 'drizzle-orm';
 import { config } from '../config';
 import { i18next } from '../i18n';
 import { getDb as getOrmDb, getSqliteClient } from './client';
 import {
   deviceRuntimeStatus,
+  deviceTreeOrder,
   devices,
   siteSettings,
   telegramBotChats,
   telegramBots,
   webhookEndpoints,
 } from './schema';
+
+export interface DeviceTreeOrderRecord {
+  deviceId: string;
+  windows: string[];
+  panes: Record<string, string[]>;
+}
 
 export interface TelegramBotConfigRecord extends TelegramBotConfig {
   tokenEnc: string;
@@ -53,6 +60,7 @@ function toDevice(row: typeof devices.$inferSelect): Device {
     passwordEnc: optional(row.passwordEnc),
     privateKeyEnc: optional(row.privateKeyEnc),
     privateKeyPassphraseEnc: optional(row.privateKeyPassphraseEnc),
+    sortOrder: row.sortOrder,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -147,6 +155,10 @@ export function createDevice(device: Device): void {
   const orm = getOrmDb();
 
   orm.transaction((tx) => {
+    // 新设备排到末尾：sort_order = 当前最大值 + 1
+    const maxRow = tx.select({ value: max(devices.sortOrder) }).from(devices).get();
+    const nextSortOrder = (maxRow?.value ?? -1) + 1;
+
     tx.insert(devices)
       .values({
         id: device.id,
@@ -161,6 +173,7 @@ export function createDevice(device: Device): void {
         passwordEnc: device.passwordEnc ?? null,
         privateKeyEnc: device.privateKeyEnc ?? null,
         privateKeyPassphraseEnc: device.privateKeyPassphraseEnc ?? null,
+        sortOrder: nextSortOrder,
         createdAt: device.createdAt,
         updatedAt: device.updatedAt,
       })
@@ -190,7 +203,27 @@ export function getDeviceById(id: string): Device | null {
 
 export function getAllDevices(): Device[] {
   const orm = getOrmDb();
-  return orm.select().from(devices).orderBy(desc(devices.createdAt)).all().map(toDevice);
+  // 统一排序源：先按自定义 sort_order，迁移后全 0 时按 created_at 兜底稳定排序
+  return orm
+    .select()
+    .from(devices)
+    .orderBy(asc(devices.sortOrder), desc(devices.createdAt))
+    .all()
+    .map(toDevice);
+}
+
+// 按给定的全量有序 id 列表重排设备：单事务按下标写 sort_order
+export function reorderDevices(orderedIds: string[]): void {
+  const orm = getOrmDb();
+  const now = new Date().toISOString();
+  orm.transaction((tx) => {
+    orderedIds.forEach((id, index) => {
+      tx.update(devices)
+        .set({ sortOrder: index, updatedAt: now })
+        .where(eq(devices.id, id))
+        .run();
+    });
+  });
 }
 
 export function updateDevice(id: string, updates: Partial<Device>): void {
@@ -236,6 +269,53 @@ export function updateDevice(id: string, updates: Partial<Device>): void {
 export function deleteDevice(id: string): void {
   const orm = getOrmDb();
   orm.delete(devices).where(eq(devices.id, id)).run();
+}
+
+export function getDeviceTreeOrder(deviceId: string): DeviceTreeOrderRecord {
+  const orm = getOrmDb();
+  const row = orm
+    .select()
+    .from(deviceTreeOrder)
+    .where(eq(deviceTreeOrder.deviceId, deviceId))
+    .get();
+
+  if (!row) {
+    return { deviceId, windows: [], panes: {} };
+  }
+
+  return {
+    deviceId: row.deviceId,
+    windows: Array.isArray(row.windows) ? row.windows : [],
+    panes: row.panes && typeof row.panes === 'object' ? row.panes : {},
+  };
+}
+
+export function setWindowOrder(deviceId: string, windowIds: string[]): void {
+  const orm = getOrmDb();
+  const now = new Date().toISOString();
+  orm
+    .insert(deviceTreeOrder)
+    .values({ deviceId, windows: windowIds, panes: {}, updatedAt: now })
+    .onConflictDoUpdate({
+      target: deviceTreeOrder.deviceId,
+      set: { windows: windowIds, updatedAt: now },
+    })
+    .run();
+}
+
+export function setPaneOrder(deviceId: string, windowId: string, paneIds: string[]): void {
+  const current = getDeviceTreeOrder(deviceId);
+  const nextPanes = { ...current.panes, [windowId]: paneIds };
+  const orm = getOrmDb();
+  const now = new Date().toISOString();
+  orm
+    .insert(deviceTreeOrder)
+    .values({ deviceId, windows: current.windows, panes: nextPanes, updatedAt: now })
+    .onConflictDoUpdate({
+      target: deviceTreeOrder.deviceId,
+      set: { panes: nextPanes, updatedAt: now },
+    })
+    .run();
 }
 
 export function getDeviceRuntimeStatus(deviceId: string): DeviceRuntimeStatus {

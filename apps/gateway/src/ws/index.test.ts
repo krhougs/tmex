@@ -7,6 +7,11 @@ import { createBorshClientState } from './borsh/codec-borsh';
 import { sessionStateStore } from './borsh/session-state';
 import { WebSocketServer } from './index';
 
+// 快照下发路径会同步读 device_tree_order 表，确保所有用例前已建表
+beforeAll(() => {
+  runMigrations();
+});
+
 function createMockWs() {
   return {
     data: { selectedPanes: {} as Record<string, string | null> },

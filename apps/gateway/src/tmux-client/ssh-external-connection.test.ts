@@ -22,6 +22,7 @@ function createDevice(session = 'tmex-ssh-test'): Device {
     authMode: 'password',
     passwordEnc: 'encrypted-password',
     session,
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
   };

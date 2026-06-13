@@ -11,6 +11,8 @@ import {
   buildTmuxCloseWindow,
   buildTmuxCreateWindow,
   buildTmuxRenameWindow,
+  buildTmuxReorderPanes,
+  buildTmuxReorderWindows,
   buildTmuxSelect,
   buildTmuxSelectWindow,
   buildTmuxSetWindowStyle,
@@ -77,6 +79,8 @@ interface TmuxState {
   closeWindow: (deviceId: string, windowId: string) => void;
   closePane: (deviceId: string, paneId: string) => void;
   renameWindow: (deviceId: string, windowId: string, name: string) => void;
+  reorderWindows: (deviceId: string, windowIds: string[]) => void;
+  reorderPanes: (deviceId: string, windowId: string, paneIds: string[]) => void;
 }
 
 const CONNECT_DEDUP_WINDOW_MS = 500;
@@ -581,6 +585,51 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   renameWindow(deviceId, windowId, name) {
     if (!deviceId || !windowId) return;
     const msg = buildTmuxRenameWindow(deviceId, windowId, name);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  reorderWindows(deviceId, windowIds) {
+    if (!deviceId || windowIds.length === 0) return;
+    // 乐观本地重排，立即反馈；服务端会用带 overlay 的快照重广播确认
+    set((prev) => {
+      const snapshot = prev.snapshots[deviceId];
+      const session = snapshot?.session;
+      if (!session) return {};
+      const byId = new Map(session.windows.map((w) => [w.id, w] as const));
+      const known = windowIds.map((id) => byId.get(id)).filter((w) => w !== undefined);
+      const rest = session.windows.filter((w) => !windowIds.includes(w.id));
+      return {
+        snapshots: {
+          ...prev.snapshots,
+          [deviceId]: { ...snapshot, session: { ...session, windows: [...known, ...rest] } },
+        },
+      };
+    });
+    const msg = buildTmuxReorderWindows(deviceId, windowIds);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  reorderPanes(deviceId, windowId, paneIds) {
+    if (!deviceId || !windowId || paneIds.length === 0) return;
+    set((prev) => {
+      const snapshot = prev.snapshots[deviceId];
+      const session = snapshot?.session;
+      if (!session) return {};
+      const windows = session.windows.map((w) => {
+        if (w.id !== windowId) return w;
+        const byId = new Map(w.panes.map((p) => [p.id, p] as const));
+        const known = paneIds.map((id) => byId.get(id)).filter((p) => p !== undefined);
+        const rest = w.panes.filter((p) => !paneIds.includes(p.id));
+        return { ...w, panes: [...known, ...rest] };
+      });
+      return {
+        snapshots: {
+          ...prev.snapshots,
+          [deviceId]: { ...snapshot, session: { ...session, windows } },
+        },
+      };
+    });
+    const msg = buildTmuxReorderPanes(deviceId, windowId, paneIds);
     getBorshClient().send(msg.kind, msg.payload);
   },
 }));
