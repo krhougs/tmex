@@ -979,12 +979,31 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         return;
       }
 
-      const data = event.data ?? '';
-      if (!data) {
+      // 组字过程中的输入/删除交给 compositionend 统一提交，这里忽略
+      if (event.isComposing || this.imeIsComposing) {
         return;
       }
 
-      if (event.isComposing || this.imeIsComposing) {
+      // Android Gboard 在 contenteditable 上不发 Backspace/Delete 的 keydown
+      // （报 keyCode 229），删除只通过 beforeinput 的 deleteContent* 体现且 data 为空。
+      // 按等价按键编码补发；iOS/桌面的删除走 keydown 且已 preventDefault，不会再触发此分支。
+      if (
+        event.inputType === 'deleteContentBackward' ||
+        event.inputType === 'deleteContentForward'
+      ) {
+        event.preventDefault();
+        const payload = this.encodeSyntheticKey(
+          event.inputType === 'deleteContentForward' ? 'Delete' : 'Backspace'
+        );
+        if (payload) {
+          this.emitData(payload);
+        }
+        this.clearTextarea();
+        return;
+      }
+
+      const data = event.data ?? '';
+      if (!data) {
         return;
       }
 
@@ -1079,6 +1098,23 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       utf8,
       unshiftedCodepoint: getUnshiftedCodepoint(event.code),
     });
+  }
+
+  // 把无 keydown 的输入意图（如 Android beforeinput 的删除）合成成等价按键编码，
+  // 与真实 keydown 路径产出一致，避免平台间行为分叉。
+  private encodeSyntheticKey(code: string): string | null {
+    const syntheticEvent = {
+      code,
+      key: code,
+      shiftKey: false,
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+      repeat: false,
+      isComposing: false,
+      getModifierState: () => false,
+    } as unknown as KeyboardEvent;
+    return this.encodeKeyboardEvent(syntheticEvent, 'press');
   }
 
   private getInputRoutingState(): InputRoutingState {

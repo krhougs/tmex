@@ -3,7 +3,10 @@ import type { GhosttyTheme } from './types';
 
 type FakeEvent = {
   type: string;
-  data?: string;
+  data?: string | null;
+  inputType?: string;
+  isComposing?: boolean;
+  keyCode?: number;
   button?: number;
   buttons?: number;
   clientX?: number;
@@ -746,6 +749,124 @@ describe('GhosttyTerminalController canvas baseline', () => {
     }
 
     expect(received).toEqual(['你']);
+
+    disposable.dispose();
+  });
+
+  // Android Gboard 在 contenteditable 上不发 Backspace 的 keydown（报 keyCode 229），
+  // 删除一律走 beforeinput 的 deleteContent* inputType 且 data 为空；必须按等价
+  // 按键编码补发，否则退格被丢弃。keyCode：Backspace=53，Delete=68。
+  test('beforeinput deleteContentBackward should emit Backspace key (Android)', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    const textarea = findElementsByTag(dom.document.body, 'div').find(
+      (el) => el.className === 'xterm-helper-textarea'
+    );
+    expect(textarea).toBeDefined();
+
+    if (textarea) {
+      // 模拟 Android：keydown 报 229（无操作），随后 beforeinput 携带删除意图
+      textarea.dispatchEvent({ type: 'keydown', keyCode: 229, key: 'Unidentified', code: '' });
+      textarea.dispatchEvent({ type: 'beforeinput', inputType: 'deleteContentBackward', data: null });
+    }
+
+    expect(received).toEqual(['key:press:53:0']);
+
+    disposable.dispose();
+  });
+
+  test('beforeinput deleteContentForward should emit Delete key (Android)', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    const textarea = findElementsByTag(dom.document.body, 'div').find(
+      (el) => el.className === 'xterm-helper-textarea'
+    );
+
+    if (textarea) {
+      textarea.dispatchEvent({ type: 'beforeinput', inputType: 'deleteContentForward', data: null });
+    }
+
+    expect(received).toEqual(['key:press:68:0']);
+
+    disposable.dispose();
+  });
+
+  // 组字过程中的删除（autocorrect 删除待选区）不应发到终端，等 compositionend 统一提交
+  test('beforeinput delete during composition should be ignored', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    const disposable = terminal.onData((data: string) => {
+      received.push(data);
+    });
+
+    const textarea = findElementsByTag(dom.document.body, 'div').find(
+      (el) => el.className === 'xterm-helper-textarea'
+    );
+
+    if (textarea) {
+      textarea.dispatchEvent({ type: 'compositionstart' });
+      textarea.dispatchEvent({
+        type: 'beforeinput',
+        inputType: 'deleteContentBackward',
+        data: null,
+        isComposing: true,
+      });
+    }
+
+    expect(received).toEqual([]);
 
     disposable.dispose();
   });
