@@ -1,10 +1,7 @@
 import { existsSync } from 'node:fs';
 import * as net from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-
-const configDir = dirname(fileURLToPath(import.meta.url));
 
 function resolveBunExecutable(): string {
   const explicit = process.env.TMEX_E2E_BUN;
@@ -94,15 +91,14 @@ export default defineConfig({
       name: 'gateway',
       cwd: '../../',
       command: './apps/gateway/scripts/run-with-ssh-agent.sh ./apps/gateway/src/index.ts',
+      // 行为配置（master key 等）由 gateway 自身 loadEnv() 从 test.env 加载；
+      // 继承的安装版 TMEX_MIGRATIONS_DIR 由 loadEnv 净化、migrate.ts 回退到仓库 drizzle。
+      // 这里只注入「按运行上下文变化的接线键」。
       env: {
-        NODE_ENV: 'development',
-        TMEX_MASTER_KEY: 'tGd9gPmdUkJrpRQK+db60sc+NkxymxgGqKrReDU4Kus=',
+        NODE_ENV: 'test',
         GATEWAY_PORT: String(gatewayPort),
         DATABASE_URL: process.env.TMEX_E2E_DATABASE_URL ?? `/tmp/tmex-e2e-${Date.now()}.db`,
         TMEX_BASE_URL: `http://localhost:${gatewayPort}`,
-        // shell 可能继承安装版 app.env 的 TMEX_MIGRATIONS_DIR（指向生产 resources 的旧
-        // migrations，缺新表），必须钉回仓库内目录
-        TMEX_MIGRATIONS_DIR: join(configDir, '../gateway/drizzle'),
       },
       url: `http://localhost:${gatewayPort}/healthz`,
       timeout: 60_000,
@@ -117,8 +113,10 @@ export default defineConfig({
       command: `${bunExecutable} run dev`,
       env: {
         ...process.env,
-        // shell 可能继承安装版 app.env 的 NODE_ENV=production，会污染 vite dev 的依赖预打包
-        NODE_ENV: 'development',
+        // 注入 test：vite.config 的 loadTmexEnv 据此加载 test.env（省略 FE_PORT/
+        // TMEX_GATEWAY_URL 等接线键，故下方动态注入值不会被覆盖）；同时覆盖掉
+        // 继承自安装版 app.env 的 NODE_ENV=production（会污染 vite dev 依赖预打包）。
+        NODE_ENV: 'test',
         FE_PORT: String(fePort),
         TMEX_GATEWAY_URL: `http://localhost:${gatewayPort}`,
       },

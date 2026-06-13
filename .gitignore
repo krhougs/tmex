@@ -1,7 +1,9 @@
-# 环境变量（包含敏感信息）
+# 环境变量
+# development.env / test.env 提交进库（仅含开发/测试用公开值）；
+# 个人临时覆盖写 *.env.local（不提交）。
+*.env.local
 .env
 .env.*
-!.env.example
 
 # 依赖
 node_modules/

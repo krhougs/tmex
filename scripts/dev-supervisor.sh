@@ -4,8 +4,8 @@ set -u -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="${PROJECT_DIR}/.env"
-ENV_FALLBACK_FILE="${PROJECT_DIR}/.env.example"
+ENV_FILE="${PROJECT_DIR}/development.env"
+ENV_LOCAL_FILE="${PROJECT_DIR}/development.env.local"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/dev-supervisor-pids.sh"
 
@@ -23,11 +23,10 @@ fi
 
 cd "$PROJECT_DIR"
 
-# 当前 shell 可能继承了安装版 app.env 的变量（指向 ~/Library/Application Support/tmex/）。
-# 这些变量有面向仓库的默认值，必须先清掉再加载 .env：否则继承的 TMEX_MIGRATIONS_DIR
-# 会让 dev gateway 跑安装版旧 migrations（缺仓库新增的迁移），启动即崩。
-# .env 仍可显式设置它们并优先生效。
-unset TMEX_MIGRATIONS_DIR TMEX_FE_DIST_DIR
+# 加载 development.env（+ 可选 .local 覆盖），让 supervisor 自身拿到 GATEWAY_PORT/
+# FE_PORT 做健康检查与日志。继承的安装版毒变量（TMEX_MIGRATIONS_DIR 等）与相对
+# DATABASE_URL 的解析，统一交给应用启动时的 @tmex/shared loadEnv() 处理，这里不再重复。
+export NODE_ENV=development
 
 load_env_file() {
   local file="$1"
@@ -40,22 +39,13 @@ load_env_file() {
 if [[ -f "$ENV_FILE" ]]; then
   load_env_file "$ENV_FILE"
   ENV_SOURCE="$ENV_FILE"
-elif [[ -f "$ENV_FALLBACK_FILE" ]]; then
-  load_env_file "$ENV_FALLBACK_FILE"
-  ENV_SOURCE="$ENV_FALLBACK_FILE"
 else
   ENV_SOURCE="(none)"
 fi
 
-if [[ -n "${DATABASE_URL:-}" ]]; then
-  case "$DATABASE_URL" in
-    /*|file:*|sqlite:*|http:*|https:*|:memory:*)
-      ;;
-    *)
-      DATABASE_URL="${PROJECT_DIR}/${DATABASE_URL#./}"
-      export DATABASE_URL
-      ;;
-  esac
+if [[ -f "$ENV_LOCAL_FILE" ]]; then
+  load_env_file "$ENV_LOCAL_FILE"
+  ENV_SOURCE="${ENV_SOURCE}, ${ENV_LOCAL_FILE}"
 fi
 
 GATEWAY_PID=""

@@ -1,3 +1,4 @@
+import './bootstrap-env';
 import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { CryptoDecryptError } from '../../../../apps/gateway/src/crypto/errors';

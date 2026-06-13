@@ -34,11 +34,15 @@ export const config = {
   // 默认与前端 seoul256 dark 主题一致，设为 off 关闭
   tmuxWindowStyle: getEnv('TMEX_TMUX_WINDOW_STYLE', 'fg=#d0d0d0,bg=#262626'),
   sshReconnectMaxRetriesDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_MAX_RETRIES', '2'), 10),
-  sshReconnectDelaySecondsDefault: Number.parseInt(getEnv('TMEX_SSH_RECONNECT_DELAY_SECONDS', '10'), 10),
+  sshReconnectDelaySecondsDefault: Number.parseInt(
+    getEnv('TMEX_SSH_RECONNECT_DELAY_SECONDS', '10'),
+    10
+  ),
   languageDefault: getEnv('TMEX_DEFAULT_LANGUAGE', 'en_US'),
 
   // 环境
   isDev: getEnv('NODE_ENV', 'development') === 'development',
+  isTest: getEnv('NODE_ENV', 'development') === 'test',
   isProd: getEnv('NODE_ENV', 'development') === 'production',
 } as const;
 

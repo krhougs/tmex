@@ -1,4 +1,9 @@
 // tmex 前后端共享类型定义
+//
+// 注意：环境变量加载器 loadEnv 是 Node-only（依赖 node:fs/node:url），
+// 不能从本浏览器侧主入口导出——否则会被打进客户端 bundle 触发
+// "Module node:fs has been externalized" 运行时错误。
+// Node 侧消费者请直接 import './env/load-env'（相对路径）。
 
 // ==================== i18n ====================
 

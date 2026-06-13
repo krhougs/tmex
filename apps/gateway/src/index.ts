@@ -1,3 +1,4 @@
+import './bootstrap-env';
 import { config } from './config';
 import { createGatewayRuntime } from './runtime';
 
