@@ -23,6 +23,12 @@ fi
 
 cd "$PROJECT_DIR"
 
+# 当前 shell 可能继承了安装版 app.env 的变量（指向 ~/Library/Application Support/tmex/）。
+# 这些变量有面向仓库的默认值，必须先清掉再加载 .env：否则继承的 TMEX_MIGRATIONS_DIR
+# 会让 dev gateway 跑安装版旧 migrations（缺仓库新增的迁移），启动即崩。
+# .env 仍可显式设置它们并优先生效。
+unset TMEX_MIGRATIONS_DIR TMEX_FE_DIST_DIR
+
 load_env_file() {
   local file="$1"
   set -a
