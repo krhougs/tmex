@@ -113,14 +113,15 @@ async function refreshModelsCache(
     });
     return { provider: updated ?? provider, models };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // 模型拉取失败原本只回传给 toast，服务端无日志、dev 排查无从下手。
+    // 服务端日志打原始技术错误（cause），而非给前端 toast 的 i18n 文案。
+    const raw = error instanceof Error && error.cause !== undefined ? error.cause : error;
     console.warn(
-      `[llm] 拉取模型列表失败 provider=${provider.name}(${provider.id}) baseUrl=${provider.baseUrl}: ${message}`
+      `[llm] 拉取模型列表失败 provider=${provider.name}(${provider.id}) baseUrl=${provider.baseUrl}:`,
+      raw
     );
     return {
       provider,
-      modelsError: message,
+      modelsError: error instanceof Error ? error.message : String(error),
     };
   }
 }

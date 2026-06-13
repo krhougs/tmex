@@ -108,9 +108,16 @@ export async function fetchProviderModels(
   const apiKey = await decrypt(provider.apiKeyEnc);
   const baseURL = resolveBaseUrl(provider.baseUrl);
 
+  const modelsUrl = `${baseURL}/models`;
+
+  // 抛出 i18n 文案给前端 toast，同时用 cause 携带原始技术错误，供服务端日志打真实报错。
+  function fetchModelsError(detail: string, cause: unknown): Error {
+    return new Error(t('apiError.llmFetchModelsFailed', { detail }), { cause });
+  }
+
   let response: Response;
   try {
-    response = await fetch(`${baseURL}/models`, {
+    response = await fetch(modelsUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(options.timeoutMs ?? FETCH_MODELS_TIMEOUT_MS),
     });
@@ -121,23 +128,30 @@ export async function fetchProviderModels(
         : error instanceof Error
           ? error.message
           : String(error);
-    throw new Error(t('apiError.llmFetchModelsFailed', { detail }));
+    throw fetchModelsError(detail, error);
   }
 
   if (!response.ok) {
-    throw new Error(t('apiError.llmFetchModelsFailed', { detail: `HTTP ${response.status}` }));
+    const body = (await response.text().catch(() => '')).slice(0, 500);
+    throw fetchModelsError(
+      `HTTP ${response.status}`,
+      new Error(`GET ${modelsUrl} -> HTTP ${response.status} ${response.statusText}${body ? `\n${body}` : ''}`)
+    );
   }
 
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch {
-    throw new Error(t('apiError.llmFetchModelsFailed', { detail: 'invalid JSON response' }));
+  } catch (error) {
+    throw fetchModelsError('invalid JSON response', error);
   }
 
   const data = (payload as { data?: unknown })?.data;
   if (!Array.isArray(data)) {
-    throw new Error(t('apiError.llmFetchModelsFailed', { detail: 'unexpected response shape' }));
+    throw fetchModelsError(
+      'unexpected response shape',
+      new Error(`GET ${modelsUrl} 返回非 {data:[]} 结构: ${JSON.stringify(payload).slice(0, 500)}`)
+    );
   }
 
   const ids = data
