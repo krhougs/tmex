@@ -12,7 +12,7 @@ import { useTmuxStore } from '@/stores/tmux';
 import { useUIStore } from '@/stores/ui';
 import { buildTerminalLabel } from '@/utils/terminalMeta';
 import { useQuery } from '@tanstack/react-query';
-import type { AgentSessionDto, Device, StateSnapshotPayload } from '@tmex/shared';
+import type { Device, StateSnapshotPayload } from '@tmex/shared';
 import {
   CircleAlertIcon,
   ListTreeIcon,
@@ -147,24 +147,24 @@ interface BindingInfo {
 }
 
 function resolveBinding(
-  session: AgentSessionDto,
+  binding: { deviceId: string | null; paneId: string | null },
   snapshots: Record<string, StateSnapshotPayload | undefined>,
   devices: Device[] | undefined
 ): BindingInfo | null {
-  if (!session.deviceId || !session.paneId) {
+  if (!binding.deviceId || !binding.paneId) {
     return null;
   }
-  const deviceName = devices?.find((device) => device.id === session.deviceId)?.name ?? null;
-  const snapshot = snapshots[session.deviceId];
+  const deviceName = devices?.find((device) => device.id === binding.deviceId)?.name ?? null;
+  const snapshot = snapshots[binding.deviceId];
   if (!snapshot?.session) {
     return {
-      label: `${session.paneId}@${deviceName ?? '?'}`,
+      label: `${binding.paneId}@${deviceName ?? '?'}`,
       state: 'unknown',
       windowId: null,
     };
   }
   for (const window of snapshot.session.windows) {
-    const pane = window.panes.find((candidate) => candidate.id === session.paneId);
+    const pane = window.panes.find((candidate) => candidate.id === binding.paneId);
     if (pane) {
       return {
         label: buildTerminalLabel({
@@ -181,7 +181,7 @@ function resolveBinding(
     }
   }
   return {
-    label: `${session.paneId}@${deviceName ?? '?'}`,
+    label: `${binding.paneId}@${deviceName ?? '?'}`,
     state: 'invalid',
     windowId: null,
   };
@@ -289,8 +289,11 @@ export function AgentTab() {
     return extras.length > 0 ? [...merged, ...extras] : merged;
   }, [messages, inProgress, pendingConfirmations]);
 
-  const binding = activeSession
-    ? resolveBinding(activeSession, snapshots, devicesData?.devices)
+  // 草稿态（尚未创建 session）也显示绑定 chip：此时显示的是将要绑定的 pane
+  const bindingSource =
+    activeSession ?? (draft ? { deviceId: draft.deviceId, paneId: draft.paneId } : null);
+  const binding = bindingSource
+    ? resolveBinding(bindingSource, snapshots, devicesData?.devices)
     : null;
   const paneMismatch = Boolean(
     activeSession &&
@@ -390,18 +393,20 @@ export function AgentTab() {
   return (
     <div data-testid="agent-tab" className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-        {activeSession && binding ? (
+        {binding ? (
           <button
             type="button"
             data-testid="agent-binding-chip"
             data-binding-state={binding.state}
             className={cn(
               'border-border flex min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs',
-              binding.state === 'valid' ? 'hover:bg-muted cursor-pointer' : 'text-muted-foreground',
+              activeSession && binding.state === 'valid'
+                ? 'hover:bg-muted cursor-pointer'
+                : 'text-muted-foreground',
               binding.state === 'invalid' && 'opacity-60'
             )}
             onClick={handleBindingClick}
-            disabled={binding.state === 'invalid'}
+            disabled={!activeSession || binding.state === 'invalid'}
           >
             <TerminalIcon className="size-3 shrink-0" />
             <span className="min-w-0 truncate">{binding.label}</span>
