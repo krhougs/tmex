@@ -31,6 +31,40 @@ export function parsePaneScreenInfo(stdout: string): PaneScreenInfo {
   };
 }
 
+// Agent 实时读取的 pane 元信息：尺寸 + 光标 + alternate screen + 前台命令。
+// 与 PaneScreenInfo 分开，避免改动 history 回放链路。
+export interface PaneInfo {
+  cols: number;
+  rows: number;
+  cursorX: number | null;
+  cursorY: number | null;
+  alternateScreen: boolean;
+  currentCommand: string | null;
+}
+
+export const PANE_META_FORMAT =
+  '#{pane_width} #{pane_height} #{alternate_on} #{cursor_x} #{cursor_y} #{pane_current_command}';
+
+export function parsePaneMeta(stdout: string): PaneInfo {
+  const parts = stdout.trim().split(/\s+/);
+  const toInt = (value: string | undefined): number | null => {
+    if (value === undefined) {
+      return null;
+    }
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) || parsed < 0 ? null : parsed;
+  };
+  const command = parts[5]?.trim();
+  return {
+    cols: toInt(parts[0]) ?? 0,
+    rows: toInt(parts[1]) ?? 0,
+    alternateScreen: parts[2] === '1',
+    cursorX: toInt(parts[3]),
+    cursorY: toInt(parts[4]),
+    currentCommand: command && command.length > 0 ? command : null,
+  };
+}
+
 export function appendCursorRestore(history: string, info: PaneScreenInfo): string {
   const { cursorX, cursorY, paneHeight } = info;
   if (cursorX === null || cursorY === null || paneHeight === null || paneHeight < 1) {

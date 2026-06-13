@@ -21,6 +21,7 @@ function createStubConnectionRecorder() {
     renameWindowCalls: [] as Array<[string, string]>,
     setWindowStyleCalls: [] as string[],
     capturePaneTextCalls: [] as Array<[string, number | undefined]>,
+    getPaneInfoCalls: [] as string[],
     options: null as TmuxConnectionOptions | null,
   };
 
@@ -74,6 +75,17 @@ function createStubConnectionRecorder() {
     async capturePaneText(paneId, opts) {
       state.capturePaneTextCalls.push([paneId, opts?.historyLines]);
       return `stub-text:${paneId}:${opts?.historyLines ?? 0}`;
+    },
+    async getPaneInfo(paneId) {
+      state.getPaneInfoCalls.push(paneId);
+      return {
+        cols: 120,
+        rows: 40,
+        cursorX: 1,
+        cursorY: 2,
+        alternateScreen: false,
+        currentCommand: `cmd:${paneId}`,
+      };
     },
   };
 

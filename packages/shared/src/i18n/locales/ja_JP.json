@@ -266,6 +266,7 @@
       "applyTime": "申請時間",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
       "deviceConnectionError": "🔴 {{siteName}}：デバイス「{{deviceName}}」({{host}}) で接続エラー [{{category}}]\n{{error}}",
+      "agentCredentialWarning": "⚠️ {{siteName}}：Agent セッション「{{sessionTitle}}」のメッセージに認証情報が含まれている可能性があります（{{types}}）。LLM に送信され保存されるため、漏洩のリスクがあります。",
       "authSuccess": "✅ 承認されました。通知を受信できます。",
       "authPending": "⏳ 認証リクエストを受信しました。tmex 設定ページで承認してください。",
       "authFailed": "❌ 認証リクエストに失敗しました。管理者に連絡してください。",
@@ -506,7 +507,9 @@
         "title": "思考プロセス"
       },
       "toast": {
-        "errorTitle": "Agent「{{title}}」でエラー"
+        "errorTitle": "Agent「{{title}}」でエラー",
+        "credentialWarningTitle": "メッセージに認証情報が含まれる可能性",
+        "credentialWarningDescription": "{{types}} を検出しました。内容は変更されませんが、LLM に送信され保存されるため、漏洩のリスクがあります。"
       }
     },
     "window": {

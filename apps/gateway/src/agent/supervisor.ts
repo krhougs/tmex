@@ -6,9 +6,11 @@
 // 才能发起续跑（见 appendApprovalResponsesIfReady）。
 
 import { wsBorsh } from '@tmex/shared';
+import { getSiteSettings } from '../db';
 import {
   type AgentConfirmationRecord,
   type AgentMessageRecord,
+  type AgentSessionRecord,
   appendAgentMessage,
   decideAgentConfirmation,
   getAgentConfirmationById,
@@ -20,6 +22,8 @@ import {
   updateAgentSession,
 } from '../db/agent';
 import { t } from '../i18n';
+import { telegramService } from '../telegram/service';
+import { detectSecrets } from './secret-scan';
 import { AgentRun, type AgentRunDeps } from './run';
 import { type AgentWsHub, agentWsHub } from './ws-hub';
 
@@ -183,8 +187,49 @@ export class AgentSupervisor {
 
     const record = appendAgentMessage(sessionId, 'user', { role: 'user', content: text });
     this.broadcastPersisted(sessionId, record);
+    // 用户输入凭证检测：不改写内容（照常发 LLM + 落库），仅 UI + 推送告警数据可能泄露。
+    this.warnIfCredential(session, record, text);
     this.startRun(sessionId);
     return record;
+  }
+
+  private warnIfCredential(
+    session: AgentSessionRecord,
+    record: AgentMessageRecord,
+    text: string
+  ): void {
+    const matches = detectSecrets(text);
+    if (matches.length === 0) {
+      return;
+    }
+    const types = [...new Set(matches.map((m) => m.type))];
+    this.deps.hub.broadcastAgentEvent(
+      session.id,
+      wsBorsh.AGENT_EVENT_CREDENTIAL_WARNING,
+      { messageId: record.id, types },
+      0
+    );
+    void this.pushCredentialWarning(session, types);
+  }
+
+  private async pushCredentialWarning(
+    session: AgentSessionRecord,
+    types: string[]
+  ): Promise<void> {
+    try {
+      const settings = getSiteSettings();
+      if (!settings.enableTelegramNotificationPush) {
+        return;
+      }
+      const text = t('telegram.agentCredentialWarning', {
+        siteName: settings.siteName,
+        sessionTitle: session.title,
+        types: types.join(', '),
+      });
+      await telegramService.sendToAuthorizedChats({ text });
+    } catch (error) {
+      console.error('[agent-supervisor] credential warning push failed:', error);
+    }
   }
 
   async stopSession(sessionId: string): Promise<void> {

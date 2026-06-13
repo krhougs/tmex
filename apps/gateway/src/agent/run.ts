@@ -5,7 +5,14 @@
 import type { AgentEventPayloadMap, EventType, WebhookEvent } from '@tmex/shared';
 import { DEFAULT_AGENT_SESSION_TITLE, wsBorsh } from '@tmex/shared';
 import type { LanguageModel, ModelMessage, Tool, ToolSet } from 'ai';
-import { APICallError, RetryError, generateText, stepCountIs, streamText } from 'ai';
+import {
+  APICallError,
+  RetryError,
+  generateText,
+  stepCountIs,
+  streamText,
+  wrapLanguageModel,
+} from 'ai';
 import { getDeviceById, getSiteSettings } from '../db';
 import {
   type AgentSessionRecord,
@@ -20,7 +27,12 @@ import { eventNotifier } from '../events';
 import { t } from '../i18n';
 import { resolveLanguageModel, resolveProviderWebSearchTool } from '../llm/provider-registry';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
-import { buildAgentSystemPrompt, buildTitleGenerationPrompt } from './prompts';
+import { createRedactionMiddleware } from './redaction-middleware';
+import {
+  buildAgentSystemPrompt,
+  buildTitleGenerationPrompt,
+  collectAgentEnvironment,
+} from './prompts';
 import { type TerminalRuntimeLike, createTerminalTools } from './tools/terminal';
 import { createFetchUrlTool, createWebSearchTool } from './tools/web';
 import { agentWsHub } from './ws-hub';
@@ -295,15 +307,21 @@ export class AgentRun {
     const messages = applyMessageWindow(
       listAgentMessages(this.sessionId).map((record) => record.content as ModelMessage)
     );
-    const model = await this.deps.resolveModel(session.providerId, session.modelId);
+    const resolvedModel = await this.deps.resolveModel(session.providerId, session.modelId);
+    // 出站凭证消毒：包裹模型，在每次调 provider 前消毒 prompt 里的工具结果（机器来源内容）。
+    // 覆盖 run 内 tool-result 回喂与跨轮历史回放；落库仍是真实内容。
+    const model =
+      typeof resolvedModel === 'string'
+        ? resolvedModel
+        : wrapLanguageModel({ model: resolvedModel, middleware: createRedactionMiddleware() });
     const tools = await this.buildTools(session, runtime);
 
     const device = session.deviceId ? getDeviceById(session.deviceId) : null;
     const system = buildAgentSystemPrompt({
-      deviceName: device?.name ?? null,
       paneId: session.paneId,
       writeMode: session.writeMode,
       customSystemPrompt: session.systemPrompt,
+      environment: collectAgentEnvironment(device),
     });
 
     this.textBuffer = '';

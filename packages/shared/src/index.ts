@@ -151,6 +151,7 @@ export type {
   AgentMessagePersistedPayload,
   AgentErrorEventPayload,
   AgentTurnFinishedPayload,
+  AgentCredentialWarningPayload,
   WatchTriggeredPayload,
   WatchModelUnavailablePayload,
   WatchRuleErrorPayload,

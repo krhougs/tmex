@@ -4,6 +4,7 @@ import { type Tool, tool } from 'ai';
 import { z } from 'zod';
 import { decrypt } from '../../crypto';
 import { type AgentSettingsRecord, getAgentSettings } from '../../db/agent';
+import { wrapUntrusted } from './untrusted';
 
 const WEB_SEARCH_MAX_RESULTS = 8;
 const WEB_SEARCH_RESULT_MAX_BYTES = 8 * 1024;
@@ -346,10 +347,10 @@ export function createFetchUrlTool(options: CreateFetchUrlToolOptions = {}): Too
 
           if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {
             const text = await extractHtmlText(body);
-            return truncateUtf8(text, FETCH_URL_TEXT_MAX_BYTES);
+            return wrapUntrusted(truncateUtf8(text, FETCH_URL_TEXT_MAX_BYTES), 'web');
           }
 
-          return truncateUtf8(body, FETCH_URL_TEXT_MAX_BYTES);
+          return wrapUntrusted(truncateUtf8(body, FETCH_URL_TEXT_MAX_BYTES), 'web');
         }
         return `Fetch failed: too many redirects (>${FETCH_URL_MAX_REDIRECTS})`;
       } catch (error) {

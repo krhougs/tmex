@@ -15,6 +15,7 @@ export const AGENT_EVENT_CONFIRMATION_RESOLVED = 8;
 export const AGENT_EVENT_MESSAGE_PERSISTED = 9;
 export const AGENT_EVENT_ERROR = 10;
 export const AGENT_EVENT_TURN_FINISHED = 11;
+export const AGENT_EVENT_CREDENTIAL_WARNING = 12;
 
 // ========== WATCH_EVENT eventType (u8) ==========
 
@@ -120,6 +121,13 @@ export interface AgentTurnFinishedPayload {
   lastMessageSeq: number;
 }
 
+// AGENT_EVENT_CREDENTIAL_WARNING：用户消息疑似含凭证（不改写内容，仅告警数据可能泄露）
+export interface AgentCredentialWarningPayload {
+  messageId: string;
+  // 命中的凭证类型（private-key / api-token / device-secret 等），用于提示
+  types: string[];
+}
+
 // ========== Watch payload 类型 ==========
 
 // WATCH_EVENT_TRIGGERED
@@ -153,6 +161,7 @@ export interface AgentEventPayloadMap {
   [AGENT_EVENT_MESSAGE_PERSISTED]: AgentMessagePersistedPayload;
   [AGENT_EVENT_ERROR]: AgentErrorEventPayload;
   [AGENT_EVENT_TURN_FINISHED]: AgentTurnFinishedPayload;
+  [AGENT_EVENT_CREDENTIAL_WARNING]: AgentCredentialWarningPayload;
 }
 
 export interface WatchEventPayloadMap {

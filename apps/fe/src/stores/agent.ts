@@ -13,6 +13,7 @@ import type {
 import type {
   AgentConfirmationRequestPayload,
   AgentConfirmationResolvedPayload,
+  AgentCredentialWarningPayload,
   AgentErrorEventPayload,
   AgentMessagePersistedPayload,
   AgentReasoningDeltaPayload,
@@ -473,6 +474,18 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
     });
   };
 
+  const handleCredentialWarning = (
+    _sessionId: string,
+    payload: AgentCredentialWarningPayload
+  ): void => {
+    toast.warning(i18n.t('agent.toast.credentialWarningTitle'), {
+      description: i18n.t('agent.toast.credentialWarningDescription', {
+        types: payload.types.join(', '),
+      }),
+      duration: 10000,
+    });
+  };
+
   client.onMessage((msg) => {
     if (msg.kind !== wsBorsh.KIND_AGENT_EVENT) {
       return;
@@ -534,6 +547,9 @@ function setupClientHandlers(setState: SetState, getState: GetState): void {
         return;
       case wsBorsh.AGENT_EVENT_TURN_FINISHED:
         handleTurnFinished(sessionId, payload as AgentTurnFinishedPayload);
+        return;
+      case wsBorsh.AGENT_EVENT_CREDENTIAL_WARNING:
+        handleCredentialWarning(sessionId, payload as AgentCredentialWarningPayload);
         return;
       default:
         return;

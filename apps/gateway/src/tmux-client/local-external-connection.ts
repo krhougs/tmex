@@ -5,8 +5,11 @@ import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { connectionAlertNotifier } from '../push/connection-alerts';
 import { buildLocalTmuxEnv, getLocalShellPath } from '../tmux/local-shell-path';
 import {
+  PANE_META_FORMAT,
   PANE_SCREEN_INFO_FORMAT,
+  type PaneInfo,
   appendCursorRestore,
+  parsePaneMeta,
   parsePaneScreenInfo,
 } from './capture-history';
 import type { TmuxConnectionOptions } from './connection-types';
@@ -335,6 +338,18 @@ export class LocalExternalTmuxConnection {
       argv.push('-S', `-${historyLines}`);
     }
     return (await this.runTmux(argv, 'silent')).stdout;
+  }
+
+  // 按需读取 pane 实时元信息（尺寸/光标/alternate/前台命令），供 Agent 理解 TUI。
+  async getPaneInfo(paneId: string): Promise<PaneInfo> {
+    if (!this.connected) {
+      throw new Error(`tmux connection not available: ${this.deviceId}`);
+    }
+    const { stdout } = await this.runTmux(
+      ['display-message', '-p', '-t', paneId, PANE_META_FORMAT],
+      'silent'
+    );
+    return parsePaneMeta(stdout);
   }
 
   private async ensureSession(): Promise<void> {

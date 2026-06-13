@@ -266,6 +266,7 @@
       "applyTime": "申请时间",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
       "deviceConnectionError": "🔴 {{siteName}}：设备「{{deviceName}}」({{host}}) 连接异常 [{{category}}]\n{{error}}",
+      "agentCredentialWarning": "⚠️ {{siteName}}：Agent 会话「{{sessionTitle}}」的一条消息疑似包含凭证（{{types}}）。该内容将发送至 LLM 并存储，存在泄露风险。",
       "authSuccess": "✅ 已授权，可接收通知。",
       "authPending": "⏳ 已收到授权申请，请在 tmex 设置页审批。",
       "authFailed": "❌ 授权申请失败，请联系管理员。",
@@ -506,7 +507,9 @@
         "title": "思考过程"
       },
       "toast": {
-        "errorTitle": "Agent“{{title}}”出错"
+        "errorTitle": "Agent“{{title}}”出错",
+        "credentialWarningTitle": "消息疑似包含凭证",
+        "credentialWarningDescription": "检测到 {{types}}。内容不会被修改，但会发送至 LLM 并存储，存在泄露风险。"
       }
     },
     "window": {

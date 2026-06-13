@@ -154,6 +154,16 @@ function createHarness(options: HarnessOptions): TestHarness {
       }
       return options.screen ?? 'screen line 1\nscreen line 2';
     },
+    async getPaneInfo() {
+      return {
+        cols: 80,
+        rows: 24,
+        cursorX: 0,
+        cursorY: 0,
+        alternateScreen: false,
+        currentCommand: 'bash',
+      };
+    },
   };
 
   const deps: Partial<AgentRunDeps> = {

@@ -1,6 +1,7 @@
 import type { StateSnapshotPayload } from '@tmex/shared';
 
 import { getDeviceById } from '../db';
+import type { PaneInfo } from './capture-history';
 import type { TmuxConnectionOptions } from './connection-types';
 import type { TmuxEvent } from './events';
 import { LocalExternalTmuxConnection } from './local-external-connection';
@@ -21,6 +22,7 @@ export interface DeviceSessionRuntimeConnection {
   renameWindow(windowId: string, name: string): void;
   setWindowStyle(style: string): void;
   capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string>;
+  getPaneInfo(paneId: string): Promise<PaneInfo>;
 }
 
 export interface DeviceSessionRuntimeListener {
@@ -180,6 +182,10 @@ export class DeviceSessionRuntime {
 
   async capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string> {
     return this.connection.capturePaneText(paneId, opts);
+  }
+
+  async getPaneInfo(paneId: string): Promise<PaneInfo> {
+    return this.connection.getPaneInfo(paneId);
   }
 
   private broadcast(action: (listener: DeviceSessionRuntimeListener) => void): void {

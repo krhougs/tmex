@@ -472,4 +472,80 @@ describe('LocalExternalTmuxConnection integration', () => {
     }
   }, 20_000);
 
+  // getPaneInfo 同样走独立临时 socket，校验实时尺寸/前台命令。
+  test('getPaneInfo reports live cols/rows and foreground command', async () => {
+    const socketName = `tmex-test-paneinfo-${Date.now()}`;
+    const sessionName = 'tmex-pane-info';
+
+    execSync(
+      `tmux -L ${socketName} new-session -d -x 100 -y 30 -s ${sessionName} "sh -lc 'exec sh'"`,
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    const runOnSocket = async (argv: string[]) => {
+      const subprocess = Bun.spawn(['tmux', '-L', socketName, ...argv.slice(1)], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+        subprocess.exited,
+      ]);
+      return { stdout, stderr, exitCode };
+    };
+
+    const snapshots: StateSnapshotPayload[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: (payload) => {
+          snapshots.push(payload);
+        },
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createLocalDevice(sessionName),
+        run: runOnSocket,
+        ensureGhosttyTerminfo: async () => false,
+        enableSubscription: false,
+      }
+    );
+
+    try {
+      await connection.connect();
+      const snapshot = await waitFor(() => snapshots.at(-1)?.session ?? null);
+      const paneId = snapshot.windows[0]?.panes[0]?.id ?? null;
+      expect(paneId).toBeTruthy();
+      if (!paneId) {
+        throw new Error('snapshot missing pane');
+      }
+
+      const info = await connection.getPaneInfo(paneId);
+      expect(info.cols).toBe(100);
+      expect(info.rows).toBeGreaterThan(0);
+      expect(info.rows).toBeLessThanOrEqual(30);
+      expect(info.alternateScreen).toBe(false);
+      expect(info.currentCommand).toBeTruthy();
+      expect(typeof info.cursorX).toBe('number');
+
+      connection.disconnect();
+      await expect(connection.getPaneInfo(paneId)).rejects.toThrow(
+        /tmux connection not available/
+      );
+    } finally {
+      connection.disconnect();
+      try {
+        execSync(`tmux -L ${socketName} kill-server`, { stdio: 'ignore' });
+      } catch {
+        // server 已退出则忽略
+      }
+      execSync(`rm -f "\${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${socketName}"`, { stdio: 'ignore' });
+    }
+  }, 20_000);
+
 });

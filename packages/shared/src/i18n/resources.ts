@@ -272,6 +272,7 @@ export const I18N_RESOURCES = {
       "applyTime": "Application Time",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
       "deviceConnectionError": "🔴 {{siteName}}: Connection error on device \"{{deviceName}}\" ({{host}}) [{{category}}]\n{{error}}",
+      "agentCredentialWarning": "⚠️ {{siteName}}: A message in agent session \"{{sessionTitle}}\" appears to contain credentials ({{types}}). It will be sent to the LLM and stored — risk of leakage.",
       "authSuccess": "✅ Authorized. You will now receive notifications.",
       "authPending": "⏳ Authorization request received. Please approve in tmex settings.",
       "authFailed": "❌ Authorization request failed. Please contact administrator.",
@@ -512,7 +513,9 @@ export const I18N_RESOURCES = {
         "title": "Reasoning"
       },
       "toast": {
-        "errorTitle": "Agent \"{{title}}\" error"
+        "errorTitle": "Agent \"{{title}}\" error",
+        "credentialWarningTitle": "Message may contain credentials",
+        "credentialWarningDescription": "Detected {{types}}. The content is not modified, but it will be sent to the LLM and stored — risk of leakage."
       }
     },
     "window": {
@@ -912,6 +915,7 @@ export const I18N_RESOURCES = {
       "applyTime": "申请时间",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
       "deviceConnectionError": "🔴 {{siteName}}：设备「{{deviceName}}」({{host}}) 连接异常 [{{category}}]\n{{error}}",
+      "agentCredentialWarning": "⚠️ {{siteName}}：Agent 会话「{{sessionTitle}}」的一条消息疑似包含凭证（{{types}}）。该内容将发送至 LLM 并存储，存在泄露风险。",
       "authSuccess": "✅ 已授权，可接收通知。",
       "authPending": "⏳ 已收到授权申请，请在 tmex 设置页审批。",
       "authFailed": "❌ 授权申请失败，请联系管理员。",
@@ -1152,7 +1156,9 @@ export const I18N_RESOURCES = {
         "title": "思考过程"
       },
       "toast": {
-        "errorTitle": "Agent“{{title}}”出错"
+        "errorTitle": "Agent“{{title}}”出错",
+        "credentialWarningTitle": "消息疑似包含凭证",
+        "credentialWarningDescription": "检测到 {{types}}。内容不会被修改，但会发送至 LLM 并存储，存在泄露风险。"
       }
     },
     "window": {
@@ -1552,6 +1558,7 @@ export const I18N_RESOURCES = {
       "applyTime": "申請時間",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
       "deviceConnectionError": "🔴 {{siteName}}：デバイス「{{deviceName}}」({{host}}) で接続エラー [{{category}}]\n{{error}}",
+      "agentCredentialWarning": "⚠️ {{siteName}}：Agent セッション「{{sessionTitle}}」のメッセージに認証情報が含まれている可能性があります（{{types}}）。LLM に送信され保存されるため、漏洩のリスクがあります。",
       "authSuccess": "✅ 承認されました。通知を受信できます。",
       "authPending": "⏳ 認証リクエストを受信しました。tmex 設定ページで承認してください。",
       "authFailed": "❌ 認証リクエストに失敗しました。管理者に連絡してください。",
@@ -1792,7 +1799,9 @@ export const I18N_RESOURCES = {
         "title": "思考プロセス"
       },
       "toast": {
-        "errorTitle": "Agent「{{title}}」でエラー"
+        "errorTitle": "Agent「{{title}}」でエラー",
+        "credentialWarningTitle": "メッセージに認証情報が含まれる可能性",
+        "credentialWarningDescription": "{{types}} を検出しました。内容は変更されませんが、LLM に送信され保存されるため、漏洩のリスクがあります。"
       }
     },
     "window": {

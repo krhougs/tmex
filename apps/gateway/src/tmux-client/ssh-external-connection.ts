@@ -6,8 +6,11 @@ import { decryptWithContext } from '../crypto';
 import { getDeviceById, updateDeviceRuntimeStatus } from '../db';
 import { resolveSshAgentSocket, resolveSshUsername } from '../tmux/ssh-auth';
 import {
+  PANE_META_FORMAT,
   PANE_SCREEN_INFO_FORMAT,
+  type PaneInfo,
   appendCursorRestore,
+  parsePaneMeta,
   parsePaneScreenInfo,
 } from './capture-history';
 import { joinShellArgs, quoteShellArg } from './command-builder';
@@ -298,6 +301,19 @@ export class SshExternalTmuxConnection {
       argv.push('-S', `-${historyLines}`);
     }
     return (await this.runTmux(argv, 'silent', 30000)).stdout;
+  }
+
+  // 同 local 版本：按需读取 pane 实时元信息（尺寸/光标/alternate/前台命令）。
+  async getPaneInfo(paneId: string): Promise<PaneInfo> {
+    if (!this.connected) {
+      throw new Error(`tmux connection not available: ${this.deviceId}`);
+    }
+    const { stdout } = await this.runTmux(
+      ['display-message', '-p', '-t', paneId, PANE_META_FORMAT],
+      'silent',
+      30000
+    );
+    return parsePaneMeta(stdout);
   }
 
   private async connectSshClient(): Promise<void> {

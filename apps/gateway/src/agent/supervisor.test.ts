@@ -144,6 +144,16 @@ function createSupervisorHarness(options: {
     async capturePaneText() {
       return 'captured screen';
     },
+    async getPaneInfo() {
+      return {
+        cols: 80,
+        rows: 24,
+        cursorX: 0,
+        cursorY: 0,
+        alternateScreen: false,
+        currentCommand: 'bash',
+      };
+    },
   };
 
   const hub: SupervisorHarness['hub'] = {
@@ -241,6 +251,46 @@ describe('AgentSupervisor - 互斥与基本流程', () => {
     // run 结束后可再次发消息
     const second = harness.supervisor.submitUserMessage(harness.session.id, 'second');
     expect(second.seq).toBeGreaterThan(record.seq);
+    await harness.waitForIdle();
+  });
+
+  test('用户消息疑似含凭证时广播 CREDENTIAL_WARNING（内容不改写）', async () => {
+    const mock = createMockChatServer(() =>
+      slowSseResponse([chunk({ role: 'assistant', content: 'ok' }), chunk({}, 'stop')], 60)
+    );
+    servers.push(mock.server);
+
+    const harness = createSupervisorHarness({ baseUrl: mock.baseUrl });
+    await harness.supervisor.start();
+
+    const text = 'token is ghp_0123456789abcdefghijABCDEFGHIJ0123 please use it';
+    const record = harness.supervisor.submitUserMessage(harness.session.id, text);
+    // 内容原样落库，未被消毒
+    expect(record.content).toEqual({ role: 'user', content: text });
+
+    const warnings = harness.broadcasts.filter(
+      (b) => b.eventType === wsBorsh.AGENT_EVENT_CREDENTIAL_WARNING
+    );
+    expect(warnings).toHaveLength(1);
+    const payload = warnings[0].payload as { messageId: string; types: string[] };
+    expect(payload.messageId).toBe(record.id);
+    expect(payload.types).toContain('api-token');
+
+    await harness.waitForIdle();
+  });
+
+  test('普通用户消息不广播 CREDENTIAL_WARNING', async () => {
+    const mock = createMockChatServer(() =>
+      slowSseResponse([chunk({ role: 'assistant', content: 'ok' }), chunk({}, 'stop')], 60)
+    );
+    servers.push(mock.server);
+
+    const harness = createSupervisorHarness({ baseUrl: mock.baseUrl });
+    await harness.supervisor.start();
+    harness.supervisor.submitUserMessage(harness.session.id, 'list files in current dir');
+    expect(
+      harness.broadcasts.filter((b) => b.eventType === wsBorsh.AGENT_EVENT_CREDENTIAL_WARNING)
+    ).toHaveLength(0);
     await harness.waitForIdle();
   });
 

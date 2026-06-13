@@ -303,7 +303,10 @@ describe('fetch_url', () => {
         { url: `http://127.0.0.1:${server.port}/file.txt` },
         execOptions
       )) as string;
-      expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(16 * 1024 + 32);
+      // 输出被不可信标记包裹；正文（去掉首尾标记行）仍截断到 16KB
+      expect(output).toContain('UNTRUSTED FETCHED WEB CONTENT');
+      const body = output.split('\n').slice(1, -1).join('\n');
+      expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(16 * 1024 + 32);
       expect(output).toContain('[truncated]');
     } finally {
       delete process.env.TMEX_AGENT_ALLOW_PRIVATE_FETCH;

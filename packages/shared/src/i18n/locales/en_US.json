@@ -266,6 +266,7 @@
       "applyTime": "Application Time",
       "gatewayOnline": "🟢 Gateway online @ {{siteName}}",
       "deviceConnectionError": "🔴 {{siteName}}: Connection error on device \"{{deviceName}}\" ({{host}}) [{{category}}]\n{{error}}",
+      "agentCredentialWarning": "⚠️ {{siteName}}: A message in agent session \"{{sessionTitle}}\" appears to contain credentials ({{types}}). It will be sent to the LLM and stored — risk of leakage.",
       "authSuccess": "✅ Authorized. You will now receive notifications.",
       "authPending": "⏳ Authorization request received. Please approve in tmex settings.",
       "authFailed": "❌ Authorization request failed. Please contact administrator.",
@@ -506,7 +507,9 @@
         "title": "Reasoning"
       },
       "toast": {
-        "errorTitle": "Agent \"{{title}}\" error"
+        "errorTitle": "Agent \"{{title}}\" error",
+        "credentialWarningTitle": "Message may contain credentials",
+        "credentialWarningDescription": "Detected {{types}}. The content is not modified, but it will be sent to the LLM and stored — risk of leakage."
       }
     },
     "window": {
