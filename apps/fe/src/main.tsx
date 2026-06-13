@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { WatchEventsInit } from '@/components/watch/watch-events-init';
 import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
+import { useUIStore } from '@/stores/ui';
 
 function applyInitialTheme(): void {
   try {
@@ -45,13 +46,25 @@ const queryClient = new QueryClient({
 type PageModule = Record<string, any>;
 
 // iOS 26+ standalone: Safari 从 body 背景色推导状态栏颜色。
+// Android Chrome: 从 <meta name="theme-color"> 读取，支持运行时动态修改。
 // 侧边栏（mobile Sheet）展开时切到 --sidebar，关闭时回到 --background。
 function StatusBarSync() {
   const { openMobile } = useSidebar();
+  const theme = useUIStore((state) => state.theme);
 
   useEffect(() => {
-    document.body.style.backgroundColor = openMobile ? 'var(--sidebar)' : 'var(--background)';
-  }, [openMobile]);
+    const cssVar = openMobile ? '--sidebar' : '--background';
+    document.body.style.backgroundColor = `var(${cssVar})`;
+
+    const updateMeta = () => {
+      const computed = getComputedStyle(document.body).backgroundColor;
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute('content', computed);
+    };
+
+    requestAnimationFrame(updateMeta);
+  }, [openMobile, theme]);
 
   return null;
 }
