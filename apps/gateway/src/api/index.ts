@@ -646,7 +646,7 @@ async function handleGetManifest(method: 'GET' | 'HEAD'): Promise<Response> {
         purpose: 'any',
       },
       {
-        src: '/tmex.png',
+        src: '/tmex-maskable.png',
         sizes: '1024x1024',
         type: 'image/png',
         purpose: 'maskable',
