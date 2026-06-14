@@ -173,6 +173,11 @@ function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
   return payload;
 }
 
+// 合法 SSH 端口：1–65535 的整数（清空输入会变成 NaN，视为非法）
+function isValidSshPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 // SSH 设备：host/端口/用户名/ssh config 在创建与编辑时均为强校验必填项。
 // 返回首个未通过校验的 i18n key，全部通过返回 null。
 function validateDeviceForm(values: DeviceFormValues): string | null {
@@ -182,7 +187,7 @@ function validateDeviceForm(values: DeviceFormValues): string | null {
   if (!values.host.trim()) {
     return 'validation.hostRequired';
   }
-  if (!Number.isFinite(values.port) || values.port < 1) {
+  if (!isValidSshPort(values.port)) {
     return 'validation.portRequired';
   }
   if (!values.username.trim()) {
@@ -702,19 +707,21 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                     </div>
 
                     <div className="space-y-1.5">
-                      {fieldLabel(sshPortInputId, t('device.port'))}
+                      {fieldLabel(sshPortInputId, t('device.port'), true)}
                       <Input
                         id={sshPortInputId}
                         type="number"
-                        value={formData.port}
-                        onChange={(e) =>
+                        value={Number.isNaN(formData.port) ? '' : formData.port}
+                        onChange={(e) => {
+                          const raw = e.target.value;
                           setFormData((d) => ({
                             ...d,
-                            port: Number.parseInt(e.target.value || '22', 10),
-                          }))
-                        }
+                            port: raw === '' ? Number.NaN : Number.parseInt(raw, 10),
+                          }));
+                        }}
                         min={1}
                         max={65535}
+                        aria-invalid={attempted && !isValidSshPort(formData.port)}
                       />
                     </div>
 
