@@ -228,14 +228,16 @@ chmod +x scripts/health-check.sh
 完整发布说明见：
 
 - [tmex-cli 发布流程](docs/release/2026041300-cli-release-process.md)
+- [发版 changelog 与版本注入（设计说明）](docs/release/2026061406-release-changelog-flow.md)
 
-发布前必须在仓库根目录执行**全量重新编译**：
+发布前在仓库根目录**先 bump 版本 + 生成 changelog，再全量重新编译**（版本号在 build 期烧进 bundle，顺序不能反）：
 
 ```bash
 bun install
+bun run release:tmex <newVersion>   # bump version + 生成仅含当前版本的 CHANGELOG（随后审阅）
 bun run build
 bun run test:tmex
-npm pack --dry-run --workspace tmex-cli
+npm pack --dry-run --workspace tmex-cli   # 应含 dist / resources / CHANGELOG.md
 ```
 
 不要只执行 `bun run --filter tmex-cli build`，该命令不能保证共享 i18n 与前端静态资源都被重新生成。
