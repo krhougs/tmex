@@ -81,7 +81,7 @@ function ChatInput({
         }}
         placeholder={t('agent.panel.inputPlaceholder')}
         disabled={disabled}
-        className="max-h-40 min-h-[4.5rem] w-full resize-none border-transparent bg-transparent text-[13px] shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+        className="max-h-40 min-h-[4.5rem] w-full resize-none border-transparent bg-transparent p-3 text-[13px] shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
         rows={3}
       />
       <div className="flex min-w-0 flex-wrap items-center gap-2 px-2.5 pb-2.5">
