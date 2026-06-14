@@ -24,11 +24,13 @@ import {
   type SelectionState,
 } from './selection-model';
 import {
+  hasPlatformModifier,
   isCopyShortcut,
   isPasteShortcut,
   writeSelectionToClipboard,
   writeSelectionToCopyEvent,
 } from './selection-clipboard';
+import { detectLinksInWrappedLines } from './link-detector';
 import {
   getGhosttyBindings,
   keyboardEventToGhosttyMods,
@@ -213,6 +215,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private readonly renderState: GhosttyRenderStateResources;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly selectionListeners = new Set<(text: string | null) => void>();
+  private readonly linkListeners = new Set<(url: string) => void>();
+  private linkCursorActive = false;
   private lastNotifiedSelectionText: string | null = null;
   private readonly addons = new Set<{ dispose: () => void }>();
   private screenElement: HTMLDivElement | null = null;
@@ -438,6 +442,15 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     return {
       dispose: () => {
         this.selectionListeners.delete(callback);
+      },
+    };
+  }
+
+  onLinkActivated(callback: (url: string) => void): TerminalDisposable {
+    this.linkListeners.add(callback);
+    return {
+      dispose: () => {
+        this.linkListeners.delete(callback);
       },
     };
   }
@@ -806,6 +819,17 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         return;
       }
 
+      // 带平台主修饰键(Mac Cmd / 其它 Ctrl)点击链接 → 打开，不进入文本选择。
+      // 置于 mouseReporting 分支之后，鼠标上报应用(vim/htop)优先，不误触发。
+      if (event.button === 0 && hasPlatformModifier(event)) {
+        const url = this.linkAtClient(event.clientX, event.clientY);
+        if (url) {
+          this.emitLinkActivated(url);
+          event.preventDefault();
+          return;
+        }
+      }
+
       if (event.button !== 0) {
         return;
       }
@@ -813,6 +837,24 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       this.mouseDragActive = true;
       this.beginPointerSelection(event);
       event.preventDefault();
+    });
+
+    selectSurface.addEventListener('mousemove', (event) => {
+      if (!(event instanceof MouseEvent) || this.mouseDragActive) {
+        return;
+      }
+      if (this.getInputRoutingState().mouseReporting) {
+        this.setLinkCursor(false);
+        return;
+      }
+      // 仅在按住修饰键时扫描链接，普通移动只做一次廉价的修饰键判断。
+      this.setLinkCursor(
+        hasPlatformModifier(event) && this.linkAtClient(event.clientX, event.clientY) !== null
+      );
+    });
+
+    selectSurface.addEventListener('mouseleave', () => {
+      this.setLinkCursor(false);
     });
 
     root.addEventListener(
@@ -1595,6 +1637,60 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     return visibleRow
       ? buildLineModel(visibleRow.cells, visibleRow.wrap)
       : EMPTY_SELECTION_LINE_MODEL;
+  }
+
+  private emitLinkActivated(url: string): void {
+    for (const listener of this.linkListeners) {
+      listener(url);
+    }
+  }
+
+  private setLinkCursor(active: boolean): void {
+    if (this.linkCursorActive === active) {
+      return;
+    }
+    this.linkCursorActive = active;
+    if (this.screenElement) {
+      this.screenElement.style.cursor = active ? 'pointer' : '';
+    }
+  }
+
+  private linkAtClient(clientX: number, clientY: number): string | null {
+    const point = this.hitTest(clientX, clientY);
+    if (!point) {
+      return null;
+    }
+    return this.linkAtPoint(point.line, point.col);
+  }
+
+  // 命中检测：把目标行所在的软换行逻辑行整体取出做链接识别，
+  // 再判断 (line, col) 是否落在某个链接的列区间内。越界行 getLineModel 返回 EMPTY
+  // (wrappedToNext=false)，使前后扩展在视口边界自然停止。
+  private linkAtPoint(line: number, col: number): string | null {
+    if (this.getLineModel(line).colChars.length === 0) {
+      return null;
+    }
+    let startLine = line;
+    while (this.getLineModel(startLine - 1).wrappedToNext) {
+      startLine -= 1;
+    }
+    let endLine = line;
+    while (this.getLineModel(endLine).wrappedToNext) {
+      endLine += 1;
+    }
+
+    const models: SelectionLineModel[] = [];
+    for (let l = startLine; l <= endLine; l += 1) {
+      models.push(this.getLineModel(l));
+    }
+
+    const targetIndex = line - startLine;
+    for (const link of detectLinksInWrappedLines(models)) {
+      if (link.lineIndex === targetIndex && col >= link.startCol && col <= link.endCol) {
+        return link.url;
+      }
+    }
+    return null;
   }
 
   private getSelectionText(): string | null {

@@ -528,6 +528,15 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       paneId,
     ]);
 
+    // 终端内链接（Mac Cmd+Click / 其它 Ctrl+Click）在新标签页打开；与连接状态无关。
+    useEffect(() => {
+      if (!instance?.onLinkActivated) return;
+      const disposable = instance.onLinkActivated((url) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      });
+      return () => disposable.dispose();
+    }, [instance]);
+
     useEffect(() => {
       if (!instance?.onSelectionChange) {
         setHasSelection(false);

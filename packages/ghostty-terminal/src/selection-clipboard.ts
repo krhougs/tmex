@@ -14,12 +14,22 @@ export function isMacPlatform(): boolean {
   return /mac os x/iu.test(navigator.userAgent ?? '');
 }
 
-export function hasCopyModifier(event: KeyboardEvent): boolean {
+// 平台主修饰键：Mac 用 Cmd(meta)，其它平台用 Ctrl；按下 Alt 时视为不命中。
+// 同时适用于键盘与鼠标事件（二者都带 metaKey/ctrlKey/altKey）。
+export function hasPlatformModifier(event: {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}): boolean {
   if (event.altKey) {
     return false;
   }
 
   return Boolean(isMacPlatform() ? event.metaKey : event.ctrlKey);
+}
+
+export function hasCopyModifier(event: KeyboardEvent): boolean {
+  return hasPlatformModifier(event);
 }
 
 export function isCopyShortcut(event: KeyboardEvent): boolean {
