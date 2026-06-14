@@ -207,6 +207,10 @@ function isTmexInjectedEnvKey(key: string): boolean {
   return key.startsWith('TMEX_') || TMEX_INJECTED_ENV_EXACT.has(key);
 }
 
+function isUtf8Locale(value: string | undefined): boolean {
+  return typeof value === 'string' && /utf-?8/i.test(value);
+}
+
 export function buildLocalTmuxEnv(
   resolvedPath: string | null,
   baseEnv: NodeJS.ProcessEnv = process.env
@@ -223,8 +227,11 @@ export function buildLocalTmuxEnv(
     nextEnv.PATH = resolvedPath;
   }
 
-  if (!nextEnv.LC_CTYPE && !nextEnv.LC_ALL && !nextEnv.LANG) {
-    nextEnv.LC_CTYPE = 'en_US.UTF-8';
+  if (
+    !isUtf8Locale(nextEnv.LC_ALL) &&
+    (nextEnv.LC_ALL || (!isUtf8Locale(nextEnv.LC_CTYPE) && !isUtf8Locale(nextEnv.LANG)))
+  ) {
+    nextEnv.LC_ALL = 'C.UTF-8';
   }
 
   return nextEnv;

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
 import type { Client, ClientChannel, ConnectConfig } from 'ssh2';
@@ -192,6 +192,18 @@ function setupCommandChannel(
       Buffer.from(`${response.stdout}\x1eTMEX_END ${commandId} ${response.exitCode}\x1e\n`)
     );
   };
+}
+
+async function waitFor<T>(fn: () => T | null | undefined, timeoutMs = 3000): Promise<T> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = fn();
+    if (value !== null && value !== undefined) {
+      return value;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error('waitFor timeout');
 }
 
 function createCallbacks(overrides: Partial<Parameters<typeof collectCallbacks>[0]> = {}) {
@@ -388,6 +400,61 @@ describe('SshExternalTmuxConnection', () => {
     connection.disconnect();
   });
 
+  test('drops invalid snapshot rows instead of emitting composite tmux ids', async () => {
+    const session = 'tmex-ssh-invalid-snapshot';
+    const snapshots: StateSnapshotPayload[] = [];
+    const fakeClient = new FakeClient();
+    setupCommandChannel(fakeClient, session, {
+      overrides: (payload) => {
+        if (payload.includes(`'has-session' '-t' '${session}'`)) {
+          return { stdout: "can't find session: tmex-ssh-invalid-snapshot\n", exitCode: 1 };
+        }
+        if (payload.includes(`'new-session' '-d' '-c' '/home/alice' '-s' '${session}'`)) {
+          return { stdout: '', exitCode: 0 };
+        }
+        if (
+          payload.includes(
+            `'display-message' '-p' '-t' '${session}' '#{session_id}|#{session_name}'`
+          )
+        ) {
+          return { stdout: `$1_${session}\n`, exitCode: 0 };
+        }
+        if (
+          payload.includes(
+            `'list-windows' '-t' '${session}' '-F' '#{window_id}|#{window_index}|#{window_name}|#{window_active}'`
+          )
+        ) {
+          return { stdout: '@0_0_bash_1\n', exitCode: 0 };
+        }
+        if (
+          payload.includes(
+            `'list-panes' '-s' '-t' '${session}' '-F' '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}'`
+          )
+        ) {
+          return { stdout: '%1_@0_0_bash_1_80_24_1_node\n', exitCode: 0 };
+        }
+        return null;
+      },
+    });
+
+    const connection = new SshExternalTmuxConnection(
+      createCallbacks({ onSnapshot: (payload) => snapshots.push(payload) }),
+      {
+        getDevice: () => createDevice(session),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    await connection.connect();
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toEqual({ deviceId: 'device-ssh', session: null });
+    expect(JSON.stringify(snapshots[0])).not.toContain('@0_0_bash_1');
+
+    connection.disconnect();
+  });
+
   test('connect bootstraps remote tmux over dedicated command and control channels', async () => {
     const fakeClient = new FakeClient();
     setupCommandChannel(fakeClient, 'tmex-ssh-snapshot', {});
@@ -449,6 +516,110 @@ describe('SshExternalTmuxConnection', () => {
     ).toBe(false);
 
     connection.disconnect();
+  });
+
+  test('selectWindow treats missing window targets as benign and refreshes snapshot', async () => {
+    const session = 'tmex-ssh-select-missing';
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    const errors: Error[] = [];
+    setupCommandChannel(fakeClient, session, {
+      record: writes,
+      overrides: (payload) => {
+        if (payload.includes("'select-window' '-t' '@404'")) {
+          return { stdout: "can't find window: @404\n", exitCode: 1 };
+        }
+        return null;
+      },
+    });
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        ...createCallbacks({}),
+        onError: (error) => {
+          errors.push(error);
+        },
+      },
+      {
+        getDevice: () => createDevice(session),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    await connection.connect();
+    writes.length = 0;
+
+    connection.selectWindow('@404');
+    await waitFor(() =>
+      errors.length > 0 ||
+      writes.some((payload) =>
+        payload.includes(`'display-message' '-p' '-t' '${session}' '#{session_id}|#{session_name}'`)
+      )
+        ? true
+        : null
+    );
+
+    expect(errors).toEqual([]);
+    expect(writes.some((payload) => payload.includes("'select-window' '-t' '@404'"))).toBe(true);
+    expect(
+      writes.some((payload) =>
+        payload.includes(`'display-message' '-p' '-t' '${session}' '#{session_id}|#{session_name}'`)
+      )
+    ).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('logs tmux command context when a non-target-missing command fails', async () => {
+    const session = 'tmex-ssh-command-context';
+    const fakeClient = new FakeClient();
+    const errors: Error[] = [];
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    setupCommandChannel(fakeClient, session, {
+      overrides: (payload) => {
+        if (payload.includes("'rename-window' '-t' '@1' 'broken'")) {
+          return { stdout: 'rename failed\n', exitCode: 1 };
+        }
+        return null;
+      },
+    });
+
+    const connection = new SshExternalTmuxConnection(
+      {
+        ...createCallbacks({}),
+        onError: (error) => {
+          errors.push(error);
+        },
+      },
+      {
+        getDevice: () => createDevice(session),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    try {
+      await connection.connect();
+      connection.renameWindow('@1', 'broken');
+      await waitFor(() => (errors.length > 0 ? true : null));
+
+      expect(
+        warn.mock.calls.some((call) => {
+          const text = call.map(String).join(' ');
+          return (
+            text.includes('[ssh] tmux command failed') &&
+            text.includes('device-ssh') &&
+            text.includes(session) &&
+            text.includes('rename-window -t @1 broken') &&
+            text.includes('exitCode=1')
+          );
+        })
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+      connection.disconnect();
+    }
   });
 
   test('capturePaneText runs plain capture-pane and fails fast when unavailable', async () => {

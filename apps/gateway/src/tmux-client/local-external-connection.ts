@@ -20,6 +20,15 @@ import {
 import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
 import type { PaneStreamNotification } from './pane-stream-parser';
+import {
+  SNAPSHOT_FIELD_SEPARATOR,
+  formatSnapshotRowForLog,
+  isTmuxPaneId,
+  isTmuxSessionId,
+  isTmuxWindowId,
+  parseSnapshotInteger,
+  splitSnapshotFields,
+} from './snapshot-format';
 import { TmuxTargetMissingError, isTargetMissingMessage } from './target-missing';
 import { isControlModeSupported, parseTmuxVersion } from './tmux-version';
 import { resolveTmuxWindowStyle } from './window-style';
@@ -262,7 +271,7 @@ export class LocalExternalTmuxConnection {
       return;
     }
 
-    void this.runAndRefresh(['select-window', '-t', windowId]).catch((error) => {
+    void this.runAndRefresh(['select-window', '-t', windowId], true).catch((error) => {
       this.callbacks.onError(error);
     });
   }
@@ -818,14 +827,16 @@ export class LocalExternalTmuxConnection {
         '-p',
         '-t',
         this.sessionName,
-        '#{session_id}\t#{session_name}',
+        ['#{session_id}', '#{session_name}'].join(SNAPSHOT_FIELD_SEPARATOR),
       ]),
       this.runTmuxAllowFailure([
         'list-windows',
         '-t',
         this.sessionName,
         '-F',
-        '#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
+        ['#{window_id}', '#{window_index}', '#{window_name}', '#{window_active}'].join(
+          SNAPSHOT_FIELD_SEPARATOR
+        ),
       ]),
       this.runTmuxAllowFailure([
         'list-panes',
@@ -833,7 +844,17 @@ export class LocalExternalTmuxConnection {
         '-t',
         this.sessionName,
         '-F',
-        '#{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{window_active}\t#{pane_current_command}',
+        [
+          '#{pane_id}',
+          '#{window_id}',
+          '#{pane_index}',
+          '#{pane_title}',
+          '#{pane_active}',
+          '#{pane_width}',
+          '#{pane_height}',
+          '#{window_active}',
+          '#{pane_current_command}',
+        ].join(SNAPSHOT_FIELD_SEPARATOR),
       ]),
     ]);
 
@@ -862,6 +883,7 @@ export class LocalExternalTmuxConnection {
     this.parseSnapshotSession(sessionRes.stdout.split(/\r?\n/));
     this.parseSnapshotWindows(windowsRes.stdout.split(/\r?\n/));
     this.parseSnapshotPanes(panesRes.stdout.split(/\r?\n/));
+    this.discardInvalidSnapshot();
     this.controlSubscription?.prunePanes(new Set(this.getExpectedPaneIds()));
     this.emitSnapshot();
   }
@@ -872,9 +894,11 @@ export class LocalExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [id, name] = line.split('\t');
-      if (id) {
+      const [id, name] = splitSnapshotFields(line, 2);
+      if (isTmuxSessionId(id)) {
         this.snapshotSession = { id, name: name ?? '' };
+      } else {
+        console.warn(`[local] ignoring invalid tmux session id on ${this.deviceId}: ${id ?? ''}`);
       }
       return;
     }
@@ -886,18 +910,21 @@ export class LocalExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [id, indexRaw, name, activeRaw] = line.split('\t');
-      if (!id) {
+      const [id, indexRaw, name, activeRaw] = splitSnapshotFields(line, 4);
+      const index = parseSnapshotInteger(indexRaw);
+      if (!isTmuxWindowId(id) || index === null || !this.isSnapshotFlag(activeRaw)) {
+        console.warn(
+          `[local] ignoring invalid tmux window snapshot row on ${this.deviceId}: ${formatSnapshotRowForLog(line)}`
+        );
         continue;
       }
-      const index = Number.parseInt(indexRaw ?? '', 10);
       const active = activeRaw === '1';
       if (active) {
         this.activeWindowId = id;
       }
       this.snapshotWindows.set(id, {
         id,
-        index: Number.isNaN(index) ? 0 : index,
+        index,
         name: name ?? '',
         active,
         panes: [],
@@ -915,23 +942,34 @@ export class LocalExternalTmuxConnection {
         continue;
       }
       const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw, currentCommandRaw] =
-        line.split('\t');
-      if (!paneId || !windowId) {
+        splitSnapshotFields(line, 9);
+      const index = parseSnapshotInteger(indexRaw);
+      const width = parseSnapshotInteger(widthRaw);
+      const height = parseSnapshotInteger(heightRaw);
+      if (
+        !isTmuxPaneId(paneId) ||
+        !isTmuxWindowId(windowId) ||
+        index === null ||
+        width === null ||
+        height === null ||
+        !this.isSnapshotFlag(activeRaw) ||
+        !this.isSnapshotFlag(windowActiveRaw)
+      ) {
+        console.warn(
+          `[local] ignoring invalid tmux pane snapshot row on ${this.deviceId}: ${formatSnapshotRowForLog(line)}`
+        );
         continue;
       }
-      const index = Number.parseInt(indexRaw ?? '', 10);
-      const width = Number.parseInt(widthRaw ?? '', 10);
-      const height = Number.parseInt(heightRaw ?? '', 10);
       const pane: TmuxPane = {
         id: paneId,
         windowId,
-        index: Number.isNaN(index) ? 0 : index,
+        index,
         title: this.pendingPaneTitles.get(paneId) ?? (titleRaw?.trim() ? titleRaw : undefined),
         currentCommand: currentCommandRaw?.trim() ? currentCommandRaw.trim() : undefined,
         // pane_active 是窗口内 active；list-panes -s 下每个窗口都有一个
         active: activeRaw === '1',
-        width: Number.isNaN(width) ? 0 : width,
-        height: Number.isNaN(height) ? 0 : height,
+        width,
+        height,
       };
 
       if (pane.active && windowActiveRaw === '1') {
@@ -949,6 +987,26 @@ export class LocalExternalTmuxConnection {
 
     for (const window of this.snapshotWindows.values()) {
       window.panes.sort((left, right) => left.index - right.index);
+    }
+  }
+
+  private isSnapshotFlag(value: string | undefined): value is '0' | '1' {
+    return value === '0' || value === '1';
+  }
+
+  private discardInvalidSnapshot(): void {
+    if (!this.snapshotSession) {
+      this.snapshotWindows.clear();
+      this.activeWindowId = null;
+      this.activePaneId = null;
+      return;
+    }
+
+    if (this.snapshotWindows.size === 0) {
+      console.warn(`[local] ignoring tmux snapshot with no valid windows on ${this.deviceId}`);
+      this.snapshotSession = null;
+      this.activeWindowId = null;
+      this.activePaneId = null;
     }
   }
 
@@ -1037,6 +1095,9 @@ export class LocalExternalTmuxConnection {
       return result;
     }
 
+    console.warn(
+      `[local] tmux command failed deviceId=${this.deviceId} sessionName=${this.sessionName} argv=${argv.join(' ')} exitCode=${result.exitCode}: ${message}`
+    );
     void this.notifyRuntimeError(message);
     if (this.connected && !this.manualDisconnect && this.isTmuxServerGoneMessage(message)) {
       console.warn(`[local] tmux server gone on ${this.deviceId}: ${message}`);

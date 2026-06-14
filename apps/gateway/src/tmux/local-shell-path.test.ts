@@ -156,7 +156,36 @@ describe('buildLocalTmuxEnv', () => {
     ).toEqual({
       HOME: '/Users/alice',
       PATH: '/opt/homebrew/bin:/usr/bin:/bin',
-      LC_CTYPE: 'en_US.UTF-8',
+      LC_ALL: 'C.UTF-8',
+    });
+  });
+
+  test('overrides non UTF-8 C locale for local tmux spawn', () => {
+    expect(
+      buildLocalTmuxEnv('/usr/bin:/bin', {
+        HOME: '/Users/alice',
+        PATH: '/usr/bin:/bin',
+        LANG: 'C',
+      })
+    ).toEqual({
+      HOME: '/Users/alice',
+      PATH: '/usr/bin:/bin',
+      LANG: 'C',
+      LC_ALL: 'C.UTF-8',
+    });
+
+    expect(
+      buildLocalTmuxEnv('/usr/bin:/bin', {
+        HOME: '/Users/alice',
+        PATH: '/usr/bin:/bin',
+        LC_ALL: 'C',
+        LC_CTYPE: 'POSIX',
+      })
+    ).toEqual({
+      HOME: '/Users/alice',
+      PATH: '/usr/bin:/bin',
+      LC_ALL: 'C.UTF-8',
+      LC_CTYPE: 'POSIX',
     });
   });
 

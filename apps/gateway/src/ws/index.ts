@@ -10,6 +10,7 @@ import type {
 } from '../tmux-client/device-session-runtime';
 import type { TmuxEvent } from '../tmux-client/events';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
+import { isTmuxPaneId, isTmuxWindowId } from '../tmux-client/snapshot-format';
 import { resolvePaneContext } from '../tmux/bell-context';
 import { type BorshClientState, createBorshClientState } from './borsh/codec-borsh';
 import { sessionStateStore } from './borsh/session-state';
@@ -586,18 +587,13 @@ export class WebSocketServer {
     data: wsBorsh.b.infer<typeof wsBorsh.schema.TmuxSelectSchema>
   ): void {
     const deviceId = data.deviceId;
-    const paneId = data.paneId ?? undefined;
-
-    if (paneId) {
-      ws.data.borshState.selectedPanes[deviceId] = paneId;
-      this.refreshSnapshotPolling(deviceId);
-    }
-
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
     const windowId = data.windowId ?? undefined;
+    const paneId = data.paneId ?? undefined;
     if (!windowId || !paneId) return;
+    if (!this.canSelectPane(entry, deviceId, windowId, paneId)) return;
 
     const started = switchBarrier.startTransaction(ws as any, {
       deviceId,
@@ -620,6 +616,8 @@ export class WebSocketServer {
       return;
     }
 
+    ws.data.borshState.selectedPanes[deviceId] = paneId;
+    this.refreshSnapshotPolling(deviceId);
     switchBarrier.sendSwitchAck(ws as any, deviceId);
 
     const cols = data.cols ?? null;
@@ -634,7 +632,55 @@ export class WebSocketServer {
   private handleTmuxSelectWindow(deviceId: string, windowId: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
+    if (!this.canSelectWindow(entry, deviceId, windowId)) return;
     entry.runtime.selectWindow(windowId);
+  }
+
+  private canSelectWindow(
+    entry: DeviceConnectionEntry,
+    deviceId: string,
+    windowId: string | undefined
+  ): windowId is string {
+    if (!isTmuxWindowId(windowId)) {
+      console.warn(`[ws] rejecting invalid tmux window id on ${deviceId}: ${windowId ?? ''}`);
+      entry.runtime.requestSnapshot();
+      return false;
+    }
+
+    const windows = entry.lastSnapshot?.session?.windows;
+    if (!windows?.some((window) => window.id === windowId)) {
+      console.warn(`[ws] rejecting missing tmux window id on ${deviceId}: ${windowId}`);
+      entry.runtime.requestSnapshot();
+      return false;
+    }
+
+    return true;
+  }
+
+  private canSelectPane(
+    entry: DeviceConnectionEntry,
+    deviceId: string,
+    windowId: string | undefined,
+    paneId: string | undefined
+  ): windowId is string {
+    if (!this.canSelectWindow(entry, deviceId, windowId)) {
+      return false;
+    }
+
+    if (!isTmuxPaneId(paneId)) {
+      console.warn(`[ws] rejecting invalid tmux pane id on ${deviceId}: ${paneId ?? ''}`);
+      entry.runtime.requestSnapshot();
+      return false;
+    }
+
+    const window = entry.lastSnapshot?.session?.windows.find((candidate) => candidate.id === windowId);
+    if (!window?.panes.some((pane) => pane.id === paneId)) {
+      console.warn(`[ws] rejecting missing tmux pane id on ${deviceId}: ${paneId}`);
+      entry.runtime.requestSnapshot();
+      return false;
+    }
+
+    return true;
   }
 
   private handleTermInput(deviceId: string, paneId: string, data: string): void {

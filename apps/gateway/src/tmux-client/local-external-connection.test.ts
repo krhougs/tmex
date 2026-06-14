@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import type { Device, StateSnapshotPayload } from '@tmex/shared';
 
 import { createDevice as createDeviceRow, getDeviceRuntimeStatus } from '../db';
@@ -85,16 +85,16 @@ function createRunStub(
       return ok();
     }
     if (command.startsWith(`display-message -p -t ${session} #{session_id}`)) {
-      return ok(`$1\t${session}\n`);
+      return ok(`$1|${session}\n`);
     }
     if (command === `list-windows -t ${session} -F #{window_id}`) {
       return ok('@1\n');
     }
     if (command.startsWith(`list-windows -t ${session}`)) {
-      return ok('@1\t0\tmain\t1\n');
+      return ok('@1|0|main|1\n');
     }
     if (command.startsWith(`list-panes -s -t ${session}`)) {
-      return ok('%1\t@1\t0\tbash\t1\t80\t24\t1\tnode\n');
+      return ok('%1|@1|0|bash|1|80|24|1|node\n');
     }
     throw new Error(`unexpected command: ${argv.join(' ')}`);
   };
@@ -236,9 +236,9 @@ describe('LocalExternalTmuxConnection', () => {
       "tmux set-hook -t tmex-snapshot after-new-window set-option -w window-style 'fg=#d0d0d0,bg=#262626'",
       'tmux list-windows -t tmex-snapshot -F #{window_id}',
       'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
-      'tmux display-message -p -t tmex-snapshot #{session_id}\t#{session_name}',
-      'tmux list-windows -t tmex-snapshot -F #{window_id}\t#{window_index}\t#{window_name}\t#{window_active}',
-      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}\t#{window_id}\t#{pane_index}\t#{pane_title}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{window_active}\t#{pane_current_command}',
+      'tmux display-message -p -t tmex-snapshot #{session_id}|#{session_name}',
+      'tmux list-windows -t tmex-snapshot -F #{window_id}|#{window_index}|#{window_name}|#{window_active}',
+      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}',
     ]);
     expect(snapshots).toEqual([
       {
@@ -269,6 +269,55 @@ describe('LocalExternalTmuxConnection', () => {
         },
       },
     ]);
+  });
+
+  test('drops LANG=C underscore-rendered snapshot rows instead of emitting composite window ids', async () => {
+    const session = 'tmex-lang-c';
+    const snapshots: StateSnapshotPayload[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: (payload) => snapshots.push(payload),
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice(session),
+        run: createRunStub(session, {
+          overrides: (command) => {
+            if (command === `display-message -p -t ${session} #{session_id}|#{session_name}`) {
+              return ok(`$1_${session}\n`);
+            }
+            if (
+              command ===
+              `list-windows -t ${session} -F #{window_id}|#{window_index}|#{window_name}|#{window_active}`
+            ) {
+              return ok('@0_0_bash_1\n');
+            }
+            if (
+              command ===
+              `list-panes -s -t ${session} -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}`
+            ) {
+              return ok('%1_@0_0_bash_1_80_24_1_node\n');
+            }
+            return null;
+          },
+        }),
+      }
+    );
+
+    await connection.connect();
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toEqual({ deviceId: 'device-local', session: null });
+    expect(JSON.stringify(snapshots[0])).not.toContain('@0_0_bash_1');
   });
 
   test('connect rejects when tmux is too old for control mode', async () => {
@@ -549,6 +598,106 @@ describe('LocalExternalTmuxConnection', () => {
     expect(commands.map((argv) => argv.slice(1).join(' '))).toContain('send-keys -H -t %1 42');
 
     sendResolvers.shift()?.();
+  });
+
+  test('selectWindow treats missing window targets as benign and refreshes snapshot', async () => {
+    const session = 'tmex-select-window-missing';
+    const calls: string[][] = [];
+    const errors: Error[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          errors.push(error);
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice(session),
+        run: createRunStub(session, {
+          record: calls,
+          overrides: (command) =>
+            command === 'select-window -t @404'
+              ? { exitCode: 1, stdout: '', stderr: "can't find window: @404" }
+              : null,
+        }),
+      }
+    );
+
+    await connection.connect();
+    calls.length = 0;
+
+    connection.selectWindow('@404');
+    await waitFor(() =>
+      errors.length > 0 ||
+      calls.some((argv) => argv.slice(1).join(' ').startsWith(`display-message -p -t ${session}`))
+        ? true
+        : null
+    );
+
+    expect(errors).toEqual([]);
+    expect(calls.map((argv) => argv.join(' '))).toContain('tmux select-window -t @404');
+    expect(
+      calls.some((argv) => argv.slice(1).join(' ').startsWith(`display-message -p -t ${session}`))
+    ).toBe(true);
+  });
+
+  test('logs tmux command context when a non-target-missing command fails', async () => {
+    const session = 'tmex-command-context';
+    const errors: Error[] = [];
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          errors.push(error);
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice(session),
+        run: createRunStub(session, {
+          overrides: (command) =>
+            command === 'rename-window -t @1 broken'
+              ? { exitCode: 1, stdout: '', stderr: 'rename failed' }
+              : null,
+        }),
+      }
+    );
+
+    try {
+      await connection.connect();
+      connection.renameWindow('@1', 'broken');
+      await waitFor(() => (errors.length > 0 ? true : null));
+
+      expect(
+        warn.mock.calls.some((call) => {
+          const text = call.map(String).join(' ');
+          return (
+            text.includes('[local] tmux command failed') &&
+            text.includes('device-local') &&
+            text.includes(session) &&
+            text.includes('rename-window -t @1 broken') &&
+            text.includes('exitCode=1')
+          );
+        })
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+      connection.disconnect();
+    }
   });
 
   test('resizePane keeps window-size in manual mode instead of forcing latest', async () => {

@@ -180,6 +180,224 @@ describe('WebSocketServer connection entry dedup', () => {
   });
 });
 
+describe('WebSocketServer tmux select guards', () => {
+  function makeSnapshot(): StateSnapshotPayload {
+    return {
+      deviceId: 'device-a',
+      session: {
+        id: '$1',
+        name: 'tmex',
+        windows: [
+          {
+            id: '@1',
+            name: 'one',
+            index: 0,
+            active: true,
+            panes: [
+              {
+                id: '%1',
+                windowId: '@1',
+                index: 0,
+                title: 'one-pane',
+                active: true,
+                width: 80,
+                height: 24,
+              },
+            ],
+          },
+          {
+            id: '@2',
+            name: 'two',
+            index: 1,
+            active: false,
+            panes: [
+              {
+                id: '%2',
+                windowId: '@2',
+                index: 0,
+                title: 'two-pane',
+                active: true,
+                width: 80,
+                height: 24,
+              },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  function createBorshWs() {
+    const ws = {
+      data: { borshState: createBorshClientState() },
+      sent: [] as Uint8Array[],
+      send(message: Uint8Array) {
+        this.sent.push(message);
+      },
+    } as any;
+    sessionStateStore.create(ws);
+    return ws;
+  }
+
+  function createRuntimeRecorder() {
+    const recorder = {
+      requestSnapshotCalls: 0,
+      selectWindowCalls: [] as string[],
+      selectPaneCalls: [] as Array<{ windowId: string; paneId: string; size?: { cols: number; rows: number } }>,
+      runtime: {
+        requestSnapshot() {
+          recorder.requestSnapshotCalls += 1;
+        },
+        selectWindow(windowId: string) {
+          recorder.selectWindowCalls.push(windowId);
+        },
+        selectPane(windowId: string, paneId: string) {
+          recorder.selectPaneCalls.push({ windowId, paneId });
+        },
+        selectPaneWithSize(windowId: string, paneId: string, cols: number, rows: number) {
+          recorder.selectPaneCalls.push({ windowId, paneId, size: { cols, rows } });
+        },
+      },
+    };
+    return recorder;
+  }
+
+  function setupEntry(
+    server: any,
+    ws: any,
+    runtime: ReturnType<typeof createRuntimeRecorder>['runtime'],
+    snapshot: StateSnapshotPayload | null = makeSnapshot()
+  ) {
+    const entry = {
+      runtime,
+      detachRuntime: () => {},
+      clients: new Set([ws]),
+      lastSnapshot: snapshot,
+      snapshotTimer: null,
+      snapshotPollTimer: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    };
+    server.connections.set('device-a', entry);
+    return entry;
+  }
+
+  function clearPolling(entry: { snapshotPollTimer: ReturnType<typeof setInterval> | null }) {
+    if (entry.snapshotPollTimer) {
+      clearInterval(entry.snapshotPollTimer);
+      entry.snapshotPollTimer = null;
+    }
+  }
+
+  test('rejects invalid select-window ids before calling runtime', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    const recorder = createRuntimeRecorder();
+    setupEntry(server, ws, recorder.runtime);
+
+    server.handleTmuxSelectWindow('device-a', '@0_0_bash_1');
+
+    expect(recorder.selectWindowCalls).toEqual([]);
+    expect(recorder.requestSnapshotCalls).toBe(1);
+  });
+
+  test('rejects select-window ids missing from current snapshot', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    const recorder = createRuntimeRecorder();
+    setupEntry(server, ws, recorder.runtime);
+
+    server.handleTmuxSelectWindow('device-a', '@99');
+
+    expect(recorder.selectWindowCalls).toEqual([]);
+    expect(recorder.requestSnapshotCalls).toBe(1);
+  });
+
+  test('allows select-window ids present in current snapshot', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    const recorder = createRuntimeRecorder();
+    setupEntry(server, ws, recorder.runtime);
+
+    server.handleTmuxSelectWindow('device-a', '@1');
+
+    expect(recorder.selectWindowCalls).toEqual(['@1']);
+    expect(recorder.requestSnapshotCalls).toBe(0);
+  });
+
+  test('rejects invalid pane selects without mutating selected panes', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    ws.data.borshState.selectedPanes['device-a'] = '%1';
+    const recorder = createRuntimeRecorder();
+    const entry = setupEntry(server, ws, recorder.runtime);
+
+    server.handleTmuxSelect(ws, {
+      deviceId: 'device-a',
+      windowId: '@1',
+      paneId: '%1_bad',
+      selectToken: new Uint8Array(16).fill(1),
+      wantHistory: true,
+      cols: null,
+      rows: null,
+    });
+    clearPolling(entry);
+
+    expect(recorder.selectPaneCalls).toEqual([]);
+    expect(recorder.requestSnapshotCalls).toBe(1);
+    expect(ws.data.borshState.selectedPanes['device-a']).toBe('%1');
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  test('rejects pane ids that are not inside the requested window', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    const recorder = createRuntimeRecorder();
+    const entry = setupEntry(server, ws, recorder.runtime);
+
+    server.handleTmuxSelect(ws, {
+      deviceId: 'device-a',
+      windowId: '@1',
+      paneId: '%2',
+      selectToken: new Uint8Array(16).fill(1),
+      wantHistory: true,
+      cols: null,
+      rows: null,
+    });
+    clearPolling(entry);
+
+    expect(recorder.selectPaneCalls).toEqual([]);
+    expect(recorder.requestSnapshotCalls).toBe(1);
+    expect(ws.data.borshState.selectedPanes['device-a']).toBeUndefined();
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  test('allows pane selects that exist in the requested window', () => {
+    const server = new WebSocketServer() as any;
+    const ws = createBorshWs();
+    const recorder = createRuntimeRecorder();
+    const entry = setupEntry(server, ws, recorder.runtime);
+
+    server.handleTmuxSelect(ws, {
+      deviceId: 'device-a',
+      windowId: '@1',
+      paneId: '%1',
+      selectToken: new Uint8Array(16).fill(1),
+      wantHistory: true,
+      cols: 100,
+      rows: 30,
+    });
+    clearPolling(entry);
+
+    expect(recorder.selectPaneCalls).toEqual([
+      { windowId: '@1', paneId: '%1', size: { cols: 100, rows: 30 } },
+    ]);
+    expect(recorder.requestSnapshotCalls).toBe(0);
+    expect(ws.data.borshState.selectedPanes['device-a']).toBe('%1');
+    expect(ws.sent).toHaveLength(1);
+  });
+});
+
 describe('WebSocketServer bell extension', () => {
   beforeAll(() => {
     runMigrations();
