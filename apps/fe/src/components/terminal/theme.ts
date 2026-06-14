@@ -71,8 +71,33 @@ export function getTmuxWindowStyle(theme: 'light' | 'dark'): string {
   return `fg=${colors.foreground},bg=${colors.background}`;
 }
 
-export const XTERM_FONT_FAMILY =
-  '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Sarasa Mono SC", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace';
+// 内嵌字体逐字形兜底：等宽打底字体在前，符号字体其后，CJK 落到末尾 monospace 走系统。
+// 没有任何单一等宽字体能覆盖全部 TUI 符号，故拆成两层。family 名刻意不带空格，免去加引号。
+export const TERMINAL_EMBEDDED_FONT_FAMILIES = ['GeistMonoTmex', 'NotoSansSymbols2Tmex'];
+export const XTERM_FONT_FAMILY = `${TERMINAL_EMBEDDED_FONT_FAMILIES.join(', ')}, monospace`;
+
+// canvas/DOM 测量 cell 尺寸前必须确保内嵌字体已加载：否则首屏按 monospace 回退
+// 测宽，font-display swap 生效后字形按内嵌字体度量渲染，与已定网格逐格错位。
+let embeddedFontLoadPromise: Promise<void> | null = null;
+export function ensureTerminalFontLoaded(): Promise<void> {
+  if (embeddedFontLoadPromise) {
+    return embeddedFontLoadPromise;
+  }
+  const fonts = (globalThis as { document?: { fonts?: FontFaceSet } }).document?.fonts;
+  if (!fonts?.load) {
+    embeddedFontLoadPromise = Promise.resolve();
+    return embeddedFontLoadPromise;
+  }
+  embeddedFontLoadPromise = Promise.all(
+    TERMINAL_EMBEDDED_FONT_FAMILIES.flatMap((family) => [
+      fonts.load(`13px ${family}`),
+      fonts.load(`bold 13px ${family}`),
+    ])
+  )
+    .then(() => undefined)
+    .catch(() => undefined);
+  return embeddedFontLoadPromise;
+}
 
 // 别名导出，保持兼容性
 export const XTERM_THEME_MIDNIGHT_AMETHYST = XTERM_THEME_DARK;

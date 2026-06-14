@@ -6,6 +6,34 @@
 
 @import "./themes.css";
 
+/* 终端内嵌等宽符号字体：补齐部分 Android 系统缺失的 Powerline/制表/符号字形，
+   CJK 仍交由字体栈后段的 monospace 走系统字体（见 components/terminal/theme.ts）。
+   字体随应用打包（public/fonts/），不依赖设备已装字体。 */
+/* 打底等宽字体：拉丁、制表(─│┌)、块、箭头、省略号。
+   正常/粗体各挂一个 face，Canvas 请求 400/700 时各取各的，不靠浏览器合成加粗。 */
+@font-face {
+  font-family: GeistMonoTmex;
+  src: url("/fonts/GeistMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: GeistMonoTmex;
+  src: url("/fonts/GeistMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+/* 符号兜底：媒体控制(⏵⏸⏺)、Braille(⣿)、勾选(✔✓)、几何/装饰符号 */
+@font-face {
+  font-family: NotoSansSymbols2Tmex;
+  src: url("/fonts/NotoSansSymbols2-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --tmex-safe-area-top: env(safe-area-inset-top, 0px);
   --tmex-safe-area-bottom: env(safe-area-inset-bottom, 0px);
@@ -180,6 +208,10 @@
   --font-display: var(--display-family);
   --display-weight: var(--display-weight);
   --font-sans: var(--text-family);
+  /* 等宽栈与终端 XTERM_FONT_FAMILY 保持一致（components/terminal/theme.ts）：
+     Geist Mono 打底 + Noto Sans Symbols 2 兜符号 + monospace 走系统 CJK。
+     所有 font-mono 工具类（代码块/ID/URL 等）一并指向此栈。 */
+  --font-mono: GeistMonoTmex, NotoSansSymbols2Tmex, monospace;
 }
 
 * {

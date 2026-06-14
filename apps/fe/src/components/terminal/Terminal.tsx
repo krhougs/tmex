@@ -25,7 +25,12 @@ import {
   normalizeLiveOutputForTerminal,
   wrapAlternateScreenHistory,
 } from './normalization';
-import { XTERM_FONT_FAMILY, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
+import {
+  XTERM_FONT_FAMILY,
+  XTERM_THEME_DARK,
+  XTERM_THEME_LIGHT,
+  ensureTerminalFontLoaded,
+} from './theme';
 import type { TerminalProps, TerminalRef } from './types';
 import { useMobileTouch } from './useMobileTouch';
 import { useTerminalResize } from './useTerminalResize';
@@ -271,11 +276,19 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       let cancelled = false;
       let createdTerminal: Awaited<ReturnType<typeof createTerminalController>> | null = null;
 
-      void createTerminalController({
-        ...TERMINAL_CONFIG,
-        theme: currentTerminalThemeRef.current,
-        disableStdin: currentInputModeRef.current === 'editor',
-      }).then((terminal) => {
+      void (async () => {
+        // 先等内嵌符号字体加载完，再创建终端：open() 内部按 fontFamily 测量 cell 尺寸，
+        // 字体未就绪会按 monospace 回退测宽，导致后续字形与网格错位。
+        await ensureTerminalFontLoaded();
+        if (cancelled) {
+          return;
+        }
+
+        const terminal = await createTerminalController({
+          ...TERMINAL_CONFIG,
+          theme: currentTerminalThemeRef.current,
+          disableStdin: currentInputModeRef.current === 'editor',
+        });
         if (cancelled) {
           terminal.dispose();
           return;
@@ -287,7 +300,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         }
         setE2eTerminalProbe(terminal);
         setInstance(terminal);
-      });
+      })();
 
       return () => {
         cancelled = true;
