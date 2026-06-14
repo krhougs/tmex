@@ -30,10 +30,10 @@ import {
   getDeviceById,
   getDeviceRuntimeStatus,
   getSiteSettings,
-  reorderDevices,
   getTelegramBotById,
   getTelegramBotsWithStats,
   listTelegramChatsByBot,
+  reorderDevices,
   updateDevice,
   updateSiteSettings,
   updateTelegramBot,
@@ -42,6 +42,7 @@ import { t } from '../i18n';
 import { pushSupervisor } from '../push/supervisor';
 import { telegramService } from '../telegram/service';
 import { handleAgentApiRequest } from './agent';
+import { handleFilesApiRequest } from './files';
 import { handleLlmApiRequest } from './llm';
 import { handleDeviceTestConnection } from './test-connection';
 import { handleWatchApiRequest } from './watch';
@@ -244,6 +245,13 @@ export function handleApiRequest(
     const watchResponse = handleWatchApiRequest(req, path);
     if (watchResponse) {
       return watchResponse;
+    }
+  }
+
+  if (path.startsWith('/api/files')) {
+    const filesResponse = handleFilesApiRequest(req, path);
+    if (filesResponse) {
+      return filesResponse;
     }
   }
 

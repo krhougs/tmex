@@ -228,6 +228,29 @@
         "clearKeyConfirm": "确定要清除此 API Key 吗？清除后需要重新填写。",
         "loadFailed": "加载搜索设置失败",
         "saveFailed": "保存搜索设置失败"
+      },
+      "files": {
+        "title": "文件",
+        "description": "配置各设备下可在「文件」标签页浏览的目录。本地设备直接读取，SSH 设备走 rsync。",
+        "addRoot": "添加目录",
+        "roots": "目录",
+        "empty": "尚未配置任何目录",
+        "missing": "设备已失效",
+        "modalAddTitle": "添加目录",
+        "modalEditTitle": "编辑目录",
+        "device": "设备",
+        "devicePlaceholder": "选择设备",
+        "noDevices": "还没有设备，请先添加设备",
+        "path": "路径",
+        "pathPlaceholder": "/绝对路径/到/目录",
+        "pathHint": "所选设备上的绝对路径。",
+        "enabled": "启用",
+        "addFailed": "添加目录失败",
+        "updateFailed": "更新目录失败",
+        "deleteFailed": "移除目录失败",
+        "toggleFailed": "更新目录失败",
+        "deleteTitle": "移除目录？",
+        "deleteDesc": "将「{{path}}」移出白名单？该目录下的文件将不再可访问。"
       }
     },
     "telegram": {
@@ -401,7 +424,14 @@
       "watchFireModeInvalid": "触发模式必须是 once 或 repeat",
       "watchCooldownInvalid": "冷却秒数必须是不小于 0 的整数",
       "watchAssistDescriptionRequired": "请描述要匹配的内容",
-      "watchAssistModelUnavailable": "模型调用失败：{{detail}}"
+      "watchAssistModelUnavailable": "模型调用失败：{{detail}}",
+      "fileRootInvalid": "路径必须是已存在的绝对目录",
+      "fileOutsideRoots": "路径不在允许的目录范围内",
+      "fileNotADirectory": "不是目录",
+      "fileTooLarge": "文件过大",
+      "fileBinary": "不支持二进制文件",
+      "fileRootDeviceInvalid": "无效或未知的设备",
+      "fileRootDuplicate": "该设备下已添加过此目录"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -691,6 +721,54 @@
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
       "hostRequired": "SSH 设备需要填写主机地址"
+    },
+    "files": {
+      "title": "文件",
+      "refresh": "刷新文件列表",
+      "noRoots": "没有可访问的目录。请在「设置 → 文件」中添加。",
+      "emptyDir": "空目录",
+      "truncated": "条目过多，列表已截断",
+      "download": "下载",
+      "error": {
+        "invalid": "无效请求",
+        "outside_roots": "路径超出允许的目录范围",
+        "not_found": "已不存在",
+        "not_a_directory": "不是目录",
+        "is_directory": "这是一个目录",
+        "too_large": "文件过大，无法预览",
+        "binary": "二进制文件无法预览",
+        "permission_denied": "无访问权限",
+        "device_not_found": "设备不存在",
+        "root_not_found": "目录项不存在",
+        "root_disabled": "该目录已禁用",
+        "connection_failed": "连接设备失败",
+        "auth_unsupported": "该设备的认证方式不支持文件访问（请用密钥或 ssh-agent）",
+        "rsync_missing_local": "服务器上未安装 rsync",
+        "rsync_missing_remote": "远程设备上未安装 rsync",
+        "timeout": "已超时",
+        "unknown": "加载失败"
+      },
+      "retry": "重试（收起后再展开）",
+      "install": {
+        "button": "安装 rsync",
+        "scopeLocal": "服务器",
+        "scopeRemote": "远程",
+        "connectFailed": "连接设备失败",
+        "windowFailed": "创建窗口失败",
+        "prompt": "设备 {{device}}（{{scope}}）上未检测到 rsync。请根据系统选择合适的命令安装 rsync（例如 `brew install rsync`、`sudo apt-get install -y rsync` 或 `sudo yum install -y rsync`），安装完成后回复我。"
+      }
+    },
+    "file": {
+      "invalidRef": "无效的文件引用",
+      "notFound": "文件已不存在",
+      "accessDenied": "无访问权限",
+      "loadFailed": "加载文件失败",
+      "isDirectory": "这是一个目录",
+      "notPreviewable": "该文件类型不支持预览",
+      "tooLarge": "文件过大，无法预览",
+      "binary": "二进制文件无法预览",
+      "download": "下载",
+      "openRaw": "打开原始文件"
     }
   }
 }

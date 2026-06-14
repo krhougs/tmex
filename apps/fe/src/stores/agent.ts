@@ -54,6 +54,8 @@ export interface DraftSession {
   modelId: string | null;
   /** snapshot 中该 pane 的标题，作为起源元数据兜底 */
   paneTitle: string | null;
+  /** 预填到输入框的草稿 prompt（如 rsync 自动安装流程），由 ChatInput 消费一次 */
+  prompt?: string | null;
 }
 
 /** 创建会话的可选参数（草稿物化时传入） */
@@ -108,7 +110,12 @@ interface AgentState {
     reason?: string
   ) => Promise<void>;
   // 草稿会话
-  startDraft: (deviceId: string, paneId: string, paneTitle: string | null) => void;
+  startDraft: (
+    deviceId: string,
+    paneId: string,
+    paneTitle: string | null,
+    prompt?: string | null
+  ) => void;
   updateDraft: (patch: Partial<Pick<DraftSession, 'providerId' | 'modelId'>>) => void;
   clearDraft: () => void;
   materializeDraft: () => Promise<AgentSessionDto | null>;
@@ -1028,7 +1035,7 @@ export const useAgentStore = create<AgentState>()(
         }
       },
 
-      startDraft(deviceId, paneId, paneTitle) {
+      startDraft(deviceId, paneId, paneTitle, prompt) {
         const previous = get().activeSessionId;
         if (previous && subscribedSessions.has(previous)) {
           subscribedSessions.delete(previous);
@@ -1037,7 +1044,14 @@ export const useAgentStore = create<AgentState>()(
         // 默认模型继承全局默认（modelId=null → 后端回退默认）；provider 同理
         set({
           activeSessionId: null,
-          draft: { deviceId, paneId, providerId: null, modelId: null, paneTitle },
+          draft: {
+            deviceId,
+            paneId,
+            providerId: null,
+            modelId: null,
+            paneTitle,
+            prompt: prompt ?? null,
+          },
         });
       },
 

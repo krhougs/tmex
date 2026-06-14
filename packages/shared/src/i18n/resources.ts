@@ -234,6 +234,29 @@ export const I18N_RESOURCES = {
         "clearKeyConfirm": "Clear this API key? You will need to enter it again.",
         "loadFailed": "Failed to load search settings",
         "saveFailed": "Failed to save search settings"
+      },
+      "files": {
+        "title": "Files",
+        "description": "Per-device directories browsable in the Files tab. Local devices read directly; SSH devices use rsync.",
+        "addRoot": "Add directory",
+        "roots": "Directories",
+        "empty": "No directories configured",
+        "missing": "Device missing",
+        "modalAddTitle": "Add directory",
+        "modalEditTitle": "Edit directory",
+        "device": "Device",
+        "devicePlaceholder": "Select a device",
+        "noDevices": "No devices yet — add one first",
+        "path": "Path",
+        "pathPlaceholder": "/absolute/path/to/directory",
+        "pathHint": "Absolute path on the selected device.",
+        "enabled": "Enabled",
+        "addFailed": "Failed to add directory",
+        "updateFailed": "Failed to update directory",
+        "deleteFailed": "Failed to remove directory",
+        "toggleFailed": "Failed to update directory",
+        "deleteTitle": "Remove directory?",
+        "deleteDesc": "Remove \"{{path}}\" from the whitelist? Files under it will no longer be accessible."
       }
     },
     "telegram": {
@@ -407,7 +430,14 @@ export const I18N_RESOURCES = {
       "watchFireModeInvalid": "Fire mode must be once or repeat",
       "watchCooldownInvalid": "Cooldown seconds must be an integer >= 0",
       "watchAssistDescriptionRequired": "Please describe what to match",
-      "watchAssistModelUnavailable": "Model call failed: {{detail}}"
+      "watchAssistModelUnavailable": "Model call failed: {{detail}}",
+      "fileRootInvalid": "Path must be an absolute, existing directory",
+      "fileOutsideRoots": "Path is outside the allowed directories",
+      "fileNotADirectory": "Not a directory",
+      "fileTooLarge": "File is too large",
+      "fileBinary": "Binary files are not supported",
+      "fileRootDeviceInvalid": "Invalid or unknown device",
+      "fileRootDuplicate": "This directory is already added for the device"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -697,6 +727,54 @@ export const I18N_RESOURCES = {
     "validation": {
       "deviceNameRequired": "Device name is required",
       "hostRequired": "Host is required for SSH devices"
+    },
+    "files": {
+      "title": "Files",
+      "refresh": "Refresh file list",
+      "noRoots": "No accessible directories. Add one in Settings → Files.",
+      "emptyDir": "Empty",
+      "truncated": "Too many items — list truncated",
+      "download": "Download",
+      "error": {
+        "invalid": "Invalid request",
+        "outside_roots": "Path is outside the allowed directory",
+        "not_found": "No longer exists",
+        "not_a_directory": "Not a directory",
+        "is_directory": "This is a directory",
+        "too_large": "File is too large to preview",
+        "binary": "Binary file cannot be previewed",
+        "permission_denied": "Permission denied",
+        "device_not_found": "Device not found",
+        "root_not_found": "Directory entry not found",
+        "root_disabled": "This directory is disabled",
+        "connection_failed": "Failed to connect to the device",
+        "auth_unsupported": "Device auth method unsupported for files (use key or ssh-agent)",
+        "rsync_missing_local": "rsync is not installed on the server",
+        "rsync_missing_remote": "rsync is not installed on the remote device",
+        "timeout": "Timed out",
+        "unknown": "Failed to load"
+      },
+      "retry": "Retry (collapse then expand)",
+      "install": {
+        "button": "Install rsync",
+        "scopeLocal": "server",
+        "scopeRemote": "remote",
+        "connectFailed": "Failed to connect to the device",
+        "windowFailed": "Failed to create a window",
+        "prompt": "rsync is not installed on {{device}} ({{scope}}). Please install rsync using the appropriate command for this system (e.g. `brew install rsync`, `sudo apt-get install -y rsync`, or `sudo yum install -y rsync`), then reply once it is done."
+      }
+    },
+    "file": {
+      "invalidRef": "Invalid file reference",
+      "notFound": "File no longer exists",
+      "accessDenied": "Access denied",
+      "loadFailed": "Failed to load file",
+      "isDirectory": "This is a directory",
+      "notPreviewable": "Preview is not available for this file type",
+      "tooLarge": "File is too large to preview",
+      "binary": "Binary file cannot be previewed",
+      "download": "Download",
+      "openRaw": "Open raw"
     }
   }
 } as const,
@@ -930,6 +1008,29 @@ export const I18N_RESOURCES = {
         "clearKeyConfirm": "确定要清除此 API Key 吗？清除后需要重新填写。",
         "loadFailed": "加载搜索设置失败",
         "saveFailed": "保存搜索设置失败"
+      },
+      "files": {
+        "title": "文件",
+        "description": "配置各设备下可在「文件」标签页浏览的目录。本地设备直接读取，SSH 设备走 rsync。",
+        "addRoot": "添加目录",
+        "roots": "目录",
+        "empty": "尚未配置任何目录",
+        "missing": "设备已失效",
+        "modalAddTitle": "添加目录",
+        "modalEditTitle": "编辑目录",
+        "device": "设备",
+        "devicePlaceholder": "选择设备",
+        "noDevices": "还没有设备，请先添加设备",
+        "path": "路径",
+        "pathPlaceholder": "/绝对路径/到/目录",
+        "pathHint": "所选设备上的绝对路径。",
+        "enabled": "启用",
+        "addFailed": "添加目录失败",
+        "updateFailed": "更新目录失败",
+        "deleteFailed": "移除目录失败",
+        "toggleFailed": "更新目录失败",
+        "deleteTitle": "移除目录？",
+        "deleteDesc": "将「{{path}}」移出白名单？该目录下的文件将不再可访问。"
       }
     },
     "telegram": {
@@ -1103,7 +1204,14 @@ export const I18N_RESOURCES = {
       "watchFireModeInvalid": "触发模式必须是 once 或 repeat",
       "watchCooldownInvalid": "冷却秒数必须是不小于 0 的整数",
       "watchAssistDescriptionRequired": "请描述要匹配的内容",
-      "watchAssistModelUnavailable": "模型调用失败：{{detail}}"
+      "watchAssistModelUnavailable": "模型调用失败：{{detail}}",
+      "fileRootInvalid": "路径必须是已存在的绝对目录",
+      "fileOutsideRoots": "路径不在允许的目录范围内",
+      "fileNotADirectory": "不是目录",
+      "fileTooLarge": "文件过大",
+      "fileBinary": "不支持二进制文件",
+      "fileRootDeviceInvalid": "无效或未知的设备",
+      "fileRootDuplicate": "该设备下已添加过此目录"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -1393,6 +1501,54 @@ export const I18N_RESOURCES = {
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
       "hostRequired": "SSH 设备需要填写主机地址"
+    },
+    "files": {
+      "title": "文件",
+      "refresh": "刷新文件列表",
+      "noRoots": "没有可访问的目录。请在「设置 → 文件」中添加。",
+      "emptyDir": "空目录",
+      "truncated": "条目过多，列表已截断",
+      "download": "下载",
+      "error": {
+        "invalid": "无效请求",
+        "outside_roots": "路径超出允许的目录范围",
+        "not_found": "已不存在",
+        "not_a_directory": "不是目录",
+        "is_directory": "这是一个目录",
+        "too_large": "文件过大，无法预览",
+        "binary": "二进制文件无法预览",
+        "permission_denied": "无访问权限",
+        "device_not_found": "设备不存在",
+        "root_not_found": "目录项不存在",
+        "root_disabled": "该目录已禁用",
+        "connection_failed": "连接设备失败",
+        "auth_unsupported": "该设备的认证方式不支持文件访问（请用密钥或 ssh-agent）",
+        "rsync_missing_local": "服务器上未安装 rsync",
+        "rsync_missing_remote": "远程设备上未安装 rsync",
+        "timeout": "已超时",
+        "unknown": "加载失败"
+      },
+      "retry": "重试（收起后再展开）",
+      "install": {
+        "button": "安装 rsync",
+        "scopeLocal": "服务器",
+        "scopeRemote": "远程",
+        "connectFailed": "连接设备失败",
+        "windowFailed": "创建窗口失败",
+        "prompt": "设备 {{device}}（{{scope}}）上未检测到 rsync。请根据系统选择合适的命令安装 rsync（例如 `brew install rsync`、`sudo apt-get install -y rsync` 或 `sudo yum install -y rsync`），安装完成后回复我。"
+      }
+    },
+    "file": {
+      "invalidRef": "无效的文件引用",
+      "notFound": "文件已不存在",
+      "accessDenied": "无访问权限",
+      "loadFailed": "加载文件失败",
+      "isDirectory": "这是一个目录",
+      "notPreviewable": "该文件类型不支持预览",
+      "tooLarge": "文件过大，无法预览",
+      "binary": "二进制文件无法预览",
+      "download": "下载",
+      "openRaw": "打开原始文件"
     }
   }
 } as const,
@@ -1626,6 +1782,29 @@ export const I18N_RESOURCES = {
         "clearKeyConfirm": "この API キーをクリアしますか？再度入力が必要になります。",
         "loadFailed": "検索設定の読み込みに失敗しました",
         "saveFailed": "検索設定の保存に失敗しました"
+      },
+      "files": {
+        "title": "ファイル",
+        "description": "「ファイル」タブで閲覧できるデバイスごとのディレクトリを設定します。ローカルは直接読み取り、SSH は rsync を使用。",
+        "addRoot": "ディレクトリを追加",
+        "roots": "ディレクトリ",
+        "empty": "ディレクトリが設定されていません",
+        "missing": "デバイスが見つかりません",
+        "modalAddTitle": "ディレクトリを追加",
+        "modalEditTitle": "ディレクトリを編集",
+        "device": "デバイス",
+        "devicePlaceholder": "デバイスを選択",
+        "noDevices": "デバイスがありません。先に追加してください",
+        "path": "パス",
+        "pathPlaceholder": "/絶対パス/ディレクトリ",
+        "pathHint": "選択したデバイス上の絶対パス。",
+        "enabled": "有効",
+        "addFailed": "ディレクトリの追加に失敗しました",
+        "updateFailed": "ディレクトリの更新に失敗しました",
+        "deleteFailed": "ディレクトリの削除に失敗しました",
+        "toggleFailed": "ディレクトリの更新に失敗しました",
+        "deleteTitle": "ディレクトリを削除しますか？",
+        "deleteDesc": "「{{path}}」をホワイトリストから削除しますか？配下のファイルにアクセスできなくなります。"
       }
     },
     "telegram": {
@@ -1799,7 +1978,14 @@ export const I18N_RESOURCES = {
       "watchFireModeInvalid": "発火モードは once または repeat です",
       "watchCooldownInvalid": "クールダウン秒数は 0 以上の整数で指定してください",
       "watchAssistDescriptionRequired": "マッチさせたい内容を記述してください",
-      "watchAssistModelUnavailable": "モデル呼び出しに失敗しました：{{detail}}"
+      "watchAssistModelUnavailable": "モデル呼び出しに失敗しました：{{detail}}",
+      "fileRootInvalid": "絶対パスかつ既存のディレクトリを指定してください",
+      "fileOutsideRoots": "許可されたディレクトリの範囲外です",
+      "fileNotADirectory": "ディレクトリではありません",
+      "fileTooLarge": "ファイルが大きすぎます",
+      "fileBinary": "バイナリファイルはサポートされていません",
+      "fileRootDeviceInvalid": "無効または不明なデバイス",
+      "fileRootDuplicate": "このディレクトリはこのデバイスに既に追加されています"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",
@@ -2089,6 +2275,54 @@ export const I18N_RESOURCES = {
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
       "hostRequired": "SSH デバイスにはホストアドレスが必要です"
+    },
+    "files": {
+      "title": "ファイル",
+      "refresh": "ファイル一覧を更新",
+      "noRoots": "アクセス可能なディレクトリがありません。「設定 → ファイル」で追加してください。",
+      "emptyDir": "空のディレクトリ",
+      "truncated": "項目が多すぎるため一覧を省略しました",
+      "download": "ダウンロード",
+      "error": {
+        "invalid": "不正なリクエスト",
+        "outside_roots": "許可されたディレクトリの範囲外です",
+        "not_found": "すでに存在しません",
+        "not_a_directory": "ディレクトリではありません",
+        "is_directory": "これはディレクトリです",
+        "too_large": "ファイルが大きすぎてプレビューできません",
+        "binary": "バイナリファイルはプレビューできません",
+        "permission_denied": "アクセスが拒否されました",
+        "device_not_found": "デバイスが見つかりません",
+        "root_not_found": "ディレクトリ項目が見つかりません",
+        "root_disabled": "このディレクトリは無効です",
+        "connection_failed": "デバイスへの接続に失敗しました",
+        "auth_unsupported": "このデバイスの認証方式はファイルアクセスに非対応です（鍵か ssh-agent を使用）",
+        "rsync_missing_local": "サーバーに rsync がインストールされていません",
+        "rsync_missing_remote": "リモートデバイスに rsync がインストールされていません",
+        "timeout": "タイムアウトしました",
+        "unknown": "読み込みに失敗しました"
+      },
+      "retry": "再試行（折りたたんで再展開）",
+      "install": {
+        "button": "rsync をインストール",
+        "scopeLocal": "サーバー",
+        "scopeRemote": "リモート",
+        "connectFailed": "デバイスへの接続に失敗しました",
+        "windowFailed": "ウィンドウの作成に失敗しました",
+        "prompt": "{{device}}（{{scope}}）に rsync が見つかりません。システムに合わせた方法で rsync をインストールし（例: `brew install rsync`、`sudo apt-get install -y rsync`、`sudo yum install -y rsync`）、完了したら返信してください。"
+      }
+    },
+    "file": {
+      "invalidRef": "無効なファイル参照です",
+      "notFound": "ファイルは存在しません",
+      "accessDenied": "アクセスが拒否されました",
+      "loadFailed": "ファイルの読み込みに失敗しました",
+      "isDirectory": "これはディレクトリです",
+      "notPreviewable": "このファイル形式はプレビューできません",
+      "tooLarge": "ファイルが大きすぎてプレビューできません",
+      "binary": "バイナリファイルはプレビューできません",
+      "download": "ダウンロード",
+      "openRaw": "元ファイルを開く"
     }
   }
 } as const

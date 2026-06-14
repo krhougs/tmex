@@ -3,7 +3,7 @@ import type * as React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AgentTab } from '@/components/agent-panel/agent-tab';
-import { FilesTab } from '@/components/agent-panel/files-tab';
+import { FilesTab } from '@/components/files-panel/files-tab';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from '@/components/ui/sidebar';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUIStore } from '@/stores/ui';

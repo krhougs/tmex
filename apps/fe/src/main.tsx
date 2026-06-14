@@ -6,6 +6,7 @@ import { Toaster } from 'sonner';
 import './i18n';
 import './index.css';
 
+import { FlowBridges } from '@/components/flow-bridges';
 import { GlobalDeviceProvider } from '@/components/global-device-provider';
 import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
 import { Separator } from '@/components/ui/separator';
@@ -76,6 +77,7 @@ function RootLayout() {
       <WatchEventsInit />
       <SidebarProvider>
         <StatusBarSync />
+        <FlowBridges />
         <AppSidebar />
         <MainInset />
       </SidebarProvider>
@@ -164,6 +166,7 @@ function PageWrapper({ moduleLoader }: { moduleLoader: () => Promise<PageModule>
 const settingsModule = () => import('./pages/SettingsPage');
 const devicesModule = () => import('./pages/DevicesPage');
 const deviceModule = () => import('./pages/DevicePage');
+const fileModule = () => import('./pages/FilePage');
 
 // 路由配置 - Data 模式
 const router = createBrowserRouter([
@@ -190,6 +193,10 @@ const router = createBrowserRouter([
       {
         path: 'settings',
         element: <PageWrapper moduleLoader={settingsModule} />,
+      },
+      {
+        path: 'file/:ref',
+        element: <PageWrapper moduleLoader={fileModule} />,
       },
     ],
   },

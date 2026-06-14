@@ -228,6 +228,29 @@
         "clearKeyConfirm": "この API キーをクリアしますか？再度入力が必要になります。",
         "loadFailed": "検索設定の読み込みに失敗しました",
         "saveFailed": "検索設定の保存に失敗しました"
+      },
+      "files": {
+        "title": "ファイル",
+        "description": "「ファイル」タブで閲覧できるデバイスごとのディレクトリを設定します。ローカルは直接読み取り、SSH は rsync を使用。",
+        "addRoot": "ディレクトリを追加",
+        "roots": "ディレクトリ",
+        "empty": "ディレクトリが設定されていません",
+        "missing": "デバイスが見つかりません",
+        "modalAddTitle": "ディレクトリを追加",
+        "modalEditTitle": "ディレクトリを編集",
+        "device": "デバイス",
+        "devicePlaceholder": "デバイスを選択",
+        "noDevices": "デバイスがありません。先に追加してください",
+        "path": "パス",
+        "pathPlaceholder": "/絶対パス/ディレクトリ",
+        "pathHint": "選択したデバイス上の絶対パス。",
+        "enabled": "有効",
+        "addFailed": "ディレクトリの追加に失敗しました",
+        "updateFailed": "ディレクトリの更新に失敗しました",
+        "deleteFailed": "ディレクトリの削除に失敗しました",
+        "toggleFailed": "ディレクトリの更新に失敗しました",
+        "deleteTitle": "ディレクトリを削除しますか？",
+        "deleteDesc": "「{{path}}」をホワイトリストから削除しますか？配下のファイルにアクセスできなくなります。"
       }
     },
     "telegram": {
@@ -401,7 +424,14 @@
       "watchFireModeInvalid": "発火モードは once または repeat です",
       "watchCooldownInvalid": "クールダウン秒数は 0 以上の整数で指定してください",
       "watchAssistDescriptionRequired": "マッチさせたい内容を記述してください",
-      "watchAssistModelUnavailable": "モデル呼び出しに失敗しました：{{detail}}"
+      "watchAssistModelUnavailable": "モデル呼び出しに失敗しました：{{detail}}",
+      "fileRootInvalid": "絶対パスかつ既存のディレクトリを指定してください",
+      "fileOutsideRoots": "許可されたディレクトリの範囲外です",
+      "fileNotADirectory": "ディレクトリではありません",
+      "fileTooLarge": "ファイルが大きすぎます",
+      "fileBinary": "バイナリファイルはサポートされていません",
+      "fileRootDeviceInvalid": "無効または不明なデバイス",
+      "fileRootDuplicate": "このディレクトリはこのデバイスに既に追加されています"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",
@@ -691,6 +721,54 @@
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
       "hostRequired": "SSH デバイスにはホストアドレスが必要です"
+    },
+    "files": {
+      "title": "ファイル",
+      "refresh": "ファイル一覧を更新",
+      "noRoots": "アクセス可能なディレクトリがありません。「設定 → ファイル」で追加してください。",
+      "emptyDir": "空のディレクトリ",
+      "truncated": "項目が多すぎるため一覧を省略しました",
+      "download": "ダウンロード",
+      "error": {
+        "invalid": "不正なリクエスト",
+        "outside_roots": "許可されたディレクトリの範囲外です",
+        "not_found": "すでに存在しません",
+        "not_a_directory": "ディレクトリではありません",
+        "is_directory": "これはディレクトリです",
+        "too_large": "ファイルが大きすぎてプレビューできません",
+        "binary": "バイナリファイルはプレビューできません",
+        "permission_denied": "アクセスが拒否されました",
+        "device_not_found": "デバイスが見つかりません",
+        "root_not_found": "ディレクトリ項目が見つかりません",
+        "root_disabled": "このディレクトリは無効です",
+        "connection_failed": "デバイスへの接続に失敗しました",
+        "auth_unsupported": "このデバイスの認証方式はファイルアクセスに非対応です（鍵か ssh-agent を使用）",
+        "rsync_missing_local": "サーバーに rsync がインストールされていません",
+        "rsync_missing_remote": "リモートデバイスに rsync がインストールされていません",
+        "timeout": "タイムアウトしました",
+        "unknown": "読み込みに失敗しました"
+      },
+      "retry": "再試行（折りたたんで再展開）",
+      "install": {
+        "button": "rsync をインストール",
+        "scopeLocal": "サーバー",
+        "scopeRemote": "リモート",
+        "connectFailed": "デバイスへの接続に失敗しました",
+        "windowFailed": "ウィンドウの作成に失敗しました",
+        "prompt": "{{device}}（{{scope}}）に rsync が見つかりません。システムに合わせた方法で rsync をインストールし（例: `brew install rsync`、`sudo apt-get install -y rsync`、`sudo yum install -y rsync`）、完了したら返信してください。"
+      }
+    },
+    "file": {
+      "invalidRef": "無効なファイル参照です",
+      "notFound": "ファイルは存在しません",
+      "accessDenied": "アクセスが拒否されました",
+      "loadFailed": "ファイルの読み込みに失敗しました",
+      "isDirectory": "これはディレクトリです",
+      "notPreviewable": "このファイル形式はプレビューできません",
+      "tooLarge": "ファイルが大きすぎてプレビューできません",
+      "binary": "バイナリファイルはプレビューできません",
+      "download": "ダウンロード",
+      "openRaw": "元ファイルを開く"
     }
   }
 }

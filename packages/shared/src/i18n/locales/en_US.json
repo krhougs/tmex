@@ -228,6 +228,29 @@
         "clearKeyConfirm": "Clear this API key? You will need to enter it again.",
         "loadFailed": "Failed to load search settings",
         "saveFailed": "Failed to save search settings"
+      },
+      "files": {
+        "title": "Files",
+        "description": "Per-device directories browsable in the Files tab. Local devices read directly; SSH devices use rsync.",
+        "addRoot": "Add directory",
+        "roots": "Directories",
+        "empty": "No directories configured",
+        "missing": "Device missing",
+        "modalAddTitle": "Add directory",
+        "modalEditTitle": "Edit directory",
+        "device": "Device",
+        "devicePlaceholder": "Select a device",
+        "noDevices": "No devices yet — add one first",
+        "path": "Path",
+        "pathPlaceholder": "/absolute/path/to/directory",
+        "pathHint": "Absolute path on the selected device.",
+        "enabled": "Enabled",
+        "addFailed": "Failed to add directory",
+        "updateFailed": "Failed to update directory",
+        "deleteFailed": "Failed to remove directory",
+        "toggleFailed": "Failed to update directory",
+        "deleteTitle": "Remove directory?",
+        "deleteDesc": "Remove \"{{path}}\" from the whitelist? Files under it will no longer be accessible."
       }
     },
     "telegram": {
@@ -401,7 +424,14 @@
       "watchFireModeInvalid": "Fire mode must be once or repeat",
       "watchCooldownInvalid": "Cooldown seconds must be an integer >= 0",
       "watchAssistDescriptionRequired": "Please describe what to match",
-      "watchAssistModelUnavailable": "Model call failed: {{detail}}"
+      "watchAssistModelUnavailable": "Model call failed: {{detail}}",
+      "fileRootInvalid": "Path must be an absolute, existing directory",
+      "fileOutsideRoots": "Path is outside the allowed directories",
+      "fileNotADirectory": "Not a directory",
+      "fileTooLarge": "File is too large",
+      "fileBinary": "Binary files are not supported",
+      "fileRootDeviceInvalid": "Invalid or unknown device",
+      "fileRootDuplicate": "This directory is already added for the device"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -691,6 +721,54 @@
     "validation": {
       "deviceNameRequired": "Device name is required",
       "hostRequired": "Host is required for SSH devices"
+    },
+    "files": {
+      "title": "Files",
+      "refresh": "Refresh file list",
+      "noRoots": "No accessible directories. Add one in Settings → Files.",
+      "emptyDir": "Empty",
+      "truncated": "Too many items — list truncated",
+      "download": "Download",
+      "error": {
+        "invalid": "Invalid request",
+        "outside_roots": "Path is outside the allowed directory",
+        "not_found": "No longer exists",
+        "not_a_directory": "Not a directory",
+        "is_directory": "This is a directory",
+        "too_large": "File is too large to preview",
+        "binary": "Binary file cannot be previewed",
+        "permission_denied": "Permission denied",
+        "device_not_found": "Device not found",
+        "root_not_found": "Directory entry not found",
+        "root_disabled": "This directory is disabled",
+        "connection_failed": "Failed to connect to the device",
+        "auth_unsupported": "Device auth method unsupported for files (use key or ssh-agent)",
+        "rsync_missing_local": "rsync is not installed on the server",
+        "rsync_missing_remote": "rsync is not installed on the remote device",
+        "timeout": "Timed out",
+        "unknown": "Failed to load"
+      },
+      "retry": "Retry (collapse then expand)",
+      "install": {
+        "button": "Install rsync",
+        "scopeLocal": "server",
+        "scopeRemote": "remote",
+        "connectFailed": "Failed to connect to the device",
+        "windowFailed": "Failed to create a window",
+        "prompt": "rsync is not installed on {{device}} ({{scope}}). Please install rsync using the appropriate command for this system (e.g. `brew install rsync`, `sudo apt-get install -y rsync`, or `sudo yum install -y rsync`), then reply once it is done."
+      }
+    },
+    "file": {
+      "invalidRef": "Invalid file reference",
+      "notFound": "File no longer exists",
+      "accessDenied": "Access denied",
+      "loadFailed": "Failed to load file",
+      "isDirectory": "This is a directory",
+      "notPreviewable": "Preview is not available for this file type",
+      "tooLarge": "File is too large to preview",
+      "binary": "Binary file cannot be previewed",
+      "download": "Download",
+      "openRaw": "Open raw"
     }
   }
 }

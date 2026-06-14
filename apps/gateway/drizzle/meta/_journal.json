@@ -50,6 +50,20 @@
       "when": 1781381082588,
       "tag": "0006_bitter_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1781402800172,
+      "tag": "0007_fearless_pestilence",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781421643528,
+      "tag": "0008_perfect_ozymandias",
+      "breakpoints": true
     }
   ]
 }

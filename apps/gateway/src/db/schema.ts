@@ -307,12 +307,26 @@ export const deviceTreeOrder = sqliteTable('device_tree_order', {
     .primaryKey()
     .references(() => devices.id, { onDelete: 'cascade' }),
   windows: text('windows', { mode: 'json' }).$type<string[]>().notNull().default([]),
-  panes: text('panes', { mode: 'json' })
-    .$type<Record<string, string[]>>()
-    .notNull()
-    .default({}),
+  panes: text('panes', { mode: 'json' }).$type<Record<string, string[]>>().notNull().default({}),
   updatedAt: text('updated_at').notNull(),
 });
+
+// Files Tab 可访问目录白名单（树根）。每个根绑定到一个设备（local 走本地 rsync，ssh 走 rsync over ssh），
+// 有独立启用开关。(deviceId, path) 唯一。
+export const fileRoots = sqliteTable(
+  'file_roots',
+  {
+    id: text('id').primaryKey(),
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [unique('file_roots_device_path_unique').on(table.deviceId, table.path)]
+);
 
 export const telegramBotChats = sqliteTable(
   'telegram_bot_chats',

@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { FilesSettingsTab } from '../components/settings/files-tab';
 import { LlmProvidersTab } from '../components/settings/llm-providers-tab';
 import { SearchTab } from '../components/settings/search-tab';
 import { useSiteStore } from '../stores/site';
@@ -89,7 +90,7 @@ export default function SettingsPage() {
   const { refreshSettings } = useSiteStore();
 
   const [activeTab, setActiveTab] = useState<
-    'site' | 'notifications' | 'telegram' | 'webhooks' | 'llm' | 'search'
+    'site' | 'notifications' | 'telegram' | 'webhooks' | 'llm' | 'search' | 'files'
   >('site');
 
   const theme = useUIStore((state) => state.theme);
@@ -364,6 +365,15 @@ export default function SettingsPage() {
           onClick={() => setActiveTab('search')}
         >
           {t('settings.search.title')}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeTab === 'files' ? 'default' : 'outline'}
+          data-testid="settings-tab-files"
+          onClick={() => setActiveTab('files')}
+        >
+          {t('settings.files.title')}
         </Button>
       </div>
 
@@ -783,6 +793,8 @@ export default function SettingsPage() {
       {activeTab === 'llm' && <LlmProvidersTab />}
 
       {activeTab === 'search' && <SearchTab />}
+
+      {activeTab === 'files' && <FilesSettingsTab />}
 
       {(activeTab === 'site' || activeTab === 'notifications') && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMatch, useNavigate } from 'react-router';
 
@@ -49,6 +49,16 @@ function ChatInput({
 }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
+
+  // 消费草稿预填 prompt（rsync 自动安装流程）：出现新预填值时填入输入框一次，等待用户手动发送。
+  const draftPrompt = useAgentStore((state) => state.draft?.prompt ?? null);
+  const appliedPromptRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (draftPrompt && draftPrompt !== appliedPromptRef.current) {
+      appliedPromptRef.current = draftPrompt;
+      setText(draftPrompt);
+    }
+  }, [draftPrompt]);
 
   const submit = (): void => {
     const trimmed = text.trim();

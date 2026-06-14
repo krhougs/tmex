@@ -1,0 +1,145 @@
+/* 代码高亮主题：与终端 seoul256 配色共享调色板（见 components/terminal/theme.ts）。
+   亮色在 :root 定义，暗色在 .dark 覆盖（.dark class 由 <html> 控制）。
+   .hljs token class 只引用下面的 --code-* 变量，组件容器负责设 font-mono。 */
+
+:root {
+  --code-bg: #e1e1e1;
+  --code-fg: #616161;
+  --code-comment: rgba(97, 97, 97, 0.55);
+  --code-keyword: #007299; /* blue */
+  --code-string: #009799; /* green */
+  --code-number: #9a7200; /* yellow */
+  --code-literal: #9a7200; /* yellow */
+  --code-title: #9b1d72; /* magenta */
+  --code-function: #9b1d72; /* magenta */
+  --code-builtin: #007173; /* cyan */
+  --code-type: #007173; /* cyan */
+  --code-attr: #007173; /* cyan */
+  --code-variable: #007173; /* cyan */
+  --code-meta: #007299; /* blue */
+  --code-tag: #007299; /* blue */
+  --code-name: #007299; /* blue */
+  --code-addition: #009799; /* green */
+  --code-deletion: #bf2172; /* red */
+  --code-regexp: #007173; /* cyan */
+  --code-symbol: #9a7200; /* yellow */
+  --code-quote: rgba(97, 97, 97, 0.55);
+  --code-section: #9b1d72; /* magenta */
+}
+
+.dark {
+  --code-bg: #262626;
+  --code-fg: #d0d0d0;
+  --code-comment: rgba(208, 208, 208, 0.45);
+  --code-keyword: #afa3b5; /* bright blue */
+  --code-string: #7aab7a; /* bright green */
+  --code-number: #d1d194; /* bright yellow */
+  --code-literal: #d1d194; /* bright yellow */
+  --code-title: #e29f9f; /* bright magenta */
+  --code-function: #e29f9f; /* bright magenta */
+  --code-builtin: #a0aea3; /* bright cyan */
+  --code-type: #a0aea3; /* bright cyan */
+  --code-attr: #a0aea3; /* bright cyan */
+  --code-variable: #a0aea3; /* bright cyan */
+  --code-meta: #afa3b5; /* bright blue */
+  --code-tag: #afa3b5; /* bright blue */
+  --code-name: #afa3b5; /* bright blue */
+  --code-addition: #7aab7a; /* bright green */
+  --code-deletion: #ea7171; /* bright red */
+  --code-regexp: #a0aea3; /* bright cyan */
+  --code-symbol: #d1d194; /* bright yellow */
+  --code-quote: rgba(208, 208, 208, 0.45);
+  --code-section: #e29f9f; /* bright magenta */
+}
+
+.hljs {
+  color: var(--code-fg);
+  background: var(--code-bg);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag {
+  color: var(--code-keyword);
+}
+
+.hljs-string,
+.hljs-addition {
+  color: var(--code-string);
+}
+
+.hljs-number,
+.hljs-literal {
+  color: var(--code-number);
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-function {
+  color: var(--code-function);
+}
+
+.hljs-built_in,
+.hljs-type {
+  color: var(--code-builtin);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--code-variable);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-meta .hljs-string {
+  color: var(--code-meta);
+}
+
+.hljs-tag,
+.hljs-name {
+  color: var(--code-tag);
+}
+
+.hljs-section {
+  color: var(--code-section);
+}
+
+.hljs-bullet {
+  color: var(--code-number);
+}
+
+.hljs-symbol,
+.hljs-link {
+  color: var(--code-symbol);
+}
+
+.hljs-regexp {
+  color: var(--code-regexp);
+}
+
+.hljs-deletion {
+  color: var(--code-deletion);
+}
+
+.hljs-property,
+.hljs-params,
+.hljs-operator,
+.hljs-punctuation {
+  color: var(--code-fg);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
