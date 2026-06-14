@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+  <img src="docs/images/screenshot.png" width="640" alt="tmex screenshot" />
+</p>
+
+<p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="#highlights">Highlights</a> ·
   <a href="#install--upgrade">Install & Upgrade</a> ·

@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+  <img src="docs/images/screenshot.png" width="640" alt="tmex 截图" />
+</p>
+
+<p align="center">
   <a href="#快速开始">快速开始</a> ·
   <a href="#核心亮点">核心亮点</a> ·
   <a href="#安装与升级">安装与升级</a> ·
