@@ -89,6 +89,10 @@ export class CanvasRenderer {
   // 底色形成横竖细线。
   private deviceCellWidth = 9;
   private deviceCellHeight = 17;
+  // 字形 em-box 高（fontSize×dpr），及把多余 leading 上下均分后的垂直居中偏移；
+  // 二者随 cell/dpr 在 resize() 内一并刷新。
+  private deviceFontSize = 13;
+  private textOffsetY = 0;
   private dpr = 1;
   private cols = 0;
   private rows = 0;
@@ -218,6 +222,10 @@ export class CanvasRenderer {
     this.dpr = dpr;
     this.deviceCellWidth = deviceCellWidth;
     this.deviceCellHeight = deviceCellHeight;
+    this.deviceFontSize = this.fontSize * dpr;
+    // cell 高（line-height 1.2）大于 em-box，把多出的 leading 上下均分；否则
+    // textBaseline='top' 会让文字全部贴 cell 顶（issue #17）。
+    this.textOffsetY = Math.max(0, Math.round((deviceCellHeight - this.deviceFontSize) / 2));
 
     const width = nextCols * deviceCellWidth;
     const height = nextRows * deviceCellHeight;
@@ -298,13 +306,18 @@ export class CanvasRenderer {
         this.drawBlockElement(blockCodepoint, x, y, cellWidth, this.deviceCellHeight);
       } else {
         this.mainContext.font = this.resolveFont(cell.style);
-        this.mainContext.fillText(cell.text, x, y);
+        this.mainContext.fillText(cell.text, x, y + this.textOffsetY);
       }
 
+      // 装饰线随居中后的字形盒走，而非 cell 边缘：下划线贴字底、上划线贴字顶、
+      // 删除线穿字形几何中线。
       if (cell.style.underline > 0) {
         this.mainContext.fillRect(
           x,
-          y + this.deviceCellHeight - 2 * lineThickness,
+          Math.min(
+            y + this.textOffsetY + this.deviceFontSize - lineThickness,
+            y + this.deviceCellHeight - lineThickness
+          ),
           Math.max(cellWidth - lineThickness, lineThickness),
           lineThickness
         );
@@ -313,7 +326,7 @@ export class CanvasRenderer {
       if (cell.style.strikethrough) {
         this.mainContext.fillRect(
           x,
-          Math.round(y + this.deviceCellHeight * 0.55),
+          Math.round(y + this.textOffsetY + this.deviceFontSize / 2),
           Math.max(cellWidth - lineThickness, lineThickness),
           lineThickness
         );
@@ -322,7 +335,7 @@ export class CanvasRenderer {
       if (cell.style.overline) {
         this.mainContext.fillRect(
           x,
-          y + lineThickness,
+          y + this.textOffsetY,
           Math.max(cellWidth - lineThickness, lineThickness),
           lineThickness
         );
@@ -443,7 +456,7 @@ export class CanvasRenderer {
   }
 
   private resolveFont(style: GhosttyRenderRow['cells'][number]['style']): string {
-    const deviceFontSize = this.fontSize * this.dpr;
+    const deviceFontSize = this.deviceFontSize;
     const key = [
       style.italic ? 'italic' : 'normal',
       style.bold ? '700' : '400',
