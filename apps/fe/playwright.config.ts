@@ -18,9 +18,10 @@ function resolveBunExecutable(): string {
   return 'bun';
 }
 
-// 默认端口配置
-const DEFAULT_GATEWAY_PORT = 9663;
-const DEFAULT_FE_PORT = 9883;
+// 默认端口刻意避开生产常驻 tmex 的 9883，降低 e2e 误打生产实例的风险；
+// 实际运行由 bun run test:e2e（scripts/run-e2e.ts）自动选空闲端口并注入 TMEX_E2E_*_PORT。
+const DEFAULT_GATEWAY_PORT = 9665;
+const DEFAULT_FE_PORT = 9885;
 
 const gatewayPort = Number(process.env.TMEX_E2E_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT;
 const fePort = Number(process.env.TMEX_E2E_FE_PORT) || DEFAULT_FE_PORT;
@@ -44,10 +45,10 @@ function isPortListening(port: number): Promise<boolean> {
   });
 }
 
-// 防护：reuseExistingServer 生效时，若端口未显式指定且默认端口已被占用，
-// reuse 会直接命中已存在的实例（本机 9883 常驻生产 tmex），beforeAll 改写
-// 全局设置会污染生产数据。此时直接拒绝，要求显式指定 env 或走 bun run test:e2e。
-if (reuseExistingServer) {
+// 防护：无论 reuse 还是 fresh，只要端口未显式指定却已被占用，都拒绝运行——
+// reuse 会命中未知实例（本机 9883 常驻生产 tmex）、fresh 也会与之冲突。要求显式指定
+// env 或走 bun run test:e2e。globalSetup 另有一道 healthz=env:test 断言兜底。
+{
   const conflicts: string[] = [];
   if (!process.env.TMEX_E2E_GATEWAY_PORT && (await isPortListening(gatewayPort))) {
     conflicts.push(`gateway port ${gatewayPort} (TMEX_E2E_GATEWAY_PORT not set)`);
@@ -57,7 +58,7 @@ if (reuseExistingServer) {
   }
   if (conflicts.length > 0) {
     throw new Error(
-      `[e2e] Refusing to reuse unknown server(s) already listening on default port(s): ${conflicts.join(
+      `[e2e] Refusing to use port(s) already occupied by unknown server(s): ${conflicts.join(
         ', '
       )}. This may be a production tmex instance. Set TMEX_E2E_FE_PORT / TMEX_E2E_GATEWAY_PORT explicitly (e.g. TMEX_E2E_FE_PORT=9885 TMEX_E2E_GATEWAY_PORT=9665), or run via \`bun run test:e2e\` which picks free ports automatically.`
     );
@@ -66,6 +67,8 @@ if (reuseExistingServer) {
 
 export default defineConfig({
   testDir: './tests',
+  // 兜底：跑任何用例前断言实际连到的 gateway 是 NODE_ENV=test 实例，绝不误改生产数据。
+  globalSetup: './tests/global-setup.ts',
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
@@ -99,6 +102,9 @@ export default defineConfig({
         GATEWAY_PORT: String(gatewayPort),
         DATABASE_URL: process.env.TMEX_E2E_DATABASE_URL ?? `/tmp/tmex-e2e-${Date.now()}.db`,
         TMEX_BASE_URL: `http://localhost:${gatewayPort}`,
+        // local 设备的 tmux 会话全部落到 e2e 专用 socket，与生产默认 socket 隔离；
+        // 必须与 tests/helpers/tmux.ts 的 E2E_TMUX_SOCKET 一致。
+        TMEX_TMUX_SOCKET: 'tmex-e2e',
       },
       url: `http://localhost:${gatewayPort}/healthz`,
       timeout: 60_000,

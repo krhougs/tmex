@@ -85,6 +85,30 @@ export function shouldIgnoreReaderAbortError(error: unknown): boolean {
   );
 }
 
+// 进程资源暂时耗尽（如本机进程数到 kern.maxprocperuid）时 Bun.spawn 会抛这些错误码。
+// 区别于 tmux 命令本身的非零退出与「server gone」，这类失败是瞬时的，应退避重试而非
+// 判定连接失效或抛 unhandledRejection。
+const TRANSIENT_SPAWN_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
+const TMUX_SPAWN_UNAVAILABLE_EXIT = -2;
+
+function isTransientSpawnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === 'string' && TRANSIENT_SPAWN_ERROR_CODES.has(code)) {
+    return true;
+  }
+  const message = (error as { message?: unknown }).message;
+  return (
+    typeof message === 'string' &&
+    (message.includes('EAGAIN') ||
+      message.includes('posix_spawn') ||
+      message.includes('resource temporarily unavailable') ||
+      message.includes('Too many open files'))
+  );
+}
+
 function defaultRun(argv: string[]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const subprocess = Bun.spawn(argv, {
@@ -152,6 +176,7 @@ export class LocalExternalTmuxConnection {
   private controlStartedAt = 0;
   private controlRestartCount = 0;
   private controlStderrTail = '';
+  private spawnUnavailableNotified = false;
 
   constructor(
     options: TmuxConnectionOptions,
@@ -215,7 +240,13 @@ export class LocalExternalTmuxConnection {
   }
 
   requestSnapshot(): void {
-    void this.requestSnapshotInternal();
+    void this.requestSnapshotInternal().catch((error) => {
+      if (isTransientSpawnError(error)) {
+        this.handleSpawnUnavailable(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+    });
   }
 
   sendInput(paneId: string, data: string): void {
@@ -580,6 +611,7 @@ export class LocalExternalTmuxConnection {
 
     const proc = this.deps.spawnControlClient([
       'tmux',
+      ...(config.tmuxSocket ? ['-L', config.tmuxSocket] : []),
       '-C',
       'attach-session',
       '-t',
@@ -691,6 +723,18 @@ export class LocalExternalTmuxConnection {
     }
 
     const probe = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
+    if (probe.exitCode === TMUX_SPAWN_UNAVAILABLE_EXIT) {
+      // 探测会话时进程资源暂时不足：不判定 session gone、不 shutdown，退避后再排一次重连，
+      // 且不计入放弃预算，避免本机进程压力误杀一个其实健在的会话。
+      this.handleSpawnUnavailable(probe.stderr);
+      this.controlRestartCount = Math.max(0, this.controlRestartCount - 1);
+      if (this.connected && !this.manualDisconnect) {
+        setTimeout(() => {
+          void this.reconnectControlClient(exitCode);
+        }, CONTROL_RESTART_DELAY_MS * 4);
+      }
+      return;
+    }
     if (probe.exitCode !== 0) {
       const message = probe.stderr.trim() || probe.stdout.trim() || 'tmux session gone';
       console.warn(`[local] tmux session gone on ${this.deviceId}: ${message}`);
@@ -858,6 +902,15 @@ export class LocalExternalTmuxConnection {
       ]),
     ]);
 
+    const transientResult = [sessionRes, windowsRes, panesRes].find(
+      (res) => res.exitCode === TMUX_SPAWN_UNAVAILABLE_EXIT
+    );
+    if (transientResult) {
+      // 进程压力下抓快照失败：保留现有快照，等下次事件/重连再刷，绝不据此判定 server gone。
+      this.handleSpawnUnavailable(transientResult.stderr);
+      return;
+    }
+
     if (sessionRes.exitCode !== 0 || windowsRes.exitCode !== 0 || panesRes.exitCode !== 0) {
       const stderrBlob = `${sessionRes.stderr}\n${windowsRes.stderr}\n${panesRes.stderr}`;
       if (
@@ -885,6 +938,7 @@ export class LocalExternalTmuxConnection {
     this.parseSnapshotPanes(panesRes.stdout.split(/\r?\n/));
     this.discardInvalidSnapshot();
     this.controlSubscription?.prunePanes(new Set(this.getExpectedPaneIds()));
+    this.markSpawnRecovered();
     this.emitSnapshot();
   }
 
@@ -1124,8 +1178,37 @@ export class LocalExternalTmuxConnection {
     });
   }
 
+  // 本机进程数耗尽导致 tmux 无法 spawn：瞬时故障，退避重试即可。告警/日志仅一次，
+  // 成功一次后由 markSpawnRecovered 复位，避免刷屏（同类故障单次通知）。
+  private handleSpawnUnavailable(message: string): void {
+    if (this.spawnUnavailableNotified) {
+      return;
+    }
+    this.spawnUnavailableNotified = true;
+    const detail = (message || 'tmux spawn unavailable (process table exhausted)').trim();
+    console.warn(
+      `[local] tmux spawn unavailable on ${this.deviceId} (process pressure), degrading without shutdown: ${detail}`
+    );
+    void this.notifyRuntimeError(detail);
+  }
+
+  private markSpawnRecovered(): void {
+    this.spawnUnavailableNotified = false;
+  }
+
   private async runTmuxAllowFailure(argv: string[]): Promise<CommandResult> {
-    return this.deps.run(['tmux', ...argv]);
+    const socketArgs = config.tmuxSocket ? ['-L', config.tmuxSocket] : [];
+    try {
+      return await this.deps.run(['tmux', ...socketArgs, ...argv]);
+    } catch (error) {
+      // 进程资源暂时耗尽时 Bun.spawn 直接抛错。降级为「命令失败」语义，避免逃逸成
+      // unhandledRejection；上层据 TMUX_SPAWN_UNAVAILABLE_EXIT 退避重试而非判定连接失效。
+      if (isTransientSpawnError(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { exitCode: TMUX_SPAWN_UNAVAILABLE_EXIT, stdout: '', stderr: message };
+      }
+      throw error;
+    }
   }
 
   private isTmuxServerGoneMessage(message: string): boolean {

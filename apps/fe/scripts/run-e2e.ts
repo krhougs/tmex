@@ -55,8 +55,9 @@ function resolvePlaywrightCli(): string {
   return 'node_modules/.bin/playwright';
 }
 
-const defaultGatewayPort = 9663;
-const defaultFePort = 9883;
+// 默认端口避开生产常驻 tmex 的 9883/9663（见 playwright.config.ts 同步常量）。
+const defaultGatewayPort = 9665;
+const defaultFePort = 9885;
 
 const requestedGatewayPort = Number(process.env.TMEX_E2E_GATEWAY_PORT) || defaultGatewayPort;
 const requestedFePort = Number(process.env.TMEX_E2E_FE_PORT) || defaultFePort;

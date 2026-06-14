@@ -278,7 +278,12 @@ export function handleApiRequest(
   }
 
   if (path === '/healthz' && req.method === 'GET') {
-    return json({ status: 'ok', restarting: runtimeController.isRestarting() });
+    return json({
+      status: 'ok',
+      restarting: runtimeController.isRestarting(),
+      // 供 e2e globalSetup 断言「连到的是 test 实例而非生产」，避免误改生产数据。
+      env: process.env.NODE_ENV ?? 'development',
+    });
   }
 
   return json({ error: t('apiError.notFound') }, 404);
