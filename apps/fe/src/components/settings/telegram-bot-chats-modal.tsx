@@ -213,7 +213,7 @@ function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
             <Button variant="outline" size="sm" onClick={onDelete}>
               {t('telegram.reject')}
             </Button>
-            <Button variant="default" size="sm" onClick={onApprove}>
+            <Button variant="secondary" size="sm" onClick={onApprove}>
               {t('telegram.authorize')}
             </Button>
           </>

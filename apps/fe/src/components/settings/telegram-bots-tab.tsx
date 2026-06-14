@@ -57,7 +57,7 @@ export function TelegramBotsTab() {
       <Card className="border-0 ring-0">
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle>{t('telegram.title')}</CardTitle>
-          <Button data-testid="telegram-add-bot" onClick={openAdd}>
+          <Button variant="secondary" data-testid="telegram-add-bot" onClick={openAdd}>
             <Plus className="h-4 w-4" />
             {t('telegram.addBot')}
           </Button>

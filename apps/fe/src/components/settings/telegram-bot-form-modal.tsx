@@ -180,6 +180,7 @@ export function TelegramBotFormModal({ open, onOpenChange, bot }: TelegramBotFor
             {t('common.cancel')}
           </Button>
           <Button
+            variant="secondary"
             data-testid="telegram-bot-form-submit"
             onClick={handleSubmit}
             disabled={!canSubmit || isPending}

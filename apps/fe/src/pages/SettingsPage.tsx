@@ -194,6 +194,22 @@ export default function SettingsPage() {
     },
   ];
 
+  // 保存按钮置于各自作用范围的卡片内（站点信息卡 / 通知卡），不再悬于卡片外
+  const saveButton = (
+    <div className="flex justify-end pt-2">
+      <Button
+        variant="secondary"
+        data-testid="settings-save"
+        onClick={() => saveSiteMutation.mutate()}
+        disabled={saveSiteMutation.isPending}
+        className="w-full sm:w-auto"
+      >
+        <Save className="h-4 w-4" />
+        {t('common.save')}
+      </Button>
+    </div>
+  );
+
   return (
     <div
       className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-3 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:gap-6 sm:p-5"
@@ -299,6 +315,8 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
+
+              {saveButton}
             </CardContent>
           </Card>
 
@@ -442,6 +460,8 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
+
+              {saveButton}
             </CardContent>
           </Card>
 
@@ -455,21 +475,6 @@ export default function SettingsPage() {
           <LlmProvidersTab />
           <SearchTab />
         </>
-      )}
-
-      {(activeTab === 'general' || activeTab === 'notifications') && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-          <Button
-            variant="default"
-            data-testid="settings-save"
-            onClick={() => saveSiteMutation.mutate()}
-            disabled={saveSiteMutation.isPending}
-            className="w-full sm:w-auto"
-          >
-            <Save className="h-4 w-4" />
-            {t('common.save')}
-          </Button>
-        </div>
       )}
     </div>
   );

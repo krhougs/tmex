@@ -245,6 +245,7 @@ export function LlmProviderFormModal({ open, onOpenChange, provider }: LlmProvid
             {t('common.cancel')}
           </Button>
           <Button
+            variant="secondary"
             data-testid="llm-provider-form-submit"
             onClick={handleSubmit}
             disabled={!canSubmit || isPending}

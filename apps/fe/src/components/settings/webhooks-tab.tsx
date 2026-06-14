@@ -148,7 +148,7 @@ export function WebhooksTab() {
 
           <div className="md:col-span-2">
             <Button
-              variant="default"
+              variant="secondary"
               className="w-full md:w-auto"
               data-testid="webhook-add"
               onClick={() => createWebhookMutation.mutate()}

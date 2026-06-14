@@ -225,7 +225,7 @@ export function SearchTab() {
 
         <div className="flex justify-end">
           <Button
-            variant="default"
+            variant="secondary"
             data-testid="settings-search-save"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending || settingsQuery.isLoading}

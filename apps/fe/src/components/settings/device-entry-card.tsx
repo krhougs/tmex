@@ -17,7 +17,7 @@ export function DeviceEntryCard() {
         <Link
           to="/devices"
           data-testid="settings-device-management-link"
-          className={buttonVariants({ variant: 'default' })}
+          className={buttonVariants({ variant: 'secondary' })}
         >
           <Monitor className="h-4 w-4" />
           {t('settings.deviceManagement.openButton')}
