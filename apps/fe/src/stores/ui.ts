@@ -63,15 +63,20 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'tmex-ui',
+      // sidebarTab 不持久化：每次加载都回到默认 'panes'。
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
-        sidebarTab: state.sidebarTab,
         inputMode: state.inputMode,
         editorSendWithEnter: state.editorSendWithEnter,
         theme: state.theme,
         editorHistory: state.editorHistory,
         editorDrafts: state.editorDrafts,
       }),
+      // 丢弃旧版本 localStorage 里残留的 sidebarTab，避免被默认 merge 带回。
+      merge: (persisted, current) => {
+        const { sidebarTab: _ignored, ...rest } = (persisted ?? {}) as Partial<UIState>;
+        return { ...current, ...rest };
+      },
     }
   )
 );
