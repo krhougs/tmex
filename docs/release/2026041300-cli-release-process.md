@@ -51,12 +51,16 @@ bun run release:tmex <newVersion>      # 例：bun run release:tmex 0.11.0
 
 1. 校验 semver；
 2. 取「上一条 `chore(release)` 提交 .. HEAD」的 commit，按 conventional commit 前缀（feat/fix/perf/refactor/docs，其余归 Other）分组，排除 `chore(release)` 自身；
-3. 重写 `packages/app/CHANGELOG.md`（**仅当前版本**，含日期）；
+3. 把 `packages/app/CHANGELOG.md` 写成 **commit 原文草稿**（**仅当前版本**，含日期，首行带 `<!-- DRAFT… -->` 标记）；
 4. 写 `packages/app/package.json` 的 `version`。
 
-随后**审阅 `packages/app/CHANGELOG.md`**，必要时手工润色。可选参数：`--from <ref> --to <ref> --no-bump --date <YYYY-MM-DD>`。
+可选参数：`--from <ref> --to <ref> --no-bump --date <YYYY-MM-DD>`。
 
-> 顺序很重要：必须先跑 `release:tmex`（bump 版本）再 `bun run build`，因为版本号在 build 期注入 bundle。
+### 1.5 由 agent 把草稿改写为用户语言（必做）
+
+`release.ts` 生成的是给工程师看的 commit 草稿，**不能直接发给用户**。让 agent 按 [改写规范](2026061406-release-changelog-flow.md#改写规范agent-步骤) 把 `packages/app/CHANGELOG.md` 改写为普通客户看得懂的人话：去掉 commit hash / scope / `feat:`/`fix:` 前缀 / 实现黑话，按「新增 / 改进 / 修复」讲用户能感知的价值，并**删除首行 DRAFT 标记**。改完审阅一遍。
+
+> 顺序很重要：必须先跑 `release:tmex`（bump 版本）+ 改写 changelog，再 `bun run build`，因为版本号在 build 期注入 bundle。
 
 ### 2. 全量重新编译
 
@@ -81,6 +85,7 @@ npm pack --dry-run --workspace tmex-cli
 - `npm pack --dry-run` 输出中必须包含 `dist`、`resources` 与 `CHANGELOG.md`。
 - `resources/fe-dist` 中应包含最新前端静态资源。
 - `resources/gateway-drizzle` 中应包含迁移文件。
+- **CHANGELOG 已完成 agent 改写**：`grep -c DRAFT packages/app/CHANGELOG.md` 应为 `0`（仍有 DRAFT 标记说明漏了第 1.5 步），且内容无 commit hash / `feat:` 等黑话。
 - **版本号已正确烧进 bundle**：`grep -c "<newVersion>" packages/app/dist/runtime/server.js` 应 > 0（确认 `--define` 注入生效，而非旧版本）。
 
 如果本次发布包含 `apps/gateway`、`apps/fe`、`packages/shared` 的行为变更，应额外执行受影响模块的测试或构建验证。
@@ -175,9 +180,9 @@ npx --yes tmex-cli@<version> doctor --lang en
 ```bash
 # 仓库根目录
 bun install
-bun run release:tmex <newVersion>      # bump 版本 + 生成仅含当前版本的 CHANGELOG
-#   → 审阅 packages/app/CHANGELOG.md
-bun run build                          # 必须在 bump 之后：版本号在此烧进 bundle
+bun run release:tmex <newVersion>      # bump 版本 + 生成 CHANGELOG 草稿（commit 原文）
+#   → 让 agent 把 CHANGELOG.md 改写为用户能看懂的人话，删除 DRAFT 标记，再审阅
+bun run build                          # 必须在 bump+改写之后：版本号在此烧进 bundle
 bun run test:tmex
 npm pack --dry-run --workspace tmex-cli   # 确认含 dist/resources/CHANGELOG.md
 

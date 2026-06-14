@@ -1,10 +1,12 @@
-// 发版准备：读取自上次 release 以来的 commit，生成「仅含当前版本」的 CHANGELOG，并 bump 版本号。
+// 发版准备：读取自上次 release 以来的 commit，生成「仅含当前版本」的 CHANGELOG 草稿，并 bump 版本号。
 //
 // 用法：
-//   bun scripts/release.ts <newVersion>                 # 生成 changelog 并把 tmex-cli 版本 bump 到 newVersion
+//   bun scripts/release.ts <newVersion>                 # 生成 changelog 草稿并把 tmex-cli 版本 bump 到 newVersion
 //   bun scripts/release.ts <ver> --from <ref> --to <ref> --no-bump --date <YYYY-MM-DD>
 //
 // 说明：
+//   - 本脚本只产出「commit 原文草稿」（带 DRAFT 标记）；发布前**必须由 agent 改写为面向普通
+//     用户的人话**并删除标记，详见 docs/release/2026061406-release-changelog-flow.md。
 //   - CHANGELOG 只覆盖当前版本（每次发版重写 packages/app/CHANGELOG.md，随包发布）。
 //   - gateway 检查更新时从 CDN 拉目标版本包内的 CHANGELOG.md 展示。
 //   - 默认 commit 范围 = 上一条 `chore(release)` 提交 .. HEAD。
@@ -102,6 +104,12 @@ const TYPE_SECTIONS: Array<{ type: string; title: string }> = [
 ];
 const OTHER_TITLE = 'Other';
 
+// 本脚本生成的是「commit 原文草稿」，发布前必须由 agent 改写为面向普通用户的人话并删除本标记行。
+// 标记是 HTML 注释：万一漏改写被发布，前端 markdown 渲染不会展示它（不污染用户视图），
+// 但维护者在文件 / npm pack 里仍可见，作为「未完成改写」的护栏。
+export const DRAFT_MARKER =
+  '<!-- DRAFT：commit 自动生成草稿，发布前必须由 agent 改写为面向普通用户的人话并删除本行（见 docs/release/2026061406-release-changelog-flow.md） -->';
+
 function classifyType(subject: string): string {
   const m = subject.match(/^(\w+)(\([^)]*\))?(!)?:\s*/);
   return m ? m[1].toLowerCase() : 'other';
@@ -116,7 +124,7 @@ function buildChangelog(version: string, date: string, commits: Commit[]): strin
     buckets.get(section)?.push(c);
   }
 
-  const lines: string[] = [`# ${version}`, '', `_${date}_`, ''];
+  const lines: string[] = [DRAFT_MARKER, '', `# ${version}`, '', `_${date}_`, ''];
 
   const order = [...TYPE_SECTIONS.map((s) => s.title), OTHER_TITLE];
   let wrote = false;
@@ -163,10 +171,17 @@ function main(): void {
     console.log(`[release] bumped tmex-cli ${prev} -> ${args.version}`);
   }
 
+  console.log('[release] CHANGELOG.md 当前是 commit 原文草稿（含 DRAFT 标记）。');
   console.log('[release] next steps:');
-  console.log('  1) review packages/app/CHANGELOG.md');
-  console.log(`  2) git commit -am "chore(release): tmex-cli ${args.version}"`);
-  console.log('  3) bun run publish:tmex');
+  console.log(
+    '  1) 让 agent 把 packages/app/CHANGELOG.md 改写为面向普通用户的人话，并删除顶部 DRAFT 标记行'
+  );
+  console.log('     （改写规范见 docs/release/2026061406-release-changelog-flow.md）');
+  console.log('  2) review packages/app/CHANGELOG.md（确认无 DRAFT 标记、无 commit 黑话）');
+  console.log('  3) bun run build && bun run test:tmex');
+  console.log(
+    `  4) git commit -am "chore(release): tmex-cli ${args.version}" && bun run publish:tmex`
+  );
 }
 
 main();

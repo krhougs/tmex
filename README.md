@@ -234,7 +234,8 @@ chmod +x scripts/health-check.sh
 
 ```bash
 bun install
-bun run release:tmex <newVersion>   # bump version + 生成仅含当前版本的 CHANGELOG（随后审阅）
+bun run release:tmex <newVersion>   # bump version + 生成 CHANGELOG 草稿（commit 原文）
+#   → 让 agent 把 CHANGELOG.md 改写为普通用户能看懂的人话，删除 DRAFT 标记，再审阅
 bun run build
 bun run test:tmex
 npm pack --dry-run --workspace tmex-cli   # 应含 dist / resources / CHANGELOG.md
