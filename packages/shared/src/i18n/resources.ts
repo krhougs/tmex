@@ -257,6 +257,35 @@ export const I18N_RESOURCES = {
         "toggleFailed": "Failed to update directory",
         "deleteTitle": "Remove directory?",
         "deleteDesc": "Remove \"{{path}}\" from the whitelist? Files under it will no longer be accessible."
+      },
+      "version": {
+        "title": "Version & Updates",
+        "currentVersion": "Current version",
+        "installMethod": "Install method",
+        "installMethodCli": "Installed via CLI",
+        "installMethodNonCli": "Not installed via CLI",
+        "deployment": "Deployment",
+        "deploymentLaunchd": "launchd (macOS)",
+        "deploymentSystemd": "systemd (Linux)",
+        "deploymentNone": "None",
+        "checkUpdate": "Check for updates",
+        "checking": "Checking…",
+        "upToDate": "You are on the latest version.",
+        "updateAvailable": "Update available: {{version}}",
+        "changelog": "Changelog",
+        "changelogUnavailable": "No changelog available for this version.",
+        "publishedAt": "Published {{date}}",
+        "upgrade": "Upgrade now",
+        "upgradeDisabledDev": "In-app update is disabled outside the production environment.",
+        "upgradeDisabledNonCli": "In-app update is only available for CLI installations.",
+        "upgradeWarningTitle": "Confirm upgrade",
+        "upgradeWarningBody": "Upgrading restarts the service and will interrupt your current session. It may also affect the survival of tmux processes managed by the service. Continue?",
+        "upgradeStarted": "Upgrade started",
+        "stateDownloading": "Downloading the new version…",
+        "stateExecuting": "Applying the upgrade, the service is restarting…",
+        "interruptNotice": "The connection will drop while the service restarts; it will recover shortly.",
+        "checkFailed": "Failed to check for updates",
+        "terminalHint": "Or upgrade from a terminal: npx tmex-cli@<version> upgrade"
       }
     },
     "telegram": {
@@ -437,7 +466,11 @@ export const I18N_RESOURCES = {
       "fileTooLarge": "File is too large",
       "fileBinary": "Binary files are not supported",
       "fileRootDeviceInvalid": "Invalid or unknown device",
-      "fileRootDuplicate": "This directory is already added for the device"
+      "fileRootDuplicate": "This directory is already added for the device",
+      "upgradeNotAllowed": "In-app update is not available for this installation.",
+      "upgradeInProgress": "An upgrade is already in progress.",
+      "upgradeVersionRequired": "Target version is required.",
+      "updateCheckFailed": "Failed to query the npm registry."
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -1031,6 +1064,35 @@ export const I18N_RESOURCES = {
         "toggleFailed": "更新目录失败",
         "deleteTitle": "移除目录？",
         "deleteDesc": "将「{{path}}」移出白名单？该目录下的文件将不再可访问。"
+      },
+      "version": {
+        "title": "版本与更新",
+        "currentVersion": "当前版本",
+        "installMethod": "安装方式",
+        "installMethodCli": "通过 CLI 安装",
+        "installMethodNonCli": "非 CLI 安装",
+        "deployment": "部署方式",
+        "deploymentLaunchd": "launchd（macOS）",
+        "deploymentSystemd": "systemd（Linux）",
+        "deploymentNone": "无",
+        "checkUpdate": "检查更新",
+        "checking": "检查中…",
+        "upToDate": "已是最新版本。",
+        "updateAvailable": "有可用更新：{{version}}",
+        "changelog": "更新日志",
+        "changelogUnavailable": "该版本暂无更新日志。",
+        "publishedAt": "发布于 {{date}}",
+        "upgrade": "立即升级",
+        "upgradeDisabledDev": "非 production 环境已禁用程序内更新。",
+        "upgradeDisabledNonCli": "程序内更新仅在通过 CLI 安装时可用。",
+        "upgradeWarningTitle": "确认升级",
+        "upgradeWarningBody": "升级会重启服务并中断当前访问，还可能影响该服务托管的 tmux 进程的存活。是否继续？",
+        "upgradeStarted": "升级已开始",
+        "stateDownloading": "正在下载新版本…",
+        "stateExecuting": "正在执行升级，服务即将重启…",
+        "interruptNotice": "服务重启期间连接会断开，稍候即可恢复。",
+        "checkFailed": "检查更新失败",
+        "terminalHint": "或通过终端升级：npx tmex-cli@<version> upgrade"
       }
     },
     "telegram": {
@@ -1211,7 +1273,11 @@ export const I18N_RESOURCES = {
       "fileTooLarge": "文件过大",
       "fileBinary": "不支持二进制文件",
       "fileRootDeviceInvalid": "无效或未知的设备",
-      "fileRootDuplicate": "该设备下已添加过此目录"
+      "fileRootDuplicate": "该设备下已添加过此目录",
+      "upgradeNotAllowed": "当前安装方式不支持程序内更新。",
+      "upgradeInProgress": "已有升级任务正在进行。",
+      "upgradeVersionRequired": "缺少目标版本号。",
+      "updateCheckFailed": "查询 npm registry 失败。"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -1805,6 +1871,35 @@ export const I18N_RESOURCES = {
         "toggleFailed": "ディレクトリの更新に失敗しました",
         "deleteTitle": "ディレクトリを削除しますか？",
         "deleteDesc": "「{{path}}」をホワイトリストから削除しますか？配下のファイルにアクセスできなくなります。"
+      },
+      "version": {
+        "title": "バージョンと更新",
+        "currentVersion": "現在のバージョン",
+        "installMethod": "インストール方法",
+        "installMethodCli": "CLI でインストール",
+        "installMethodNonCli": "CLI 以外でインストール",
+        "deployment": "デプロイ方式",
+        "deploymentLaunchd": "launchd（macOS）",
+        "deploymentSystemd": "systemd（Linux）",
+        "deploymentNone": "なし",
+        "checkUpdate": "更新を確認",
+        "checking": "確認中…",
+        "upToDate": "最新バージョンです。",
+        "updateAvailable": "更新があります：{{version}}",
+        "changelog": "変更履歴",
+        "changelogUnavailable": "このバージョンの変更履歴はありません。",
+        "publishedAt": "公開日 {{date}}",
+        "upgrade": "今すぐ更新",
+        "upgradeDisabledDev": "production 以外の環境ではアプリ内更新は無効です。",
+        "upgradeDisabledNonCli": "アプリ内更新は CLI インストール時のみ利用できます。",
+        "upgradeWarningTitle": "更新の確認",
+        "upgradeWarningBody": "更新するとサービスが再起動し、現在のセッションが中断されます。サービスが管理する tmux プロセスの存続にも影響する可能性があります。続行しますか？",
+        "upgradeStarted": "更新を開始しました",
+        "stateDownloading": "新しいバージョンをダウンロード中…",
+        "stateExecuting": "更新を適用中、サービスを再起動しています…",
+        "interruptNotice": "サービス再起動中は接続が切断されますが、まもなく復旧します。",
+        "checkFailed": "更新の確認に失敗しました",
+        "terminalHint": "またはターミナルから更新：npx tmex-cli@<version> upgrade"
       }
     },
     "telegram": {
@@ -1985,7 +2080,11 @@ export const I18N_RESOURCES = {
       "fileTooLarge": "ファイルが大きすぎます",
       "fileBinary": "バイナリファイルはサポートされていません",
       "fileRootDeviceInvalid": "無効または不明なデバイス",
-      "fileRootDuplicate": "このディレクトリはこのデバイスに既に追加されています"
+      "fileRootDuplicate": "このディレクトリはこのデバイスに既に追加されています",
+      "upgradeNotAllowed": "このインストールではアプリ内更新を利用できません。",
+      "upgradeInProgress": "すでに更新が進行中です。",
+      "upgradeVersionRequired": "対象バージョンが必要です。",
+      "updateCheckFailed": "npm registry の照会に失敗しました。"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",

@@ -1,10 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { formatDisplayVersion } from '@tmex/shared';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Outlet, RouterProvider, createBrowserRouter, useParams } from 'react-router';
 import { Toaster } from 'sonner';
 import './i18n';
 import './index.css';
+
+// 浏览器 console 打印 monorepo 版本（非 production 带 _dev 后缀）
+console.info(`tmex ${formatDisplayVersion(__MONOREPO_VERSION__, __IS_PROD__)}`);
 
 import { FlowBridges } from '@/components/flow-bridges';
 import { GlobalDeviceProvider } from '@/components/global-device-provider';

@@ -1,12 +1,14 @@
 import './bootstrap-env';
 import { config } from './config';
 import { createGatewayRuntime } from './runtime';
+import { getDisplayVersion } from './system/version';
 
 interface RunningRuntime {
   stop: () => Promise<void>;
 }
 
 async function main(): Promise<void> {
+  console.log(`[gateway] tmex ${getDisplayVersion()}`);
   while (true) {
     const gateway = await createGatewayRuntime();
     const server = Bun.serve({

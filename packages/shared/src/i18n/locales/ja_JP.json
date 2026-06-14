@@ -251,6 +251,35 @@
         "toggleFailed": "ディレクトリの更新に失敗しました",
         "deleteTitle": "ディレクトリを削除しますか？",
         "deleteDesc": "「{{path}}」をホワイトリストから削除しますか？配下のファイルにアクセスできなくなります。"
+      },
+      "version": {
+        "title": "バージョンと更新",
+        "currentVersion": "現在のバージョン",
+        "installMethod": "インストール方法",
+        "installMethodCli": "CLI でインストール",
+        "installMethodNonCli": "CLI 以外でインストール",
+        "deployment": "デプロイ方式",
+        "deploymentLaunchd": "launchd（macOS）",
+        "deploymentSystemd": "systemd（Linux）",
+        "deploymentNone": "なし",
+        "checkUpdate": "更新を確認",
+        "checking": "確認中…",
+        "upToDate": "最新バージョンです。",
+        "updateAvailable": "更新があります：{{version}}",
+        "changelog": "変更履歴",
+        "changelogUnavailable": "このバージョンの変更履歴はありません。",
+        "publishedAt": "公開日 {{date}}",
+        "upgrade": "今すぐ更新",
+        "upgradeDisabledDev": "production 以外の環境ではアプリ内更新は無効です。",
+        "upgradeDisabledNonCli": "アプリ内更新は CLI インストール時のみ利用できます。",
+        "upgradeWarningTitle": "更新の確認",
+        "upgradeWarningBody": "更新するとサービスが再起動し、現在のセッションが中断されます。サービスが管理する tmux プロセスの存続にも影響する可能性があります。続行しますか？",
+        "upgradeStarted": "更新を開始しました",
+        "stateDownloading": "新しいバージョンをダウンロード中…",
+        "stateExecuting": "更新を適用中、サービスを再起動しています…",
+        "interruptNotice": "サービス再起動中は接続が切断されますが、まもなく復旧します。",
+        "checkFailed": "更新の確認に失敗しました",
+        "terminalHint": "またはターミナルから更新：npx tmex-cli@<version> upgrade"
       }
     },
     "telegram": {
@@ -431,7 +460,11 @@
       "fileTooLarge": "ファイルが大きすぎます",
       "fileBinary": "バイナリファイルはサポートされていません",
       "fileRootDeviceInvalid": "無効または不明なデバイス",
-      "fileRootDuplicate": "このディレクトリはこのデバイスに既に追加されています"
+      "fileRootDuplicate": "このディレクトリはこのデバイスに既に追加されています",
+      "upgradeNotAllowed": "このインストールではアプリ内更新を利用できません。",
+      "upgradeInProgress": "すでに更新が進行中です。",
+      "upgradeVersionRequired": "対象バージョンが必要です。",
+      "updateCheckFailed": "npm registry の照会に失敗しました。"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",

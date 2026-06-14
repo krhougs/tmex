@@ -44,6 +44,7 @@ import { telegramService } from '../telegram/service';
 import { handleAgentApiRequest } from './agent';
 import { handleFilesApiRequest } from './files';
 import { handleLlmApiRequest } from './llm';
+import { handleSystemApiRequest } from './system';
 import { handleDeviceTestConnection } from './test-connection';
 import { handleWatchApiRequest } from './watch';
 
@@ -252,6 +253,13 @@ export function handleApiRequest(
     const filesResponse = handleFilesApiRequest(req, path);
     if (filesResponse) {
       return filesResponse;
+    }
+  }
+
+  if (path.startsWith('/api/system/')) {
+    const systemResponse = handleSystemApiRequest(req, path);
+    if (systemResponse) {
+      return systemResponse;
     }
   }
 

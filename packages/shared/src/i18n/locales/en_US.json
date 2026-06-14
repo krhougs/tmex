@@ -251,6 +251,35 @@
         "toggleFailed": "Failed to update directory",
         "deleteTitle": "Remove directory?",
         "deleteDesc": "Remove \"{{path}}\" from the whitelist? Files under it will no longer be accessible."
+      },
+      "version": {
+        "title": "Version & Updates",
+        "currentVersion": "Current version",
+        "installMethod": "Install method",
+        "installMethodCli": "Installed via CLI",
+        "installMethodNonCli": "Not installed via CLI",
+        "deployment": "Deployment",
+        "deploymentLaunchd": "launchd (macOS)",
+        "deploymentSystemd": "systemd (Linux)",
+        "deploymentNone": "None",
+        "checkUpdate": "Check for updates",
+        "checking": "Checking…",
+        "upToDate": "You are on the latest version.",
+        "updateAvailable": "Update available: {{version}}",
+        "changelog": "Changelog",
+        "changelogUnavailable": "No changelog available for this version.",
+        "publishedAt": "Published {{date}}",
+        "upgrade": "Upgrade now",
+        "upgradeDisabledDev": "In-app update is disabled outside the production environment.",
+        "upgradeDisabledNonCli": "In-app update is only available for CLI installations.",
+        "upgradeWarningTitle": "Confirm upgrade",
+        "upgradeWarningBody": "Upgrading restarts the service and will interrupt your current session. It may also affect the survival of tmux processes managed by the service. Continue?",
+        "upgradeStarted": "Upgrade started",
+        "stateDownloading": "Downloading the new version…",
+        "stateExecuting": "Applying the upgrade, the service is restarting…",
+        "interruptNotice": "The connection will drop while the service restarts; it will recover shortly.",
+        "checkFailed": "Failed to check for updates",
+        "terminalHint": "Or upgrade from a terminal: npx tmex-cli@<version> upgrade"
       }
     },
     "telegram": {
@@ -431,7 +460,11 @@
       "fileTooLarge": "File is too large",
       "fileBinary": "Binary files are not supported",
       "fileRootDeviceInvalid": "Invalid or unknown device",
-      "fileRootDuplicate": "This directory is already added for the device"
+      "fileRootDuplicate": "This directory is already added for the device",
+      "upgradeNotAllowed": "In-app update is not available for this installation.",
+      "upgradeInProgress": "An upgrade is already in progress.",
+      "upgradeVersionRequired": "Target version is required.",
+      "updateCheckFailed": "Failed to query the npm registry."
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",

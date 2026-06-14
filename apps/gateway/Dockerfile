@@ -7,6 +7,8 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/gateway/package.json apps/gateway/
+# 版本真相源：构建期注入 monorepo 版本号需要读 packages/app/package.json
+COPY packages/app/package.json packages/app/
 
 # 安装依赖
 RUN bun install
@@ -15,9 +17,9 @@ RUN bun install
 COPY packages/shared/ packages/shared/
 COPY apps/gateway/ apps/gateway/
 
-# 构建
+# 构建（scripts/build.ts 读 packages/app/package.json 注入 TMEX_MONOREPO_VERSION）
 WORKDIR /app/apps/gateway
-RUN bun build src/index.ts --outdir ./dist --target bun
+RUN bun run build
 
 # 生产镜像
 FROM oven/bun:1-slim

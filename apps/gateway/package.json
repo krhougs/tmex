@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "./scripts/run-with-ssh-agent.sh --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir ./dist --target bun",
+    "build": "bun scripts/build.ts",
     "start": "./scripts/run-with-ssh-agent.sh dist/index.js",
     "test": "bun test",
     "test:ssh-agent-local": "bun test ./src/tmux/ssh-agent-local.integration.ts",

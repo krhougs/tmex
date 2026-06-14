@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { CryptoDecryptError } from '../../../../apps/gateway/src/crypto/errors';
 import { createGatewayRuntime } from '../../../../apps/gateway/src/runtime';
+import { getDisplayVersion } from '../../../../apps/gateway/src/system/version';
 import { t } from '../i18n';
 
 const MIME_MAP: Record<string, string> = {
@@ -83,6 +84,7 @@ async function serveFrontend(req: Request, staticRoot: string): Promise<Response
 }
 
 async function main(): Promise<void> {
+  console.log(`[tmex] version ${getDisplayVersion()}`);
   const host = process.env.TMEX_BIND_HOST || '127.0.0.1';
   const port = Number(process.env.GATEWAY_PORT || '9883');
   const staticRoot = resolveStaticRoot();

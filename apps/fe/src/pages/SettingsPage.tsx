@@ -39,6 +39,7 @@ import { Switch } from '@/components/ui/switch';
 import { FilesSettingsTab } from '../components/settings/files-tab';
 import { LlmProvidersTab } from '../components/settings/llm-providers-tab';
 import { SearchTab } from '../components/settings/search-tab';
+import { VersionTab } from '../components/settings/version-tab';
 import { useSiteStore } from '../stores/site';
 import { useUIStore } from '../stores/ui';
 
@@ -90,7 +91,7 @@ export default function SettingsPage() {
   const { refreshSettings } = useSiteStore();
 
   const [activeTab, setActiveTab] = useState<
-    'site' | 'notifications' | 'telegram' | 'webhooks' | 'llm' | 'search' | 'files'
+    'site' | 'notifications' | 'telegram' | 'webhooks' | 'llm' | 'search' | 'files' | 'version'
   >('site');
 
   const theme = useUIStore((state) => state.theme);
@@ -374,6 +375,15 @@ export default function SettingsPage() {
           onClick={() => setActiveTab('files')}
         >
           {t('settings.files.title')}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeTab === 'version' ? 'default' : 'outline'}
+          data-testid="settings-tab-version"
+          onClick={() => setActiveTab('version')}
+        >
+          {t('settings.version.title')}
         </Button>
       </div>
 
@@ -795,6 +805,8 @@ export default function SettingsPage() {
       {activeTab === 'search' && <SearchTab />}
 
       {activeTab === 'files' && <FilesSettingsTab />}
+
+      {activeTab === 'version' && <VersionTab />}
 
       {(activeTab === 'site' || activeTab === 'notifications') && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
