@@ -33,13 +33,16 @@ The installer generates keys, deploys runtime files, registers a user service (l
 
 ## Highlights
 
-| | | |
-|---|---|---|
 | **Open source, with history preserved** | **One-command install, self-updating** | **One sidebar for panes, agents, and files** |
+|---|---|---|
 | tmex is built in public with AI agents. Every design decision, iteration, and dead end is archived in `prompt-archives/` and `docs/`, so the engineering process is inspectable and reproducible. | `npx tmex-cli init` installs the service, generates keys, and starts serving. Upgrade in one click from the settings page, or run `npx tmex-cli upgrade`. Rollback is automatic if anything fails. | The left sidebar unites the device tree, AI Agent, and file manager. The Agent is tied to the active tmux pane: switch panes and the Agent context switches with you. |
+
 | **Agent for coding and ops** | **Watch: a sentry for long jobs** | **Access your terminals from anywhere** |
+|---|---|---|
 | The server-side AI Agent reads the screen, runs commands, sends keystrokes to interactive programs, searches the web, and fetches pages. Use it for coding, log inspection, service restarts, network gear config, or any step-by-step maintenance task. | Watch monitors any pane on a schedule. Catch a download stuck at 73%, a build that errors out, or a log line that should not appear. Alerts go out through Telegram, webhook, or browser push. | tmex works on laptop, tablet, and phone. Install it as a standalone app and pick up where you left off. Mobile input is deliberately polished: the on-screen keyboard does not break your terminal layout, and editor mode lets you compose long commands comfortably. |
+
 | **Ghostty WASM terminal** | **Local and SSH devices** | **Native tmux Control Mode** |
+|---|---|---|
 | The browser-side terminal uses Ghostty’s official VT kernel compiled to WebAssembly. You get native-grade terminal semantics without a hand-rolled ANSI parser. | Manage local machines and remote SSH hosts side by side. Authenticate with password, private key, SSH Agent, or SSH Config. Drag to reorder the device tree. | tmex is built on tmux Control Mode, so pane output, window lifecycle events, and bell notifications arrive in real time. Use the web UI alongside iTerm2 or any native tmux client. |
 
 ## Install & Upgrade
@@ -81,9 +84,9 @@ Installation requires [Bun](https://bun.sh). The `doctor` command will check you
 
 ## FAQ
 
-**Q: How do I make agents trigger notifications when they need input?**
+**Q: How do notifications work with coding agents?**
 
-Add an instruction to your `AGENTS.md` or system prompt telling the model to output `\a` (the BEL control character) whenever user interaction is needed. tmex captures bell events and routes them through your configured notification channels.
+tmex listens for both BEL (`\a`) and common OSC notification sequences such as OSC 9, OSC 99, OSC 777 `notify`, and iTerm2 OSC 1337 `RequestAttention`. Claude Code, Codex, and OpenCode already emit one of these, so notifications usually work out of the box. You only need to add an explicit `\a` instruction if your agent does not.
 
 **Q: How do Telegram notifications work?**
 

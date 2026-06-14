@@ -33,13 +33,17 @@ npx tmex-cli init
 
 ## 核心亮点
 
-| | | |
-|---|---|---|
+
 | **AI 时代的开源方式** | **一键安装，自动升级** | **一个侧边栏管理全部** |
+|---|---|---|
 | tmex 在公开协作中持续迭代，每一次设计决策、方案取舍与踩坑记录都保留在 `prompt-archives/` 与 `docs/` 中，工程过程可查阅、可复现。 | `npx tmex-cli init` 自动安装并启动服务。升级可在设置页一键完成，或运行 `npx tmex-cli upgrade`；失败时自动回滚到上一个可用版本。 | 左侧边栏整合设备树、AI Agent 与文件管理。Agent 与当前 tmux pane 绑定，切换 pane 时上下文自动跟随。 |
+
 | **终端 Agent，不止写代码** | **Watch：后台值守哨兵** | **随时随地访问终端** |
+|---|---|---|
 | 服务端 AI Agent 可读屏、执行命令、向交互程序发按键、搜索网页与抓取页面。无论是写代码、查日志、重启服务、配置网络设备还是日常排障都能胜任。 | Watch 按规则持续看屏，下载卡住、构建报错、日志出现异常关键字时主动告警。通知通过 Telegram、Webhook 或浏览器推送发出。 | 电脑、平板、手机打开浏览器就能继续工作，安装为独立应用后体验更接近原生 App。手机输入专门打磨：虚拟键盘不打乱终端布局，编辑器模式让你从容编辑长命令。 |
+
 | **Ghostty WASM 终端内核** | **本地与远程设备并排** | **原生 tmux Control Mode** |
+|---|---|---|
 | 浏览器端终端由 Ghostty 官方 VT 内核编译为 WebAssembly 提供，不依赖自研 ANSI 解析器，终端语义与原生客户端一致。 | 同一侧边栏管理本地机器与远程 SSH 主机，支持密码、私钥、SSH Agent、SSH Config 认证，设备树支持拖拽排序。 | 基于 tmux Control Mode 构建，pane 输出、窗口生命周期与 bell 通知实时到达。Web UI 可与 iTerm2 等原生 tmux 客户端共用同一份会话。 |
 
 ## 安装与升级
@@ -81,9 +85,9 @@ npx tmex-cli uninstall
 
 ## 常见问题
 
-**Q：如何让 Agent 在需要输入时触发通知？**
+**Q：通知如何与 Coding Agent 配合？**
 
-在项目的 `AGENTS.md` 或系统提示词中指示模型：需要用户交互时显式输出 `\a`（BEL 控制字符）。tmex 会捕获 bell 事件并通过已配置的通知渠道推送。
+tmex 同时监听 BEL（`\a`）和常见的 OSC 通知序列（OSC 9、OSC 99、OSC 777 `notify`、iTerm2 OSC 1337 `RequestAttention`）。Claude Code、Codex、OpenCode 等主流 Coding Agent 已经内置其中一种通知方式，通常无需额外配置即可收到提醒。只有当你的 Agent 不发出任何通知序列时，才需要手动在提示词里要求它输出 `\a`。
 
 **Q：Telegram 通知如何配置？**
 
