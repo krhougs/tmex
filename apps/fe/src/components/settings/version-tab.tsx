@@ -233,7 +233,7 @@ export function VersionTab() {
 
             {info?.canSelfUpdate ? (
               <Button
-                variant="default"
+                variant="secondary"
                 data-testid="settings-version-upgrade"
                 disabled={isUpgrading || startUpgradeMutation.isPending}
                 onClick={() => setShowConfirm(true)}

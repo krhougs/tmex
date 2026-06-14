@@ -167,11 +167,22 @@ export const I18N_RESOURCES = {
       "language_en_US": "English",
       "language_zh_CN": "简体中文",
       "language_ja_JP": "日本語",
-      "theme": "Theme",
+      "theme": "Dark Mode",
       "themeLight": "Light",
       "themeDark": "Dark",
       "siteTab": "Site",
       "notificationsTab": "Notifications",
+      "tabGroup": {
+        "general": "General",
+        "devicesAndFiles": "Devices & Files",
+        "notifications": "Notifications",
+        "ai": "AI"
+      },
+      "deviceManagement": {
+        "title": "Device Management",
+        "description": "Add, edit, and connect to your local and SSH devices.",
+        "openButton": "Open Device Management"
+      },
       "refreshToApply": "Refresh to apply language change",
       "saveSettings": "Save Settings",
       "settingsSaved": "Settings saved",
@@ -225,6 +236,7 @@ export const I18N_RESOURCES = {
       "search": {
         "title": "Search",
         "provider": "Search Provider",
+        "responsesApiHint": "If your LLM provider uses the OpenAI Responses API protocol, it can use that API's built-in hosted search tool; the third-party search below is an optional supplement.",
         "providerNone": "Disabled",
         "tavilyApiKey": "Tavily API Key",
         "braveApiKey": "Brave API Key",
@@ -295,6 +307,7 @@ export const I18N_RESOURCES = {
       "botToken": "Bot Token",
       "botTokenPlaceholder": "123456:AA...",
       "addBot": "Add Bot",
+      "editBot": "Edit Bot",
       "enableBot": "Enable Bot",
       "allowAuthRequests": "Allow Authorization Requests",
       "pendingChats": "Pending Authorization",
@@ -759,7 +772,10 @@ export const I18N_RESOURCES = {
     },
     "validation": {
       "deviceNameRequired": "Device name is required",
-      "hostRequired": "Host is required for SSH devices"
+      "hostRequired": "Host is required for SSH devices",
+      "portRequired": "A valid port is required for SSH devices",
+      "usernameRequired": "Username is required for SSH devices",
+      "sshConfigRequired": "SSH config path is required for SSH devices"
     },
     "files": {
       "title": "Files",
@@ -974,11 +990,22 @@ export const I18N_RESOURCES = {
       "language_en_US": "English",
       "language_zh_CN": "简体中文",
       "language_ja_JP": "日本語",
-      "theme": "主题",
+      "theme": "深色模式",
       "themeLight": "浅色",
       "themeDark": "深色",
       "siteTab": "站点",
       "notificationsTab": "通知",
+      "tabGroup": {
+        "general": "通用设置",
+        "devicesAndFiles": "设备与文件",
+        "notifications": "通知设置",
+        "ai": "AI 设置"
+      },
+      "deviceManagement": {
+        "title": "设备管理",
+        "description": "添加、编辑并连接你的本地与 SSH 设备。",
+        "openButton": "打开设备管理"
+      },
       "refreshToApply": "刷新后生效",
       "saveSettings": "保存设置",
       "settingsSaved": "站点设置已保存",
@@ -1032,6 +1059,7 @@ export const I18N_RESOURCES = {
       "search": {
         "title": "搜索",
         "provider": "搜索提供商",
+        "responsesApiHint": "若 LLM Provider 使用 OpenAI Responses API 协议，可直接使用其内置的 hosted 搜索工具；下方第三方搜索为可选补充。",
         "providerNone": "不启用",
         "tavilyApiKey": "Tavily API Key",
         "braveApiKey": "Brave API Key",
@@ -1102,6 +1130,7 @@ export const I18N_RESOURCES = {
       "botToken": "Bot Token",
       "botTokenPlaceholder": "123456:AA...",
       "addBot": "新增 Bot",
+      "editBot": "编辑 Bot",
       "enableBot": "启用 Bot",
       "allowAuthRequests": "允许申请授权",
       "pendingChats": "待授权",
@@ -1566,7 +1595,10 @@ export const I18N_RESOURCES = {
     },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
-      "hostRequired": "SSH 设备需要填写主机地址"
+      "hostRequired": "SSH 设备需要填写主机地址",
+      "portRequired": "SSH 设备需要填写有效端口",
+      "usernameRequired": "SSH 设备需要填写用户名",
+      "sshConfigRequired": "SSH 设备需要填写 ssh config 路径"
     },
     "files": {
       "title": "文件",
@@ -1781,11 +1813,22 @@ export const I18N_RESOURCES = {
       "language_en_US": "English",
       "language_zh_CN": "简体中文",
       "language_ja_JP": "日本語",
-      "theme": "テーマ",
+      "theme": "ダークモード",
       "themeLight": "ライト",
       "themeDark": "ダーク",
       "siteTab": "サイト",
       "notificationsTab": "通知",
+      "tabGroup": {
+        "general": "一般設定",
+        "devicesAndFiles": "デバイスとファイル",
+        "notifications": "通知設定",
+        "ai": "AI 設定"
+      },
+      "deviceManagement": {
+        "title": "デバイス管理",
+        "description": "ローカルおよび SSH デバイスの追加・編集・接続を行います。",
+        "openButton": "デバイス管理を開く"
+      },
       "refreshToApply": "言語変更を適用するには更新してください",
       "saveSettings": "設定を保存",
       "settingsSaved": "設定を保存しました",
@@ -1839,6 +1882,7 @@ export const I18N_RESOURCES = {
       "search": {
         "title": "検索",
         "provider": "検索プロバイダー",
+        "responsesApiHint": "LLM プロバイダーが OpenAI Responses API プロトコルを使用している場合、その内蔵 hosted 検索ツールを利用できます。下記のサードパーティ検索は任意の補完です。",
         "providerNone": "無効",
         "tavilyApiKey": "Tavily API キー",
         "braveApiKey": "Brave API キー",
@@ -1909,6 +1953,7 @@ export const I18N_RESOURCES = {
       "botToken": "Bot Token",
       "botTokenPlaceholder": "123456:AA...",
       "addBot": "Bot を追加",
+      "editBot": "Bot を編集",
       "enableBot": "Bot を有効にする",
       "allowAuthRequests": "認証リクエストを許可",
       "pendingChats": "承認待ち",
@@ -2373,7 +2418,10 @@ export const I18N_RESOURCES = {
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
-      "hostRequired": "SSH デバイスにはホストアドレスが必要です"
+      "hostRequired": "SSH デバイスにはホストアドレスが必要です",
+      "portRequired": "SSH デバイスには有効なポートが必要です",
+      "usernameRequired": "SSH デバイスにはユーザー名が必要です",
+      "sshConfigRequired": "SSH デバイスには ssh config のパスが必要です"
     },
     "files": {
       "title": "ファイル",

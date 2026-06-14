@@ -103,6 +103,7 @@ export function LlmProviderModelsModal({
             {t('common.cancel')}
           </Button>
           <Button
+            variant="secondary"
             data-testid={`llm-provider-models-save-${provider.id}`}
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}

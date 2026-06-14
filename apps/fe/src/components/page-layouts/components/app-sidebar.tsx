@@ -13,7 +13,7 @@ import { SidebarTitle } from './sidebar-title';
 
 // 灰色轨道(bg-muted)上嵌一个更亮的圆角药丸：亮色用 bg-background(白)，暗色用更亮的半透明覆盖，去边框。
 // rounded-lg 与外层 rounded-xl 轨道同心收敛。
-const tabTriggerClassName =
+export const tabTriggerClassName =
   "rounded-lg data-active:bg-background data-active:text-foreground data-active:border-transparent group-data-[variant=default]/tabs-list:data-active:shadow-none dark:data-active:bg-input/60 dark:data-active:border-transparent text-[13px] transition-colors duration-200 [&_svg:not([class*='size-'])]:size-[15px]";
 
 const navMainItems = [

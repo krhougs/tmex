@@ -137,14 +137,14 @@ test('mobile: settings tabs + select + webhook crud are tappable', async ({ page
   await page.getByTestId('settings-enable-browser-bell-toast').click();
 
   // Select should open and be clickable without being covered.
-  await page.getByTestId('settings-tab-site').click();
+  await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('settings-language-select').click();
   await page.locator('[data-slot="select-content"]').getByText('简体中文').click();
   await page.getByTestId('settings-save').click();
   await expect(page.getByTestId('settings-refresh-notice')).toBeVisible();
 
-  // Webhook CRUD should work on mobile.
-  await page.getByTestId('settings-tab-webhooks').click();
+  // Webhook CRUD should work on mobile (now under the notifications tab).
+  await page.getByTestId('settings-tab-notifications').click();
   await page.getByTestId('webhook-url-input').fill(webhookUrl);
   await page.getByTestId('webhook-secret-input').fill(webhookSecret);
   await page.getByTestId('webhook-add').click();
@@ -159,7 +159,7 @@ test('mobile: settings tabs + select + webhook crud are tappable', async ({ page
   await expect(webhookItem).toHaveCount(0);
 
   // Reset language to keep later tests stable.
-  await page.getByTestId('settings-tab-site').click();
+  await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('settings-language-select').click();
   await page.locator('[data-slot="select-content"]').getByText('English').click();
   await page.getByTestId('settings-save').click();

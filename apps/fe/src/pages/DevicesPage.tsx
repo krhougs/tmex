@@ -1,14 +1,16 @@
 import { DeviceStatusBadge } from '@/components/device-status-badge';
+import { useSiteStore } from '@/stores/site';
 import { useTmuxStore } from '@/stores/tmux';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateDeviceRequest, Device, UpdateDeviceRequest } from '@tmex/shared';
+import { toBCP47 } from '@tmex/shared';
 
 type DeviceListItem = Device & {
   lastError?: string | null;
   lastErrorType?: string | null;
 };
 import { Globe, Monitor, MoreHorizontal, Pencil, Plus, Trash2, Zap } from 'lucide-react';
-import { type FormEvent, useState, useEffect } from 'react';
+import { type FormEvent, useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -78,8 +80,10 @@ function createDefaultFormValues(device?: Device): DeviceFormValues {
       type: 'local',
       host: '',
       port: 22,
-      username: '',
-      sshConfigRef: '',
+      // SSH 字段预填预期默认值（与 placeholder 一致），减少新建 SSH 设备时的手填负担；
+      // host 不预填（需用户填真实地址）。
+      username: 'root',
+      sshConfigRef: '~/.ssh/config',
       session: 'tmex',
       authMode: 'auto',
       password: '',
@@ -113,13 +117,14 @@ function buildCreatePayload(values: DeviceFormValues): CreateDeviceRequest {
     };
   }
 
+  // host/port/username/sshConfigRef 经 validateDeviceForm 强校验非空，显式发送具体值
   const payload: CreateDeviceRequest = {
     name: values.name.trim(),
     type: 'ssh',
-    host: normalizeText(values.host),
+    host: values.host.trim(),
     port: values.port,
-    username: normalizeText(values.username),
-    sshConfigRef: normalizeText(values.sshConfigRef),
+    username: values.username.trim(),
+    sshConfigRef: values.sshConfigRef.trim(),
     session: normalizeText(values.session) ?? 'tmex',
     authMode: values.authMode,
   };
@@ -145,12 +150,13 @@ function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
     };
   }
 
+  // 编辑时 host/port/username/sshConfigRef 同为强校验必填，显式发送具体值
   const payload: UpdateDeviceRequest = {
     name: values.name.trim(),
-    host: normalizeText(values.host),
+    host: values.host.trim(),
     port: values.port,
-    username: normalizeText(values.username),
-    sshConfigRef: normalizeText(values.sshConfigRef),
+    username: values.username.trim(),
+    sshConfigRef: values.sshConfigRef.trim(),
     session: normalizeText(values.session) ?? 'tmex',
     authMode: values.authMode,
   };
@@ -165,6 +171,32 @@ function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
   }
 
   return payload;
+}
+
+// 合法 SSH 端口：1–65535 的整数（清空输入会变成 NaN，视为非法）
+function isValidSshPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+// SSH 设备：host/端口/用户名/ssh config 在创建与编辑时均为强校验必填项。
+// 返回首个未通过校验的 i18n key，全部通过返回 null。
+function validateDeviceForm(values: DeviceFormValues): string | null {
+  if (values.type !== 'ssh') {
+    return null;
+  }
+  if (!values.host.trim()) {
+    return 'validation.hostRequired';
+  }
+  if (!isValidSshPort(values.port)) {
+    return 'validation.portRequired';
+  }
+  if (!values.username.trim()) {
+    return 'validation.usernameRequired';
+  }
+  if (!values.sshConfigRef.trim()) {
+    return 'validation.sshConfigRequired';
+  }
+  return null;
 }
 
 async function parseApiError(res: Response, fallback: string): Promise<string> {
@@ -182,6 +214,7 @@ export default function DevicesPage() {
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<Device | null>(null);
   const queryClient = useQueryClient();
+  const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
 
   // Listen for open add device event from AppHeader
   useEffect(() => {
@@ -229,7 +262,15 @@ export default function DevicesPage() {
     },
   });
 
-  const devices = data?.devices ?? [];
+  // 卡片顺序与侧边栏 Panes Tab 一致：先 sortOrder，再按设备名 locale 感知排序
+  const devices = useMemo(() => {
+    const list = data?.devices ?? [];
+    return [...list].sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder ||
+        a.name.localeCompare(b.name, toBCP47(language), { numeric: true, sensitivity: 'base' })
+    );
+  }, [data?.devices, language]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-4 sm:p-5" data-testid="devices-page">
@@ -351,7 +392,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
   });
 
   return (
-    <Card data-testid="device-card" data-device-id={device.id} data-device-name={device.name} className="overflow-hidden">
+    <Card data-testid="device-card" data-device-id={device.id} data-device-name={device.name} className="overflow-hidden border-border/50">
       <CardHeader className="space-y-2 pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -432,7 +473,7 @@ function DeviceCard({ device, onEdit, onDelete }: DeviceCardProps) {
           <Link
             to={`/devices/${device.id}`}
             data-testid={`device-card-connect-${device.id}`}
-            className={buttonVariants({ variant: 'default', size: 'sm' })}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
           >
             {t('device.connect')}
           </Link>
@@ -453,6 +494,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<DeviceFormValues>(createDefaultFormValues(device));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attempted, setAttempted] = useState(false);
 
   const isEditMode = mode === 'edit';
   const isSSH = formData.type === 'ssh';
@@ -511,6 +553,14 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setAttempted(true);
+
+    const validationError = validateDeviceForm(formData);
+    if (validationError) {
+      toast.error(t(validationError));
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -545,7 +595,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
     password: t('device.authPassword'),
     key: t('device.authKey'),
     agent: t('device.authAgent'),
-    configRef: 'SSH Config',
+    configRef: t('device.authConfigRef'),
   };
 
   const sectionHeading = (text: string) => (
@@ -572,7 +622,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="-mr-2 max-h-[min(70vh,720px)] space-y-5 overflow-y-auto pr-2">
+          <div className="-mr-2 max-h-[min(70dvh,720px)] space-y-5 overflow-y-auto pr-2">
             <section className="space-y-2.5">
               {sectionHeading(t('device.sectionBasic'))}
               <div className="grid gap-3 sm:grid-cols-2">
@@ -603,7 +653,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                           nextType === 'local'
                             ? 'auto'
                             : d.authMode === 'auto'
-                              ? 'password'
+                              ? 'agent'
                               : d.authMode,
                       }));
                     }}
@@ -645,46 +695,50 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                   {sectionHeading(t('device.sectionConnection'))}
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="space-y-1.5 sm:col-span-2">
-                      {fieldLabel(sshHostInputId, t('device.host'))}
+                      {fieldLabel(sshHostInputId, t('device.host'), true)}
                       <Input
                         id={sshHostInputId}
                         type="text"
                         value={formData.host}
                         onChange={(e) => setFormData((d) => ({ ...d, host: e.target.value }))}
                         placeholder={t('device.hostPlaceholder')}
+                        aria-invalid={attempted && !formData.host.trim()}
                       />
                     </div>
 
                     <div className="space-y-1.5">
-                      {fieldLabel(sshPortInputId, t('device.port'))}
+                      {fieldLabel(sshPortInputId, t('device.port'), true)}
                       <Input
                         id={sshPortInputId}
                         type="number"
-                        value={formData.port}
-                        onChange={(e) =>
+                        value={Number.isNaN(formData.port) ? '' : formData.port}
+                        onChange={(e) => {
+                          const raw = e.target.value;
                           setFormData((d) => ({
                             ...d,
-                            port: Number.parseInt(e.target.value || '22', 10),
-                          }))
-                        }
+                            port: raw === '' ? Number.NaN : Number.parseInt(raw, 10),
+                          }));
+                        }}
                         min={1}
                         max={65535}
+                        aria-invalid={attempted && !isValidSshPort(formData.port)}
                       />
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
-                      {fieldLabel(sshUsernameInputId, t('device.username'))}
+                      {fieldLabel(sshUsernameInputId, t('device.username'), true)}
                       <Input
                         id={sshUsernameInputId}
                         type="text"
                         value={formData.username}
                         onChange={(e) => setFormData((d) => ({ ...d, username: e.target.value }))}
                         placeholder={t('device.usernamePlaceholder')}
+                        aria-invalid={attempted && !formData.username.trim()}
                       />
                     </div>
 
                     <div className="space-y-1.5">
-                      {fieldLabel(`${mode}-device-ssh-config-ref`, 'SSH Config')}
+                      {fieldLabel(`${mode}-device-ssh-config-ref`, t('device.authConfigRef'), true)}
                       <Input
                         id={`${mode}-device-ssh-config-ref`}
                         type="text"
@@ -693,6 +747,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                           setFormData((d) => ({ ...d, sshConfigRef: e.target.value }))
                         }
                         placeholder="~/.ssh/config"
+                        aria-invalid={attempted && !formData.sshConfigRef.trim()}
                       />
                     </div>
                   </div>
@@ -722,7 +777,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                           <SelectItem value="password">{t('device.authPassword')}</SelectItem>
                           <SelectItem value="key">{t('device.authKey')}</SelectItem>
                           <SelectItem value="agent">{t('device.authAgent')}</SelectItem>
-                          <SelectItem value="configRef">SSH Config</SelectItem>
+                          <SelectItem value="configRef">{t('device.authConfigRef')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

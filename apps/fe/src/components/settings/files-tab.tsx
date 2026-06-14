@@ -103,7 +103,7 @@ export function FilesSettingsTab() {
             <CardTitle>{t('settings.files.title')}</CardTitle>
             <p className="text-sm text-muted-foreground">{t('settings.files.description')}</p>
           </div>
-          <Button data-testid="settings-files-root-add" onClick={openAdd}>
+          <Button variant="secondary" data-testid="settings-files-root-add" onClick={openAdd}>
             <Plus className="h-4 w-4" />
             {t('settings.files.addRoot')}
           </Button>
@@ -425,6 +425,7 @@ function FileRootFormModal({ open, onOpenChange, root, devices }: FileRootFormMo
             {t('common.cancel')}
           </Button>
           <Button
+            variant="secondary"
             data-testid="settings-files-form-submit"
             onClick={handleSubmit}
             disabled={!canSubmit || isPending}

@@ -166,6 +166,7 @@ export function SearchTab() {
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">{t('settings.search.responsesApiHint')}</p>
         </div>
 
         <ApiKeyField
@@ -224,7 +225,7 @@ export function SearchTab() {
 
         <div className="flex justify-end">
           <Button
-            variant="default"
+            variant="secondary"
             data-testid="settings-search-save"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending || settingsQuery.isLoading}

@@ -161,11 +161,22 @@
       "language_en_US": "English",
       "language_zh_CN": "简体中文",
       "language_ja_JP": "日本語",
-      "theme": "テーマ",
+      "theme": "ダークモード",
       "themeLight": "ライト",
       "themeDark": "ダーク",
       "siteTab": "サイト",
       "notificationsTab": "通知",
+      "tabGroup": {
+        "general": "一般設定",
+        "devicesAndFiles": "デバイスとファイル",
+        "notifications": "通知設定",
+        "ai": "AI 設定"
+      },
+      "deviceManagement": {
+        "title": "デバイス管理",
+        "description": "ローカルおよび SSH デバイスの追加・編集・接続を行います。",
+        "openButton": "デバイス管理を開く"
+      },
       "refreshToApply": "言語変更を適用するには更新してください",
       "saveSettings": "設定を保存",
       "settingsSaved": "設定を保存しました",
@@ -219,6 +230,7 @@
       "search": {
         "title": "検索",
         "provider": "検索プロバイダー",
+        "responsesApiHint": "LLM プロバイダーが OpenAI Responses API プロトコルを使用している場合、その内蔵 hosted 検索ツールを利用できます。下記のサードパーティ検索は任意の補完です。",
         "providerNone": "無効",
         "tavilyApiKey": "Tavily API キー",
         "braveApiKey": "Brave API キー",
@@ -289,6 +301,7 @@
       "botToken": "Bot Token",
       "botTokenPlaceholder": "123456:AA...",
       "addBot": "Bot を追加",
+      "editBot": "Bot を編集",
       "enableBot": "Bot を有効にする",
       "allowAuthRequests": "認証リクエストを許可",
       "pendingChats": "承認待ち",
@@ -753,7 +766,10 @@
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
-      "hostRequired": "SSH デバイスにはホストアドレスが必要です"
+      "hostRequired": "SSH デバイスにはホストアドレスが必要です",
+      "portRequired": "SSH デバイスには有効なポートが必要です",
+      "usernameRequired": "SSH デバイスにはユーザー名が必要です",
+      "sshConfigRequired": "SSH デバイスには ssh config のパスが必要です"
     },
     "files": {
       "title": "ファイル",

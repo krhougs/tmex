@@ -200,7 +200,7 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await expect(page.getByTestId('settings-page')).toBeVisible();
 
   // LLM tab: empty state, then create provider via Add modal.
-  await page.getByTestId('settings-tab-llm').click();
+  await page.getByTestId('settings-tab-ai').click();
   await expect(page.getByTestId('llm-providers-section')).toBeVisible();
   await expect(page.getByTestId('llm-providers-empty')).toBeVisible();
 
@@ -287,7 +287,7 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await expect.poll(() => providers[0]?.enabled).toBe(false);
 
   // Search tab: pick tavily and save key.
-  await page.getByTestId('settings-tab-search').click();
+  await page.getByTestId('settings-tab-ai').click();
   await expect(page.getByTestId('settings-search-section')).toBeVisible();
 
   await page.getByTestId('settings-search-provider-select').click();
@@ -314,7 +314,7 @@ test('settings: llm providers crud, defaults, search provider keys', async ({ pa
   await expect(tavilyInput).toHaveAttribute('data-key-set', 'false');
 
   // Delete provider via confirm dialog.
-  await page.getByTestId('settings-tab-llm').click();
+  await page.getByTestId('settings-tab-ai').click();
   await providerRow.getByTestId(`llm-provider-delete-${providerId}`).click();
   await page.getByTestId(`llm-provider-delete-confirm-${providerId}`).click();
   await expect(providerRow).toHaveCount(0);

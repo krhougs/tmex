@@ -66,7 +66,7 @@ export function LlmProvidersTab() {
       <Card className="border-0 ring-0" data-testid="llm-providers-section">
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle>{t('settings.llm.title')}</CardTitle>
-          <Button data-testid="llm-provider-add" onClick={openAdd}>
+          <Button variant="secondary" data-testid="llm-provider-add" onClick={openAdd}>
             <Plus className="h-4 w-4" />
             {t('settings.llm.addProvider')}
           </Button>
@@ -226,7 +226,7 @@ function LlmDefaultsCard({ providers }: LlmDefaultsCardProps) {
 
         <div className="flex justify-end">
           <Button
-            variant="default"
+            variant="secondary"
             data-testid="llm-defaults-save"
             onClick={() => saveDefaultsMutation.mutate()}
             disabled={saveDefaultsMutation.isPending || settingsQuery.isLoading}

@@ -161,11 +161,22 @@
       "language_en_US": "English",
       "language_zh_CN": "简体中文",
       "language_ja_JP": "日本語",
-      "theme": "主题",
+      "theme": "深色模式",
       "themeLight": "浅色",
       "themeDark": "深色",
       "siteTab": "站点",
       "notificationsTab": "通知",
+      "tabGroup": {
+        "general": "通用设置",
+        "devicesAndFiles": "设备与文件",
+        "notifications": "通知设置",
+        "ai": "AI 设置"
+      },
+      "deviceManagement": {
+        "title": "设备管理",
+        "description": "添加、编辑并连接你的本地与 SSH 设备。",
+        "openButton": "打开设备管理"
+      },
       "refreshToApply": "刷新后生效",
       "saveSettings": "保存设置",
       "settingsSaved": "站点设置已保存",
@@ -219,6 +230,7 @@
       "search": {
         "title": "搜索",
         "provider": "搜索提供商",
+        "responsesApiHint": "若 LLM Provider 使用 OpenAI Responses API 协议，可直接使用其内置的 hosted 搜索工具；下方第三方搜索为可选补充。",
         "providerNone": "不启用",
         "tavilyApiKey": "Tavily API Key",
         "braveApiKey": "Brave API Key",
@@ -289,6 +301,7 @@
       "botToken": "Bot Token",
       "botTokenPlaceholder": "123456:AA...",
       "addBot": "新增 Bot",
+      "editBot": "编辑 Bot",
       "enableBot": "启用 Bot",
       "allowAuthRequests": "允许申请授权",
       "pendingChats": "待授权",
@@ -753,7 +766,10 @@
     },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
-      "hostRequired": "SSH 设备需要填写主机地址"
+      "hostRequired": "SSH 设备需要填写主机地址",
+      "portRequired": "SSH 设备需要填写有效端口",
+      "usernameRequired": "SSH 设备需要填写用户名",
+      "sshConfigRequired": "SSH 设备需要填写 ssh config 路径"
     },
     "files": {
       "title": "文件",
