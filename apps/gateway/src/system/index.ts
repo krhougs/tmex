@@ -21,5 +21,6 @@ export function getSystemInfo(): SystemInfo {
     deployment: install.deployment,
     canSelfUpdate,
     serviceName: install.serviceName,
+    transferMaxBytes: config.transferMaxBytes,
   };
 }

@@ -798,12 +798,44 @@
         "unknown": "読み込みに失敗しました"
       },
       "retry": "再試行（折りたたんで再展開）",
+      "menu": {
+        "copyAbsolute": "絶対パスをコピー",
+        "copyRelative": "相対パスをコピー",
+        "sendToAgent": "Agent に送る",
+        "expand": "展開",
+        "collapse": "折りたたむ",
+        "upload": "このフォルダにアップロード",
+        "open": "開く"
+      },
+      "copied": "クリップボードにコピーしました",
+      "copyFailed": "コピーに失敗しました",
+      "sendToAgent": {
+        "prompt": "このパスを処理してください：`{{path}}`"
+      },
+      "upload": {
+        "uploading": "{{name}} をアップロード中…",
+        "success": "{{name}} をアップロードしました",
+        "fail": "{{name}} のアップロードに失敗しました"
+      },
+      "transfer": {
+        "uploadingToServer": "サーバーへアップロード中…",
+        "uploadingToDevice": "デバイスへ転送中…",
+        "preparing": "準備中…",
+        "downloading": "ダウンロード中…",
+        "cancel": "キャンセル",
+        "canceled": "{{name}} をキャンセルしました",
+        "downloaded": "{{name}} をダウンロードしました",
+        "downloadFailed": "{{name}} のダウンロードに失敗しました",
+        "tooLarge": "{{name}} はサイズ上限（{{max}}）を超えています"
+      },
+      "agentLaunch": {
+        "connectFailed": "デバイスへの接続に失敗しました",
+        "windowFailed": "ウィンドウの作成に失敗しました"
+      },
       "install": {
         "button": "rsync をインストール",
         "scopeLocal": "サーバー",
         "scopeRemote": "リモート",
-        "connectFailed": "デバイスへの接続に失敗しました",
-        "windowFailed": "ウィンドウの作成に失敗しました",
         "prompt": "{{device}}（{{scope}}）に rsync が見つかりません。システムに合わせた方法で rsync をインストールし（例: `brew install rsync`、`sudo apt-get install -y rsync`、`sudo yum install -y rsync`）、完了したら返信してください。"
       }
     },

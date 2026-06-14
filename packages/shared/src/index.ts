@@ -50,6 +50,8 @@ export interface SystemInfo {
   canSelfUpdate: boolean;
   /** 服务名（CLI 安装时来自 install-meta，否则 null） */
   serviceName: string | null;
+  /** 文件传输（上传/下载）单文件字节上限（前端据此做上传前预校验） */
+  transferMaxBytes: number;
 }
 
 /** 检查更新结果 */
@@ -996,3 +998,23 @@ export interface FileStatResponse {
   mime: string | null;
   isSymlink: boolean;
 }
+
+// ---- 分块上传协议 ----
+export interface UploadInitRequest {
+  rootId: string;
+  /** 目标目录绝对路径（须落在 root 内且为已存在目录） */
+  path: string;
+  name: string;
+  size: number;
+}
+
+export interface UploadInitResponse {
+  uploadId: string;
+  chunkSize: number;
+}
+
+/** commit 阶段流式返回的 NDJSON 事件（rsync 推送进度 / 完成 / 失败） */
+export type UploadCommitEvent =
+  | { type: 'progress'; transferred: number; pct: number; rate: string }
+  | { type: 'done'; uploaded: string }
+  | { type: 'error'; code: FileErrorCode; detail?: string };

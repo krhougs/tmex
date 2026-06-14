@@ -804,12 +804,44 @@ export const I18N_RESOURCES = {
         "unknown": "Failed to load"
       },
       "retry": "Retry (collapse then expand)",
+      "menu": {
+        "copyAbsolute": "Copy absolute path",
+        "copyRelative": "Copy relative path",
+        "sendToAgent": "Send to Agent",
+        "expand": "Expand",
+        "collapse": "Collapse",
+        "upload": "Upload files here",
+        "open": "Open"
+      },
+      "copied": "Copied to clipboard",
+      "copyFailed": "Copy failed",
+      "sendToAgent": {
+        "prompt": "Please work with this path: `{{path}}`"
+      },
+      "upload": {
+        "uploading": "Uploading {{name}}…",
+        "success": "Uploaded {{name}}",
+        "fail": "Failed to upload {{name}}"
+      },
+      "transfer": {
+        "uploadingToServer": "Uploading to server…",
+        "uploadingToDevice": "Transferring to device…",
+        "preparing": "Preparing…",
+        "downloading": "Downloading…",
+        "cancel": "Cancel",
+        "canceled": "Canceled {{name}}",
+        "downloaded": "Downloaded {{name}}",
+        "downloadFailed": "Failed to download {{name}}",
+        "tooLarge": "{{name}} exceeds the size limit ({{max}})"
+      },
+      "agentLaunch": {
+        "connectFailed": "Failed to connect to the device",
+        "windowFailed": "Failed to create a window"
+      },
       "install": {
         "button": "Install rsync",
         "scopeLocal": "server",
         "scopeRemote": "remote",
-        "connectFailed": "Failed to connect to the device",
-        "windowFailed": "Failed to create a window",
         "prompt": "rsync is not installed on {{device}} ({{scope}}). Please install rsync using the appropriate command for this system (e.g. `brew install rsync`, `sudo apt-get install -y rsync`, or `sudo yum install -y rsync`), then reply once it is done."
       }
     },
@@ -1627,12 +1659,44 @@ export const I18N_RESOURCES = {
         "unknown": "加载失败"
       },
       "retry": "重试（收起后再展开）",
+      "menu": {
+        "copyAbsolute": "复制绝对位置",
+        "copyRelative": "复制相对位置",
+        "sendToAgent": "发送到 Agent",
+        "expand": "展开",
+        "collapse": "收起",
+        "upload": "上传文件到这个文件夹",
+        "open": "打开"
+      },
+      "copied": "已复制到剪贴板",
+      "copyFailed": "复制失败",
+      "sendToAgent": {
+        "prompt": "请处理这个路径：`{{path}}`"
+      },
+      "upload": {
+        "uploading": "正在上传 {{name}}…",
+        "success": "已上传 {{name}}",
+        "fail": "上传 {{name}} 失败"
+      },
+      "transfer": {
+        "uploadingToServer": "上传到服务器…",
+        "uploadingToDevice": "传输到设备…",
+        "preparing": "准备中…",
+        "downloading": "下载中…",
+        "cancel": "取消",
+        "canceled": "已取消 {{name}}",
+        "downloaded": "已下载 {{name}}",
+        "downloadFailed": "下载 {{name}} 失败",
+        "tooLarge": "{{name}} 超过大小上限（{{max}}）"
+      },
+      "agentLaunch": {
+        "connectFailed": "连接设备失败",
+        "windowFailed": "创建窗口失败"
+      },
       "install": {
         "button": "安装 rsync",
         "scopeLocal": "服务器",
         "scopeRemote": "远程",
-        "connectFailed": "连接设备失败",
-        "windowFailed": "创建窗口失败",
         "prompt": "设备 {{device}}（{{scope}}）上未检测到 rsync。请根据系统选择合适的命令安装 rsync（例如 `brew install rsync`、`sudo apt-get install -y rsync` 或 `sudo yum install -y rsync`），安装完成后回复我。"
       }
     },
@@ -2450,12 +2514,44 @@ export const I18N_RESOURCES = {
         "unknown": "読み込みに失敗しました"
       },
       "retry": "再試行（折りたたんで再展開）",
+      "menu": {
+        "copyAbsolute": "絶対パスをコピー",
+        "copyRelative": "相対パスをコピー",
+        "sendToAgent": "Agent に送る",
+        "expand": "展開",
+        "collapse": "折りたたむ",
+        "upload": "このフォルダにアップロード",
+        "open": "開く"
+      },
+      "copied": "クリップボードにコピーしました",
+      "copyFailed": "コピーに失敗しました",
+      "sendToAgent": {
+        "prompt": "このパスを処理してください：`{{path}}`"
+      },
+      "upload": {
+        "uploading": "{{name}} をアップロード中…",
+        "success": "{{name}} をアップロードしました",
+        "fail": "{{name}} のアップロードに失敗しました"
+      },
+      "transfer": {
+        "uploadingToServer": "サーバーへアップロード中…",
+        "uploadingToDevice": "デバイスへ転送中…",
+        "preparing": "準備中…",
+        "downloading": "ダウンロード中…",
+        "cancel": "キャンセル",
+        "canceled": "{{name}} をキャンセルしました",
+        "downloaded": "{{name}} をダウンロードしました",
+        "downloadFailed": "{{name}} のダウンロードに失敗しました",
+        "tooLarge": "{{name}} はサイズ上限（{{max}}）を超えています"
+      },
+      "agentLaunch": {
+        "connectFailed": "デバイスへの接続に失敗しました",
+        "windowFailed": "ウィンドウの作成に失敗しました"
+      },
       "install": {
         "button": "rsync をインストール",
         "scopeLocal": "サーバー",
         "scopeRemote": "リモート",
-        "connectFailed": "デバイスへの接続に失敗しました",
-        "windowFailed": "ウィンドウの作成に失敗しました",
         "prompt": "{{device}}（{{scope}}）に rsync が見つかりません。システムに合わせた方法で rsync をインストールし（例: `brew install rsync`、`sudo apt-get install -y rsync`、`sudo yum install -y rsync`）、完了したら返信してください。"
       }
     },

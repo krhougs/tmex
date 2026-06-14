@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyRsyncFailure, parseListOnly } from './rsync';
+import { classifyRsyncFailure, parseListOnly, parseRsyncProgress } from './rsync';
 
 describe('parseListOnly', () => {
   test('parses openrsync (macOS) output, skips dot entries', () => {
@@ -41,6 +41,28 @@ describe('parseListOnly', () => {
   test('ignores non-matching lines', () => {
     const out = 'receiving file list ... done\n-rw-r--r-- 5 2026/06/14 15:06:34 a\n';
     expect(parseListOnly(out).map((e) => e.name)).toEqual(['a']);
+  });
+});
+
+describe('parseRsyncProgress', () => {
+  test('parses openrsync --progress line', () => {
+    const p = parseRsyncProgress(
+      '              5 100%  353.10KB/s   00:00:00 (xfer#1, to-check=0/1)'
+    );
+    expect(p).toEqual({ transferred: 5, pct: 100, rate: '353.10KB/s' });
+  });
+  test('parses GNU rsync --progress line with comma sizes', () => {
+    const p = parseRsyncProgress('      1,234,567  45%    1.23MB/s    0:00:12');
+    expect(p).toEqual({ transferred: 1234567, pct: 45, rate: '1.23MB/s' });
+  });
+  test('parses GNU final line with xfr marker', () => {
+    const p = parseRsyncProgress('     2,000,000 100%   10.5MB/s    0:00:00 (xfr#1, to-chk=0/1)');
+    expect(p).toEqual({ transferred: 2000000, pct: 100, rate: '10.5MB/s' });
+  });
+  test('returns null for non-progress lines', () => {
+    expect(parseRsyncProgress('sending incremental file list')).toBeNull();
+    expect(parseRsyncProgress('myfile.txt')).toBeNull();
+    expect(parseRsyncProgress('')).toBeNull();
   });
 });
 
