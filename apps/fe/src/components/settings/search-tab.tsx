@@ -166,6 +166,7 @@ export function SearchTab() {
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">{t('settings.search.responsesApiHint')}</p>
         </div>
 
         <ApiKeyField

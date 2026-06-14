@@ -166,6 +166,17 @@
       "themeDark": "Dark",
       "siteTab": "Site",
       "notificationsTab": "Notifications",
+      "tabGroup": {
+        "general": "General",
+        "devicesAndFiles": "Devices & Files",
+        "notifications": "Notifications",
+        "ai": "AI"
+      },
+      "deviceManagement": {
+        "title": "Device Management",
+        "description": "Add, edit, and connect to your local and SSH devices.",
+        "openButton": "Open Device Management"
+      },
       "refreshToApply": "Refresh to apply language change",
       "saveSettings": "Save Settings",
       "settingsSaved": "Settings saved",
@@ -219,6 +230,7 @@
       "search": {
         "title": "Search",
         "provider": "Search Provider",
+        "responsesApiHint": "If your LLM provider uses the OpenAI Responses API protocol, it can use that API's built-in hosted search tool; the third-party search below is an optional supplement.",
         "providerNone": "Disabled",
         "tavilyApiKey": "Tavily API Key",
         "braveApiKey": "Brave API Key",
@@ -289,6 +301,7 @@
       "botToken": "Bot Token",
       "botTokenPlaceholder": "123456:AA...",
       "addBot": "Add Bot",
+      "editBot": "Edit Bot",
       "enableBot": "Enable Bot",
       "allowAuthRequests": "Allow Authorization Requests",
       "pendingChats": "Pending Authorization",

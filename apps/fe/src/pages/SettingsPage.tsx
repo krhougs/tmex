@@ -1,16 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type {
-  EventType,
-  LocaleCode,
-  SiteSettings,
-  TelegramBotChat,
-  TelegramBotWithStats,
-  UpdateSiteSettingsRequest,
-  WebhookEndpoint,
-} from '@tmex/shared';
-import { I18N_MANIFEST, toBCP47 as toBCP47Locale } from '@tmex/shared';
-import { Loader2, RotateCcw, Save, Send, Shield, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import type { LocaleCode, SiteSettings, UpdateSiteSettingsRequest } from '@tmex/shared';
+import { I18N_MANIFEST } from '@tmex/shared';
+import { Bell, RotateCcw, Save, Server, Settings as SettingsIcon, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import i18n from '../i18n';
@@ -36,45 +28,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { tabTriggerClassName } from '../components/page-layouts/components/app-sidebar';
+import { DeviceEntryCard } from '../components/settings/device-entry-card';
 import { FilesSettingsTab } from '../components/settings/files-tab';
 import { LlmProvidersTab } from '../components/settings/llm-providers-tab';
 import { SearchTab } from '../components/settings/search-tab';
+import { TelegramBotsTab } from '../components/settings/telegram-bots-tab';
 import { VersionTab } from '../components/settings/version-tab';
+import { WebhooksTab } from '../components/settings/webhooks-tab';
 import { useSiteStore } from '../stores/site';
 import { useUIStore } from '../stores/ui';
-
-interface TelegramBotsResponse {
-  bots: TelegramBotWithStats[];
-}
-
-interface TelegramChatsResponse {
-  chats: TelegramBotChat[];
-}
 
 interface SiteSettingsResponse {
   settings: SiteSettings;
 }
-
-interface WebhooksResponse {
-  webhooks: WebhookEndpoint[];
-}
-
-const WEBHOOK_EVENT_OPTIONS: EventType[] = [
-  'terminal_bell',
-  'terminal_notification',
-  'tmux_window_close',
-  'tmux_pane_close',
-  'device_tmux_missing',
-  'device_disconnect',
-  'session_created',
-  'session_closed',
-  'agent_confirmation_pending',
-  'agent_turn_finished',
-  'agent_error',
-  'watch_triggered',
-  'watch_model_unavailable',
-  'watch_rule_error',
-];
 
 async function parseApiError(res: Response, fallback: string): Promise<string> {
   try {
@@ -85,14 +53,14 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
   }
 }
 
+type SettingsTab = 'general' | 'devicesAndFiles' | 'notifications' | 'ai';
+
 export default function SettingsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { refreshSettings } = useSiteStore();
 
-  const [activeTab, setActiveTab] = useState<
-    'site' | 'notifications' | 'telegram' | 'webhooks' | 'llm' | 'search' | 'files' | 'version'
-  >('site');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
   const theme = useUIStore((state) => state.theme);
   const setTheme = useUIStore((state) => state.setTheme);
@@ -114,17 +82,6 @@ export default function SettingsPage() {
   const [sshReconnectDelaySeconds, setSshReconnectDelaySeconds] = useState(10);
   const [showRefreshNotice, setShowRefreshNotice] = useState(false);
 
-  // Telegram state
-  const [newBotName, setNewBotName] = useState('');
-  const [newBotToken, setNewBotToken] = useState('');
-  const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
-
-  // Webhook state
-  const [newWebhookUrl, setNewWebhookUrl] = useState('');
-  const [newWebhookSecret, setNewWebhookSecret] = useState('');
-  const [newWebhookEventMask, setNewWebhookEventMask] =
-    useState<EventType[]>(WEBHOOK_EVENT_OPTIONS);
-
   const handleThemeChange = (checked: boolean) => {
     const nextTheme = checked ? 'dark' : 'light';
     setTheme(nextTheme);
@@ -139,17 +96,6 @@ export default function SettingsPage() {
         throw new Error(await parseApiError(res, t('settings.loadFailed')));
       }
       return (await res.json()) as SiteSettingsResponse;
-    },
-  });
-
-  const botsQuery = useQuery({
-    queryKey: ['telegram-bots'],
-    queryFn: async () => {
-      const res = await fetch('/api/settings/telegram/bots');
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.loadBotsFailed')));
-      }
-      return (await res.json()) as TelegramBotsResponse;
     },
   });
 
@@ -216,599 +162,302 @@ export default function SettingsPage() {
     },
   });
 
-  const createBotMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/settings/telegram/bots', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: newBotName,
-          token: newBotToken,
-          enabled: true,
-          allowAuthRequests: true,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.createFailed')));
-      }
+  const tabItems: {
+    value: SettingsTab;
+    label: string;
+    icon: typeof SettingsIcon;
+    testId: string;
+  }[] = [
+    {
+      value: 'general',
+      label: t('settings.tabGroup.general'),
+      icon: SettingsIcon,
+      testId: 'settings-tab-general',
     },
-    onSuccess: async () => {
-      setNewBotName('');
-      setNewBotToken('');
-      await queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-      toast.success(t('common.success'));
+    {
+      value: 'devicesAndFiles',
+      label: t('settings.tabGroup.devicesAndFiles'),
+      icon: Server,
+      testId: 'settings-tab-devicesAndFiles',
     },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
+    {
+      value: 'notifications',
+      label: t('settings.tabGroup.notifications'),
+      icon: Bell,
+      testId: 'settings-tab-notifications',
     },
-  });
-
-  const bots = botsQuery.data?.bots ?? [];
-
-  const webhooksQuery = useQuery({
-    queryKey: ['webhooks'],
-    queryFn: async () => {
-      const res = await fetch('/api/webhooks');
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('webhook.loadFailed')));
-      }
-      return (await res.json()) as WebhooksResponse;
+    {
+      value: 'ai',
+      label: t('settings.tabGroup.ai'),
+      icon: Sparkles,
+      testId: 'settings-tab-ai',
     },
-  });
-
-  const createWebhookMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/webhooks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: newWebhookUrl,
-          secret: newWebhookSecret,
-          eventMask: newWebhookEventMask,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('webhook.createFailed')));
-      }
-    },
-    onSuccess: async () => {
-      setNewWebhookUrl('');
-      setNewWebhookSecret('');
-      setNewWebhookEventMask(WEBHOOK_EVENT_OPTIONS);
-      await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const deleteWebhookMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/webhooks/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('webhook.deleteFailed')));
-      }
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const webhooks = webhooksQuery.data?.webhooks ?? [];
+  ];
 
   return (
     <div
       className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-3 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:gap-6 sm:p-5"
       data-testid="settings-page"
     >
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'site' ? 'default' : 'outline'}
-          data-testid="settings-tab-site"
-          onClick={() => setActiveTab('site')}
-        >
-          {t('settings.siteSettings')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'notifications' ? 'default' : 'outline'}
-          data-testid="settings-tab-notifications"
-          onClick={() => setActiveTab('notifications')}
-        >
-          {t('settings.notificationsTab')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'telegram' ? 'default' : 'outline'}
-          data-testid="settings-tab-telegram"
-          onClick={() => setActiveTab('telegram')}
-        >
-          {t('telegram.title')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'webhooks' ? 'default' : 'outline'}
-          data-testid="settings-tab-webhooks"
-          onClick={() => setActiveTab('webhooks')}
-        >
-          {t('webhook.title')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'llm' ? 'default' : 'outline'}
-          data-testid="settings-tab-llm"
-          onClick={() => setActiveTab('llm')}
-        >
-          {t('settings.llm.title')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'search' ? 'default' : 'outline'}
-          data-testid="settings-tab-search"
-          onClick={() => setActiveTab('search')}
-        >
-          {t('settings.search.title')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'files' ? 'default' : 'outline'}
-          data-testid="settings-tab-files"
-          onClick={() => setActiveTab('files')}
-        >
-          {t('settings.files.title')}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={activeTab === 'version' ? 'default' : 'outline'}
-          data-testid="settings-tab-version"
-          onClick={() => setActiveTab('version')}
-        >
-          {t('settings.version.title')}
-        </Button>
-      </div>
-
-      {activeTab === 'site' && (
-        <Card className="border-0 ring-0">
-          <CardHeader>
-            <CardTitle>{t('settings.siteSettings')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <label className="block text-sm font-medium" htmlFor="site-name-input">
-                {t('settings.siteName')}
-              </label>
-              <Input
-                id="site-name-input"
-                value={siteName}
-                onChange={(event) => setSiteName(event.target.value)}
-                placeholder={t('settings.siteNamePlaceholder')}
-                className="min-h-10"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-medium" htmlFor="site-url-input">
-                {t('settings.siteUrl')}
-              </label>
-              <Input
-                id="site-url-input"
-                value={siteUrl}
-                onChange={(event) => setSiteUrl(event.target.value)}
-                placeholder={t('settings.siteUrlPlaceholder')}
-                className="min-h-10"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-medium" htmlFor="language-select">
-                {t('settings.language')}
-              </label>
-              <Select
-                value={language}
-                onValueChange={(nextValue) => {
-                  if (!nextValue) return;
-                  setLanguage(nextValue as LocaleCode);
-                }}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)}>
+        <TabsList className="w-full rounded-xl border border-border/60 p-1 group-data-horizontal/tabs:h-11">
+          {tabItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <TabsTrigger
+                key={item.value}
+                value={item.value}
+                data-testid={item.testId}
+                className={tabTriggerClassName}
               >
-                <SelectTrigger
-                  id="language-select"
-                  data-testid="settings-language-select"
-                  className="w-full min-h-10"
-                >
-                  <SelectValue placeholder={t('settings.language')}>
-                    {I18N_MANIFEST.locales.find((l) => l.code === language)?.nativeName ?? language}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="max-h-[var(--tmex-viewport-height)]">
-                  {I18N_MANIFEST.locales.map((locale) => (
-                    <SelectItem key={locale.code} value={locale.code}>
-                      {locale.nativeName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {showRefreshNotice && (
-                <p className="mt-1 text-xs text-primary" data-testid="settings-refresh-notice">
-                  {t('settings.refreshToApply')}
-                </p>
-              )}
-            </div>
+                <Icon />
+                {item.label}
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </Tabs>
 
-            <div className="space-y-3">
-              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                <div className="min-w-0 pr-2">
-                  <div className="text-sm font-medium">{t('settings.theme')}</div>
-                </div>
-                <Switch
-                  checked={isDark}
-                  onCheckedChange={(checked) => handleThemeChange(Boolean(checked))}
-                  data-testid="settings-theme-toggle"
+      {activeTab === 'general' && (
+        <>
+          <Card className="border-0 ring-0">
+            <CardHeader>
+              <CardTitle>{t('settings.siteSettings')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium" htmlFor="site-name-input">
+                  {t('settings.siteName')}
+                </label>
+                <Input
+                  id="site-name-input"
+                  value={siteName}
+                  onChange={(event) => setSiteName(event.target.value)}
+                  placeholder={t('settings.siteNamePlaceholder')}
+                  className="min-h-10"
                 />
               </div>
-            </div>
-          </CardContent>
-        </Card>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium" htmlFor="site-url-input">
+                  {t('settings.siteUrl')}
+                </label>
+                <Input
+                  id="site-url-input"
+                  value={siteUrl}
+                  onChange={(event) => setSiteUrl(event.target.value)}
+                  placeholder={t('settings.siteUrlPlaceholder')}
+                  className="min-h-10"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium" htmlFor="language-select">
+                  {t('settings.language')}
+                </label>
+                <Select
+                  value={language}
+                  onValueChange={(nextValue) => {
+                    if (!nextValue) return;
+                    setLanguage(nextValue as LocaleCode);
+                  }}
+                >
+                  <SelectTrigger
+                    id="language-select"
+                    data-testid="settings-language-select"
+                    className="w-full min-h-10"
+                  >
+                    <SelectValue placeholder={t('settings.language')}>
+                      {I18N_MANIFEST.locales.find((l) => l.code === language)?.nativeName ??
+                        language}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[var(--tmex-viewport-height)]">
+                    {I18N_MANIFEST.locales.map((locale) => (
+                      <SelectItem key={locale.code} value={locale.code}>
+                        {locale.nativeName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {showRefreshNotice && (
+                  <p className="mt-1 text-xs text-primary" data-testid="settings-refresh-notice">
+                    {t('settings.refreshToApply')}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">{t('settings.theme')}</div>
+                  </div>
+                  <Switch
+                    checked={isDark}
+                    onCheckedChange={(checked) => handleThemeChange(Boolean(checked))}
+                    data-testid="settings-theme-toggle"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <VersionTab />
+        </>
+      )}
+
+      {activeTab === 'devicesAndFiles' && (
+        <>
+          <DeviceEntryCard />
+          <FilesSettingsTab />
+        </>
       )}
 
       {activeTab === 'notifications' && (
-        <Card className="border-0 ring-0">
-          <CardHeader>
-            <CardTitle>{t('settings.notificationsTab')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-3">
-              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                <div className="min-w-0 pr-2">
-                  <div className="text-sm font-medium">{t('settings.enableBrowserBellToast')}</div>
-                </div>
-                <Switch
-                  checked={enableBrowserBellToast}
-                  onCheckedChange={(checked) => setEnableBrowserBellToast(Boolean(checked))}
-                  data-testid="settings-enable-browser-bell-toast"
-                />
-              </div>
-
-              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                <div className="min-w-0 pr-2">
-                  <div className="text-sm font-medium">{t('settings.enableTelegramBellPush')}</div>
-                </div>
-                <Switch
-                  checked={enableTelegramBellPush}
-                  onCheckedChange={(checked) => setEnableTelegramBellPush(Boolean(checked))}
-                  data-testid="settings-enable-telegram-bell-push"
-                />
-              </div>
-
-              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                <div className="min-w-0 pr-2">
-                  <div className="text-sm font-medium">
-                    {t('settings.enableBrowserNotificationToast')}
+        <>
+          <Card className="border-0 ring-0">
+            <CardContent className="space-y-6 pt-6">
+              <div className="space-y-3">
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">
+                      {t('settings.enableBrowserBellToast')}
+                    </div>
                   </div>
-                </div>
-                <Switch
-                  checked={enableBrowserNotificationToast}
-                  onCheckedChange={(checked) => setEnableBrowserNotificationToast(Boolean(checked))}
-                  data-testid="settings-enable-browser-notification-toast"
-                />
-              </div>
-
-              <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
-                <div className="min-w-0 pr-2">
-                  <div className="text-sm font-medium">
-                    {t('settings.enableTelegramNotificationPush')}
-                  </div>
-                </div>
-                <Switch
-                  checked={enableTelegramNotificationPush}
-                  onCheckedChange={(checked) => setEnableTelegramNotificationPush(Boolean(checked))}
-                  data-testid="settings-enable-telegram-notification-push"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="bell-throttle-input">
-                  {t('settings.bellThrottle')}
-                </label>
-                <Input
-                  id="bell-throttle-input"
-                  type="number"
-                  value={bellThrottleSeconds}
-                  min={0}
-                  max={300}
-                  onChange={(event) => setBellThrottleSeconds(Number(event.target.value))}
-                  className="min-h-10"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="notification-throttle-input">
-                  {t('settings.notificationThrottle')}
-                </label>
-                <Input
-                  id="notification-throttle-input"
-                  type="number"
-                  value={notificationThrottleSeconds}
-                  min={0}
-                  max={300}
-                  onChange={(event) => setNotificationThrottleSeconds(Number(event.target.value))}
-                  className="min-h-10"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="ssh-reconnect-retries-input">
-                  {t('settings.sshReconnectMaxRetries')}
-                </label>
-                <Input
-                  id="ssh-reconnect-retries-input"
-                  type="number"
-                  value={sshReconnectMaxRetries}
-                  min={0}
-                  max={20}
-                  onChange={(event) => setSshReconnectMaxRetries(Number(event.target.value))}
-                  className="min-h-10"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium" htmlFor="ssh-reconnect-delay-input">
-                  {t('settings.sshReconnectDelay')}
-                </label>
-                <Input
-                  id="ssh-reconnect-delay-input"
-                  type="number"
-                  value={sshReconnectDelaySeconds}
-                  min={1}
-                  max={300}
-                  onChange={(event) => setSshReconnectDelaySeconds(Number(event.target.value))}
-                  className="min-h-10"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === 'telegram' && (
-        <Card className="border-0 ring-0">
-          <CardHeader>
-            <CardTitle>{t('telegram.title')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-                <div className="md:col-span-4 space-y-2">
-                  <label className="block text-sm font-medium" htmlFor="new-bot-name">
-                    {t('telegram.botName')}
-                  </label>
-                  <Input
-                    id="new-bot-name"
-                    value={newBotName}
-                    onChange={(event) => setNewBotName(event.target.value)}
-                    placeholder={t('telegram.botNamePlaceholder')}
-                    className="min-h-10"
+                  <Switch
+                    checked={enableBrowserBellToast}
+                    onCheckedChange={(checked) => setEnableBrowserBellToast(Boolean(checked))}
+                    data-testid="settings-enable-browser-bell-toast"
                   />
                 </div>
 
-                <div className="md:col-span-6 space-y-2">
-                  <label className="block text-sm font-medium" htmlFor="new-bot-token">
-                    {t('telegram.botToken')}
-                  </label>
-                  <Input
-                    id="new-bot-token"
-                    type="password"
-                    value={newBotToken}
-                    onChange={(event) => setNewBotToken(event.target.value)}
-                    placeholder={t('telegram.botTokenPlaceholder')}
-                    className="min-h-10"
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">
+                      {t('settings.enableTelegramBellPush')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={enableTelegramBellPush}
+                    onCheckedChange={(checked) => setEnableTelegramBellPush(Boolean(checked))}
+                    data-testid="settings-enable-telegram-bell-push"
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <Button
-                    variant="default"
-                    className="w-full md:w-auto"
-                    data-testid="telegram-add-bot"
-                    onClick={() => createBotMutation.mutate()}
-                    disabled={
-                      createBotMutation.isPending || !newBotName.trim() || !newBotToken.trim()
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">
+                      {t('settings.enableBrowserNotificationToast')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={enableBrowserNotificationToast}
+                    onCheckedChange={(checked) =>
+                      setEnableBrowserNotificationToast(Boolean(checked))
                     }
-                  >
-                    {createBotMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                    {t('telegram.addBot')}
-                  </Button>
+                    data-testid="settings-enable-browser-notification-toast"
+                  />
                 </div>
-              </div>
-            </div>
 
-            <div className="space-y-3">
-              {botsQuery.isLoading && (
-                <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-              )}
-
-              {!botsQuery.isLoading && bots.length === 0 && (
-                <div className="text-sm text-muted-foreground">{t('telegram.addBot')}</div>
-              )}
-
-              {bots.map((bot) => (
-                <BotCard
-                  key={bot.id}
-                  bot={bot}
-                  expanded={expandedBotId === bot.id}
-                  onToggleExpand={() => {
-                    setExpandedBotId((prev) => (prev === bot.id ? null : bot.id));
-                  }}
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === 'webhooks' && (
-        <Card className="border-0 ring-0">
-          <CardHeader>
-            <CardTitle>{t('webhook.title')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-              <div className="md:col-span-6 space-y-2">
-                <label className="block text-sm font-medium" htmlFor="webhook-url-input">
-                  {t('webhook.url')}
-                </label>
-                <Input
-                  id="webhook-url-input"
-                  data-testid="webhook-url-input"
-                  value={newWebhookUrl}
-                  onChange={(event) => setNewWebhookUrl(event.target.value)}
-                  placeholder="https://example.com/webhook"
-                  className="min-h-10"
-                />
-              </div>
-
-              <div className="md:col-span-4 space-y-2">
-                <label className="block text-sm font-medium" htmlFor="webhook-secret-input">
-                  {t('webhook.secret')}
-                </label>
-                <Input
-                  id="webhook-secret-input"
-                  data-testid="webhook-secret-input"
-                  value={newWebhookSecret}
-                  onChange={(event) => setNewWebhookSecret(event.target.value)}
-                  placeholder={t('webhook.secretPlaceholder')}
-                  className="min-h-10"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <Button
-                  variant="default"
-                  className="w-full md:w-auto"
-                  data-testid="webhook-add"
-                  onClick={() => createWebhookMutation.mutate()}
-                  disabled={
-                    createWebhookMutation.isPending ||
-                    !newWebhookUrl.trim() ||
-                    !newWebhookSecret.trim() ||
-                    newWebhookEventMask.length === 0
-                  }
-                >
-                  {createWebhookMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  {t('webhook.add')}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-3 rounded-lg border border-border bg-card px-4 py-3">
-              <div className="text-sm font-medium">{t('webhook.eventMask')}</div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {WEBHOOK_EVENT_OPTIONS.map((eventType) => {
-                  const checked = newWebhookEventMask.includes(eventType);
-                  return (
-                    <div
-                      key={eventType}
-                      className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2"
-                    >
-                      <div className="min-w-0 pr-2 text-sm font-medium">
-                        {t(`notification.eventType.${eventType}` as const)}
-                      </div>
-                      <Switch
-                        checked={checked}
-                        data-testid={`webhook-event-${eventType}`}
-                        onCheckedChange={(nextChecked) => {
-                          setNewWebhookEventMask((prev) => {
-                            if (nextChecked) {
-                              return prev.includes(eventType) ? prev : [...prev, eventType];
-                            }
-                            return prev.filter((item) => item !== eventType);
-                          });
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {webhooksQuery.isLoading && (
-                <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-              )}
-
-              {!webhooksQuery.isLoading && webhooks.length === 0 && (
-                <div className="text-sm text-muted-foreground">{t('webhook.empty')}</div>
-              )}
-
-              {webhooks.map((webhook) => (
-                <div
-                  key={webhook.id}
-                  data-testid="webhook-item"
-                  data-webhook-url={webhook.url}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{webhook.url}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(webhook.createdAt).toLocaleString(toBCP47Locale(language))}
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">
+                      {t('settings.enableTelegramNotificationPush')}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    data-testid="webhook-delete"
-                    onClick={() => deleteWebhookMutation.mutate(webhook.id)}
-                    disabled={deleteWebhookMutation.isPending}
-                    aria-label={t('common.delete')}
-                    title={t('common.delete')}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <Switch
+                    checked={enableTelegramNotificationPush}
+                    onCheckedChange={(checked) =>
+                      setEnableTelegramNotificationPush(Boolean(checked))
+                    }
+                    data-testid="settings-enable-telegram-notification-push"
+                  />
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium" htmlFor="bell-throttle-input">
+                    {t('settings.bellThrottle')}
+                  </label>
+                  <Input
+                    id="bell-throttle-input"
+                    type="number"
+                    value={bellThrottleSeconds}
+                    min={0}
+                    max={300}
+                    onChange={(event) => setBellThrottleSeconds(Number(event.target.value))}
+                    className="min-h-10"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    className="block text-sm font-medium"
+                    htmlFor="notification-throttle-input"
+                  >
+                    {t('settings.notificationThrottle')}
+                  </label>
+                  <Input
+                    id="notification-throttle-input"
+                    type="number"
+                    value={notificationThrottleSeconds}
+                    min={0}
+                    max={300}
+                    onChange={(event) => setNotificationThrottleSeconds(Number(event.target.value))}
+                    className="min-h-10"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    className="block text-sm font-medium"
+                    htmlFor="ssh-reconnect-retries-input"
+                  >
+                    {t('settings.sshReconnectMaxRetries')}
+                  </label>
+                  <Input
+                    id="ssh-reconnect-retries-input"
+                    type="number"
+                    value={sshReconnectMaxRetries}
+                    min={0}
+                    max={20}
+                    onChange={(event) => setSshReconnectMaxRetries(Number(event.target.value))}
+                    className="min-h-10"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium" htmlFor="ssh-reconnect-delay-input">
+                    {t('settings.sshReconnectDelay')}
+                  </label>
+                  <Input
+                    id="ssh-reconnect-delay-input"
+                    type="number"
+                    value={sshReconnectDelaySeconds}
+                    min={1}
+                    max={300}
+                    onChange={(event) => setSshReconnectDelaySeconds(Number(event.target.value))}
+                    className="min-h-10"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <TelegramBotsTab />
+          <WebhooksTab />
+        </>
       )}
 
-      {activeTab === 'llm' && <LlmProvidersTab />}
+      {activeTab === 'ai' && (
+        <>
+          <LlmProvidersTab />
+          <SearchTab />
+        </>
+      )}
 
-      {activeTab === 'search' && <SearchTab />}
-
-      {activeTab === 'files' && <FilesSettingsTab />}
-
-      {activeTab === 'version' && <VersionTab />}
-
-      {(activeTab === 'site' || activeTab === 'notifications') && (
+      {(activeTab === 'general' || activeTab === 'notifications') && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <Button
             variant="default"
@@ -822,350 +471,6 @@ export default function SettingsPage() {
           </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-interface BotCardProps {
-  bot: TelegramBotWithStats;
-  expanded: boolean;
-  onToggleExpand: () => void;
-}
-
-function BotCard({ bot, expanded, onToggleExpand }: BotCardProps) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-
-  const [name, setName] = useState(bot.name);
-  const [token, setToken] = useState('');
-  const [enabled, setEnabled] = useState(bot.enabled);
-  const [allowAuthRequests, setAllowAuthRequests] = useState(bot.allowAuthRequests);
-
-  useEffect(() => {
-    setName(bot.name);
-    setEnabled(bot.enabled);
-    setAllowAuthRequests(bot.allowAuthRequests);
-  }, [bot.allowAuthRequests, bot.enabled, bot.name]);
-
-  const chatsQuery = useQuery({
-    queryKey: ['telegram-bot-chats', bot.id],
-    enabled: expanded,
-    queryFn: async () => {
-      const res = await fetch(`/api/settings/telegram/bots/${bot.id}/chats`);
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.loadChatsFailed')));
-      }
-      return (await res.json()) as TelegramChatsResponse;
-    },
-  });
-
-  const groupedChats = useMemo(() => {
-    const chats = chatsQuery.data?.chats ?? [];
-    return {
-      pending: chats.filter((chat) => chat.status === 'pending'),
-      authorized: chats.filter((chat) => chat.status === 'authorized'),
-    };
-  }, [chatsQuery.data?.chats]);
-
-  const patchBotMutation = useMutation({
-    mutationFn: async () => {
-      const payload: Record<string, unknown> = {
-        name,
-        enabled,
-        allowAuthRequests,
-      };
-      if (token.trim()) {
-        payload.token = token.trim();
-      }
-
-      const res = await fetch(`/api/settings/telegram/bots/${bot.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.updateFailed')));
-      }
-    },
-    onSuccess: async () => {
-      setToken('');
-      await queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const deleteBotMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/settings/telegram/bots/${bot.id}`, {
-        method: 'DELETE',
-      });
-
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.deleteFailed')));
-      }
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['telegram-bots'] });
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: async (chatId: string) => {
-      const res = await fetch(
-        `/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}/approve`,
-        {
-          method: 'POST',
-        }
-      );
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.approveFailed')));
-      }
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['telegram-bots'] }),
-        queryClient.invalidateQueries({ queryKey: ['telegram-bot-chats', bot.id] }),
-      ]);
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const removeChatMutation = useMutation({
-    mutationFn: async (chatId: string) => {
-      const res = await fetch(
-        `/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}`,
-        {
-          method: 'DELETE',
-        }
-      );
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.removeFailed')));
-      }
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['telegram-bots'] }),
-        queryClient.invalidateQueries({ queryKey: ['telegram-bot-chats', bot.id] }),
-      ]);
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  const testChatMutation = useMutation({
-    mutationFn: async (chatId: string) => {
-      const res = await fetch(
-        `/api/settings/telegram/bots/${bot.id}/chats/${encodeURIComponent(chatId)}/test`,
-        {
-          method: 'POST',
-        }
-      );
-      if (!res.ok) {
-        throw new Error(await parseApiError(res, t('telegram.testMessageFailed')));
-      }
-    },
-    onSuccess: () => {
-      toast.success(t('common.success'));
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    },
-  });
-
-  return (
-    <div
-      className="space-y-4 rounded-md border-0 bg-card p-4"
-      data-testid={`telegram-bot-card-${bot.id}`}
-      data-bot-name={bot.name}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="font-medium">{bot.name}</div>
-          <div className="text-xs text-muted-foreground">
-            {bot.authorizedCount} / {bot.pendingCount}
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          data-testid={`telegram-bot-toggle-${bot.id}`}
-          onClick={onToggleExpand}
-        >
-          {expanded ? t('common.collapse') : t('common.expand')}
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-        <div className="md:col-span-3 space-y-2">
-          <label className="block text-sm font-medium" htmlFor={`bot-name-${bot.id}`}>
-            {t('telegram.botName')}
-          </label>
-          <Input
-            id={`bot-name-${bot.id}`}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="min-h-10"
-          />
-        </div>
-        <div className="md:col-span-4 space-y-2">
-          <label className="block text-sm font-medium" htmlFor={`bot-token-${bot.id}`}>
-            {t('telegram.botToken')}
-          </label>
-          <Input
-            id={`bot-token-${bot.id}`}
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder={t('telegram.tokenPlaceholder')}
-            className="min-h-10"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
-            <span className="text-sm font-medium">{t('common.enabled')}</span>
-            <Switch checked={enabled} onCheckedChange={(checked) => setEnabled(Boolean(checked))} />
-          </div>
-        </div>
-        <div className="md:col-span-3">
-          <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
-            <span className="text-sm font-medium">{t('telegram.allowAuthRequests')}</span>
-            <Switch
-              checked={allowAuthRequests}
-              onCheckedChange={(checked) => setAllowAuthRequests(Boolean(checked))}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-        <Button
-          variant="destructive"
-          data-testid={`telegram-bot-delete-${bot.id}`}
-          onClick={() => deleteBotMutation.mutate()}
-          className="w-full sm:w-auto"
-        >
-          <Trash2 className="h-4 w-4" />
-          {t('telegram.deleteBot')}
-        </Button>
-        <Button
-          variant="default"
-          data-testid={`telegram-bot-save-${bot.id}`}
-          onClick={() => patchBotMutation.mutate()}
-          className="w-full sm:w-auto"
-        >
-          <Save className="h-4 w-4" />
-          {t('common.save')}
-        </Button>
-      </div>
-
-      {expanded && (
-        <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 lg:grid-cols-2">
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold flex items-center gap-1">
-              <Shield className="h-4 w-4" />
-              {t('telegram.pendingChats')}
-            </h3>
-            {groupedChats.pending.length === 0 && (
-              <div className="text-xs text-muted-foreground">-</div>
-            )}
-            {groupedChats.pending.map((chat) => (
-              <ChatRow
-                key={`${chat.botId}-${chat.chatId}`}
-                chat={chat}
-                pending
-                onApprove={() => approveMutation.mutate(chat.chatId)}
-                onDelete={() => removeChatMutation.mutate(chat.chatId)}
-              />
-            ))}
-          </div>
-
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold flex items-center gap-1">
-              <Shield className="h-4 w-4" />
-              {t('telegram.chats')}
-            </h3>
-            {groupedChats.authorized.length === 0 && (
-              <div className="text-xs text-muted-foreground">-</div>
-            )}
-            {groupedChats.authorized.map((chat) => (
-              <ChatRow
-                key={`${chat.botId}-${chat.chatId}`}
-                chat={chat}
-                pending={false}
-                onTest={() => testChatMutation.mutate(chat.chatId)}
-                onDelete={() => removeChatMutation.mutate(chat.chatId)}
-              />
-            ))}
-          </div>
-
-          {chatsQuery.isLoading && (
-            <div className="lg:col-span-2 text-xs text-muted-foreground">{t('common.loading')}</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface ChatRowProps {
-  chat: TelegramBotChat;
-  pending: boolean;
-  onApprove?: () => void;
-  onDelete: () => void;
-  onTest?: () => void;
-}
-
-function ChatRow({ chat, pending, onApprove, onDelete, onTest }: ChatRowProps) {
-  const { t } = useTranslation();
-  const language = useSiteStore((state) => state.settings?.language ?? 'en_US');
-  return (
-    <div className="space-y-2 rounded border-0 bg-background p-3">
-      <div className="text-sm font-medium truncate" title={chat.displayName}>
-        {chat.displayName}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {t('telegram.chatId')}：{chat.chatId}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {new Date(chat.appliedAt).toLocaleString(toBCP47Locale(language))}
-      </div>
-
-      <div className="flex items-center justify-end gap-2 pt-1">
-        {pending ? (
-          <>
-            <Button variant="outline" size="sm" onClick={onDelete}>
-              {t('telegram.reject')}
-            </Button>
-            <Button variant="default" size="sm" onClick={onApprove}>
-              {t('telegram.authorize')}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button variant="secondary" size="sm" onClick={onTest}>
-              <Send className="h-3.5 w-3.5" />
-              {t('telegram.sendTestMessage')}
-            </Button>
-            <Button variant="destructive" size="sm" onClick={onDelete}>
-              {t('common.delete')}
-            </Button>
-          </>
-        )}
-      </div>
     </div>
   );
 }
