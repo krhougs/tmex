@@ -753,7 +753,10 @@
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
-      "hostRequired": "SSH デバイスにはホストアドレスが必要です"
+      "hostRequired": "SSH デバイスにはホストアドレスが必要です",
+      "portRequired": "SSH デバイスには有効なポートが必要です",
+      "usernameRequired": "SSH デバイスにはユーザー名が必要です",
+      "sshConfigRequired": "SSH デバイスには ssh config のパスが必要です"
     },
     "files": {
       "title": "ファイル",

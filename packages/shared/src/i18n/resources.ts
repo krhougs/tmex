@@ -759,7 +759,10 @@ export const I18N_RESOURCES = {
     },
     "validation": {
       "deviceNameRequired": "Device name is required",
-      "hostRequired": "Host is required for SSH devices"
+      "hostRequired": "Host is required for SSH devices",
+      "portRequired": "A valid port is required for SSH devices",
+      "usernameRequired": "Username is required for SSH devices",
+      "sshConfigRequired": "SSH config path is required for SSH devices"
     },
     "files": {
       "title": "Files",
@@ -1566,7 +1569,10 @@ export const I18N_RESOURCES = {
     },
     "validation": {
       "deviceNameRequired": "设备名称为必填项",
-      "hostRequired": "SSH 设备需要填写主机地址"
+      "hostRequired": "SSH 设备需要填写主机地址",
+      "portRequired": "SSH 设备需要填写有效端口",
+      "usernameRequired": "SSH 设备需要填写用户名",
+      "sshConfigRequired": "SSH 设备需要填写 ssh config 路径"
     },
     "files": {
       "title": "文件",
@@ -2373,7 +2379,10 @@ export const I18N_RESOURCES = {
     },
     "validation": {
       "deviceNameRequired": "デバイス名は必須です",
-      "hostRequired": "SSH デバイスにはホストアドレスが必要です"
+      "hostRequired": "SSH デバイスにはホストアドレスが必要です",
+      "portRequired": "SSH デバイスには有効なポートが必要です",
+      "usernameRequired": "SSH デバイスにはユーザー名が必要です",
+      "sshConfigRequired": "SSH デバイスには ssh config のパスが必要です"
     },
     "files": {
       "title": "ファイル",

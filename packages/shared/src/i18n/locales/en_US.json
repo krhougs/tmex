@@ -753,7 +753,10 @@
     },
     "validation": {
       "deviceNameRequired": "Device name is required",
-      "hostRequired": "Host is required for SSH devices"
+      "hostRequired": "Host is required for SSH devices",
+      "portRequired": "A valid port is required for SSH devices",
+      "usernameRequired": "Username is required for SSH devices",
+      "sshConfigRequired": "SSH config path is required for SSH devices"
     },
     "files": {
       "title": "Files",

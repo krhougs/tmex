@@ -793,7 +793,7 @@ function DeviceSection({
       data-testid={`device-item-${device.id}`}
       className={cn(
         'group/device rounded-xl border border-border/60 overflow-hidden',
-        isSelected ? 'bg-card' : isConnected ? 'bg-muted/40' : 'bg-muted/20',
+        isSelected ? 'bg-chat-surface' : isConnected ? 'bg-muted/40' : 'bg-muted/20',
         isDragging && 'opacity-60 shadow-lg'
       )}
       onClick={isConnected ? undefined : onConnectToggle}
