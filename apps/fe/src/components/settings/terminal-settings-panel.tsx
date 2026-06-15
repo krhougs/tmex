@@ -73,6 +73,13 @@ export function TerminalSettingsPanel({ showPreview = true }: { showPreview?: bo
     <div className="space-y-6">
       <p className="text-muted-foreground text-sm">{t('settings.terminal.description')}</p>
 
+      {showPreview && (
+        <div className="space-y-2">
+          <span className="block text-sm font-medium">{t('settings.terminal.preview')}</span>
+          <TerminalPreview />
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <label className="block text-sm font-medium" htmlFor="terminal-font-size">
@@ -193,13 +200,6 @@ export function TerminalSettingsPanel({ showPreview = true }: { showPreview?: bo
       </div>
 
       <p className="text-muted-foreground text-xs">{t('settings.terminal.savedInBrowser')}</p>
-
-      {showPreview && (
-        <div className="space-y-2">
-          <span className="block text-sm font-medium">{t('settings.terminal.preview')}</span>
-          <TerminalPreview />
-        </div>
-      )}
     </div>
   );
 }
