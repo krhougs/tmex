@@ -1,4 +1,4 @@
-# 0.12.0
+# 0.12.2
 
 _2026-06-15_
 
@@ -6,20 +6,13 @@ _2026-06-15_
 
 ### New
 
-- Files: the file tree now has a right-click / long-press menu, and large files transfer with live progress, speed, and a cancel button (up to 2 GB).
-- Files: dragging a file to your desktop now shows a brief notification once the download finishes.
+- Terminal font settings: pick from bundled monospaced fonts and adjust the font size and line height. Changes apply live to your terminals, and the chosen font is used for monospaced text across the app.
+- Mobile keyboard behavior: choose how the page reacts when the on-screen keyboard opens — shift the page up, resize the terminal, or keep the cursor above the keyboard — for smoother typing on phones.
 
 ### Improvements
 
-- Files: better transfer feedback — a two-stage progress bar, dark-theme support, file sizes shown in the menu, and human-readable sizes in the preview.
-- This changelog is now bilingual (English first, then Chinese).
-
-### Fixes
-
-- Terminal: fixed inconsistent line height across platforms and glyphs being clipped at the top or bottom.
-- SSH: fixed connections that authenticate via an SSH config reference, and now show the real error when a connection fails.
-- Files: fixed some downloads failing with a 500 error.
-- Notifications: fixed pane links in Telegram messages failing to open because they were double-encoded.
+- Terminal settings are now in one place: a dedicated Settings tab and a quick panel from the terminal, both with a live preview.
+- UI polish and refinements (spacing, dark-mode readability, settings tabs on mobile).
 
 ---
 
@@ -27,17 +20,10 @@ _2026-06-15_
 
 ### 新增
 
-- 文件浏览：文件树新增右键 / 长按菜单，大文件传输支持实时进度、速度与取消（最大 2GB）。
-- 文件浏览：把文件拖到桌面，下载完成后会有一条轻提示。
+- 终端字体设置：可从内置等宽字体中选择，并调整字号与行高。改动实时应用到当前终端，所选字体也会用于全应用的等宽文本。
+- 手机键盘行为：可选择软键盘弹出时页面的避让方式——整页上移、缩放终端、或让光标始终在键盘上方——手机上输入更顺手。
 
 ### 改进
 
-- 文件浏览：传输反馈更完善——两段式进度条、跟随暗色主题、菜单显示文件大小、预览大小以人类可读格式展示。
-- 更新日志现在提供中英双语（先英文、后中文）。
-
-### 修复
-
-- 终端：修复文字行高在不同平台不一致、字形顶部或底部被裁切的问题。
-- SSH：修复使用 SSH 配置引用进行认证的连接，连接失败时现在会显示真实错误。
-- 文件浏览：修复部分文件下载失败（500）的问题。
-- 通知：修复 Telegram 消息中 pane 链接因二次编码而无法打开的问题。
+- 终端设置集中到一处：独立的「终端」设置页，以及终端内的快捷面板，均带实时预览。
+- 界面细节优化（间距、深色模式可读性、移动端设置 tab 等）。
