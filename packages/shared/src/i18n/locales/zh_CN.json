@@ -109,6 +109,16 @@
       "delete": "删除"
     },
     "terminal": {
+      "keyboardBehavior": {
+        "title": "键盘行为",
+        "description": "选择手机键盘弹出时页面的避让方式",
+        "modeLift": "页面平移",
+        "modeLiftDesc": "键盘弹出时整页上移，终端大小不变",
+        "modeResize": "终端缩放",
+        "modeResizeDesc": "缩小终端铺满键盘上方区域（会调整远端窗口行数）",
+        "modeFollow": "光标对齐",
+        "modeFollowDesc": "按光标位置上移，光标始终在键盘正上方，终端大小不变"
+      },
       "initializing": "初始化终端...",
       "connecting": "连接设备...",
       "initFailed": "终端初始化失败",

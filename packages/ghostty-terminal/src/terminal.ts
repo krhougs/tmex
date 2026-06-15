@@ -41,6 +41,8 @@ import type {
   CompatibleTerminalBuffer,
   CompatibleTerminalLike,
   GhosttyCellDimensions,
+  GhosttyCursorViewportRect,
+  GhosttyRenderCursor,
   GhosttyRenderRow,
   GhosttyTerminalInitOptions,
   GhosttyTerminalModeSnapshot,
@@ -225,6 +227,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private screenElement: HTMLDivElement | null = null;
   private renderer: CanvasRenderer | null = null;
   private renderRaf: number | null = null;
+  // 每帧 render 缓存的光标快照，供 getCursorViewportRect 读取（issue #27 follow 模式）。
+  private lastCursor: GhosttyRenderCursor | null = null;
   private disposed = false;
   private disableStdin: boolean;
   private customKeyEventHandler: (event: KeyboardEvent) => boolean = () => true;
@@ -695,6 +699,30 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
   focus(): void {
     this.textarea?.focus({ preventScroll: true });
+  }
+
+  // 返回光标在 client 坐标系的上/下沿（issue #27「光标对齐」键盘模式用）。
+  // 仅当本终端聚焦且光标可见有值时返回，否则 null——避让 hook 据此回退到整页上移
+  // （编辑器模式、其他终端聚焦、全屏程序隐藏光标等场景）。复用每帧 render 缓存的
+  // lastCursor，不新建临时 render state。
+  getCursorViewportRect(): GhosttyCursorViewportRect | null {
+    if (this.disposed) {
+      return null;
+    }
+    const screen = this.screenElement;
+    const cursor = this.lastCursor;
+    if (!screen || !cursor || !cursor.visible || cursor.y === null) {
+      return null;
+    }
+    if (this.textarea === null || document.activeElement !== this.textarea) {
+      return null;
+    }
+    const { height } = this.cellDimensions();
+    if (height <= 0) {
+      return null;
+    }
+    const top = screen.getBoundingClientRect().top + cursor.y * height;
+    return { top, bottom: top + height };
   }
 
   getRendererKind(): string {
@@ -1423,6 +1451,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const meta = readRenderSnapshotMeta(this.renderState);
     const rows = Array.from(iterateRows(this.renderState));
 
+    this.lastCursor = meta.cursor;
     this.cols = Math.max(2, meta.cols);
     this.rows = Math.max(2, meta.rows || viewportRows);
     this.lastViewportOffset = scrollbar.offset;

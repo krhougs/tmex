@@ -1,6 +1,10 @@
 import { loadTerminalFonts, resolveFontStack } from '@/lib/fonts';
 import { useTmuxStore } from '@/stores/tmux';
 import { useUIStore } from '@/stores/ui';
+import {
+  registerCursorRectGetter,
+  unregisterCursorRectGetter,
+} from '@/utils/keyboard-cursor-bridge';
 import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
 import {
   type CompatibleTerminalLike,
@@ -325,6 +329,17 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       (instance as any).setDisableStdin(inputMode === 'editor');
     }, [instance, inputMode]);
+
+    // 注册当前终端的光标矩形 getter，供 main.tsx 键盘避让（光标对齐模式）按需读取。
+    // getter 内部按聚焦判定，编辑器模式/其他终端聚焦时返回 null，宿主自动回退整页上移。
+    useEffect(() => {
+      if (!instance?.getCursorViewportRect) {
+        return;
+      }
+      const getter = () => instance.getCursorViewportRect?.() ?? null;
+      registerCursorRectGetter(getter);
+      return () => unregisterCursorRectGetter(getter);
+    }, [instance]);
 
     // direct 模式下终端就绪（刷新、切换 pane 导致的重新挂载）或从 editor 切回时，
     // 焦点应回到终端；移动端跳过，避免自动弹出软键盘

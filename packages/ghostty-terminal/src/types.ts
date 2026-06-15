@@ -94,6 +94,12 @@ export interface GhosttyRenderCursor {
   wideTail: boolean;
 }
 
+// 光标在 client（视口）坐标系的垂直范围，供宿主做键盘避让定位（issue #27 follow 模式）。
+export interface GhosttyCursorViewportRect {
+  top: number;
+  bottom: number;
+}
+
 export interface GhosttyRenderCellStyle {
   bold: boolean;
   italic: boolean;
@@ -185,6 +191,7 @@ export interface CompatibleTerminalLike {
   clearMouseTrackingModes?: () => void;
   paste: (data: string) => void;
   focus: () => void;
+  getCursorViewportRect?: () => GhosttyCursorViewportRect | null;
   getSelection?: () => string;
   hasSelection?: () => boolean;
   clearSelection?: () => void;

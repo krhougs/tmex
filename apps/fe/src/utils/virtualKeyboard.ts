@@ -31,6 +31,37 @@ export function computeVirtualKeyboardOffset(metrics: VirtualKeyboardViewportMet
   return inset >= MIN_KEYBOARD_INSET_PX ? inset : 0;
 }
 
+export interface CursorFollowParams {
+  // 光标底沿在当前 client 坐标系的 y（含当前已应用的避让位移）
+  cursorBottomClientY: number;
+  // 当前已应用到 <main> 的 translateY 位移量（px，正数）
+  appliedOffset: number;
+  windowInnerHeight: number;
+  // 键盘遮挡高度（computeVirtualKeyboardOffset 的结果，>0）
+  inset: number;
+  // 光标底沿与键盘顶保留的间距（快捷键栏浮动时应含其高度，让光标停在浮条上方）
+  margin: number;
+  // 允许的最大上移量；默认 inset（位移不超键盘高度即不露白）。快捷键栏浮在键盘上方时
+  // 可放宽到 inset + barHeight：多抬的那条空白正好被浮动快捷键栏盖住，仍不露白，从而
+  // 光标即便在终端最底行也能抬到浮条之上。
+  maxOffset?: number;
+}
+
+// 「光标对齐」模式（issue #27 模式 follow）：算出让光标底沿正好落在键盘上方所需的
+// 最小整页上移量。
+//
+// 键盘顶在 client 坐标 = innerHeight - inset（兼容旧版 iOS 自平移：inset 已扣 offsetTop）。
+// 当前 client 底沿已含 appliedOffset 位移，加回得未位移的自然底沿，使计算对自身位移收敛、
+// 不抖动。上界 clamp 到 maxOffset（默认 inset）：超过会让 <main> 底边升过键盘顶、暴露空白
+// （issue 明确要求避免的边界）；浮动快捷键栏存在时放宽到 inset + barHeight，露出部分被浮条盖住。
+export function computeCursorFollowOffset(params: CursorFollowParams): number {
+  const keyboardTopClientY = params.windowInnerHeight - params.inset;
+  const naturalBottom = params.cursorBottomClientY + params.appliedOffset;
+  const needed = naturalBottom + params.margin - keyboardTopClientY;
+  const maxOffset = params.maxOffset ?? params.inset;
+  return Math.min(Math.max(0, Math.round(needed)), maxOffset);
+}
+
 export function isIOSMobileBrowser(): boolean {
   if (typeof navigator === 'undefined') {
     return false;

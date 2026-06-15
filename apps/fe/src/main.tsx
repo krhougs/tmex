@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { formatDisplayVersion } from '@tmex/shared';
-import { StrictMode, useEffect, useState } from 'react';
+import { type CSSProperties, StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Outlet, RouterProvider, createBrowserRouter, useParams } from 'react-router';
 import { Toaster } from 'sonner';
@@ -16,7 +16,7 @@ import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { WatchEventsInit } from '@/components/watch/watch-events-init';
-import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
+import { useKeyboardAvoidance } from '@/hooks/use-keyboard-avoidance';
 import { useAppMonoFont } from '@/lib/fonts/useAppMonoFont';
 import { useUIStore } from '@/stores/ui';
 
@@ -118,32 +118,37 @@ function RootLayout() {
   );
 }
 
-// SidebarInset（<main>）+ 虚拟键盘避让。必须在 SidebarProvider 内部才能读取
-// openMobile：移动端侧边栏 Sheet 打开时终端不可见，此时禁用键盘避让可防止
-// portal 焦点切换导致的 viewport 事件竞态、transform 卡在非零值。
-// transform 不参与布局，不会触发终端容器的 ResizeObserver；offset 为 0 时
-// 必须移除 transform：非 none 的 transform 会成为 fixed 后代的 containing block，
-// 破坏 iOS editor dock 的定位。
+// SidebarInset（<main>）+ 手机虚拟键盘避让（issue #27）。必须在 SidebarProvider 内部
+// 才能读取 openMobile：移动端侧边栏 Sheet 打开时终端不可见，此时禁用避让可防止 portal
+// 焦点切换导致的 viewport 事件竞态、transform 卡在非零值。
+// 避让策略由用户在「键盘行为」设置中选择（keyboardBehaviorMode）：
+//   transform=整页上移（页面平移 lift / 光标对齐 follow），不参与布局、不触发终端
+//     ResizeObserver；strategy 为 none 时必须移除 transform，否则非 none transform 会成为
+//     fixed 后代的 containing block，破坏 iOS editor dock 定位。
+//   height=终端缩放（resize），主动收缩可用高度触发终端 ResizeObserver → tmux resize。
 function MainInset() {
   const { openMobile } = useSidebar();
-  const keyboardOffset = useVirtualKeyboardOffset(openMobile);
+  const mode = useUIStore((state) => state.keyboardBehaviorMode);
+  const avoidance = useKeyboardAvoidance(openMobile, mode);
+
+  const active = avoidance.strategy !== 'none';
+  const style: CSSProperties | undefined =
+    avoidance.strategy === 'transform'
+      ? {
+          transform: `translateY(-${avoidance.offset}px)`,
+          // 光标对齐逐帧跟随光标，去掉过渡以即时响应输入；其余模式用平滑过渡
+          transition: mode === 'follow' ? undefined : 'transform 0.12s ease-out',
+        }
+      : avoidance.strategy === 'height'
+        ? { height: `${avoidance.height}px`, transition: 'height 0.12s ease-out' }
+        : undefined;
 
   return (
-    <SidebarInset
-      className="h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]"
-      style={
-        keyboardOffset > 0
-          ? {
-              transform: `translateY(-${keyboardOffset}px)`,
-              transition: 'transform 0.12s ease-out',
-            }
-          : undefined
-      }
-    >
+    <SidebarInset className="h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]" style={style}>
       <Outlet />
       <div
         style={{
-          height: keyboardOffset > 0 ? 0 : 'var(--tmex-safe-area-bottom)',
+          height: active ? 0 : 'var(--tmex-safe-area-bottom)',
           transition: 'height 0.12s ease-out',
         }}
       />
