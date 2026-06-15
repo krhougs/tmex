@@ -35,6 +35,25 @@ function createAgentDevice(): Device {
   };
 }
 
+// 复现 pve/pve2 根因：非 configRef 模式残留的 sshConfigRef 不得劫持 host
+function createPasswordDeviceWithStaleConfigRef(): Device {
+  return {
+    id: 'device-password-stale-ref',
+    name: 'ssh-password',
+    type: 'ssh',
+    host: '10.0.0.1',
+    port: 22,
+    username: 'root',
+    authMode: 'password',
+    passwordEnc: 'ENCRYPTED_PASSWORD',
+    sshConfigRef: '~/.ssh/config',
+    session: 'tmex',
+    sortOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 describe('resolveSshConnectConfig', () => {
   test('resolves ssh config alias with SSH_AUTH_SOCK agent', async () => {
     const config = await resolveSshConnectConfig(createConfigRefDevice(), async () => '', {
@@ -140,6 +159,32 @@ describe('resolveSshConnectConfig', () => {
         key: 'PRIVATE_KEY_CONTENT',
       },
     ]);
+  });
+
+  test('non-configRef mode ignores stale sshConfigRef and never resolves host via ssh -G', async () => {
+    const config = await resolveSshConnectConfig(
+      createPasswordDeviceWithStaleConfigRef(),
+      async () => 'decrypted-password',
+      {
+        env: {
+          HOME: '/Users/tester',
+        },
+        runSync: () => {
+          throw new Error('ssh -G must not run for non-configRef auth modes');
+        },
+        fileExists: () => false,
+        readTextFile: () => {
+          throw new Error('readTextFile should not be called');
+        },
+      }
+    );
+
+    expect(config).toMatchObject({
+      host: '10.0.0.1',
+      port: 22,
+      username: 'root',
+      password: 'decrypted-password',
+    });
   });
 
   test('agent mode keeps current behavior when implicit identity file discovery fails', async () => {

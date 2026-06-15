@@ -81,6 +81,12 @@ export class ConnectionAlertNotifier {
     const classified = classifySshError(errObj);
     const friendlyMessage = t(classified.messageKey, { ...classified.messageParams });
     const rawMessage = errObj.message;
+    // 持久化时把真实错误一并保留，避免设备页只看到归类后的兜底文案（刷新后 raw 不丢）；
+    // unknown 类的友好文案模板已内嵌 raw（"Connection failed: {{message}}"），用 includes 去重避免重复拼接
+    const persistedMessage =
+      rawMessage && !friendlyMessage.includes(rawMessage)
+        ? `${friendlyMessage}\n${rawMessage}`
+        : friendlyMessage;
 
     console.error(
       `[conn-alert] device ${device.id} (${device.name}) source=${source} type=${classified.type}: ${rawMessage}`
@@ -88,7 +94,7 @@ export class ConnectionAlertNotifier {
 
     if (persist) {
       try {
-        this.persister(device.id, friendlyMessage, classified.type);
+        this.persister(device.id, persistedMessage, classified.type);
       } catch (dbErr) {
         console.error('[conn-alert] failed to persist runtime status:', dbErr);
       }

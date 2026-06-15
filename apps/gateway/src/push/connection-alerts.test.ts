@@ -138,4 +138,33 @@ describe('ConnectionAlertNotifier', () => {
     const result = await notifier.notifier.notify({ device, error: err, source: 'close' });
     expect(result.errorType).toBe('connection_closed');
   });
+
+  test('persists raw error alongside the friendly message', async () => {
+    const device = makeDevice('d1');
+    const err = new Error('getaddrinfo ENOTFOUND /users/tester/.ssh/config');
+    const result = await notifier.notifier.notify({ device, error: err, source: 'connect' });
+
+    expect(result.errorType).toBe('host_not_found');
+    expect(result.rawMessage).toBe('getaddrinfo ENOTFOUND /users/tester/.ssh/config');
+    expect(notifier.persisted).toHaveLength(1);
+    // 持久化文案应同时包含归类后的友好文案与真实错误
+    expect(notifier.persisted[0].message).toBe(`${result.message}\n${result.rawMessage}`);
+    expect(notifier.persisted[0].message).toContain('getaddrinfo ENOTFOUND');
+  });
+
+  test('does not duplicate raw when friendly message already embeds it (unknown category)', async () => {
+    const device = makeDevice('d1');
+    const rawText = 'some weird unclassified failure';
+    const result = await notifier.notifier.notify({
+      device,
+      error: new Error(rawText),
+      source: 'connect',
+    });
+
+    expect(result.errorType).toBe('unknown');
+    // unknown 文案模板已内嵌 raw（"Connection failed: {{message}}"），不应再拼一次
+    expect(notifier.persisted[0].message).toBe(result.message);
+    const occurrences = notifier.persisted[0].message.split(rawText).length - 1;
+    expect(occurrences).toBe(1);
+  });
 });

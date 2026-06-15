@@ -80,6 +80,8 @@
       "authKey": "私钥",
       "authAgent": "SSH Agent",
       "authConfigRef": "SSH Config",
+      "sshConfigRefPlaceholder": "Host 别名，如 my-server",
+      "sshConfigRefHint": "填 ssh config 里的 Host 别名，经 `ssh -G` 解析；不是 config 文件路径。",
       "password": "密码",
       "privateKey": "私钥",
       "privateKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----",
