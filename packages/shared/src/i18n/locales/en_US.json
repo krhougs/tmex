@@ -172,7 +172,16 @@
         "general": "General",
         "devicesAndFiles": "Devices & Files",
         "notifications": "Notifications",
-        "ai": "AI"
+        "ai": "AI",
+        "terminal": "Terminal"
+      },
+      "terminal": {
+        "title": "Terminal Font",
+        "description": "Adjust the terminal font size, line height and family. The font family applies to all monospaced text across the app.",
+        "fontSize": "Font Size",
+        "lineHeight": "Line Height",
+        "fontFamily": "Font",
+        "preview": "Preview"
       },
       "deviceManagement": {
         "title": "Device Management",

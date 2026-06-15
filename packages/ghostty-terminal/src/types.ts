@@ -25,6 +25,8 @@ export interface GhosttyTerminalInitOptions {
   theme: GhosttyTheme;
   fontFamily: string;
   fontSize: number;
+  /** 行高倍率（cell 高 = fontSize × lineHeight）。缺省走内置默认 1.2。 */
+  lineHeight?: number;
   scrollback: number;
   disableStdin?: boolean;
 }
@@ -196,9 +198,10 @@ export interface CompatibleTerminalLike {
   updateTouchSelection?: (clientX: number, clientY: number) => void;
   endTouchSelection?: () => void;
   onData: (callback: (data: string) => void) => TerminalDisposable;
-  attachCustomKeyEventHandler: (
-    callback: (event: KeyboardEvent) => boolean
-  ) => void;
-  loadAddon: (addon: { activate: (terminal: CompatibleTerminalLike) => void; dispose: () => void }) => void;
+  attachCustomKeyEventHandler: (callback: (event: KeyboardEvent) => boolean) => void;
+  loadAddon: (addon: {
+    activate: (terminal: CompatibleTerminalLike) => void;
+    dispose: () => void;
+  }) => void;
   getRendererKind?: () => string;
 }

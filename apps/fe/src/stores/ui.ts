@@ -1,7 +1,12 @@
+import { DEFAULT_FONT_ID } from '@/lib/fonts/manifest.generated';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type SidebarTab = 'panes' | 'agent' | 'files';
+
+// 终端字体设置默认值（与 ghostty-terminal 内置默认保持一致）。
+const DEFAULT_TERMINAL_FONT_SIZE = 13;
+const DEFAULT_TERMINAL_LINE_HEIGHT = 1.2;
 
 interface UIState {
   sidebarCollapsed: boolean;
@@ -11,6 +16,10 @@ interface UIState {
   theme: 'light' | 'dark';
   editorHistory: string[];
   editorDrafts: Record<string, string>;
+  // 终端字体（每设备本地持久化）：字号/行高仅作用于终端，字体族经 --font-mono 全应用统一。
+  terminalFontSize: number;
+  terminalLineHeight: number;
+  terminalFontId: string;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarTab: (tab: SidebarTab) => void;
   setInputMode: (mode: 'direct' | 'editor') => void;
@@ -19,6 +28,9 @@ interface UIState {
   addEditorHistory: (text: string) => void;
   setEditorDraft: (draftKey: string, text: string) => void;
   removeEditorDraft: (draftKey: string) => void;
+  setTerminalFontSize: (size: number) => void;
+  setTerminalLineHeight: (height: number) => void;
+  setTerminalFontId: (fontId: string) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -31,12 +43,18 @@ export const useUIStore = create<UIState>()(
       theme: 'dark',
       editorHistory: [],
       editorDrafts: {},
+      terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
+      terminalLineHeight: DEFAULT_TERMINAL_LINE_HEIGHT,
+      terminalFontId: DEFAULT_FONT_ID,
 
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       setSidebarTab: (tab) => set({ sidebarTab: tab }),
       setInputMode: (mode) => set({ inputMode: mode }),
       setEditorSendWithEnter: (enabled) => set({ editorSendWithEnter: enabled }),
       setTheme: (theme) => set({ theme }),
+      setTerminalFontSize: (size) => set({ terminalFontSize: size }),
+      setTerminalLineHeight: (height) => set({ terminalLineHeight: height }),
+      setTerminalFontId: (fontId) => set({ terminalFontId: fontId }),
 
       addEditorHistory: (text) =>
         set((state) => ({
@@ -71,6 +89,9 @@ export const useUIStore = create<UIState>()(
         theme: state.theme,
         editorHistory: state.editorHistory,
         editorDrafts: state.editorDrafts,
+        terminalFontSize: state.terminalFontSize,
+        terminalLineHeight: state.terminalLineHeight,
+        terminalFontId: state.terminalFontId,
       }),
       // 丢弃旧版本 localStorage 里残留的 sidebarTab，避免被默认 merge 带回。
       merge: (persisted, current) => {

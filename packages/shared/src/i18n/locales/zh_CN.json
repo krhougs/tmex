@@ -172,7 +172,16 @@
         "general": "通用设置",
         "devicesAndFiles": "设备与文件",
         "notifications": "通知设置",
-        "ai": "AI 设置"
+        "ai": "AI 设置",
+        "terminal": "终端"
+      },
+      "terminal": {
+        "title": "终端字体",
+        "description": "调整终端的字号、行高与字体。字体选择对全应用所有等宽文本生效。",
+        "fontSize": "字号",
+        "lineHeight": "行高",
+        "fontFamily": "字体",
+        "preview": "预览"
       },
       "deviceManagement": {
         "title": "设备管理",

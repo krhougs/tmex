@@ -178,7 +178,16 @@ export const I18N_RESOURCES = {
         "general": "General",
         "devicesAndFiles": "Devices & Files",
         "notifications": "Notifications",
-        "ai": "AI"
+        "ai": "AI",
+        "terminal": "Terminal"
+      },
+      "terminal": {
+        "title": "Terminal Font",
+        "description": "Adjust the terminal font size, line height and family. The font family applies to all monospaced text across the app.",
+        "fontSize": "Font Size",
+        "lineHeight": "Line Height",
+        "fontFamily": "Font",
+        "preview": "Preview"
       },
       "deviceManagement": {
         "title": "Device Management",
@@ -1036,7 +1045,16 @@ export const I18N_RESOURCES = {
         "general": "通用设置",
         "devicesAndFiles": "设备与文件",
         "notifications": "通知设置",
-        "ai": "AI 设置"
+        "ai": "AI 设置",
+        "terminal": "终端"
+      },
+      "terminal": {
+        "title": "终端字体",
+        "description": "调整终端的字号、行高与字体。字体选择对全应用所有等宽文本生效。",
+        "fontSize": "字号",
+        "lineHeight": "行高",
+        "fontFamily": "字体",
+        "preview": "预览"
       },
       "deviceManagement": {
         "title": "设备管理",
@@ -1894,7 +1912,16 @@ export const I18N_RESOURCES = {
         "general": "一般設定",
         "devicesAndFiles": "デバイスとファイル",
         "notifications": "通知設定",
-        "ai": "AI 設定"
+        "ai": "AI 設定",
+        "terminal": "ターミナル"
+      },
+      "terminal": {
+        "title": "ターミナルフォント",
+        "description": "ターミナルのフォントサイズ・行の高さ・フォントを調整します。フォントの選択はアプリ全体の等幅テキストに適用されます。",
+        "fontSize": "フォントサイズ",
+        "lineHeight": "行の高さ",
+        "fontFamily": "フォント",
+        "preview": "プレビュー"
       },
       "deviceManagement": {
         "title": "デバイス管理",

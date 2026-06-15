@@ -1,28 +1,19 @@
 import { CanvasRenderer } from './canvas-renderer';
 import { getGhosttyKeyCode, getUnshiftedCodepoint } from './ghostty-keycodes';
 import {
+  type GhosttyBindings,
+  getGhosttyBindings,
+  keyboardEventToGhosttyMods,
+} from './ghostty-wasm';
+import { detectLinksInWrappedLines } from './link-detector';
+import {
+  type GhosttyRenderStateResources,
   createRenderState,
   disposeRenderStateResources,
   iterateRows,
   readRenderSnapshotMeta,
   updateRenderState,
-  type GhosttyRenderStateResources,
 } from './render-state';
-import {
-  EMPTY_SELECTION_LINE_MODEL,
-  buildLineModel,
-  clearSelection as resetSelectionData,
-  createEmptySelectionState,
-  hasSelection,
-  projectSelectionRects,
-  resolvePointerSelection,
-  serializeSelectionText,
-  updateSelectionFocus,
-  type SelectionLineModel,
-  type SelectionMode,
-  type SelectionPoint,
-  type SelectionState,
-} from './selection-model';
 import {
   hasPlatformModifier,
   isCopyShortcut,
@@ -30,20 +21,29 @@ import {
   writeSelectionToClipboard,
   writeSelectionToCopyEvent,
 } from './selection-clipboard';
-import { detectLinksInWrappedLines } from './link-detector';
 import {
-  getGhosttyBindings,
-  keyboardEventToGhosttyMods,
-  type GhosttyBindings,
-} from './ghostty-wasm';
+  EMPTY_SELECTION_LINE_MODEL,
+  type SelectionLineModel,
+  type SelectionMode,
+  type SelectionPoint,
+  type SelectionState,
+  buildLineModel,
+  createEmptySelectionState,
+  hasSelection,
+  projectSelectionRects,
+  clearSelection as resetSelectionData,
+  resolvePointerSelection,
+  serializeSelectionText,
+  updateSelectionFocus,
+} from './selection-model';
 import type {
   CompatibleBufferLine,
   CompatibleTerminalBuffer,
   CompatibleTerminalLike,
   GhosttyCellDimensions,
   GhosttyRenderRow,
-  GhosttyTerminalModeSnapshot,
   GhosttyTerminalInitOptions,
+  GhosttyTerminalModeSnapshot,
   GhosttyTerminalSize,
   GhosttyViewportGesture,
   TerminalDisposable,
@@ -53,8 +53,8 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_CELL_WIDTH = 9;
 const DEFAULT_CELL_HEIGHT = 17;
-// 行高倍率（cell 高 = fontSize × LINE_HEIGHT）。CSS/probe/textarea/cell 计算共用同一常量，
-// 避免散落的 '1.2' 漂移。cell 高由此唯一确定，不再依赖 DOM 测量（见 updateCellDimensions）。
+// 行高倍率默认值（cell 高 = fontSize × lineHeight）。CSS/probe/textarea/cell 计算共用同一来源，
+// 避免散落的 '1.2' 漂移。可由 init options.lineHeight 覆盖；cell 高由此唯一确定，不依赖 DOM 测量。
 const LINE_HEIGHT = 1.2;
 const AUTO_SCROLL_INTERVAL_MS = 48;
 const TERMINAL_ENGINE = 'ghostty-official';
@@ -282,13 +282,13 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       renderState = createRenderState(bindings);
 
       return new GhosttyTerminalController(
-          bindings,
-          terminalHandle,
-          keyEncoderHandle,
-          mouseEncoderHandle,
-          renderState,
-          options
-        );
+        bindings,
+        terminalHandle,
+        keyEncoderHandle,
+        mouseEncoderHandle,
+        renderState,
+        options
+      );
     } catch (error) {
       if (renderState) {
         disposeRenderStateResources(renderState);
@@ -320,7 +320,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     root.style.color = this.options.theme.foreground;
     root.style.fontFamily = this.options.fontFamily;
     root.style.fontSize = `${this.options.fontSize}px`;
-    root.style.lineHeight = String(LINE_HEIGHT);
+    root.style.lineHeight = String(this.options.lineHeight ?? LINE_HEIGHT);
 
     const viewport = document.createElement('div');
     viewport.className = 'xterm-viewport';
@@ -422,7 +422,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
   }
 
-  loadAddon(addon: { activate: (terminal: CompatibleTerminalLike) => void; dispose: () => void }): void {
+  loadAddon(addon: {
+    activate: (terminal: CompatibleTerminalLike) => void;
+    dispose: () => void;
+  }): void {
     addon.activate(this);
     this.addons.add(addon);
   }
@@ -612,16 +615,32 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
   restoreModeSnapshot(snapshot: GhosttyTerminalModeSnapshot): void {
     this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_X10_MOUSE, snapshot.mouseX10);
-    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_NORMAL_MOUSE, snapshot.mouseNormal);
-    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_BUTTON_MOUSE, snapshot.mouseButton);
+    this.bindings.setTerminalMode(
+      this.terminalHandle,
+      GHOSTTY_MODE_NORMAL_MOUSE,
+      snapshot.mouseNormal
+    );
+    this.bindings.setTerminalMode(
+      this.terminalHandle,
+      GHOSTTY_MODE_BUTTON_MOUSE,
+      snapshot.mouseButton
+    );
     this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ANY_MOUSE, snapshot.mouseAny);
     this.bindings.setTerminalMode(this.terminalHandle, 1005, snapshot.mouseUtf8);
     this.bindings.setTerminalMode(this.terminalHandle, 1006, snapshot.mouseSgr);
     this.bindings.setTerminalMode(this.terminalHandle, 1016, snapshot.mouseSgrPixels);
     this.bindings.setTerminalMode(this.terminalHandle, 1015, snapshot.mouseUrxvt);
     this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ALT_SCROLL, snapshot.altScroll);
-    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ALT_SCREEN, snapshot.altScreen1047);
-    this.bindings.setTerminalMode(this.terminalHandle, GHOSTTY_MODE_ALT_SCREEN_SAVE, snapshot.altScreen1049);
+    this.bindings.setTerminalMode(
+      this.terminalHandle,
+      GHOSTTY_MODE_ALT_SCREEN,
+      snapshot.altScreen1047
+    );
+    this.bindings.setTerminalMode(
+      this.terminalHandle,
+      GHOSTTY_MODE_ALT_SCREEN_SAVE,
+      snapshot.altScreen1049
+    );
     this.bindings.resetMouseEncoder(this.mouseEncoderHandle);
   }
 
@@ -1137,8 +1156,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return null;
     }
 
-    const utf8 =
-      event.key.length === 1 && !event.ctrlKey && !event.metaKey ? event.key : null;
+    const utf8 = event.key.length === 1 && !event.ctrlKey && !event.metaKey ? event.key : null;
 
     return this.bindings.encodeKeyEvent(this.keyEncoderHandle, this.terminalHandle, {
       action,
@@ -1246,7 +1264,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     return null;
   }
 
-  private pointerPositionFromClient(clientX: number, clientY: number): { x: number; y: number } | null {
+  private pointerPositionFromClient(
+    clientX: number,
+    clientY: number
+  ): { x: number; y: number } | null {
     const rect = this.screenElement?.getBoundingClientRect();
     if (!rect) {
       return null;
@@ -1488,8 +1509,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     // 否则小数 cell 会让布局（cols/rows、hit-test）与渲染网格逐格漂移。
     const dpr = Math.max(1, globalThis.devicePixelRatio ?? 1);
     const rawWidth = rect.width > 0 ? rect.width / 10 : DEFAULT_CELL_WIDTH;
-    // cell 高确定式计算 = fontSize × LINE_HEIGHT，规范唯一确定，enforce 跨平台一致。
-    const rawHeight = this.options.fontSize * LINE_HEIGHT;
+    // cell 高确定式计算 = fontSize × lineHeight，规范唯一确定，enforce 跨平台一致。
+    const rawHeight = this.options.fontSize * (this.options.lineHeight ?? LINE_HEIGHT);
     this._core._renderService.dimensions.css.cell.width =
       Math.max(1, Math.round(rawWidth * dpr)) / dpr;
     this._core._renderService.dimensions.css.cell.height =
@@ -1708,8 +1729,9 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   private updateSelectionTextProbe(value: string | null): void {
-    (globalThis as { __tmexE2eTerminalSelectionText?: string | null }).__tmexE2eTerminalSelectionText =
-      value;
+    (
+      globalThis as { __tmexE2eTerminalSelectionText?: string | null }
+    ).__tmexE2eTerminalSelectionText = value;
 
     if (value !== this.lastNotifiedSelectionText) {
       this.lastNotifiedSelectionText = value;
@@ -1748,7 +1770,11 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   private stepAutoScroll(): void {
-    if (!this.pointerDrag.active || this.pointerDrag.lastClientX === null || this.pointerDrag.lastClientY === null) {
+    if (
+      !this.pointerDrag.active ||
+      this.pointerDrag.lastClientX === null ||
+      this.pointerDrag.lastClientY === null
+    ) {
       this.stopAutoScroll();
       return;
     }

@@ -1,7 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LocaleCode, SiteSettings, UpdateSiteSettingsRequest } from '@tmex/shared';
 import { I18N_MANIFEST } from '@tmex/shared';
-import { Bell, RotateCcw, Save, Server, Settings as SettingsIcon, Sparkles } from 'lucide-react';
+import {
+  Bell,
+  Monitor,
+  RotateCcw,
+  Save,
+  Server,
+  Settings as SettingsIcon,
+  Sparkles,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -35,6 +43,7 @@ import { FilesSettingsTab } from '../components/settings/files-tab';
 import { LlmProvidersTab } from '../components/settings/llm-providers-tab';
 import { SearchTab } from '../components/settings/search-tab';
 import { TelegramBotsTab } from '../components/settings/telegram-bots-tab';
+import { TerminalSettingsTab } from '../components/settings/terminal-tab';
 import { VersionTab } from '../components/settings/version-tab';
 import { WebhooksTab } from '../components/settings/webhooks-tab';
 import { useSiteStore } from '../stores/site';
@@ -53,7 +62,7 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
   }
 }
 
-type SettingsTab = 'general' | 'devicesAndFiles' | 'notifications' | 'ai';
+type SettingsTab = 'general' | 'devicesAndFiles' | 'notifications' | 'ai' | 'terminal';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -191,6 +200,12 @@ export default function SettingsPage() {
       label: t('settings.tabGroup.ai'),
       icon: Sparkles,
       testId: 'settings-tab-ai',
+    },
+    {
+      value: 'terminal',
+      label: t('settings.tabGroup.terminal'),
+      icon: Monitor,
+      testId: 'settings-tab-terminal',
     },
   ];
 
@@ -476,6 +491,8 @@ export default function SettingsPage() {
           <SearchTab />
         </>
       )}
+
+      {activeTab === 'terminal' && <TerminalSettingsTab />}
     </div>
   );
 }

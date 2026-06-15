@@ -172,7 +172,16 @@
         "general": "一般設定",
         "devicesAndFiles": "デバイスとファイル",
         "notifications": "通知設定",
-        "ai": "AI 設定"
+        "ai": "AI 設定",
+        "terminal": "ターミナル"
+      },
+      "terminal": {
+        "title": "ターミナルフォント",
+        "description": "ターミナルのフォントサイズ・行の高さ・フォントを調整します。フォントの選択はアプリ全体の等幅テキストに適用されます。",
+        "fontSize": "フォントサイズ",
+        "lineHeight": "行の高さ",
+        "fontFamily": "フォント",
+        "preview": "プレビュー"
       },
       "deviceManagement": {
         "title": "デバイス管理",

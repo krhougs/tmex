@@ -17,6 +17,7 @@ import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { WatchEventsInit } from '@/components/watch/watch-events-init';
 import { useVirtualKeyboardOffset } from '@/hooks/use-virtual-keyboard-offset';
+import { useAppMonoFont } from '@/lib/fonts/useAppMonoFont';
 import { useUIStore } from '@/stores/ui';
 
 function applyInitialTheme(): void {
@@ -102,6 +103,8 @@ function ThemedToaster() {
 
 // Root layout: 包含全局 Provider 和 Sidebar
 function RootLayout() {
+  // 把选中等宽字体派生到 --font-mono（全应用统一）并按需懒加载 woff2
+  useAppMonoFont();
   return (
     <GlobalDeviceProvider>
       <WatchEventsInit />

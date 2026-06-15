@@ -1,4 +1,6 @@
+import { loadTerminalFonts, resolveFontStack } from '@/lib/fonts';
 import { useTmuxStore } from '@/stores/tmux';
+import { useUIStore } from '@/stores/ui';
 import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
 import {
   type CompatibleTerminalLike,
@@ -25,21 +27,12 @@ import {
   normalizeLiveOutputForTerminal,
   wrapAlternateScreenHistory,
 } from './normalization';
-import {
-  XTERM_FONT_FAMILY,
-  XTERM_THEME_DARK,
-  XTERM_THEME_LIGHT,
-  ensureTerminalFontLoaded,
-} from './theme';
+import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
 import type { TerminalProps, TerminalRef } from './types';
 import { useMobileTouch } from './useMobileTouch';
 import { useTerminalResize } from './useTerminalResize';
 
-const TERMINAL_CONFIG = {
-  fontFamily: XTERM_FONT_FAMILY,
-  fontSize: 13,
-  scrollback: 10000,
-};
+const TERMINAL_SCROLLBACK = 10000;
 
 const TERMINAL_MODE_CACHE_KEY = 'tmex:terminal-mode-cache';
 
@@ -179,6 +172,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const [instance, setInstance] = useState<CompatibleTerminalLike | null>(null);
     const [hasSelection, setHasSelection] = useState(false);
     const sendInput = useTmuxStore((state) => state.sendInput);
+    const terminalFontId = useUIStore((state) => state.terminalFontId);
+    const terminalFontSize = useUIStore((state) => state.terminalFontSize);
+    const terminalLineHeight = useUIStore((state) => state.terminalLineHeight);
     const { t } = useTranslation();
 
     const terminalTheme = useMemo(() => {
@@ -277,15 +273,18 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       let createdTerminal: Awaited<ReturnType<typeof createTerminalController>> | null = null;
 
       void (async () => {
-        // 先等内嵌符号字体加载完，再创建终端：open() 内部按 fontFamily 测量 cell 尺寸，
-        // 字体未就绪会按 monospace 回退测宽，导致后续字形与网格错位。
-        await ensureTerminalFontLoaded();
+        // 先等选中字体（主字体 + 符号兜底）加载完，再创建终端：open() 内部按 fontFamily
+        // 测量 cell 尺寸，字体未就绪会按 monospace 回退测宽，导致后续字形与网格错位。
+        await loadTerminalFonts(terminalFontId, terminalFontSize);
         if (cancelled) {
           return;
         }
 
         const terminal = await createTerminalController({
-          ...TERMINAL_CONFIG,
+          fontFamily: resolveFontStack(terminalFontId),
+          fontSize: terminalFontSize,
+          lineHeight: terminalLineHeight,
+          scrollback: TERMINAL_SCROLLBACK,
           theme: currentTerminalThemeRef.current,
           disableStdin: currentInputModeRef.current === 'editor',
         });
@@ -308,7 +307,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         clearE2eTerminalProbe(createdTerminal);
         createdTerminal?.dispose();
       };
-    }, []);
+      // 字体设置变更（无 post-init 改字体 API）时重建控制器：重新测度量 + 重排。
+    }, [terminalFontId, terminalFontSize, terminalLineHeight]);
 
     useEffect(() => {
       if (!instance || !('setTheme' in instance)) {
