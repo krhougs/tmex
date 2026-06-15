@@ -45,3 +45,25 @@
 - 下载浏览器侧用 Blob 累积，超大文件吃内存（后续可换 File System Access API）。
 - 下载"设备→服务器 rsync"段显示为"准备中"（无逐字节速度）；如需可按上传两步法扩展。
 - 拖到桌面为浏览器原生，无应用内进度/取消。
+
+---
+
+## 后续修复/打磨轮次（plan-01 之后的迭代）
+
+基于实测反馈的多轮修复，逐项 commit：
+
+- `76a3aea` feat：整个文件系统迭代（菜单 + 分块传输 + 进度/取消/2GB）。
+- `adff61e` fix：传输 Toast 复用 app 统一 sonner 卡片（之前 toast.custom 是 headless 无样式）。
+- `d277d4f` fix：下载 500 修复（Bun.serve idleTimeout 10s + 单次下载 rsync 20s 超时 → 大文件 socket hang up）。改两步下载 prepare(NDJSON 进度)+content(流) + idleTimeout:255；两段进度条；预览页下载按钮接入应用内逻辑。
+- `302172b` fix：toast 跟随暗色主题（全局 Toaster theme=useUIStore.theme）；文件右键菜单显示文件大小（entry.size，无需请求）；预览"无法预览"大小用 formatBytes。
+- `47f42cb` fix：取消按钮改用 sonner action（右侧区域，不自绘）。坑：sonner cancel 按钮在 dismissible:false 时被禁用，故用 action。
+- `b9f916f` feat：拖到桌面下载（浏览器原生 DownloadURL，无 JS 进度）放下成功时给轻提示。
+- （本次）fix：进度条占满可用区域（sonner content 默认按内容收缩 → 加 `classNames:{content:'flex-1'}`）。
+
+### 关键设计沉淀
+- 下载两步法（prepare 流式回传 rsync 进度 + content 流式文件）既给"服务器→tmex"段真实进度，又靠持续数据规避 Bun 空闲超时。
+- 上传两段（浏览器→tmex 客户端算 + tmex→服务器 commit NDJSON）；toast 双进度条，文案标明方向。
+- 拖到桌面下载是浏览器原生机制，无法显示应用内进度（OS 放下后浏览器接管），仅轻提示。
+- sonner：toast.custom 是 headless（无卡片）；用 toast(jsx) 才有卡片；theme 需显式传；cancel 按钮受 dismissible 限制，工作态用 action。
+
+验证：gateway 单测、FE tsc 0 error、e2e（files-context-menu.spec.ts）3 项全过、biome 干净。

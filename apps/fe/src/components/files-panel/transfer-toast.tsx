@@ -84,6 +84,8 @@ export function startTransferToast(
       // 取消用 sonner 的 action 按钮（位于卡片右侧区域）。注意：sonner 的 cancel 按钮在
       // dismissible:false 时会被禁用（源码 `if (!dismissible) return`），故必须用 action。
       action: { label: i18n.t('files.transfer.cancel'), onClick: () => onCancel() },
+      // sonner 的 content 默认按内容宽度收缩 → 进度条不满；flex-1 让内容占满可用区域（取消按钮之外）
+      classNames: { content: 'flex-1' },
     });
   };
   renderWorking();
