@@ -798,12 +798,45 @@
         "unknown": "Failed to load"
       },
       "retry": "Retry (collapse then expand)",
+      "menu": {
+        "copyAbsolute": "Copy absolute path",
+        "copyRelative": "Copy relative path",
+        "sendToAgent": "Send to Agent",
+        "expand": "Expand",
+        "collapse": "Collapse",
+        "upload": "Upload files here",
+        "open": "Open"
+      },
+      "copied": "Copied to clipboard",
+      "copyFailed": "Copy failed",
+      "sendToAgent": {
+        "prompt": "Please work with this path: `{{path}}`"
+      },
+      "upload": {
+        "uploading": "Uploading {{name}}…",
+        "success": "Uploaded {{name}}",
+        "fail": "Failed to upload {{name}}"
+      },
+      "transfer": {
+        "legUserToTmex": "Browser → tmex",
+        "legTmexToServer": "tmex → Server",
+        "legServerToTmex": "Server → tmex",
+        "legTmexToUser": "tmex → Browser",
+        "cancel": "Cancel",
+        "canceled": "Canceled {{name}}",
+        "downloaded": "Downloaded {{name}}",
+        "downloadFailed": "Failed to download {{name}}",
+        "dragDownloadStarted": "Started downloading {{name}} (handled by browser)",
+        "tooLarge": "{{name}} exceeds the size limit ({{max}})"
+      },
+      "agentLaunch": {
+        "connectFailed": "Failed to connect to the device",
+        "windowFailed": "Failed to create a window"
+      },
       "install": {
         "button": "Install rsync",
         "scopeLocal": "server",
         "scopeRemote": "remote",
-        "connectFailed": "Failed to connect to the device",
-        "windowFailed": "Failed to create a window",
         "prompt": "rsync is not installed on {{device}} ({{scope}}). Please install rsync using the appropriate command for this system (e.g. `brew install rsync`, `sudo apt-get install -y rsync`, or `sudo yum install -y rsync`), then reply once it is done."
       }
     },

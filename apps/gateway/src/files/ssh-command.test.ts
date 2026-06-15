@@ -8,6 +8,7 @@ import {
   rsyncCopyArgs,
   rsyncListArgs,
   rsyncTargetArg,
+  rsyncUploadArgs,
 } from './ssh-command';
 
 function device(overrides: Partial<Device>): Device {
@@ -144,14 +145,34 @@ describe('rsync arg builders', () => {
   test('list args (ssh) include -e', () => {
     expect(rsyncListArgs(sshSpec, '/a/')).toEqual(['--list-only', '-e', 'ssh -p 22', "u@h:'/a/'"]);
   });
-  test('copy args follow symlinks (-L)', () => {
-    expect(rsyncCopyArgs(localSpec, '/a/f', '/tmp/d')).toEqual(['-L', '/a/f', '/tmp/d']);
+  test('copy args follow symlinks (-L) and request progress', () => {
+    expect(rsyncCopyArgs(localSpec, '/a/f', '/tmp/d')).toEqual([
+      '-L',
+      '--progress',
+      '/a/f',
+      '/tmp/d',
+    ]);
     expect(rsyncCopyArgs(sshSpec, '/a/f', '/tmp/d')).toEqual([
       '-L',
+      '--progress',
       '-e',
       'ssh -p 22',
       "u@h:'/a/f'",
       '/tmp/d',
+    ]);
+  });
+  test('upload args push local source to remote dest (no -L, target last, with progress)', () => {
+    expect(rsyncUploadArgs(localSpec, '/tmp/d/f', '/a/b/f.txt')).toEqual([
+      '--progress',
+      '/tmp/d/f',
+      '/a/b/f.txt',
+    ]);
+    expect(rsyncUploadArgs(sshSpec, '/tmp/d/f', '/a/b/f.txt')).toEqual([
+      '--progress',
+      '-e',
+      'ssh -p 22',
+      '/tmp/d/f',
+      "u@h:'/a/b/f.txt'",
     ]);
   });
 });
