@@ -1,4 +1,10 @@
-import type { AgentSearchProvider, EventType, LlmProviderProtocol } from '@tmex/shared';
+import { DEFAULT_TERMINAL_SHORTCUTS } from '@tmex/shared';
+import type {
+  AgentSearchProvider,
+  EventType,
+  LlmProviderProtocol,
+  TerminalShortcutItem,
+} from '@tmex/shared';
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
@@ -41,6 +47,22 @@ export const siteSettings = sqliteTable(
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [check('site_settings_singleton_check', sql`${table.id} = 1`)]
+);
+
+// 终端快捷键栏配置（服务器单例，多端共享）。items 为有序快捷键列表，
+// useIcons 控制是否用苹果风格符号替代 send 类按键的文字。
+export const terminalShortcutSettings = sqliteTable(
+  'terminal_shortcut_settings',
+  {
+    id: integer('id').primaryKey(),
+    items: text('items', { mode: 'json' })
+      .$type<TerminalShortcutItem[]>()
+      .notNull()
+      .default(DEFAULT_TERMINAL_SHORTCUTS),
+    useIcons: integer('use_icons', { mode: 'boolean' }).notNull().default(false),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [check('terminal_shortcut_settings_singleton_check', sql`${table.id} = 1`)]
 );
 
 export const devices = sqliteTable(

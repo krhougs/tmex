@@ -198,7 +198,36 @@ export const I18N_RESOURCES = {
         "lineHeight": "Line Height",
         "fontFamily": "Font",
         "preview": "Preview",
-        "savedInBrowser": "These settings are saved in this browser only."
+        "savedInBrowser": "These settings are saved in this browser only.",
+        "shortcuts": {
+          "title": "Custom Shortcuts",
+          "savedOnServer": "Saved on the server and shared across all your browsers — changes take effect after you click Save.",
+          "preview": "Preview",
+          "useIcons": "Show keys as icons",
+          "useIconsDesc": "Replace key names like Ctrl/Shift/Enter with Apple-style symbols (⌃⇧⏎).",
+          "dragHandle": "Drag to reorder",
+          "delete": "Delete",
+          "labelPlaceholder": "Label",
+          "payloadPlaceholder": "Sequence, e.g. \\x1b[A",
+          "addShortcut": "Add shortcut",
+          "capturePrompt": "Press any key combination…",
+          "captureHint": "Click here, then press a key to capture",
+          "advanced": "Advanced: enter sequence manually",
+          "add": "Add",
+          "reset": "Reset to default",
+          "save": "Save",
+          "saved": "Shortcuts saved",
+          "saveFailed": "Failed to save shortcuts",
+          "loading": "Loading…",
+          "action": {
+            "paste": "Paste",
+            "toggleKeyboard": "Toggle text input / keyboard",
+            "newAgentSession": "New Agent session",
+            "scrollToBottom": "Scroll terminal to bottom"
+          },
+          "loadFailed": "Failed to load shortcuts",
+          "retry": "Retry"
+        }
       },
       "deviceManagement": {
         "title": "Device Management",
@@ -505,7 +534,9 @@ export const I18N_RESOURCES = {
       "upgradeNotAllowed": "In-app update is not available for this installation.",
       "upgradeInProgress": "An upgrade is already in progress.",
       "upgradeVersionRequired": "Target version is required.",
-      "updateCheckFailed": "Failed to query the npm registry."
+      "updateCheckFailed": "Failed to query the npm registry.",
+      "terminalShortcutsTooMany": "Too many shortcuts",
+      "terminalShortcutInvalid": "Invalid shortcut configuration"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",
@@ -1076,7 +1107,36 @@ export const I18N_RESOURCES = {
         "lineHeight": "行高",
         "fontFamily": "字体",
         "preview": "预览",
-        "savedInBrowser": "这些设置仅保存在当前浏览器中。"
+        "savedInBrowser": "这些设置仅保存在当前浏览器中。",
+        "shortcuts": {
+          "title": "自定义快捷键",
+          "savedOnServer": "保存在服务器、多端共享——修改后需点「保存」才生效。",
+          "preview": "预览",
+          "useIcons": "用图标展示快捷键",
+          "useIconsDesc": "把 Ctrl/Shift/回车 等按键名替换为苹果风格符号（⌃⇧⏎）。",
+          "dragHandle": "拖动排序",
+          "delete": "删除",
+          "labelPlaceholder": "显示文字",
+          "payloadPlaceholder": "序列，如 \\x1b[A",
+          "addShortcut": "添加快捷键",
+          "capturePrompt": "请按下目标组合键……",
+          "captureHint": "点此，然后按下要录制的按键",
+          "advanced": "高级：手动输入序列",
+          "add": "添加",
+          "reset": "重置为默认",
+          "save": "保存",
+          "saved": "快捷键已保存",
+          "saveFailed": "保存快捷键失败",
+          "loading": "加载中……",
+          "action": {
+            "paste": "粘贴",
+            "toggleKeyboard": "切换文本框/键盘",
+            "newAgentSession": "新建 Agent 会话",
+            "scrollToBottom": "终端回到最下方"
+          },
+          "loadFailed": "加载快捷键失败",
+          "retry": "重试"
+        }
       },
       "deviceManagement": {
         "title": "设备管理",
@@ -1383,7 +1443,9 @@ export const I18N_RESOURCES = {
       "upgradeNotAllowed": "当前安装方式不支持程序内更新。",
       "upgradeInProgress": "已有升级任务正在进行。",
       "upgradeVersionRequired": "缺少目标版本号。",
-      "updateCheckFailed": "查询 npm registry 失败。"
+      "updateCheckFailed": "查询 npm registry 失败。",
+      "terminalShortcutsTooMany": "快捷键数量过多",
+      "terminalShortcutInvalid": "快捷键配置不合法"
     },
     "notification": {
       "clickToJump": "点击跳转到对应 Pane",
@@ -1954,7 +2016,36 @@ export const I18N_RESOURCES = {
         "lineHeight": "行の高さ",
         "fontFamily": "フォント",
         "preview": "プレビュー",
-        "savedInBrowser": "これらの設定はこのブラウザにのみ保存されます。"
+        "savedInBrowser": "これらの設定はこのブラウザにのみ保存されます。",
+        "shortcuts": {
+          "title": "カスタムショートカット",
+          "savedOnServer": "サーバーに保存され、すべてのブラウザで共有されます。変更は「保存」後に反映されます。",
+          "preview": "プレビュー",
+          "useIcons": "キーをアイコンで表示",
+          "useIconsDesc": "Ctrl/Shift/Enter などのキー名を Apple 風の記号（⌃⇧⏎）に置き換えます。",
+          "dragHandle": "ドラッグして並べ替え",
+          "delete": "削除",
+          "labelPlaceholder": "ラベル",
+          "payloadPlaceholder": "シーケンス（例: \\x1b[A）",
+          "addShortcut": "ショートカットを追加",
+          "capturePrompt": "任意のキーの組み合わせを押してください…",
+          "captureHint": "ここをクリックしてキーを押すと取得します",
+          "advanced": "詳細: シーケンスを手動入力",
+          "add": "追加",
+          "reset": "デフォルトに戻す",
+          "save": "保存",
+          "saved": "ショートカットを保存しました",
+          "saveFailed": "ショートカットの保存に失敗しました",
+          "loading": "読み込み中…",
+          "action": {
+            "paste": "貼り付け",
+            "toggleKeyboard": "テキスト入力/キーボード切替",
+            "newAgentSession": "新しい Agent セッション",
+            "scrollToBottom": "ターミナルを最下部へ"
+          },
+          "loadFailed": "ショートカットの読み込みに失敗しました",
+          "retry": "再試行"
+        }
       },
       "deviceManagement": {
         "title": "デバイス管理",
@@ -2261,7 +2352,9 @@ export const I18N_RESOURCES = {
       "upgradeNotAllowed": "このインストールではアプリ内更新を利用できません。",
       "upgradeInProgress": "すでに更新が進行中です。",
       "upgradeVersionRequired": "対象バージョンが必要です。",
-      "updateCheckFailed": "npm registry の照会に失敗しました。"
+      "updateCheckFailed": "npm registry の照会に失敗しました。",
+      "terminalShortcutsTooMany": "ショートカットが多すぎます",
+      "terminalShortcutInvalid": "ショートカット設定が不正です"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",

@@ -192,7 +192,36 @@
         "lineHeight": "行の高さ",
         "fontFamily": "フォント",
         "preview": "プレビュー",
-        "savedInBrowser": "これらの設定はこのブラウザにのみ保存されます。"
+        "savedInBrowser": "これらの設定はこのブラウザにのみ保存されます。",
+        "shortcuts": {
+          "title": "カスタムショートカット",
+          "savedOnServer": "サーバーに保存され、すべてのブラウザで共有されます。変更は「保存」後に反映されます。",
+          "preview": "プレビュー",
+          "useIcons": "キーをアイコンで表示",
+          "useIconsDesc": "Ctrl/Shift/Enter などのキー名を Apple 風の記号（⌃⇧⏎）に置き換えます。",
+          "dragHandle": "ドラッグして並べ替え",
+          "delete": "削除",
+          "labelPlaceholder": "ラベル",
+          "payloadPlaceholder": "シーケンス（例: \\x1b[A）",
+          "addShortcut": "ショートカットを追加",
+          "capturePrompt": "任意のキーの組み合わせを押してください…",
+          "captureHint": "ここをクリックしてキーを押すと取得します",
+          "advanced": "詳細: シーケンスを手動入力",
+          "add": "追加",
+          "reset": "デフォルトに戻す",
+          "save": "保存",
+          "saved": "ショートカットを保存しました",
+          "saveFailed": "ショートカットの保存に失敗しました",
+          "loading": "読み込み中…",
+          "action": {
+            "paste": "貼り付け",
+            "toggleKeyboard": "テキスト入力/キーボード切替",
+            "newAgentSession": "新しい Agent セッション",
+            "scrollToBottom": "ターミナルを最下部へ"
+          },
+          "loadFailed": "ショートカットの読み込みに失敗しました",
+          "retry": "再試行"
+        }
       },
       "deviceManagement": {
         "title": "デバイス管理",
@@ -499,7 +528,9 @@
       "upgradeNotAllowed": "このインストールではアプリ内更新を利用できません。",
       "upgradeInProgress": "すでに更新が進行中です。",
       "upgradeVersionRequired": "対象バージョンが必要です。",
-      "updateCheckFailed": "npm registry の照会に失敗しました。"
+      "updateCheckFailed": "npm registry の照会に失敗しました。",
+      "terminalShortcutsTooMany": "ショートカットが多すぎます",
+      "terminalShortcutInvalid": "ショートカット設定が不正です"
     },
     "notification": {
       "clickToJump": "対応するペインにジャンプ",

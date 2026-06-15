@@ -13,6 +13,7 @@ import { type KeyboardBehaviorMode, useUIStore } from '@/stores/ui';
 import { Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TerminalShortcutsEditor } from './TerminalShortcutsEditor';
 
 const FONT_SIZE_MIN = 8;
 const FONT_SIZE_MAX = 28;
@@ -46,7 +47,14 @@ const KEYBOARD_MODE_ITEMS = [
  * 终端设置面板（设置页 Tab 与终端页右上角 Sheet 复用同一组件）。
  * 字号/行高/字体/键盘行为即改即生效，仅保存在当前浏览器。
  */
-export function TerminalSettingsPanel({ showPreview = true }: { showPreview?: boolean }) {
+export function TerminalSettingsPanel({
+  showPreview = true,
+  showShortcuts = true,
+}: {
+  showPreview?: boolean;
+  /** 是否在面板内联快捷键编辑器（Sheet=true 单弹层；设置页 Tab=false 由独立卡片承载） */
+  showShortcuts?: boolean;
+}) {
   const { t } = useTranslation();
 
   const terminalFontSize = useUIStore((state) => state.terminalFontSize);
@@ -200,6 +208,22 @@ export function TerminalSettingsPanel({ showPreview = true }: { showPreview?: bo
       </div>
 
       <p className="text-muted-foreground text-xs">{t('settings.terminal.savedInBrowser')}</p>
+
+      {showShortcuts && (
+        <>
+          <div className="h-px bg-border" />
+
+          <div className="space-y-2">
+            <span className="block font-medium text-sm">
+              {t('settings.terminal.shortcuts.title')}
+            </span>
+            <p className="text-muted-foreground text-xs">
+              {t('settings.terminal.shortcuts.savedOnServer')}
+            </p>
+            <TerminalShortcutsEditor />
+          </div>
+        </>
+      )}
     </div>
   );
 }

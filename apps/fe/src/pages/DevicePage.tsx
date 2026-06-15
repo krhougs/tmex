@@ -1,4 +1,9 @@
+import { ShortcutButtonRow } from '@/components/settings/ShortcutButtonRow';
 import { TerminalSettingsSheet } from '@/components/settings/terminal-settings-sheet';
+import {
+  fetchTerminalShortcuts,
+  terminalShortcutsQueryKey,
+} from '@/components/settings/terminal-shortcuts-api';
 import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
 import {
@@ -16,7 +21,7 @@ import { Switch } from '@/components/ui/switch';
 import { fetchWatchRules, watchRulesQueryKey } from '@/components/watch/api';
 import { WatchDialog } from '@/components/watch/watch-dialog';
 import { useQuery } from '@tanstack/react-query';
-import type { Device } from '@tmex/shared';
+import type { Device, TerminalShortcutItem } from '@tmex/shared';
 import {
   ArrowDownToLine,
   Keyboard,
@@ -32,6 +37,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
+import { useAgentStore } from '../stores/agent';
 import { useSiteStore } from '../stores/site';
 import { useTmuxStore } from '../stores/tmux';
 import { useUIStore } from '../stores/ui';
@@ -47,78 +53,34 @@ import { buildBrowserTitle, buildTerminalLabel } from '../utils/terminalMeta';
 import { decodePaneIdFromUrlParam, encodePaneIdForUrl } from '../utils/tmuxUrl';
 import { isIOSMobileBrowser } from '../utils/virtualKeyboard';
 
-interface EditorShortcut {
-  key: string;
-  label: string;
-  payload: string;
-}
-
-const EDITOR_SHORTCUTS: EditorShortcut[] = [
-  { key: 'enter', label: 'ENTER', payload: '\r' },
-  { key: 'ctrl-c', label: 'CTRL-C', payload: '\u0003' },
-  { key: 'ctrl-d', label: 'CTRL-D', payload: '\u0004' },
-  { key: 'up', label: '↑', payload: '\u001b[A' },
-  { key: 'down', label: '↓', payload: '\u001b[B' },
-  { key: 'left', label: '←', payload: '\u001b[D' },
-  { key: 'right', label: '→', payload: '\u001b[C' },
-  { key: 'shift-enter', label: 'SHIFT+ENTER', payload: '\x1b[13;2u' },
-  { key: 'tab', label: 'TAB', payload: '\u0009' },
-  { key: 'backspace', label: 'BACKSPACE', payload: '\u0008' },
-  { key: 'esc', label: 'ESC', payload: '\u001b' },
-  { key: 'delete', label: 'DELETE', payload: '\u007f' },
-  { key: ':', label: ':', payload: ':' },
-  { key: '/', label: '/', payload: '/' },
-  { key: "'", label: "'", payload: "'" },
-  { key: '"', label: '"', payload: '"' },
-  { key: '`', label: '`', payload: '`' },
-];
-
-// ShortcutsBar 组件 - 使用 memo 避免不必要的重绘
-interface ShortcutsBarProps {
-  onSend: (payload: string) => void;
-  onFocusEditor?: () => void;
-  disabled: boolean;
-  isMobile: boolean;
-  inputMode: 'direct' | 'editor';
-}
-
+// 终端快捷键栏：从服务器配置渲染（send 类发送控制序列，action 类触发特殊动作）。
 const ShortcutsBar = memo(function ShortcutsBar({
-  onSend,
-  onFocusEditor,
+  onActivate,
   disabled,
-  isMobile,
-  inputMode,
-}: ShortcutsBarProps) {
+}: {
+  onActivate: (item: TerminalShortcutItem) => void;
+  disabled: boolean;
+}) {
+  const { data } = useQuery({
+    queryKey: terminalShortcutsQueryKey,
+    queryFn: fetchTerminalShortcuts,
+    staleTime: 60_000,
+  });
+  const items = data?.items ?? [];
+  if (items.length === 0) {
+    return null;
+  }
   return (
     <div className="terminal-shortcuts-strip" data-testid="terminal-shortcuts-strip">
-      <div
-        className="shortcut-row flex items-center gap-1.5 py-2 overflow-x-auto scrollbar-thin"
-        data-testid="editor-shortcuts-row"
-      >
-        {EDITOR_SHORTCUTS.map((shortcut) => (
-          <Button
-            key={shortcut.key}
-            variant="ghost"
-            size="sm"
-            className="terminal-shortcut-btn h-7 min-w-9 px-2.5 rounded-full text-[11px] font-medium tracking-wide shrink-0 [@media(any-pointer:coarse)]:h-9 [@media(any-pointer:coarse)]:min-w-10 [@media(any-pointer:coarse)]:px-3"
-            title={shortcut.label}
-            aria-label={shortcut.label}
-            data-testid={`editor-shortcut-${shortcut.key}`}
-            // 用 mousedown 而非 pointerdown 阻止焦点转移：部分 iOS WebKit 版本
-            // 对 pointerdown 调 preventDefault 会连带吞掉合成的 click，导致按钮不可点
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              onSend(shortcut.payload);
-              if (isMobile && inputMode === 'editor') {
-                onFocusEditor?.();
-              }
-            }}
-            disabled={disabled}
-          >
-            {shortcut.label}
-          </Button>
-        ))}
-      </div>
+      <ShortcutButtonRow
+        items={items}
+        useIcons={data?.useIcons ?? false}
+        onActivate={onActivate}
+        disabled={disabled}
+        preventFocusSteal
+        rowTestId="terminal-shortcuts-row"
+        idPrefix="terminal-shortcut"
+      />
     </div>
   );
 });
@@ -796,6 +758,56 @@ export default function DevicePage() {
     [canInteractWithPane, deviceId, resolvedPaneId]
   );
 
+  const handleActivateShortcut = useCallback(
+    (item: TerminalShortcutItem) => {
+      // 纯前端 UI 动作：不依赖后端连接 / 有效 pane，先于 canInteractWithPane 守卫处理
+      if (item.type === 'action') {
+        if (item.action === 'toggleKeyboard') {
+          useUIStore.getState().setInputMode(inputMode === 'direct' ? 'editor' : 'direct');
+          return;
+        }
+        if (item.action === 'scrollToBottom') {
+          terminalRef.current?.scrollToBottom();
+          return;
+        }
+      }
+      if (item.type === 'send') {
+        if (item.payload) {
+          handleSendShortcut(item.payload);
+        }
+        return;
+      }
+      // 需要有效设备 / pane 的动作（paste / newAgentSession）
+      if (!deviceId || !resolvedPaneId || !canInteractWithPane) {
+        return;
+      }
+      switch (item.action) {
+        case 'paste': {
+          // 非安全上下文（HTTP 局域网直连）/ 不支持 Clipboard 时给出明确错误而非静默
+          const read = navigator.clipboard?.readText
+            ? navigator.clipboard.readText()
+            : Promise.reject(new Error('clipboard unavailable'));
+          read
+            .then((text) => {
+              if (text) {
+                useTmuxStore.getState().paste(deviceId, resolvedPaneId, text);
+              }
+            })
+            .catch(() => toast.error(t('terminal.pasteFailed')));
+          break;
+        }
+        case 'newAgentSession':
+          useAgentStore.getState().startDraft(deviceId, resolvedPaneId, null);
+          useUIStore.getState().setSidebarCollapsed(false);
+          useUIStore.getState().setSidebarTab('agent');
+          break;
+        default:
+          break;
+      }
+    },
+    [canInteractWithPane, deviceId, handleSendShortcut, inputMode, resolvedPaneId, t]
+  );
+
   const handleEditorSend = useCallback(() => {
     if (!canInteractWithPane) {
       toast.error(t('wsError.checkGateway'));
@@ -918,10 +930,8 @@ export default function DevicePage() {
                     style={{ backgroundColor: terminalTheme.background }}
                   >
                     <ShortcutsBar
-                      onSend={handleSendShortcut}
+                      onActivate={handleActivateShortcut}
                       disabled={!canInteractWithPane}
-                      isMobile={isMobile}
-                      inputMode={inputMode}
                     />
                   </div>
                 )}
@@ -985,11 +995,13 @@ export default function DevicePage() {
           {/* 移动端 editor 模式：快捷键栏在编辑器上方 */}
           {isMobile && (
             <ShortcutsBar
-              onSend={handleSendShortcut}
-              onFocusEditor={handleFocusEditor}
+              onActivate={(item) => {
+                handleActivateShortcut(item);
+                if (item.type === 'send') {
+                  handleFocusEditor();
+                }
+              }}
               disabled={!canInteractWithPane}
-              isMobile={isMobile}
-              inputMode={inputMode}
             />
           )}
           <textarea

@@ -192,7 +192,36 @@
         "lineHeight": "Line Height",
         "fontFamily": "Font",
         "preview": "Preview",
-        "savedInBrowser": "These settings are saved in this browser only."
+        "savedInBrowser": "These settings are saved in this browser only.",
+        "shortcuts": {
+          "title": "Custom Shortcuts",
+          "savedOnServer": "Saved on the server and shared across all your browsers — changes take effect after you click Save.",
+          "preview": "Preview",
+          "useIcons": "Show keys as icons",
+          "useIconsDesc": "Replace key names like Ctrl/Shift/Enter with Apple-style symbols (⌃⇧⏎).",
+          "dragHandle": "Drag to reorder",
+          "delete": "Delete",
+          "labelPlaceholder": "Label",
+          "payloadPlaceholder": "Sequence, e.g. \\x1b[A",
+          "addShortcut": "Add shortcut",
+          "capturePrompt": "Press any key combination…",
+          "captureHint": "Click here, then press a key to capture",
+          "advanced": "Advanced: enter sequence manually",
+          "add": "Add",
+          "reset": "Reset to default",
+          "save": "Save",
+          "saved": "Shortcuts saved",
+          "saveFailed": "Failed to save shortcuts",
+          "loading": "Loading…",
+          "action": {
+            "paste": "Paste",
+            "toggleKeyboard": "Toggle text input / keyboard",
+            "newAgentSession": "New Agent session",
+            "scrollToBottom": "Scroll terminal to bottom"
+          },
+          "loadFailed": "Failed to load shortcuts",
+          "retry": "Retry"
+        }
       },
       "deviceManagement": {
         "title": "Device Management",
@@ -499,7 +528,9 @@
       "upgradeNotAllowed": "In-app update is not available for this installation.",
       "upgradeInProgress": "An upgrade is already in progress.",
       "upgradeVersionRequired": "Target version is required.",
-      "updateCheckFailed": "Failed to query the npm registry."
+      "updateCheckFailed": "Failed to query the npm registry.",
+      "terminalShortcutsTooMany": "Too many shortcuts",
+      "terminalShortcutInvalid": "Invalid shortcut configuration"
     },
     "notification": {
       "clickToJump": "Click to jump to corresponding pane",

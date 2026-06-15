@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import {
   DEFAULT_LOCALE,
+  DEFAULT_TERMINAL_SHORTCUTS,
   type Device,
   type DeviceRuntimeStatus,
   type EventType,
@@ -11,6 +12,8 @@ import {
   type TelegramBotWithStats,
   type TelegramChatStatus,
   type TelegramChatType,
+  type TerminalShortcutItem,
+  type TerminalShortcutSettings,
   type WebhookEndpoint,
 } from '@tmex/shared';
 import { and, asc, count, desc, eq, max } from 'drizzle-orm';
@@ -24,6 +27,7 @@ import {
   siteSettings,
   telegramBotChats,
   telegramBots,
+  terminalShortcutSettings,
   webhookEndpoints,
 } from './schema';
 
@@ -156,7 +160,10 @@ export function createDevice(device: Device): void {
 
   orm.transaction((tx) => {
     // 新设备排到末尾：sort_order = 当前最大值 + 1
-    const maxRow = tx.select({ value: max(devices.sortOrder) }).from(devices).get();
+    const maxRow = tx
+      .select({ value: max(devices.sortOrder) })
+      .from(devices)
+      .get();
     const nextSortOrder = (maxRow?.value ?? -1) + 1;
 
     tx.insert(devices)
@@ -218,10 +225,7 @@ export function reorderDevices(orderedIds: string[]): void {
   const now = new Date().toISOString();
   orm.transaction((tx) => {
     orderedIds.forEach((id, index) => {
-      tx.update(devices)
-        .set({ sortOrder: index, updatedAt: now })
-        .where(eq(devices.id, id))
-        .run();
+      tx.update(devices).set({ sortOrder: index, updatedAt: now }).where(eq(devices.id, id)).run();
     });
   });
 }
@@ -443,6 +447,79 @@ export function updateSiteSettings(
   if (i18next.language !== next.language) {
     void i18next.changeLanguage(next.language);
   }
+
+  return next;
+}
+
+function toTerminalShortcutSettings(
+  row: typeof terminalShortcutSettings.$inferSelect
+): TerminalShortcutSettings {
+  return {
+    items: Array.isArray(row.items) ? row.items : DEFAULT_TERMINAL_SHORTCUTS,
+    useIcons: row.useIcons,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function ensureTerminalShortcutSettingsInitialized(): void {
+  const orm = getOrmDb();
+  orm
+    .insert(terminalShortcutSettings)
+    .values({
+      id: 1,
+      items: DEFAULT_TERMINAL_SHORTCUTS,
+      useIcons: false,
+      updatedAt: new Date().toISOString(),
+    })
+    .onConflictDoNothing({ target: terminalShortcutSettings.id })
+    .run();
+}
+
+export function getTerminalShortcutSettings(): TerminalShortcutSettings {
+  const orm = getOrmDb();
+  let row = orm
+    .select()
+    .from(terminalShortcutSettings)
+    .where(eq(terminalShortcutSettings.id, 1))
+    .get();
+
+  if (!row) {
+    ensureTerminalShortcutSettingsInitialized();
+    row = orm
+      .select()
+      .from(terminalShortcutSettings)
+      .where(eq(terminalShortcutSettings.id, 1))
+      .get();
+  }
+
+  if (!row) {
+    throw new Error('terminal_shortcut_settings not initialized');
+  }
+
+  return toTerminalShortcutSettings(row);
+}
+
+export function updateTerminalShortcutSettings(updates: {
+  items: TerminalShortcutItem[];
+  useIcons: boolean;
+}): TerminalShortcutSettings {
+  ensureTerminalShortcutSettingsInitialized();
+  const next: TerminalShortcutSettings = {
+    items: updates.items,
+    useIcons: updates.useIcons,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const orm = getOrmDb();
+  orm
+    .update(terminalShortcutSettings)
+    .set({
+      items: next.items,
+      useIcons: next.useIcons,
+      updatedAt: next.updatedAt,
+    })
+    .where(eq(terminalShortcutSettings.id, 1))
+    .run();
 
   return next;
 }

@@ -9,6 +9,7 @@ import type {
   UpdateDeviceRequest,
   UpdateSiteSettingsRequest,
   UpdateTelegramBotRequest,
+  UpdateTerminalShortcutSettingsRequest,
   WebhookEndpoint,
 } from '@tmex/shared';
 import { SUPPORTED_LOCALES, toBCP47 } from '@tmex/shared';
@@ -32,11 +33,13 @@ import {
   getSiteSettings,
   getTelegramBotById,
   getTelegramBotsWithStats,
+  getTerminalShortcutSettings,
   listTelegramChatsByBot,
   reorderDevices,
   updateDevice,
   updateSiteSettings,
   updateTelegramBot,
+  updateTerminalShortcutSettings,
 } from '../db';
 import { t } from '../i18n';
 import { pushSupervisor } from '../push/supervisor';
@@ -45,6 +48,7 @@ import { handleAgentApiRequest } from './agent';
 import { handleFilesApiRequest } from './files';
 import { handleLlmApiRequest } from './llm';
 import { handleSystemApiRequest } from './system';
+import { normalizeTerminalShortcutsInput } from './terminal-shortcuts';
 import { handleDeviceTestConnection } from './test-connection';
 import { handleWatchApiRequest } from './watch';
 
@@ -189,6 +193,12 @@ export function handleApiRequest(
   }
   if (path === '/api/settings/site' && req.method === 'PATCH') {
     return handleUpdateSiteSettings(req);
+  }
+  if (path === '/api/settings/terminal-shortcuts' && req.method === 'GET') {
+    return handleGetTerminalShortcuts();
+  }
+  if (path === '/api/settings/terminal-shortcuts' && req.method === 'PATCH') {
+    return handleUpdateTerminalShortcuts(req);
   }
   if (path === '/api/settings/restart' && req.method === 'POST') {
     return handleRestartGateway();
@@ -423,6 +433,22 @@ async function handleUpdateSiteSettings(req: Request): Promise<Response> {
     const body = (await req.json()) as UpdateSiteSettingsRequest;
     const updates = normalizeSiteSettingsInput(body);
     const settings = updateSiteSettings(updates);
+
+    return json({ settings });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : t('apiError.invalidRequest') }, 400);
+  }
+}
+
+async function handleGetTerminalShortcuts(): Promise<Response> {
+  return json({ settings: getTerminalShortcutSettings() });
+}
+
+async function handleUpdateTerminalShortcuts(req: Request): Promise<Response> {
+  try {
+    const body = (await req.json()) as UpdateTerminalShortcutSettingsRequest;
+    const updates = normalizeTerminalShortcutsInput(body);
+    const settings = updateTerminalShortcutSettings(updates);
 
     return json({ settings });
   } catch (err) {
