@@ -115,7 +115,11 @@ function classifyType(subject: string): string {
   return m ? m[1].toLowerCase() : 'other';
 }
 
-function buildChangelog(version: string, date: string, commits: Commit[]): string {
+// 双语 changelog：同一文件内先英文、后中文（见 issue #20）。两个语言块共用同一份 commit 草稿，
+// 由 agent 分别改写为对应语言的人话；展示时前端整段渲染，用户按 `## English` / `## 中文` 标题定位。
+const LANG_BLOCKS: Array<{ heading: string }> = [{ heading: 'English' }, { heading: '中文' }];
+
+function buildSectionLines(commits: Commit[]): string[] {
   const buckets = new Map<string, Commit[]>();
   for (const c of commits) {
     const type = classifyType(c.subject);
@@ -124,15 +128,14 @@ function buildChangelog(version: string, date: string, commits: Commit[]): strin
     buckets.get(section)?.push(c);
   }
 
-  const lines: string[] = [DRAFT_MARKER, '', `# ${version}`, '', `_${date}_`, ''];
-
   const order = [...TYPE_SECTIONS.map((s) => s.title), OTHER_TITLE];
+  const lines: string[] = [];
   let wrote = false;
   for (const title of order) {
     const items = buckets.get(title);
     if (!items || items.length === 0) continue;
     wrote = true;
-    lines.push(`## ${title}`, '');
+    lines.push(`### ${title}`, '');
     for (const c of items) {
       lines.push(`- ${c.subject} (\`${c.hash}\`)`);
     }
@@ -142,6 +145,18 @@ function buildChangelog(version: string, date: string, commits: Commit[]): strin
   if (!wrote) {
     lines.push('_No notable changes._', '');
   }
+
+  return lines;
+}
+
+function buildChangelog(version: string, date: string, commits: Commit[]): string {
+  const lines: string[] = [DRAFT_MARKER, '', `# ${version}`, '', `_${date}_`, ''];
+
+  LANG_BLOCKS.forEach((block, i) => {
+    if (i > 0) lines.push('---', '');
+    lines.push(`## ${block.heading}`, '');
+    lines.push(...buildSectionLines(commits));
+  });
 
   return `${lines.join('\n').trimEnd()}\n`;
 }
@@ -171,13 +186,15 @@ function main(): void {
     console.log(`[release] bumped tmex-cli ${prev} -> ${args.version}`);
   }
 
-  console.log('[release] CHANGELOG.md 当前是 commit 原文草稿（含 DRAFT 标记）。');
+  console.log('[release] CHANGELOG.md 当前是双语 commit 原文草稿（含 DRAFT 标记）。');
   console.log('[release] next steps:');
   console.log(
-    '  1) 让 agent 把 packages/app/CHANGELOG.md 改写为面向普通用户的人话，并删除顶部 DRAFT 标记行'
+    '  1) 让 agent 把 packages/app/CHANGELOG.md 的「## English」「## 中文」两段分别改写为对应语言面向普通用户的人话，并删除顶部 DRAFT 标记行'
   );
   console.log('     （改写规范见 docs/release/2026061406-release-changelog-flow.md）');
-  console.log('  2) review packages/app/CHANGELOG.md（确认无 DRAFT 标记、无 commit 黑话）');
+  console.log(
+    '  2) review packages/app/CHANGELOG.md（确认无 DRAFT 标记、无 commit 黑话、英中两段齐全）'
+  );
   console.log('  3) bun run build && bun run test:tmex');
   console.log(
     `  4) git commit -am "chore(release): tmex-cli ${args.version}" && bun run publish:tmex`
