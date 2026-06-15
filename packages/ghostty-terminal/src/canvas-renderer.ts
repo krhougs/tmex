@@ -89,10 +89,14 @@ export class CanvasRenderer {
   // 底色形成横竖细线。
   private deviceCellWidth = 9;
   private deviceCellHeight = 17;
-  // 字形 em-box 高（fontSize×dpr），及把多余 leading 上下均分后的垂直居中偏移；
-  // 二者随 cell/dpr 在 resize() 内一并刷新。
+  // 字号（fontSize×dpr，用于 ctx.font），及由「真实字体度量」算出的垂直定位：
+  // 用 em-box=fontSize 当字形盒会忽略实际 ascent/descent，降部溢出 cell 被逐行 clearRect
+  // 擦掉（f/y/g 掐尾）。改用 measureText 的 fontBoundingBox 把字形盒在 cell 内垂直居中。
+  // 三者随 cell/dpr 在 resize() 内一并刷新。
   private deviceFontSize = 13;
-  private textOffsetY = 0;
+  private textTopGap = 0; // 字形盒顶到 cell 顶的间距
+  private textBaselineY = 0; // alphabetic baseline 相对 cell 顶的 y
+  private glyphBoxHeight = 0; // 字形盒高 = ascent + descent
   private dpr = 1;
   private cols = 0;
   private rows = 0;
@@ -153,10 +157,35 @@ export class CanvasRenderer {
     }
 
     const drawAllRows = frame.meta.dirty === 'full';
-    const targetRows = drawAllRows ? frame.rows : frame.rows.filter((row) => row.dirty);
+    const dirtyRows = drawAllRows ? frame.rows : frame.rows.filter((row) => row.dirty);
 
-    for (const row of targetRows) {
-      this.drawRow(row, frame.meta.colors);
+    // 允许字形垂直溢出相邻 cell——兼容带高升部/深降部的「奇怪」Unicode（组合记号、Zalgo、
+    // 部分非拉丁文字），它们的墨迹可超出字体度量盒乃至 cell。两点保障：
+    // 1) 重绘集扩到脏行上下邻行（±1），邻行溢入本行的墨迹随之恢复；
+    // 2) 分两遍——先铺所有目标行背景、再画所有目标行前景。不透明背景全部先于字形落地，
+    //    相邻 cell 背景便不会擦掉溢出的字形墨迹。
+    // lastDrawnRows 仍只记真正脏的行（邻行重绘属实现细节）。
+    let renderRows: GhosttyRenderRow[];
+    if (drawAllRows) {
+      renderRows = frame.rows;
+    } else {
+      const ys = new Set<number>();
+      for (const row of dirtyRows) {
+        ys.add(row.y - 1);
+        ys.add(row.y);
+        ys.add(row.y + 1);
+      }
+      renderRows = frame.rows.filter((row) => ys.has(row.y));
+    }
+
+    for (const row of renderRows) {
+      this.drawRowBackground(row, frame.meta.colors);
+    }
+    for (const row of renderRows) {
+      this.drawRowForeground(row, frame.meta.colors);
+    }
+
+    for (const row of dirtyRows) {
       this.lastDrawnRows.push(row.y);
     }
 
@@ -223,9 +252,21 @@ export class CanvasRenderer {
     this.deviceCellWidth = deviceCellWidth;
     this.deviceCellHeight = deviceCellHeight;
     this.deviceFontSize = this.fontSize * dpr;
-    // cell 高（line-height 1.2）大于 em-box，把多出的 leading 上下均分；否则
-    // textBaseline='top' 会让文字全部贴 cell 顶（issue #17）。
-    this.textOffsetY = Math.max(0, Math.round((deviceCellHeight - this.deviceFontSize) / 2));
+    // 量真实字体度量（含升/降部的字形盒），把字形盒整体在 cell 内垂直居中。
+    // baseline 用 alphabetic：盒高 ≤ cell 时 [topGap, topGap+ascent+descent] ⊆ [0, cellH]，
+    // 升降部都不溢出，且用本引擎自报度量，跨平台自洽。
+    this.mainContext.font = `${this.deviceFontSize}px ${this.fontFamily}`;
+    const metrics = this.mainContext.measureText('Mg|qyÅ');
+    let ascent = metrics.fontBoundingBoxAscent;
+    let descent = metrics.fontBoundingBoxDescent;
+    if (!(Number.isFinite(ascent) && Number.isFinite(descent) && ascent > 0)) {
+      // 极少数环境无 fontBoundingBox：按典型 0.8/0.2 em 兜底，仍优于贴顶。
+      ascent = this.deviceFontSize * 0.8;
+      descent = this.deviceFontSize * 0.2;
+    }
+    this.glyphBoxHeight = ascent + descent;
+    this.textTopGap = Math.round((deviceCellHeight - this.glyphBoxHeight) / 2);
+    this.textBaselineY = Math.round(this.textTopGap + ascent);
 
     const width = nextCols * deviceCellWidth;
     const height = nextRows * deviceCellHeight;
@@ -239,7 +280,8 @@ export class CanvasRenderer {
 
     for (const context of [this.mainContext, this.selectionContext, this.cursorContext]) {
       context.setTransform(1, 0, 0, 1, 0, 0);
-      context.textBaseline = 'top';
+      // alphabetic：按真实 baseline 定位，配合 textBaselineY 精确居中字形盒。
+      context.textBaseline = 'alphabetic';
       context.imageSmoothingEnabled = false;
     }
   }
@@ -262,11 +304,11 @@ export class CanvasRenderer {
     }
   }
 
-  private drawRow(row: GhosttyRenderRow, colors: GhosttyRenderSnapshotMeta['colors']): void {
+  // 背景遍：清本行带、铺默认底色、逐 cell 铺非默认底色。不画任何字形。
+  private drawRowBackground(row: GhosttyRenderRow, colors: GhosttyRenderSnapshotMeta['colors']): void {
     const y = row.y * this.deviceCellHeight;
     const width = this.cols * this.deviceCellWidth;
     const defaultBackground = this.toCss(colors.background);
-    const lineThickness = Math.max(1, Math.round(this.dpr));
 
     this.mainContext.clearRect(0, y, width, this.deviceCellHeight);
     this.mainContext.fillStyle = defaultBackground;
@@ -277,23 +319,43 @@ export class CanvasRenderer {
         continue;
       }
 
-      const x = cell.x * this.deviceCellWidth;
       const bg = cell.style.inverse
         ? cell.fgColor ?? colors.foreground
         : cell.bgColor ?? colors.background;
-      const fg = cell.style.inverse
-        ? cell.bgColor ?? colors.background
-        : cell.fgColor ?? colors.foreground;
-      const cellWidth = cell.widthKind === 'wide' ? this.deviceCellWidth * 2 : this.deviceCellWidth;
-
-      if (bg.r !== colors.background.r || bg.g !== colors.background.g || bg.b !== colors.background.b) {
+      if (
+        bg.r !== colors.background.r ||
+        bg.g !== colors.background.g ||
+        bg.b !== colors.background.b
+      ) {
+        const x = cell.x * this.deviceCellWidth;
+        const cellWidth =
+          cell.widthKind === 'wide' ? this.deviceCellWidth * 2 : this.deviceCellWidth;
         this.mainContext.fillStyle = this.toCss(bg);
         this.mainContext.fillRect(x, y, cellWidth, this.deviceCellHeight);
+      }
+    }
+  }
+
+  // 前景遍：逐 cell 画字形/块元素/装饰线。在所有行背景铺完后调用，故字形可越界相邻 cell
+  // 而不被邻 cell 的不透明背景擦掉（允许「奇怪」Unicode 的升/降部溢出）。
+  private drawRowForeground(row: GhosttyRenderRow, colors: GhosttyRenderSnapshotMeta['colors']): void {
+    const y = row.y * this.deviceCellHeight;
+    const lineThickness = Math.max(1, Math.round(this.dpr));
+
+    for (const cell of row.cells) {
+      if (cell.widthKind === 'spacer-tail' || cell.widthKind === 'spacer-head') {
+        continue;
       }
 
       if (!cell.text || cell.style.invisible) {
         continue;
       }
+
+      const x = cell.x * this.deviceCellWidth;
+      const fg = cell.style.inverse
+        ? cell.bgColor ?? colors.background
+        : cell.fgColor ?? colors.foreground;
+      const cellWidth = cell.widthKind === 'wide' ? this.deviceCellWidth * 2 : this.deviceCellWidth;
 
       this.mainContext.fillStyle = this.toCss(fg);
       // 块元素（▀▄█▌▐░▒▓ 等）不能交给字体：字形最多覆盖 1em，而 cell 高为
@@ -306,16 +368,18 @@ export class CanvasRenderer {
         this.drawBlockElement(blockCodepoint, x, y, cellWidth, this.deviceCellHeight);
       } else {
         this.mainContext.font = this.resolveFont(cell.style);
-        this.mainContext.fillText(cell.text, x, y + this.textOffsetY);
+        this.mainContext.fillText(cell.text, x, y + this.textBaselineY);
       }
 
-      // 装饰线随居中后的字形盒走，而非 cell 边缘：下划线贴字底、上划线贴字顶、
+      // 装饰线随真实字形盒走，而非 cell 边缘：下划线贴字底、上划线贴字顶、
       // 删除线穿字形几何中线。
+      const glyphTop = y + this.textTopGap;
+      const glyphBottom = y + this.textTopGap + this.glyphBoxHeight;
       if (cell.style.underline > 0) {
         this.mainContext.fillRect(
           x,
           Math.min(
-            y + this.textOffsetY + this.deviceFontSize - lineThickness,
+            Math.round(glyphBottom - lineThickness),
             y + this.deviceCellHeight - lineThickness
           ),
           Math.max(cellWidth - lineThickness, lineThickness),
@@ -326,7 +390,7 @@ export class CanvasRenderer {
       if (cell.style.strikethrough) {
         this.mainContext.fillRect(
           x,
-          Math.round(y + this.textOffsetY + this.deviceFontSize / 2),
+          Math.round(y + this.textTopGap + this.glyphBoxHeight / 2),
           Math.max(cellWidth - lineThickness, lineThickness),
           lineThickness
         );
@@ -335,7 +399,7 @@ export class CanvasRenderer {
       if (cell.style.overline) {
         this.mainContext.fillRect(
           x,
-          y + this.textOffsetY,
+          Math.max(y, Math.round(glyphTop)),
           Math.max(cellWidth - lineThickness, lineThickness),
           lineThickness
         );
