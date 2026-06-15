@@ -1,5 +1,7 @@
 # 文件传输：进度/速度、取消、大文件分块、2GB 上限
 
+> 修订（2026-06-15）：下载改为两步（prepare 流式 NDJSON 进度 + content 流式文件），修复大文件/远程下载因 Bun.serve 默认 10s 空闲超时导致的 socket hang up / 500（`apps/gateway/src/index.ts` 设 `idleTimeout: 255`；prepare 持续吐进度使连接不空闲）。Toast 同时显示**两段**进度条（上传：用户→tmex、tmex→服务器；下载：服务器→tmex、tmex→用户），文案明确各段方向。文件预览页（`FilePage.tsx`）右上角与兜底下载按钮改走应用内 `downloadFileWithProgress`（带进度 Toast），不再用 `<a download>` 直链；预览用的 `fileRawUrl`（图片/音视频/openRaw）保持不变。拖到桌面仍用单次 `GET /api/files/download`（浏览器原生）。
+
 ## 背景
 
 上一迭代（见 `2026061409-context-menu-and-transfer.md`）补齐了上传/下载入口，但上传整文件进内存（不支持大文件）、上传/下载都无应用内进度与速度、不可取消。本迭代实现：分块上传、上传两阶段进度（含最终 rsync 段速度）、下载流式进度、取消、可配置的 2GB 单文件上限。

@@ -25,11 +25,53 @@ export interface UploadSession {
 const sessions = new Map<string, UploadSession>();
 const SESSION_TTL_MS = 30 * 60_000;
 
+// 下载会话：prepare 阶段 rsync 拉到本机临时文件后登记，供 content 阶段流式读取。
+export interface DownloadSession {
+  id: string;
+  tmpPath: string;
+  size: number;
+  name: string;
+  mime: string | null;
+  cleanup: () => void;
+  createdAt: number;
+}
+const downloads = new Map<string, DownloadSession>();
+
 function sweepStale(now: number): void {
   for (const [id, s] of sessions) {
     if (!s.committing && now - s.createdAt > SESSION_TTL_MS) {
       removeUploadSession(id);
     }
+  }
+  for (const [id, d] of downloads) {
+    if (now - d.createdAt > SESSION_TTL_MS) {
+      removeDownloadSession(id);
+    }
+  }
+}
+
+export function createDownloadSession(
+  data: Omit<DownloadSession, 'id' | 'createdAt'>
+): DownloadSession {
+  sweepStale(Date.now());
+  const session: DownloadSession = { id: crypto.randomUUID(), createdAt: Date.now(), ...data };
+  downloads.set(session.id, session);
+  return session;
+}
+
+export function getDownloadSession(id: string): DownloadSession | undefined {
+  return downloads.get(id);
+}
+
+// 移除下载会话并删除其临时文件。
+export function removeDownloadSession(id: string): void {
+  const d = downloads.get(id);
+  if (!d) return;
+  downloads.delete(id);
+  try {
+    d.cleanup();
+  } catch {
+    // best-effort
   }
 }
 

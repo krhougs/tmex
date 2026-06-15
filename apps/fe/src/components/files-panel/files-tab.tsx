@@ -319,10 +319,10 @@ function DirNode({
         continue;
       }
       const controller = new AbortController();
-      const tt = startTransferToast(file.name, () => controller.abort());
+      const tt = startTransferToast(file.name, 'upload', () => controller.abort());
       try {
         await uploadFileChunked(rootId, path, file, {
-          onProgress: tt.update,
+          onLeg: tt.leg,
           signal: controller.signal,
         });
         tt.success(t('files.upload.success', { name: file.name }));
@@ -600,10 +600,10 @@ function FileLeaf({
   // 应用内下载：流式拉取 + 进度 Toast（可取消）→ Blob 触发保存。
   const doDownload = async () => {
     const controller = new AbortController();
-    const tt = startTransferToast(entry.name, () => controller.abort());
+    const tt = startTransferToast(entry.name, 'download', () => controller.abort());
     try {
       await downloadFileWithProgress(rootId, entry.path, entry.name, {
-        onProgress: tt.update,
+        onLeg: tt.leg,
         signal: controller.signal,
       });
       tt.success(t('files.transfer.downloaded', { name: entry.name }));

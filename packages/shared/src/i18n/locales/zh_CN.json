@@ -818,10 +818,10 @@
         "fail": "上传 {{name}} 失败"
       },
       "transfer": {
-        "uploadingToServer": "上传到服务器…",
-        "uploadingToDevice": "传输到设备…",
-        "preparing": "准备中…",
-        "downloading": "下载中…",
+        "legUserToTmex": "用户 → tmex",
+        "legTmexToServer": "tmex → 服务器",
+        "legServerToTmex": "服务器 → tmex",
+        "legTmexToUser": "tmex → 用户",
         "cancel": "取消",
         "canceled": "已取消 {{name}}",
         "downloaded": "已下载 {{name}}",

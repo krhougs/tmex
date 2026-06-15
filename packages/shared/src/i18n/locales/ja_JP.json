@@ -818,10 +818,10 @@
         "fail": "{{name}} のアップロードに失敗しました"
       },
       "transfer": {
-        "uploadingToServer": "サーバーへアップロード中…",
-        "uploadingToDevice": "デバイスへ転送中…",
-        "preparing": "準備中…",
-        "downloading": "ダウンロード中…",
+        "legUserToTmex": "ブラウザ → tmex",
+        "legTmexToServer": "tmex → サーバー",
+        "legServerToTmex": "サーバー → tmex",
+        "legTmexToUser": "tmex → ブラウザ",
         "cancel": "キャンセル",
         "canceled": "{{name}} をキャンセルしました",
         "downloaded": "{{name}} をダウンロードしました",

@@ -1,4 +1,4 @@
-import { fileDownloadUrl, filesApiUrl } from '@/utils/fileUrl';
+import { filesApiUrl } from '@/utils/fileUrl';
 import type {
   CreateFileRootRequest,
   FileContentResponse,
@@ -12,7 +12,7 @@ import type {
   UploadInitRequest,
   UploadInitResponse,
 } from '@tmex/shared';
-import { formatRate } from './format';
+import { formatBytes, formatRate } from './format';
 
 export class FileApiError extends Error {
   status: number;
@@ -90,39 +90,51 @@ export async function fetchFileContent(rootId: string, path: string): Promise<Fi
   return (await res.json()) as FileContentResponse;
 }
 
-export type TransferPhase = 'upload' | 'device' | 'preparing' | 'download';
-export interface TransferProgress {
-  phase: TransferPhase;
-  sent: number;
-  total: number;
-  /** 速度文本：device 段来自 rsync；upload/download 段客户端计算 */
+// 传输有两段（leg）；toast 同时显示两条进度。
+// 上传：leg1 浏览器→tmex，leg2 tmex→服务器；下载：leg1 服务器→tmex，leg2 tmex→浏览器。
+export interface LegProgress {
+  /** 0-100 */
+  pct: number;
+  /** 速度文本（如 1.23 MB/s） */
   rate?: string;
+  /** 字节明细（如 1.2 MB / 64 MB） */
+  detail?: string;
 }
+export type OnLeg = (leg: 1 | 2, p: LegProgress) => void;
 
 interface TransferOpts {
-  onProgress?: (p: TransferProgress) => void;
+  onLeg?: OnLeg;
   signal?: AbortSignal;
+}
+
+interface DownloadPrepareEvent {
+  type: 'progress' | 'done' | 'error';
+  transferred?: number;
+  pct?: number;
+  rate?: string;
+  downloadId?: string;
+  size?: number;
+  name?: string;
+  code?: FileErrorCode;
+  detail?: string;
 }
 
 const UPLOAD_CHUNK_FALLBACK = 8 * 1024 * 1024;
 
-// 分块上传：init → 顺序 PUT 各 chunk（阶段一 浏览器→服务器）→ commit 流式 NDJSON（阶段二 服务器→设备 rsync）。
+// 分块上传：init → 顺序 PUT 各 chunk（leg1 浏览器→tmex）→ commit 流式 NDJSON（leg2 tmex→服务器 rsync）。
 export async function uploadFileChunked(
   rootId: string,
   destDir: string,
   file: File,
   opts: TransferOpts = {}
 ): Promise<void> {
-  const { onProgress, signal } = opts;
+  const { onLeg, signal } = opts;
   const ensureNotAborted = () => {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   };
-  const initBody: UploadInitRequest = {
-    rootId,
-    path: destDir,
-    name: file.name,
-    size: file.size,
-  };
+  const total = file.size;
+  const bytes = (n: number) => `${formatBytes(n)} / ${formatBytes(total)}`;
+  const initBody: UploadInitRequest = { rootId, path: destDir, name: file.name, size: total };
   const initRes = await fetch('/api/files/upload/init', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -134,10 +146,10 @@ export async function uploadFileChunked(
   const step = chunkSize > 0 ? chunkSize : UPLOAD_CHUNK_FALLBACK;
 
   try {
-    const total = file.size;
+    // leg1：浏览器 → tmex（分块上传，进度客户端本地计算）
+    onLeg?.(1, { pct: total === 0 ? 100 : 0, detail: bytes(0) });
     const startedAt = performance.now();
     let offset = 0;
-    onProgress?.({ phase: 'upload', sent: 0, total });
     while (offset < total) {
       ensureNotAborted();
       const end = Math.min(offset + step, total);
@@ -149,18 +161,22 @@ export async function uploadFileChunked(
       if (!res.ok) throw await parseError(res);
       offset = end;
       const elapsed = (performance.now() - startedAt) / 1000;
-      const rate = elapsed > 0 ? formatRate(offset / elapsed) : undefined;
-      onProgress?.({ phase: 'upload', sent: offset, total, rate });
+      onLeg?.(1, {
+        pct: Math.round((offset / total) * 100),
+        rate: elapsed > 0 ? formatRate(offset / elapsed) : undefined,
+        detail: bytes(offset),
+      });
     }
+    onLeg?.(1, { pct: 100, detail: bytes(total) });
 
-    // 进入 commit（rsync 推送）前再次确认未取消：避免分块阶段刚取消却仍触发推送
+    // leg2：tmex → 服务器（rsync 推送，commit 流式 NDJSON 回传进度）
     ensureNotAborted();
+    onLeg?.(2, { pct: 0, detail: bytes(0) });
     const commitRes = await fetch(`/api/files/upload/${uploadId}/commit`, {
       method: 'POST',
       signal,
     });
     if (!commitRes.ok || !commitRes.body) throw await parseError(commitRes);
-
     const reader = commitRes.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
@@ -175,7 +191,7 @@ export async function uploadFileChunked(
         if (!line.trim()) continue;
         const ev = JSON.parse(line) as UploadCommitEvent;
         if (ev.type === 'progress') {
-          onProgress?.({ phase: 'device', sent: ev.transferred, total, rate: ev.rate });
+          onLeg?.(2, { pct: ev.pct, rate: ev.rate, detail: bytes(ev.transferred) });
         } else if (ev.type === 'done') {
           done = true;
         } else if (ev.type === 'error') {
@@ -184,6 +200,7 @@ export async function uploadFileChunked(
       }
     }
     if (!done) throw new FileApiError(500, 'unknown', 'unknown');
+    onLeg?.(2, { pct: 100, detail: bytes(total) });
   } catch (e) {
     // 失败/取消：通知后端中止 rsync + 清理临时会话（best-effort）
     try {
@@ -195,42 +212,99 @@ export async function uploadFileChunked(
   }
 }
 
-// 流式下载：fetch → 读响应流（阶段二 服务器→浏览器，含速度）→ Blob 触发保存。
-// resolve 前为"准备中"（阶段一 设备→服务器 rsync）。支持 AbortSignal 取消。
+// 两步下载：prepare（leg1 服务器→tmex rsync，流式 NDJSON 进度，期间持续有数据避免空闲超时）
+// → content（leg2 tmex→浏览器，读流计速）→ Blob 触发保存。支持 AbortSignal 取消。
 export async function downloadFileWithProgress(
   rootId: string,
   path: string,
   name: string,
   opts: TransferOpts = {}
 ): Promise<void> {
-  const { onProgress, signal } = opts;
-  onProgress?.({ phase: 'preparing', sent: 0, total: 0 });
-  const res = await fetch(fileDownloadUrl(rootId, path), { signal });
-  if (!res.ok || !res.body) throw await parseError(res);
-  const total = Number(res.headers.get('Content-Length') ?? '0');
+  const { onLeg, signal } = opts;
 
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let received = 0;
-  const startedAt = performance.now();
-  onProgress?.({ phase: 'download', sent: 0, total });
+  // leg1：服务器 → tmex（rsync）
+  onLeg?.(1, { pct: 0 });
+  const prep = await fetch('/api/files/download/prepare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rootId, path }),
+    signal,
+  });
+  if (!prep.ok || !prep.body) throw await parseError(prep);
+  const preader = prep.body.getReader();
+  const pdec = new TextDecoder();
+  let pbuf = '';
+  let downloadId = '';
+  let size = 0;
+  let dlName = name;
+  let prepErr: FileApiError | null = null;
   for (;;) {
-    const { done, value } = await reader.read();
+    const { done, value } = await preader.read();
     if (done) break;
-    chunks.push(value);
-    received += value.byteLength;
-    const elapsed = (performance.now() - startedAt) / 1000;
-    const rate = elapsed > 0 ? formatRate(received / elapsed) : undefined;
-    onProgress?.({ phase: 'download', sent: received, total, rate });
+    pbuf += pdec.decode(value, { stream: true });
+    const lines = pbuf.split('\n');
+    pbuf = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const ev = JSON.parse(line) as DownloadPrepareEvent;
+      if (ev.type === 'progress') {
+        onLeg?.(1, {
+          pct: ev.pct ?? 0,
+          rate: ev.rate,
+          detail: ev.transferred != null ? formatBytes(ev.transferred) : undefined,
+        });
+      } else if (ev.type === 'done') {
+        downloadId = ev.downloadId ?? '';
+        size = ev.size ?? 0;
+        dlName = ev.name ?? name;
+      } else if (ev.type === 'error') {
+        prepErr = new FileApiError(500, ev.detail ?? ev.code ?? 'unknown', ev.code);
+      }
+    }
   }
+  if (prepErr) throw prepErr;
+  if (!downloadId) throw new FileApiError(500, 'unknown', 'unknown');
+  onLeg?.(1, { pct: 100, detail: formatBytes(size) });
 
-  const blob = new Blob(chunks as BlobPart[]);
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = objectUrl;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(objectUrl);
+  // leg2：tmex → 浏览器（接收并保存）
+  try {
+    const bytes = (n: number) => `${formatBytes(n)} / ${formatBytes(size)}`;
+    onLeg?.(2, { pct: 0, detail: bytes(0) });
+    const res = await fetch(`/api/files/download/${downloadId}/content`, { signal });
+    if (!res.ok || !res.body) throw await parseError(res);
+    const total = Number(res.headers.get('Content-Length') ?? String(size));
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    const startedAt = performance.now();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      const elapsed = (performance.now() - startedAt) / 1000;
+      onLeg?.(2, {
+        pct: total > 0 ? Math.round((received / total) * 100) : 0,
+        rate: elapsed > 0 ? formatRate(received / elapsed) : undefined,
+        detail: `${formatBytes(received)} / ${formatBytes(total)}`,
+      });
+    }
+    const blob = new Blob(chunks as BlobPart[]);
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = dlName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+    onLeg?.(2, { pct: 100, detail: bytes(size) });
+  } catch (e) {
+    try {
+      await fetch(`/api/files/download/${downloadId}`, { method: 'DELETE' });
+    } catch {
+      // 忽略
+    }
+    throw e;
+  }
 }

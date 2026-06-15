@@ -818,10 +818,10 @@
         "fail": "Failed to upload {{name}}"
       },
       "transfer": {
-        "uploadingToServer": "Uploading to server…",
-        "uploadingToDevice": "Transferring to device…",
-        "preparing": "Preparing…",
-        "downloading": "Downloading…",
+        "legUserToTmex": "Browser → tmex",
+        "legTmexToServer": "tmex → Server",
+        "legServerToTmex": "Server → tmex",
+        "legTmexToUser": "tmex → Browser",
         "cancel": "Cancel",
         "canceled": "Canceled {{name}}",
         "downloaded": "Downloaded {{name}}",

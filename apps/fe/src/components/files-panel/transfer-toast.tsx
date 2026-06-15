@@ -2,36 +2,45 @@ import { toast } from 'sonner';
 
 import { Progress } from '@/components/ui/progress';
 import i18n from '@/i18n';
-import type { TransferProgress } from './api';
-import { formatBytes } from './format';
+import type { LegProgress } from './api';
 
-interface WorkingModel {
+export type TransferDirection = 'upload' | 'download';
+
+interface ToastModel {
   fileName: string;
-  phase: TransferProgress['phase'];
-  pct: number;
-  sent: number;
-  total: number;
-  rate?: string;
+  direction: TransferDirection;
+  legs: [LegProgress, LegProgress];
   onCancel: () => void;
 }
 
-function phaseLabel(phase: TransferProgress['phase']): string {
-  switch (phase) {
-    case 'upload':
-      return i18n.t('files.transfer.uploadingToServer');
-    case 'device':
-      return i18n.t('files.transfer.uploadingToDevice');
-    case 'preparing':
-      return i18n.t('files.transfer.preparing');
-    default:
-      return i18n.t('files.transfer.downloading');
+function legLabel(direction: TransferDirection, leg: 1 | 2): string {
+  if (direction === 'upload') {
+    return leg === 1
+      ? i18n.t('files.transfer.legUserToTmex')
+      : i18n.t('files.transfer.legTmexToServer');
   }
+  return leg === 1
+    ? i18n.t('files.transfer.legServerToTmex')
+    : i18n.t('files.transfer.legTmexToUser');
 }
 
-// 工作态内容：渲染在 sonner 默认卡片内（toast(jsx) 而非 toast.custom，后者无卡片样式）。
-function WorkingBody({ m }: { m: WorkingModel }) {
+function LegRow({ label, leg }: { label: string; leg: LegProgress }) {
+  const meta = [leg.rate, leg.detail].filter(Boolean).join(' · ');
   return (
-    <div className="flex w-full flex-col gap-1.5" data-testid="transfer-toast">
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 tabular-nums">{meta}</span>
+      </div>
+      <Progress value={leg.pct} />
+    </div>
+  );
+}
+
+// 工作态内容：渲染在 sonner 默认卡片内，同时显示两段进度（leg1 / leg2）。
+function WorkingBody({ m }: { m: ToastModel }) {
+  return (
+    <div className="flex w-full flex-col gap-2" data-testid="transfer-toast">
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.fileName}</span>
         <button
@@ -43,36 +52,41 @@ function WorkingBody({ m }: { m: WorkingModel }) {
           {i18n.t('files.transfer.cancel')}
         </button>
       </div>
-      <Progress value={m.pct} />
-      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span className="truncate">{phaseLabel(m.phase)}</span>
-        <span className="shrink-0 tabular-nums">
-          {m.rate ?? ''}
-          {m.total > 0 ? ` · ${formatBytes(m.sent)} / ${formatBytes(m.total)}` : ''}
-        </span>
-      </div>
+      <LegRow label={legLabel(m.direction, 1)} leg={m.legs[0]} />
+      <LegRow label={legLabel(m.direction, 2)} leg={m.legs[1]} />
     </div>
   );
 }
 
 export interface TransferToast {
-  update: (p: TransferProgress) => void;
+  leg: (n: 1 | 2, p: LegProgress) => void;
   success: (message: string) => void;
   fail: (message: string) => void;
 }
 
-// 启动一个传输进度 Toast，复用 app 统一的 sonner 卡片样式：
-// - 工作态：中性卡片 + 自定义进度内容；duration:Infinity + dismissible:false + closeButton:false
-//   （不自动消失、不可手动关闭，唯一中止是取消按钮）。
-// - 完成：success 卡片（richColors 绿）短暂停留后自动消失。
-// - 失败/取消：error 卡片（richColors 红），保留且可手动关闭。
-export function startTransferToast(fileName: string, onCancel: () => void): TransferToast {
+// 启动传输进度 Toast，复用 app 统一的 sonner 卡片样式，并同时展示两段进度条。
+// 工作态：duration:Infinity + dismissible:false + closeButton:false（不自动消失/不可手动关闭，
+// 仅取消按钮可终止）。完成 success 卡片（短暂后消失）；失败/取消 error 卡片（保留可关闭）。
+export function startTransferToast(
+  fileName: string,
+  direction: TransferDirection,
+  onCancel: () => void
+): TransferToast {
   const id = `transfer-${fileName}-${performance.now()}`;
-  const model: WorkingModel = { fileName, phase: 'upload', pct: 0, sent: 0, total: 0, onCancel };
+  const model: ToastModel = {
+    fileName,
+    direction,
+    legs: [{ pct: 0 }, { pct: 0 }],
+    onCancel,
+  };
   let lastRender = 0;
 
   const renderWorking = () => {
-    toast(<WorkingBody m={{ ...model }} />, {
+    const snapshot: ToastModel = {
+      ...model,
+      legs: [{ ...model.legs[0] }, { ...model.legs[1] }],
+    };
+    toast(<WorkingBody m={snapshot} />, {
       id,
       duration: Number.POSITIVE_INFINITY,
       dismissible: false,
@@ -82,14 +96,11 @@ export function startTransferToast(fileName: string, onCancel: () => void): Tran
   renderWorking();
 
   return {
-    update(p) {
-      model.phase = p.phase;
-      model.sent = p.sent;
-      model.total = p.total;
-      model.rate = p.rate;
-      model.pct = p.total > 0 ? Math.round((p.sent / p.total) * 100) : model.pct;
+    leg(n, p) {
+      model.legs[n - 1] = p;
       const now = performance.now();
-      if (now - lastRender < 100) return; // 节流，避免高频重渲染
+      // 100% 立即渲染（保证完成段显示满格），否则节流
+      if (p.pct < 100 && now - lastRender < 100) return;
       lastRender = now;
       renderWorking();
     },

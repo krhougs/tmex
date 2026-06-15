@@ -6,13 +6,35 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 
 import { CodeViewer } from '@/components/code-viewer/code-viewer';
-import { type FileApiError, fetchFileContent, fetchFileStat } from '@/components/files-panel/api';
+import {
+  type FileApiError,
+  downloadFileWithProgress,
+  fetchFileContent,
+  fetchFileStat,
+} from '@/components/files-panel/api';
+import { startTransferToast } from '@/components/files-panel/transfer-toast';
 import { MarkdownPreview } from '@/components/markdown/markdown-preview';
 import { Button } from '@/components/ui/button';
+import i18n from '@/i18n';
 import { type FileRef, decodeFileRef, fileRawUrl } from '@/utils/fileUrl';
 
 function useFileRef(ref?: string): FileRef | null {
   return useMemo(() => (ref ? decodeFileRef(ref) : null), [ref]);
+}
+
+// 应用内下载（与文件树菜单一致）：两段进度 Toast + 可取消，避免旧 <a download> 直链与大文件超时。
+function triggerDownload(rootId: string, path: string, name: string): void {
+  const controller = new AbortController();
+  const tt = startTransferToast(name, 'download', () => controller.abort());
+  void downloadFileWithProgress(rootId, path, name, { onLeg: tt.leg, signal: controller.signal })
+    .then(() => tt.success(i18n.t('files.transfer.downloaded', { name })))
+    .catch(() => {
+      tt.fail(
+        controller.signal.aborted
+          ? i18n.t('files.transfer.canceled', { name })
+          : i18n.t('files.transfer.downloadFailed', { name })
+      );
+    });
 }
 
 function baseName(path: string): string {
@@ -57,12 +79,10 @@ function DownloadFallback({
     <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
       <FileWarning className="size-10 text-muted-foreground/60" />
       <span className="text-sm text-muted-foreground break-all">{text}</span>
-      <a href={fileRawUrl(rootId, path, true)} download={name}>
-        <Button variant="default" size="sm">
-          <Download className="h-4 w-4" />
-          {t('file.download')}
-        </Button>
-      </a>
+      <Button variant="default" size="sm" onClick={() => triggerDownload(rootId, path, name)}>
+        <Download className="h-4 w-4" />
+        {t('file.download')}
+      </Button>
     </div>
   );
 }
@@ -269,11 +289,15 @@ export function PageActions({ ref }: { ref?: string }) {
           <ExternalLink className="h-4 w-4" />
         </Button>
       </a>
-      <a href={fileRawUrl(rootId, path, true)} download={baseName(path)} title={t('file.download')}>
-        <Button variant="ghost" size="icon-sm" data-testid="file-download-action">
-          <Download className="h-4 w-4" />
-        </Button>
-      </a>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        data-testid="file-download-action"
+        title={t('file.download')}
+        onClick={() => triggerDownload(rootId, path, baseName(path))}
+      >
+        <Download className="h-4 w-4" />
+      </Button>
     </>
   );
 }

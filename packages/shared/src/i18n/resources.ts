@@ -824,10 +824,10 @@ export const I18N_RESOURCES = {
         "fail": "Failed to upload {{name}}"
       },
       "transfer": {
-        "uploadingToServer": "Uploading to server…",
-        "uploadingToDevice": "Transferring to device…",
-        "preparing": "Preparing…",
-        "downloading": "Downloading…",
+        "legUserToTmex": "Browser → tmex",
+        "legTmexToServer": "tmex → Server",
+        "legServerToTmex": "Server → tmex",
+        "legTmexToUser": "tmex → Browser",
         "cancel": "Cancel",
         "canceled": "Canceled {{name}}",
         "downloaded": "Downloaded {{name}}",
@@ -1679,10 +1679,10 @@ export const I18N_RESOURCES = {
         "fail": "上传 {{name}} 失败"
       },
       "transfer": {
-        "uploadingToServer": "上传到服务器…",
-        "uploadingToDevice": "传输到设备…",
-        "preparing": "准备中…",
-        "downloading": "下载中…",
+        "legUserToTmex": "用户 → tmex",
+        "legTmexToServer": "tmex → 服务器",
+        "legServerToTmex": "服务器 → tmex",
+        "legTmexToUser": "tmex → 用户",
         "cancel": "取消",
         "canceled": "已取消 {{name}}",
         "downloaded": "已下载 {{name}}",
@@ -2534,10 +2534,10 @@ export const I18N_RESOURCES = {
         "fail": "{{name}} のアップロードに失敗しました"
       },
       "transfer": {
-        "uploadingToServer": "サーバーへアップロード中…",
-        "uploadingToDevice": "デバイスへ転送中…",
-        "preparing": "準備中…",
-        "downloading": "ダウンロード中…",
+        "legUserToTmex": "ブラウザ → tmex",
+        "legTmexToServer": "tmex → サーバー",
+        "legServerToTmex": "サーバー → tmex",
+        "legTmexToUser": "tmex → ブラウザ",
         "cancel": "キャンセル",
         "canceled": "{{name}} をキャンセルしました",
         "downloaded": "{{name}} をダウンロードしました",

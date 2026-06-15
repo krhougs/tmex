@@ -25,8 +25,11 @@ import {
 } from '../files/device-storage';
 import {
   appendUploadChunk,
+  createDownloadSession,
   createUploadSession,
+  getDownloadSession,
   getUploadSession,
+  removeDownloadSession,
   removeUploadSession,
 } from '../files/transfer-session';
 import { t } from '../i18n';
@@ -299,56 +302,154 @@ function handleUploadCancel(id: string): Response {
   return json({ success: true });
 }
 
-// 下载：rsync 拉到本机临时文件 → 从磁盘流式返回（有界内存，支持大文件）。
-async function handleDownload(req: Request, url: URL): Promise<Response> {
-  const rootId = url.searchParams.get('rootId');
-  const path = url.searchParams.get('path');
-  if (!rootId || !path) return json({ error: t('apiError.invalidRequest') }, 400);
+function attachmentHeaders(
+  name: string,
+  mime: string | null,
+  size: number
+): Record<string, string> {
+  const encoded = encodeURIComponent(name);
+  const ascii = name.replace(/["\\\r\n]/g, '_');
+  return {
+    'Content-Type': mime ?? 'application/octet-stream',
+    'Content-Length': String(size),
+    'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+    'Cache-Control': 'no-store',
+  };
+}
 
-  const result = await pullFileFromDevice(rootId, path, { signal: req.signal });
-  if (!result.ok) return codeError(result.code, result.detail);
-  const { tmpPath, size, name, mime, cleanup } = result.data;
-
-  // 拉取已成功（临时文件已建）：此后任何同步失败都必须清理，避免泄漏
+// 从已就绪的本机临时文件流式返回（有界内存），流结束/取消后清理。
+function streamTempFile(
+  tmpPath: string,
+  cleanupAfter: () => void
+): ReadableStream<Uint8Array> | null {
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     reader = Bun.file(tmpPath).stream().getReader();
   } catch {
-    cleanup();
-    return codeError('unknown');
+    cleanupAfter();
+    return null;
   }
-  const body = new ReadableStream<Uint8Array>({
+  return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const { done, value } = await reader.read();
         if (done) {
           controller.close();
-          cleanup();
+          cleanupAfter();
           return;
         }
         controller.enqueue(value);
       } catch (e) {
         controller.error(e);
-        cleanup();
+        cleanupAfter();
       }
     },
     cancel() {
       void reader.cancel();
-      cleanup();
+      cleanupAfter();
     },
   });
+}
 
-  const encoded = encodeURIComponent(name);
-  const ascii = name.replace(/["\\\r\n]/g, '_');
+// 下载第一步：rsync 把设备文件拉到本机临时文件，流式 NDJSON 回传进度（设备→tmex 段）。
+// 期间持续有数据流动，避免 Bun.serve 空闲超时（大文件 rsync > 10s 时会 socket hang up）。
+function handleDownloadPrepare(req: Request): Response {
+  let abort: AbortController | null = null;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const emit = (obj: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+        } catch {
+          // 已关闭
+        }
+      };
+      const close = () => {
+        try {
+          controller.close();
+        } catch {
+          // 已关闭
+        }
+      };
+      let body: { rootId?: unknown; path?: unknown };
+      try {
+        body = (await req.json()) as typeof body;
+      } catch {
+        emit({ type: 'error', code: 'invalid' });
+        close();
+        return;
+      }
+      const rootId = typeof body.rootId === 'string' ? body.rootId : '';
+      const path = typeof body.path === 'string' ? body.path : '';
+      if (!rootId || !path) {
+        emit({ type: 'error', code: 'invalid' });
+        close();
+        return;
+      }
+      abort = new AbortController();
+      const result = await pullFileFromDevice(rootId, path, {
+        signal: abort.signal,
+        onProgress: (p) => emit({ type: 'progress', ...p }),
+      });
+      if (result.ok) {
+        const s = createDownloadSession({
+          tmpPath: result.data.tmpPath,
+          size: result.data.size,
+          name: result.data.name,
+          mime: result.data.mime,
+          cleanup: result.data.cleanup,
+        });
+        emit({ type: 'done', downloadId: s.id, size: s.size, name: s.name });
+      } else {
+        emit({ type: 'error', code: result.code, detail: result.detail });
+      }
+      close();
+    },
+    cancel() {
+      // 客户端中断 prepare 流 → 中止 rsync（pullFileFromDevice 内部会清理临时文件）
+      abort?.abort();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
+// 下载第二步：把就绪的临时文件流给浏览器（tmex→用户 段），结束后清理会话。
+function handleDownloadContent(id: string): Response {
+  const session = getDownloadSession(id);
+  if (!session) return codeError('not_found');
+  const body = streamTempFile(session.tmpPath, () => removeDownloadSession(id));
+  if (!body) return codeError('unknown');
   return new Response(body, {
     status: 200,
-    headers: {
-      'Content-Type': mime ?? 'application/octet-stream',
-      'Content-Length': String(size),
-      'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
-      'Cache-Control': 'no-store',
-    },
+    headers: attachmentHeaders(session.name, session.mime, session.size),
   });
+}
+
+function handleDownloadCancel(id: string): Response {
+  removeDownloadSession(id);
+  return json({ success: true });
+}
+
+// 单次下载（用于拖到桌面的浏览器原生下载）：rsync 拉取 → 临时文件流式返回。
+// 传 onProgress 让 rsync 走空闲超时模式（避免 20s 固定超时）；大文件依赖 Bun.serve idleTimeout。
+async function handleDownload(req: Request, url: URL): Promise<Response> {
+  const rootId = url.searchParams.get('rootId');
+  const path = url.searchParams.get('path');
+  if (!rootId || !path) return json({ error: t('apiError.invalidRequest') }, 400);
+
+  const result = await pullFileFromDevice(rootId, path, {
+    signal: req.signal,
+    onProgress: () => {},
+  });
+  if (!result.ok) return codeError(result.code, result.detail);
+  const { tmpPath, size, name, mime, cleanup } = result.data;
+  const body = streamTempFile(tmpPath, cleanup);
+  if (!body) return codeError('unknown');
+  return new Response(body, { status: 200, headers: attachmentHeaders(name, mime, size) });
 }
 
 export function handleFilesApiRequest(
@@ -371,6 +472,17 @@ export function handleFilesApiRequest(
   if (path === '/api/files/stat' && req.method === 'GET') return handleStat(url);
   if (path === '/api/files/raw' && req.method === 'GET') return handleRaw(url);
   if (path === '/api/files/download' && req.method === 'GET') return handleDownload(req, url);
+  if (path === '/api/files/download/prepare' && req.method === 'POST') {
+    return handleDownloadPrepare(req);
+  }
+  const dlContentMatch = path.match(/^\/api\/files\/download\/([^/]+)\/content$/);
+  if (dlContentMatch && req.method === 'GET') {
+    return handleDownloadContent(decodeURIComponent(dlContentMatch[1]));
+  }
+  const dlCancelMatch = path.match(/^\/api\/files\/download\/([^/]+)$/);
+  if (dlCancelMatch && req.method === 'DELETE') {
+    return handleDownloadCancel(decodeURIComponent(dlCancelMatch[1]));
+  }
 
   // 分块上传：init / chunk(PUT) / commit(POST 流式) / cancel(DELETE)
   if (path === '/api/files/upload/init' && req.method === 'POST') return handleUploadInit(req);
