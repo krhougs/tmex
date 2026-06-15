@@ -335,7 +335,7 @@ function DirNode({
         });
         tt.success(t('files.upload.success', { name: file.name }));
       } catch {
-        if (controller.signal.aborted) tt.fail(t('files.transfer.canceled', { name: file.name }));
+        if (controller.signal.aborted) tt.cancel();
         else tt.fail(t('files.upload.fail', { name: file.name }));
       }
     }
@@ -616,7 +616,7 @@ function FileLeaf({
       });
       tt.success(t('files.transfer.downloaded', { name: entry.name }));
     } catch {
-      if (controller.signal.aborted) tt.fail(t('files.transfer.canceled', { name: entry.name }));
+      if (controller.signal.aborted) tt.cancel();
       else tt.fail(t('files.transfer.downloadFailed', { name: entry.name }));
     }
   };

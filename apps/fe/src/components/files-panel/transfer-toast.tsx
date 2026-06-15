@@ -10,7 +10,6 @@ interface ToastModel {
   fileName: string;
   direction: TransferDirection;
   legs: [LegProgress, LegProgress];
-  onCancel: () => void;
 }
 
 function legLabel(direction: TransferDirection, leg: 1 | 2): string {
@@ -38,20 +37,11 @@ function LegRow({ label, leg }: { label: string; leg: LegProgress }) {
 }
 
 // 工作态内容：渲染在 sonner 默认卡片内，同时显示两段进度（leg1 / leg2）。
+// 取消按钮用 sonner 的 action（右侧区域），不在此自绘。
 function WorkingBody({ m }: { m: ToastModel }) {
   return (
     <div className="flex w-full flex-col gap-2" data-testid="transfer-toast">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.fileName}</span>
-        <button
-          type="button"
-          onClick={m.onCancel}
-          data-testid="transfer-cancel"
-          className="-mr-1 shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {i18n.t('files.transfer.cancel')}
-        </button>
-      </div>
+      <span className="min-w-0 truncate text-sm font-medium">{m.fileName}</span>
       <LegRow label={legLabel(m.direction, 1)} leg={m.legs[0]} />
       <LegRow label={legLabel(m.direction, 2)} leg={m.legs[1]} />
     </div>
@@ -62,6 +52,7 @@ export interface TransferToast {
   leg: (n: 1 | 2, p: LegProgress) => void;
   success: (message: string) => void;
   fail: (message: string) => void;
+  cancel: () => void;
 }
 
 // 启动传输进度 Toast，复用 app 统一的 sonner 卡片样式，并同时展示两段进度条。
@@ -77,7 +68,6 @@ export function startTransferToast(
     fileName,
     direction,
     legs: [{ pct: 0 }, { pct: 0 }],
-    onCancel,
   };
   let lastRender = 0;
 
@@ -91,6 +81,9 @@ export function startTransferToast(
       duration: Number.POSITIVE_INFINITY,
       dismissible: false,
       closeButton: false,
+      // 取消用 sonner 的 action 按钮（位于卡片右侧区域）。注意：sonner 的 cancel 按钮在
+      // dismissible:false 时会被禁用（源码 `if (!dismissible) return`），故必须用 action。
+      action: { label: i18n.t('files.transfer.cancel'), onClick: () => onCancel() },
     });
   };
   renderWorking();
@@ -119,6 +112,9 @@ export function startTransferToast(
         dismissible: true,
         closeButton: true,
       });
+    },
+    cancel() {
+      toast.dismiss(id);
     },
   };
 }

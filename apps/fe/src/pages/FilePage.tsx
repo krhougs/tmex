@@ -30,11 +30,8 @@ function triggerDownload(rootId: string, path: string, name: string): void {
   void downloadFileWithProgress(rootId, path, name, { onLeg: tt.leg, signal: controller.signal })
     .then(() => tt.success(i18n.t('files.transfer.downloaded', { name })))
     .catch(() => {
-      tt.fail(
-        controller.signal.aborted
-          ? i18n.t('files.transfer.canceled', { name })
-          : i18n.t('files.transfer.downloadFailed', { name })
-      );
+      if (controller.signal.aborted) tt.cancel();
+      else tt.fail(i18n.t('files.transfer.downloadFailed', { name }));
     });
 }
 
