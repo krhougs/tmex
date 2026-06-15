@@ -6,6 +6,30 @@ export interface RsyncResult {
   exitCode: number;
 }
 
+export interface RsyncProgress {
+  /** 已传输字节数 */
+  transferred: number;
+  /** 0-100 整数百分比 */
+  pct: number;
+  /** rsync 原样速率串，如 "1.23MB/s" */
+  rate: string;
+}
+
+// rsync --progress 进度行（openrsync 与 GNU 共有格式）：
+//   <bytes>[千分位逗号] <pct>% <rate>/s <time>[ (xfer#.. )]
+// 例：openrsync "              5 100%  353.10KB/s   00:00:00 (xfer#1, to-check=0/1)"
+//     GNU       "      1,234,567  45%    1.23MB/s    0:00:12"
+const PROGRESS_RE = /^\s*([\d,]+)\s+(\d+)%\s+([\d.]+[KMGT]?B\/s)/;
+
+export function parseRsyncProgress(line: string): RsyncProgress | null {
+  const m = PROGRESS_RE.exec(line);
+  if (!m) return null;
+  const transferred = Number.parseInt(m[1].replace(/,/g, ''), 10);
+  const pct = Number.parseInt(m[2], 10);
+  if (Number.isNaN(transferred) || Number.isNaN(pct)) return null;
+  return { transferred, pct, rate: m[3] };
+}
+
 export interface RsyncEntry {
   name: string;
   type: 'dir' | 'file' | 'symlink' | 'other';
@@ -37,11 +61,51 @@ function baseSubprocessEnv(): Record<string, string> {
   return out;
 }
 
+// 增量读取 stdout 流，按 \r/\n 切行解析 rsync --progress 进度；每收到数据块调用 resetIdle。
+// 仍累积完整文本返回（与一次性读取语义一致）。
+async function readStdoutWithProgress(
+  stream: ReadableStream<Uint8Array>,
+  onProgress: (p: RsyncProgress) => void,
+  resetIdle: () => void
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let full = '';
+  let buf = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    resetIdle();
+    const text = decoder.decode(value, { stream: true });
+    full += text;
+    buf += text;
+    const parts = buf.split(/[\r\n]/);
+    buf = parts.pop() ?? '';
+    for (const line of parts) {
+      const p = parseRsyncProgress(line);
+      if (p) onProgress(p);
+    }
+  }
+  const tail = parseRsyncProgress(buf);
+  if (tail) onProgress(tail);
+  return full;
+}
+
 export async function runRsync(
   argv: string[],
-  opts: { env?: Record<string, string>; timeoutMs?: number; signal?: AbortSignal } = {}
+  opts: {
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    // 提供时：增量读 stdout 解析 --progress 进度行，并改用「空闲超时」（有数据就重置计时器）
+    onProgress?: (p: RsyncProgress) => void;
+    // 空闲超时（仅 onProgress 模式生效）：无任何 stdout 数据持续该时长则判超时 kill
+    idleTimeoutMs?: number;
+  } = {}
 ): Promise<RsyncResult> {
+  const streaming = typeof opts.onProgress === 'function';
   const timeoutMs = opts.timeoutMs ?? 20_000;
+  const idleTimeoutMs = opts.idleTimeoutMs ?? 120_000;
 
   let proc: ReturnType<typeof Bun.spawn>;
   try {
@@ -57,27 +121,46 @@ export async function runRsync(
   }
 
   let timedOut = false;
-  const killTimer = setTimeout(() => {
-    timedOut = true;
-    try {
-      proc.kill();
-    } catch {
-      // 已退出
-    }
-  }, timeoutMs);
-
-  const onAbort = () => {
+  const killProc = () => {
     try {
       proc.kill();
     } catch {
       // 已退出
     }
   };
+
+  // 非流式：固定总超时；流式：空闲超时（有进度重置）
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  const armFixed = () => {
+    killTimer = setTimeout(() => {
+      timedOut = true;
+      killProc();
+    }, timeoutMs);
+  };
+  const resetIdle = () => {
+    if (killTimer) clearTimeout(killTimer);
+    killTimer = setTimeout(() => {
+      timedOut = true;
+      killProc();
+    }, idleTimeoutMs);
+  };
+  if (streaming) resetIdle();
+  else armFixed();
+
+  const onAbort = () => killProc();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
+    const stdoutPromise = streaming
+      ? readStdoutWithProgress(
+          proc.stdout as ReadableStream<Uint8Array>,
+          // biome-ignore lint/style/noNonNullAssertion: streaming 为真时 onProgress 必存在
+          opts.onProgress!,
+          resetIdle
+        )
+      : new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
+      stdoutPromise,
       new Response(proc.stderr as ReadableStream<Uint8Array>).text(),
       proc.exited,
     ]);
@@ -86,7 +169,7 @@ export async function runRsync(
     }
     return { stdout, stderr, exitCode };
   } finally {
-    clearTimeout(killTimer);
+    if (killTimer) clearTimeout(killTimer);
     opts.signal?.removeEventListener('abort', onAbort);
   }
 }

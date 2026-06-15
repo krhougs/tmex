@@ -5,6 +5,7 @@ import { runtimeController } from './control/runtime';
 import { ensureSiteSettingsInitialized, getSiteSettings } from './db';
 import { ensureAgentSettingsInitialized } from './db/agent';
 import { runMigrations } from './db/migrate';
+import { sweepOrphanTransferTemps } from './files/transfer-session';
 import { connectionAlertNotifier } from './push/connection-alerts';
 import { pushSupervisor } from './push/supervisor';
 import { telegramService } from './telegram/service';
@@ -46,6 +47,7 @@ export async function createGatewayRuntime(
 
   runtimeController.reset();
   primeLocalShellPath();
+  sweepOrphanTransferTemps();
 
   const wsServer = new WebSocketServer();
   connectionAlertNotifier.setBroadcaster((deviceId, payload) => {

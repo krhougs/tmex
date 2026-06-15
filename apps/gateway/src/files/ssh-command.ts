@@ -165,8 +165,21 @@ export function rsyncListArgs(spec: RsyncDeviceSpec, remotePath: string): string
 
 export function rsyncCopyArgs(spec: RsyncDeviceSpec, remotePath: string, dest: string): string[] {
   // -L：跟随符号链接，拷贝链接目标内容（否则只拷贝链接本身）
-  const args = ['-L'];
+  // --progress：openrsync 与 GNU rsync 共有，按文件输出进度行（单文件传输即整体进度）
+  const args = ['-L', '--progress'];
   if (spec.rsh) args.push('-e', spec.rsh);
   args.push(rsyncTargetArg(spec, remotePath), dest);
+  return args;
+}
+
+// 反向上传：本机源 → 设备目标。与 rsyncCopyArgs 对称地调换源/目标；本机源是真实临时文件，无需 -L。
+export function rsyncUploadArgs(
+  spec: RsyncDeviceSpec,
+  localSource: string,
+  remoteDest: string
+): string[] {
+  const args: string[] = ['--progress'];
+  if (spec.rsh) args.push('-e', spec.rsh);
+  args.push(localSource, rsyncTargetArg(spec, remoteDest));
   return args;
 }

@@ -43,10 +43,6 @@ function normalizeHttpUrl(input: string | null): string | null {
   }
 }
 
-function encodePercentForTelegramUrl(url: string): string {
-  return url.replace(/%/g, '%25');
-}
-
 export class EventNotifier {
   private webhooks: WebhookEndpoint[] = [];
   private lastRefresh = 0;
@@ -237,10 +233,9 @@ export class EventNotifier {
 
     const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
     if (paneUrl) {
-      const tgSafePaneUrl = encodePercentForTelegramUrl(paneUrl);
       lines.push(
         '',
-        `<a href="${escapeTelegramHtmlAttribute(tgSafePaneUrl)}">${escapeTelegramHtmlText(t('notification.telegramBell.viewLink'))}</a>`
+        `<a href="${escapeTelegramHtmlAttribute(paneUrl)}">${escapeTelegramHtmlText(t('notification.telegramBell.viewLink'))}</a>`
       );
     }
 
@@ -268,10 +263,9 @@ export class EventNotifier {
     const footer = `from ${event.site.name}: ${topbarLabel}`;
 
     if (paneUrl) {
-      const tgSafePaneUrl = encodePercentForTelegramUrl(paneUrl);
       lines.push(
         '',
-        `<a href="${escapeTelegramHtmlAttribute(tgSafePaneUrl)}">${escapeTelegramHtmlText(footer)}</a>`
+        `<a href="${escapeTelegramHtmlAttribute(paneUrl)}">${escapeTelegramHtmlText(footer)}</a>`
       );
     } else {
       lines.push('', escapeTelegramHtmlText(footer));
@@ -329,10 +323,9 @@ export class EventNotifier {
 
     const paneUrl = normalizeHttpUrl(buildPaneUrl(event));
     if (paneUrl) {
-      const tgSafePaneUrl = encodePercentForTelegramUrl(paneUrl);
       lines.push(
         '',
-        `<a href="${escapeTelegramHtmlAttribute(tgSafePaneUrl)}">${esc(t('notification.directLink'))}</a>`
+        `<a href="${escapeTelegramHtmlAttribute(paneUrl)}">${esc(t('notification.directLink'))}</a>`
       );
     }
 

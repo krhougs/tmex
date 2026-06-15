@@ -800,12 +800,45 @@
         "unknown": "加载失败"
       },
       "retry": "重试（收起后再展开）",
+      "menu": {
+        "copyAbsolute": "复制绝对位置",
+        "copyRelative": "复制相对位置",
+        "sendToAgent": "发送到 Agent",
+        "expand": "展开",
+        "collapse": "收起",
+        "upload": "上传文件到这个文件夹",
+        "open": "打开"
+      },
+      "copied": "已复制到剪贴板",
+      "copyFailed": "复制失败",
+      "sendToAgent": {
+        "prompt": "请处理这个路径：`{{path}}`"
+      },
+      "upload": {
+        "uploading": "正在上传 {{name}}…",
+        "success": "已上传 {{name}}",
+        "fail": "上传 {{name}} 失败"
+      },
+      "transfer": {
+        "legUserToTmex": "用户 → tmex",
+        "legTmexToServer": "tmex → 服务器",
+        "legServerToTmex": "服务器 → tmex",
+        "legTmexToUser": "tmex → 用户",
+        "cancel": "取消",
+        "canceled": "已取消 {{name}}",
+        "downloaded": "已下载 {{name}}",
+        "downloadFailed": "下载 {{name}} 失败",
+        "dragDownloadStarted": "已开始下载 {{name}}（由浏览器接管）",
+        "tooLarge": "{{name}} 超过大小上限（{{max}}）"
+      },
+      "agentLaunch": {
+        "connectFailed": "连接设备失败",
+        "windowFailed": "创建窗口失败"
+      },
       "install": {
         "button": "安装 rsync",
         "scopeLocal": "服务器",
         "scopeRemote": "远程",
-        "connectFailed": "连接设备失败",
-        "windowFailed": "创建窗口失败",
         "prompt": "设备 {{device}}（{{scope}}）上未检测到 rsync。请根据系统选择合适的命令安装 rsync（例如 `brew install rsync`、`sudo apt-get install -y rsync` 或 `sudo yum install -y rsync`），安装完成后回复我。"
       }
     },

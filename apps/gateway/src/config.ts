@@ -22,6 +22,9 @@ export const config = {
   // 数据库
   databaseUrl: getEnv('DATABASE_URL', './tmex.db'),
 
+  // 文件传输（上传/下载）单文件字节上限，默认 2GB；后端校验 + 前端上传前预校验共用
+  transferMaxBytes: Number.parseInt(getEnv('TMEX_TRANSFER_MAX_BYTES', '2147483648'), 10),
+
   // 设置默认值（可被数据库中的实际设置覆盖）
   bellThrottleSecondsDefault: Number.parseInt(getEnv('TMEX_BELL_THROTTLE_SECONDS', '6'), 10),
   notificationThrottleSecondsDefault: Number.parseInt(

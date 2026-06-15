@@ -87,7 +87,7 @@ describe('EventNotifier telegram bell settings & html formatting', () => {
         '🔔 Bell from tmex&lt;prod&gt;&amp;: Window 7 · Pane 3 @ dev&lt;1&gt;&amp;'
       );
       expect(calls[0]?.text).toContain(
-        '<a href="https://tmex.example.com/devices/device-html/windows/%25401/panes/%25251">Click to view</a>'
+        '<a href="https://tmex.example.com/devices/device-html/windows/%401/panes/%251">Click to view</a>'
       );
     } finally {
       telegramService.sendToAuthorizedChats = originalSend;
@@ -242,7 +242,7 @@ describe('EventNotifier telegram bell settings & html formatting', () => {
       expect(calls[0]?.text).toContain('All 42 tests &amp; checks passed');
       expect(calls[0]?.text).toContain('from tmex: Window 7 · Pane 3 @ dev&lt;4&gt;&amp;');
       expect(calls[0]?.text).toContain(
-        '<a href="https://tmex.example.com/devices/device-notification-html/windows/%25401/panes/%25251">'
+        '<a href="https://tmex.example.com/devices/device-notification-html/windows/%401/panes/%251">'
       );
     } finally {
       telegramService.sendToAuthorizedChats = originalSend;

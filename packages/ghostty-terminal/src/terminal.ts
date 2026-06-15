@@ -53,6 +53,9 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_CELL_WIDTH = 9;
 const DEFAULT_CELL_HEIGHT = 17;
+// 行高倍率（cell 高 = fontSize × LINE_HEIGHT）。CSS/probe/textarea/cell 计算共用同一常量，
+// 避免散落的 '1.2' 漂移。cell 高由此唯一确定，不再依赖 DOM 测量（见 updateCellDimensions）。
+const LINE_HEIGHT = 1.2;
 const AUTO_SCROLL_INTERVAL_MS = 48;
 const TERMINAL_ENGINE = 'ghostty-official';
 
@@ -317,7 +320,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     root.style.color = this.options.theme.foreground;
     root.style.fontFamily = this.options.fontFamily;
     root.style.fontSize = `${this.options.fontSize}px`;
-    root.style.lineHeight = '1.2';
+    root.style.lineHeight = String(LINE_HEIGHT);
 
     const viewport = document.createElement('div');
     viewport.className = 'xterm-viewport';
@@ -1466,6 +1469,9 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    // 仅测量字符宽度（advance）——这确属字体相关、必须测。高度不测：inline 元素的
+    // getBoundingClientRect().height 跨引擎语义不一（Chromium≈line box、WebKit≈字体
+    // content-area），同字体同 line-height 也会差像素，导致跨平台行高不一致。
     const probe = document.createElement('span');
     probe.textContent = 'WWWWWWWWWW';
     probe.style.position = 'absolute';
@@ -1473,7 +1479,6 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     probe.style.whiteSpace = 'pre';
     probe.style.fontFamily = this.options.fontFamily;
     probe.style.fontSize = `${this.options.fontSize}px`;
-    probe.style.lineHeight = '1.2';
 
     this.element.appendChild(probe);
     const rect = probe.getBoundingClientRect();
@@ -1483,7 +1488,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     // 否则小数 cell 会让布局（cols/rows、hit-test）与渲染网格逐格漂移。
     const dpr = Math.max(1, globalThis.devicePixelRatio ?? 1);
     const rawWidth = rect.width > 0 ? rect.width / 10 : DEFAULT_CELL_WIDTH;
-    const rawHeight = rect.height > 0 ? rect.height : DEFAULT_CELL_HEIGHT;
+    // cell 高确定式计算 = fontSize × LINE_HEIGHT，规范唯一确定，enforce 跨平台一致。
+    const rawHeight = this.options.fontSize * LINE_HEIGHT;
     this._core._renderService.dimensions.css.cell.width =
       Math.max(1, Math.round(rawWidth * dpr)) / dpr;
     this._core._renderService.dimensions.css.cell.height =

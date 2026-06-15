@@ -63,15 +63,41 @@ function StatusBarSync() {
 
     const updateMeta = () => {
       const computed = getComputedStyle(document.body).backgroundColor;
-      document
-        .querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', computed);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', computed);
     };
 
     requestAnimationFrame(updateMeta);
   }, [openMobile, theme]);
 
   return null;
+}
+
+// Toaster 跟随 app 主题（默认未设 theme 时 sonner 固定浅色，暗色模式下卡片会是白底）。
+function ThemedToaster() {
+  const theme = useUIStore((state) => state.theme);
+  return (
+    <Toaster
+      theme={theme}
+      richColors
+      position="top-right"
+      closeButton
+      offset={{
+        top: 'calc(16px + env(safe-area-inset-top, 0px))',
+        right: '16px',
+        bottom: '16px',
+        left: '16px',
+      }}
+      mobileOffset={{
+        top: 'calc(12px + env(safe-area-inset-top, 0px))',
+        right: '12px',
+        bottom: '12px',
+        left: '12px',
+      }}
+      toastOptions={{
+        duration: 6000,
+      }}
+    />
+  );
 }
 
 // Root layout: 包含全局 Provider 和 Sidebar
@@ -216,26 +242,7 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <Toaster
-        richColors
-        position="top-right"
-        closeButton
-        offset={{
-          top: 'calc(16px + env(safe-area-inset-top, 0px))',
-          right: '16px',
-          bottom: '16px',
-          left: '16px',
-        }}
-        mobileOffset={{
-          top: 'calc(12px + env(safe-area-inset-top, 0px))',
-          right: '12px',
-          bottom: '12px',
-          left: '12px',
-        }}
-        toastOptions={{
-          duration: 6000,
-        }}
-      />
+      <ThemedToaster />
     </QueryClientProvider>
   </StrictMode>
 );
