@@ -1,4 +1,4 @@
-import { KeyboardBehaviorSheet } from '@/components/settings/keyboard-behavior-sheet';
+import { TerminalSettingsSheet } from '@/components/settings/terminal-settings-sheet';
 import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
 import {
@@ -1148,7 +1148,7 @@ export function PageActions() {
 
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
   const [showWatchDialog, setShowWatchDialog] = useState(false);
-  const [showKeyboardBehavior, setShowKeyboardBehavior] = useState(false);
+  const [showTerminalSettings, setShowTerminalSettings] = useState(false);
 
   const canInteract = Boolean(resolvedPaneId && deviceConnected);
 
@@ -1234,15 +1234,15 @@ export function PageActions() {
       <Button
         variant="ghost"
         size="icon-sm"
-        onClick={() => setShowKeyboardBehavior(true)}
+        onClick={() => setShowTerminalSettings(true)}
         data-testid="keyboard-behavior-open-button"
-        aria-label={t('terminal.keyboardBehavior.title')}
-        title={t('terminal.keyboardBehavior.title')}
+        aria-label={t('settings.terminal.title')}
+        title={t('settings.terminal.title')}
       >
         <Settings2 className="h-4 w-4" />
       </Button>
 
-      <KeyboardBehaviorSheet open={showKeyboardBehavior} onOpenChange={setShowKeyboardBehavior} />
+      <TerminalSettingsSheet open={showTerminalSettings} onOpenChange={setShowTerminalSettings} />
 
       {deviceId && resolvedPaneId && (
         <WatchDialog

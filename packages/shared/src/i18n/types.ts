@@ -201,6 +201,7 @@ export type TranslationKey =
   | 'settings.terminal.lineHeight'
   | 'settings.terminal.fontFamily'
   | 'settings.terminal.preview'
+  | 'settings.terminal.savedInBrowser'
   | 'settings.deviceManagement'
   | 'settings.deviceManagement.title'
   | 'settings.deviceManagement.description'

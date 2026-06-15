@@ -186,12 +186,13 @@
         "terminal": "Terminal"
       },
       "terminal": {
-        "title": "Terminal Font",
-        "description": "Adjust the terminal font size, line height and family. The font family applies to all monospaced text across the app.",
+        "title": "Terminal Settings",
+        "description": "Adjust the terminal font size, line height, family, and mobile keyboard avoidance. The font family applies to all monospaced text across the app.",
         "fontSize": "Font Size",
         "lineHeight": "Line Height",
         "fontFamily": "Font",
-        "preview": "Preview"
+        "preview": "Preview",
+        "savedInBrowser": "These settings are saved in this browser only."
       },
       "deviceManagement": {
         "title": "Device Management",
