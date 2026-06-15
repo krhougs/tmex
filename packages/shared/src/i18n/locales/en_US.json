@@ -109,6 +109,16 @@
       "delete": "Delete"
     },
     "terminal": {
+      "keyboardBehavior": {
+        "title": "Keyboard Behavior",
+        "description": "How the page makes room for the on-screen keyboard",
+        "modeLift": "Shift page",
+        "modeLiftDesc": "Move the whole page up; terminal size stays the same",
+        "modeResize": "Resize terminal",
+        "modeResizeDesc": "Shrink the terminal to fit above the keyboard (changes the remote window size)",
+        "modeFollow": "Follow cursor",
+        "modeFollowDesc": "Shift just enough to keep the cursor right above the keyboard; terminal size stays the same"
+      },
       "initializing": "Initializing terminal...",
       "connecting": "Connecting to device...",
       "initFailed": "Terminal initialization failed",

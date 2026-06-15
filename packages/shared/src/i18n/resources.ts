@@ -115,6 +115,16 @@ export const I18N_RESOURCES = {
       "delete": "Delete"
     },
     "terminal": {
+      "keyboardBehavior": {
+        "title": "Keyboard Behavior",
+        "description": "How the page makes room for the on-screen keyboard",
+        "modeLift": "Shift page",
+        "modeLiftDesc": "Move the whole page up; terminal size stays the same",
+        "modeResize": "Resize terminal",
+        "modeResizeDesc": "Shrink the terminal to fit above the keyboard (changes the remote window size)",
+        "modeFollow": "Follow cursor",
+        "modeFollowDesc": "Shift just enough to keep the cursor right above the keyboard; terminal size stays the same"
+      },
       "initializing": "Initializing terminal...",
       "connecting": "Connecting to device...",
       "initFailed": "Terminal initialization failed",
@@ -973,6 +983,16 @@ export const I18N_RESOURCES = {
       "delete": "删除"
     },
     "terminal": {
+      "keyboardBehavior": {
+        "title": "键盘行为",
+        "description": "选择手机键盘弹出时页面的避让方式",
+        "modeLift": "页面平移",
+        "modeLiftDesc": "键盘弹出时整页上移，终端大小不变",
+        "modeResize": "终端缩放",
+        "modeResizeDesc": "缩小终端铺满键盘上方区域（会调整远端窗口行数）",
+        "modeFollow": "光标对齐",
+        "modeFollowDesc": "按光标位置上移，光标始终在键盘正上方，终端大小不变"
+      },
       "initializing": "初始化终端...",
       "connecting": "连接设备...",
       "initFailed": "终端初始化失败",
@@ -1831,6 +1851,16 @@ export const I18N_RESOURCES = {
       "delete": "削除"
     },
     "terminal": {
+      "keyboardBehavior": {
+        "title": "キーボード動作",
+        "description": "ソフトウェアキーボード表示時のページの回避方法",
+        "modeLift": "ページ移動",
+        "modeLiftDesc": "キーボード表示時にページ全体を上に移動（端末サイズは不変）",
+        "modeResize": "端末リサイズ",
+        "modeResizeDesc": "キーボード上の領域に合わせて端末を縮小（リモートの行数が変わります）",
+        "modeFollow": "カーソル追従",
+        "modeFollowDesc": "カーソルがキーボードの真上に来るよう移動（端末サイズは不変）"
+      },
       "initializing": "ターミナルを初期化中...",
       "connecting": "デバイスに接続中...",
       "initFailed": "ターミナルの初期化に失敗しました",

@@ -109,6 +109,16 @@
       "delete": "削除"
     },
     "terminal": {
+      "keyboardBehavior": {
+        "title": "キーボード動作",
+        "description": "ソフトウェアキーボード表示時のページの回避方法",
+        "modeLift": "ページ移動",
+        "modeLiftDesc": "キーボード表示時にページ全体を上に移動（端末サイズは不変）",
+        "modeResize": "端末リサイズ",
+        "modeResizeDesc": "キーボード上の領域に合わせて端末を縮小（リモートの行数が変わります）",
+        "modeFollow": "カーソル追従",
+        "modeFollowDesc": "カーソルがキーボードの真上に来るよう移動（端末サイズは不変）"
+      },
       "initializing": "ターミナルを初期化中...",
       "connecting": "デバイスに接続中...",
       "initFailed": "ターミナルの初期化に失敗しました",

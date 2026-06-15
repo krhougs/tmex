@@ -3,17 +3,25 @@ import { persist } from 'zustand/middleware';
 
 export type SidebarTab = 'panes' | 'agent' | 'files';
 
+// 手机虚拟键盘弹出时的页面避让策略（issue #27）。
+// lift=页面平移（整页上移，终端尺寸不变，0.12.0 现状）；
+// resize=终端缩放（缩到键盘上方可用高度，会触发远端 resize）；
+// follow=光标对齐（按光标位置上移，光标始终在键盘上方，终端尺寸不变）。
+export type KeyboardBehaviorMode = 'lift' | 'resize' | 'follow';
+
 interface UIState {
   sidebarCollapsed: boolean;
   sidebarTab: SidebarTab;
   inputMode: 'direct' | 'editor';
   editorSendWithEnter: boolean;
   theme: 'light' | 'dark';
+  keyboardBehaviorMode: KeyboardBehaviorMode;
   editorHistory: string[];
   editorDrafts: Record<string, string>;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarTab: (tab: SidebarTab) => void;
   setInputMode: (mode: 'direct' | 'editor') => void;
+  setKeyboardBehaviorMode: (mode: KeyboardBehaviorMode) => void;
   setEditorSendWithEnter: (enabled: boolean) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   addEditorHistory: (text: string) => void;
@@ -29,12 +37,14 @@ export const useUIStore = create<UIState>()(
       inputMode: 'direct',
       editorSendWithEnter: true,
       theme: 'dark',
+      keyboardBehaviorMode: 'follow',
       editorHistory: [],
       editorDrafts: {},
 
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       setSidebarTab: (tab) => set({ sidebarTab: tab }),
       setInputMode: (mode) => set({ inputMode: mode }),
+      setKeyboardBehaviorMode: (mode) => set({ keyboardBehaviorMode: mode }),
       setEditorSendWithEnter: (enabled) => set({ editorSendWithEnter: enabled }),
       setTheme: (theme) => set({ theme }),
 
@@ -69,6 +79,7 @@ export const useUIStore = create<UIState>()(
         inputMode: state.inputMode,
         editorSendWithEnter: state.editorSendWithEnter,
         theme: state.theme,
+        keyboardBehaviorMode: state.keyboardBehaviorMode,
         editorHistory: state.editorHistory,
         editorDrafts: state.editorDrafts,
       }),

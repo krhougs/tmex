@@ -1,3 +1,4 @@
+import { KeyboardBehaviorSheet } from '@/components/settings/keyboard-behavior-sheet';
 import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
 import {
@@ -23,6 +24,7 @@ import {
   Radar,
   RefreshCw,
   Send,
+  Settings2,
   Smartphone,
   Trash2,
 } from 'lucide-react';
@@ -907,14 +909,21 @@ export default function DevicePage() {
                 onResize={handleResize}
                 onSync={handleSync}
               >
-                {/* direct 模式：快捷键栏拼在终端可视区域下方，与终端共用 seoul256 配色 */}
+                {/* direct 模式：快捷键栏拼在终端可视区域下方，与终端共用 seoul256 配色。
+                    follow 键盘模式弹起时，外层 .kb-floating-shortcuts 按 --tmex-kb-shortcut-lift
+                    把这排快捷键 translateY 浮到键盘正上方（不脱流，故不触发终端 resize）。 */}
                 {inputMode === 'direct' && (
-                  <ShortcutsBar
-                    onSend={handleSendShortcut}
-                    disabled={!canInteractWithPane}
-                    isMobile={isMobile}
-                    inputMode={inputMode}
-                  />
+                  <div
+                    className="kb-floating-shortcuts"
+                    style={{ backgroundColor: terminalTheme.background }}
+                  >
+                    <ShortcutsBar
+                      onSend={handleSendShortcut}
+                      disabled={!canInteractWithPane}
+                      isMobile={isMobile}
+                      inputMode={inputMode}
+                    />
+                  </div>
                 )}
               </TerminalComponent>
             </div>
@@ -1139,6 +1148,7 @@ export function PageActions() {
 
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
   const [showWatchDialog, setShowWatchDialog] = useState(false);
+  const [showKeyboardBehavior, setShowKeyboardBehavior] = useState(false);
 
   const canInteract = Boolean(resolvedPaneId && deviceConnected);
 
@@ -1221,6 +1231,18 @@ export function PageActions() {
           />
         )}
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => setShowKeyboardBehavior(true)}
+        data-testid="keyboard-behavior-open-button"
+        aria-label={t('terminal.keyboardBehavior.title')}
+        title={t('terminal.keyboardBehavior.title')}
+      >
+        <Settings2 className="h-4 w-4" />
+      </Button>
+
+      <KeyboardBehaviorSheet open={showKeyboardBehavior} onOpenChange={setShowKeyboardBehavior} />
 
       {deviceId && resolvedPaneId && (
         <WatchDialog
