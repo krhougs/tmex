@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { defaultInstallDir } from '../constants';
 import { t } from '../i18n';
-import { checkBunVersion } from '../lib/bun';
+import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import { readEnvFile } from '../lib/env-file';
 import { pathExists } from '../lib/fs-utils';
 import { createInstallLayout, resolveInstallDir } from '../lib/install-layout';
@@ -64,7 +64,14 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
     });
   }
 
-  const bun = await checkBunVersion();
+  const explicitBunPath = readExplicitBunPath(parsed.flags);
+  const meta = (await pathExists(installLayout.metaPath))
+    ? await readJsonFile<InstallMeta>(installLayout.metaPath).catch(() => null)
+    : null;
+  const bun = await checkBunVersion(undefined, {
+    explicitPath: explicitBunPath,
+    metaBunPath: meta?.bunPath,
+  });
   if (bun.ok) {
     checks.push({
       id: 'bun',
@@ -176,11 +183,8 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
   }
 
   let serviceName = asString(parsed.flags['service-name']) || 'tmex';
-  if (await pathExists(installLayout.metaPath)) {
-    const meta = await readJsonFile<InstallMeta>(installLayout.metaPath).catch(() => null);
-    if (meta?.serviceName) {
-      serviceName = meta.serviceName;
-    }
+  if (meta?.serviceName) {
+    serviceName = meta.serviceName;
   }
 
   const status = await getServiceStatus(serviceName, installDir);

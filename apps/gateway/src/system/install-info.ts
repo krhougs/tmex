@@ -11,6 +11,7 @@ export interface InstallMetaShape {
   installDir?: string;
   updatedAt?: string;
   cliVersion?: string;
+  bunPath?: string;
 }
 
 export interface InstallInfo {
@@ -19,6 +20,7 @@ export interface InstallInfo {
   installDir: string | null;
   serviceName: string | null;
   cliVersion: string | null;
+  bunPath: string | null;
 }
 
 /**
@@ -62,6 +64,7 @@ export function getInstallInfo(): InstallInfo {
       installDir: null,
       serviceName: null,
       cliVersion: null,
+      bunPath: null,
     };
   }
 
@@ -73,6 +76,7 @@ export function getInstallInfo(): InstallInfo {
       installDir: resolveInstallDir(),
       serviceName: null,
       cliVersion: null,
+      bunPath: null,
     };
   }
 
@@ -82,5 +86,6 @@ export function getInstallInfo(): InstallInfo {
     installDir: meta.installDir ?? resolveInstallDir(),
     serviceName: meta.serviceName ?? null,
     cliVersion: meta.cliVersion ?? null,
+    bunPath: meta.bunPath ?? null,
   };
 }

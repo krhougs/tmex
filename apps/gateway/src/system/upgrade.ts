@@ -123,6 +123,9 @@ class UpgradeController {
         installDir,
         '--version',
         version,
+        // gateway 运行于 bun，process.execPath 即正确 bun：显式传给 cli，免其重新探测。
+        '--bun-path',
+        process.execPath,
       ],
       {
         cwd: installDir,
