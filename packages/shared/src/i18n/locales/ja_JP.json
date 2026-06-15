@@ -80,6 +80,8 @@
       "authKey": "秘密鍵",
       "authAgent": "SSH Agent",
       "authConfigRef": "SSH Config",
+      "sshConfigRefPlaceholder": "Host エイリアス（例: my-server）",
+      "sshConfigRefHint": "ssh config の Host エイリアスを入力します。`ssh -G` で解決されます。config ファイルのパスではありません。",
       "password": "パスワード",
       "privateKey": "秘密鍵",
       "privateKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----",

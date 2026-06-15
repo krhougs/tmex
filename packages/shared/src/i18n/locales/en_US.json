@@ -80,6 +80,8 @@
       "authKey": "Private Key",
       "authAgent": "SSH Agent",
       "authConfigRef": "SSH Config",
+      "sshConfigRefPlaceholder": "Host alias, e.g. my-server",
+      "sshConfigRefHint": "A Host alias from your ssh config, resolved via `ssh -G`. Not the path to the config file.",
       "password": "Password",
       "privateKey": "Private Key",
       "privateKeyPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----",

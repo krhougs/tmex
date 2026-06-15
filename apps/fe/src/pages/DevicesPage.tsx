@@ -81,9 +81,9 @@ function createDefaultFormValues(device?: Device): DeviceFormValues {
       host: '',
       port: 22,
       // SSH 字段预填预期默认值（与 placeholder 一致），减少新建 SSH 设备时的手填负担；
-      // host 不预填（需用户填真实地址）。
+      // host 不预填（需用户填真实地址）；sshConfigRef 仅 configRef 模式用，默认留空。
       username: 'root',
-      sshConfigRef: '~/.ssh/config',
+      sshConfigRef: '',
       session: 'tmex',
       authMode: 'auto',
       password: '',
@@ -117,17 +117,21 @@ function buildCreatePayload(values: DeviceFormValues): CreateDeviceRequest {
     };
   }
 
-  // host/port/username/sshConfigRef 经 validateDeviceForm 强校验非空，显式发送具体值
+  // host/port/username 经 validateDeviceForm 强校验非空，显式发送具体值；
+  // sshConfigRef 仅 configRef 模式才有意义
   const payload: CreateDeviceRequest = {
     name: values.name.trim(),
     type: 'ssh',
     host: values.host.trim(),
     port: values.port,
     username: values.username.trim(),
-    sshConfigRef: values.sshConfigRef.trim(),
     session: normalizeText(values.session) ?? 'tmex',
     authMode: values.authMode,
   };
+
+  if (values.authMode === 'configRef') {
+    payload.sshConfigRef = values.sshConfigRef.trim();
+  }
 
   if (values.authMode === 'password') {
     payload.password = values.password;
@@ -150,13 +154,14 @@ function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
     };
   }
 
-  // 编辑时 host/port/username/sshConfigRef 同为强校验必填，显式发送具体值
+  // 编辑时 host/port/username 同为强校验必填，显式发送具体值；
+  // 非 configRef 模式显式清空 sshConfigRef，顺带清理历史脏数据（避免残留引用劫持 host）
   const payload: UpdateDeviceRequest = {
     name: values.name.trim(),
     host: values.host.trim(),
     port: values.port,
     username: values.username.trim(),
-    sshConfigRef: values.sshConfigRef.trim(),
+    sshConfigRef: values.authMode === 'configRef' ? values.sshConfigRef.trim() : '',
     session: normalizeText(values.session) ?? 'tmex',
     authMode: values.authMode,
   };
@@ -178,7 +183,8 @@ function isValidSshPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
 
-// SSH 设备：host/端口/用户名/ssh config 在创建与编辑时均为强校验必填项。
+// SSH 设备：host/端口/用户名在创建与编辑时均为强校验必填项；
+// sshConfigRef 仅在认证方式为 configRef 时必填。
 // 返回首个未通过校验的 i18n key，全部通过返回 null。
 function validateDeviceForm(values: DeviceFormValues): string | null {
   if (values.type !== 'ssh') {
@@ -193,7 +199,7 @@ function validateDeviceForm(values: DeviceFormValues): string | null {
   if (!values.username.trim()) {
     return 'validation.usernameRequired';
   }
-  if (!values.sshConfigRef.trim()) {
+  if (values.authMode === 'configRef' && !values.sshConfigRef.trim()) {
     return 'validation.sshConfigRequired';
   }
   return null;
@@ -736,20 +742,6 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                         aria-invalid={attempted && !formData.username.trim()}
                       />
                     </div>
-
-                    <div className="space-y-1.5">
-                      {fieldLabel(`${mode}-device-ssh-config-ref`, t('device.authConfigRef'), true)}
-                      <Input
-                        id={`${mode}-device-ssh-config-ref`}
-                        type="text"
-                        value={formData.sshConfigRef}
-                        onChange={(e) =>
-                          setFormData((d) => ({ ...d, sshConfigRef: e.target.value }))
-                        }
-                        placeholder="~/.ssh/config"
-                        aria-invalid={attempted && !formData.sshConfigRef.trim()}
-                      />
-                    </div>
                   </div>
                 </section>
 
@@ -768,7 +760,11 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                           }));
                         }}
                       >
-                        <SelectTrigger id={authModeSelectId} className="w-full">
+                        <SelectTrigger
+                          id={authModeSelectId}
+                          data-testid="device-auth-mode-select"
+                          className="w-full"
+                        >
                           <SelectValue placeholder={t('device.authMode')}>
                             {(value) => authLabels[value as string] ?? ''}
                           </SelectValue>
@@ -825,6 +821,26 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                           />
                         </div>
                       </>
+                    )}
+
+                    {formData.authMode === 'configRef' && (
+                      <div className="space-y-1.5">
+                        {fieldLabel(`${mode}-device-ssh-config-ref`, t('device.authConfigRef'), true)}
+                        <Input
+                          id={`${mode}-device-ssh-config-ref`}
+                          data-testid="device-ssh-config-ref-input"
+                          type="text"
+                          value={formData.sshConfigRef}
+                          onChange={(e) =>
+                            setFormData((d) => ({ ...d, sshConfigRef: e.target.value }))
+                          }
+                          placeholder={t('device.sshConfigRefPlaceholder')}
+                          aria-invalid={attempted && !formData.sshConfigRef.trim()}
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('device.sshConfigRefHint')}
+                        </p>
+                      </div>
                     )}
                   </div>
                 </section>

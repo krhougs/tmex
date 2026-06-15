@@ -190,7 +190,7 @@ function resolveImplicitIdentityFilesForAgentAuth(
   username: string,
   deps: ResolveSshConnectConfigDeps
 ): string[] {
-  if (device.authMode !== 'agent' || device.sshConfigRef?.trim()) {
+  if (device.authMode !== 'agent') {
     return [];
   }
 
@@ -221,7 +221,8 @@ export async function resolveSshConnectConfig(
   };
   const sshEnv = toSshAuthEnv(deps.env);
 
-  const resolvedConfig = resolveSshConfigRef(device, deps);
+  // sshConfigRef 仅在 configRef 认证模式下生效，避免其它模式残留的引用劫持 device.host
+  const resolvedConfig = device.authMode === 'configRef' ? resolveSshConfigRef(device, deps) : null;
   const host = resolvedConfig?.host ?? device.host;
   const port = resolvedConfig?.port ?? device.port ?? 22;
   const username = resolvedConfig?.username ?? resolveSshUsername(device.username, device.authMode, sshEnv);

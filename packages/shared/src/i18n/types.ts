@@ -93,6 +93,8 @@ export type TranslationKey =
   | 'device.authKey'
   | 'device.authAgent'
   | 'device.authConfigRef'
+  | 'device.sshConfigRefPlaceholder'
+  | 'device.sshConfigRefHint'
   | 'device.password'
   | 'device.privateKey'
   | 'device.privateKeyPlaceholder'
