@@ -12,6 +12,7 @@ import {
   fetchFileContent,
   fetchFileStat,
 } from '@/components/files-panel/api';
+import { formatBytes } from '@/components/files-panel/format';
 import { startTransferToast } from '@/components/files-panel/transfer-toast';
 import { MarkdownPreview } from '@/components/markdown/markdown-preview';
 import { Button } from '@/components/ui/button';
@@ -89,13 +90,13 @@ function DownloadFallback({
 
 function FallbackCard({ rootId, stat }: { rootId: string; stat: FileStatResponse }) {
   const { t } = useTranslation();
-  const sizeKb = stat.size > 0 ? `${(stat.size / 1024).toFixed(1)} KB` : '';
+  const sizeText = stat.size > 0 ? formatBytes(stat.size) : '';
   return (
     <DownloadFallback
       rootId={rootId}
       path={stat.path}
       name={stat.name}
-      text={`${t('file.notPreviewable')}${sizeKb ? ` · ${sizeKb}` : ''}`}
+      text={`${t('file.notPreviewable')}${sizeText ? ` · ${sizeText}` : ''}`}
     />
   );
 }

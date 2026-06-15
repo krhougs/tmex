@@ -125,14 +125,22 @@ function CommonNodeMenuItems({
   );
 }
 
-// 菜单头部：标明所属设备与完整绝对路径（长路径换行），避免误操作。
-function NodeMenuHeader({ root, absPath }: { root: FileRootDto; absPath: string }) {
+// 菜单头部：标明所属设备、完整绝对路径（长路径换行）、可选文件大小；避免误操作。
+// size 取自目录列表已有的 entry.size（无需额外请求）；为 null（目录/符号链接/未知）时不显示。
+function NodeMenuHeader({
+  root,
+  absPath,
+  size,
+}: { root: FileRootDto; absPath: string; size?: number | null }) {
   const DeviceIcon = root.deviceType === 'ssh' ? Globe : Monitor;
   return (
     <div className="px-1.5 pt-1 pb-1.5">
-      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-        <DeviceIcon className="h-3 w-3 shrink-0" />
-        <span className="truncate">{root.deviceName ?? root.deviceId}</span>
+      <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1">
+          <DeviceIcon className="h-3 w-3 shrink-0" />
+          <span className="truncate">{root.deviceName ?? root.deviceId}</span>
+        </span>
+        {size != null && <span className="shrink-0 tabular-nums">{formatBytes(size)}</span>}
       </div>
       <div className="mt-0.5 font-mono text-[11px] break-all text-foreground/70">{absPath}</div>
     </div>
@@ -656,7 +664,7 @@ function FileLeaf({
         }
       />
       <ContextMenuContent>
-        <NodeMenuHeader root={root} absPath={entry.path} />
+        <NodeMenuHeader root={root} absPath={entry.path} size={entry.size} />
         <ContextMenuSeparator />
         <ContextMenuItem onClick={open}>
           <FolderOpen />

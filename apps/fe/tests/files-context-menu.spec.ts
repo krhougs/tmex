@@ -68,6 +68,8 @@ test('files: 文件/文件夹右键菜单、复制路径、上传', async ({ pag
   await expect(menu.getByText('Send to Agent', { exact: true })).toBeVisible();
   // 菜单头部应标明所属设备与完整绝对路径（避免误操作）
   await expect(menu.getByText(filePath, { exact: true })).toBeVisible();
+  // 文件菜单头部应显示文件大小（hello.txt = "hi" = 2 B）
+  await expect(menu.getByText('2 B', { exact: true })).toBeVisible();
 
   // 5. 点「复制绝对位置」→ 剪贴板应为该文件绝对路径
   await menu.getByText('Copy absolute path', { exact: true }).click();
