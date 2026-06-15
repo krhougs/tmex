@@ -785,6 +785,7 @@ export type TranslationKey =
   | 'files.transfer.canceled'
   | 'files.transfer.downloaded'
   | 'files.transfer.downloadFailed'
+  | 'files.transfer.dragDownloadStarted'
   | 'files.transfer.tooLarge'
   | 'files.agentLaunch'
   | 'files.agentLaunch.connectFailed'

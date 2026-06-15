@@ -826,6 +826,7 @@
         "canceled": "已取消 {{name}}",
         "downloaded": "已下载 {{name}}",
         "downloadFailed": "下载 {{name}} 失败",
+        "dragDownloadStarted": "已开始下载 {{name}}（由浏览器接管）",
         "tooLarge": "{{name}} 超过大小上限（{{max}}）"
       },
       "agentLaunch": {

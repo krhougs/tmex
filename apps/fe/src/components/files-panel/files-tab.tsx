@@ -638,6 +638,13 @@ function FileLeaf({
               );
               e.dataTransfer.effectAllowed = 'copy';
             }}
+            onDragEnd={(e) => {
+              // 拖到 OS 成功放下时（dropEffect=copy）由浏览器接管下载，JS 无进度可显示，
+              // 仅给一个轻提示让用户知道下载已开始（去浏览器下载区查看进度）
+              if (e.dataTransfer.dropEffect === 'copy') {
+                toast(t('files.transfer.dragDownloadStarted', { name: entry.name }));
+              }
+            }}
             data-testid={`file-item-${rootId}-${entry.path}`}
             title={entry.name}
             style={{ paddingLeft: indent }}

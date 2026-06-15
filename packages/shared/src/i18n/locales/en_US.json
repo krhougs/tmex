@@ -826,6 +826,7 @@
         "canceled": "Canceled {{name}}",
         "downloaded": "Downloaded {{name}}",
         "downloadFailed": "Failed to download {{name}}",
+        "dragDownloadStarted": "Started downloading {{name}} (handled by browser)",
         "tooLarge": "{{name}} exceeds the size limit ({{max}})"
       },
       "agentLaunch": {

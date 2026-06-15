@@ -832,6 +832,7 @@ export const I18N_RESOURCES = {
         "canceled": "Canceled {{name}}",
         "downloaded": "Downloaded {{name}}",
         "downloadFailed": "Failed to download {{name}}",
+        "dragDownloadStarted": "Started downloading {{name}} (handled by browser)",
         "tooLarge": "{{name}} exceeds the size limit ({{max}})"
       },
       "agentLaunch": {
@@ -1687,6 +1688,7 @@ export const I18N_RESOURCES = {
         "canceled": "已取消 {{name}}",
         "downloaded": "已下载 {{name}}",
         "downloadFailed": "下载 {{name}} 失败",
+        "dragDownloadStarted": "已开始下载 {{name}}（由浏览器接管）",
         "tooLarge": "{{name}} 超过大小上限（{{max}}）"
       },
       "agentLaunch": {
@@ -2542,6 +2544,7 @@ export const I18N_RESOURCES = {
         "canceled": "{{name}} をキャンセルしました",
         "downloaded": "{{name}} をダウンロードしました",
         "downloadFailed": "{{name}} のダウンロードに失敗しました",
+        "dragDownloadStarted": "{{name}} のダウンロードを開始（ブラウザが処理）",
         "tooLarge": "{{name}} はサイズ上限（{{max}}）を超えています"
       },
       "agentLaunch": {

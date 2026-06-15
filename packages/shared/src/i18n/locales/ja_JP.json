@@ -826,6 +826,7 @@
         "canceled": "{{name}} をキャンセルしました",
         "downloaded": "{{name}} をダウンロードしました",
         "downloadFailed": "{{name}} のダウンロードに失敗しました",
+        "dragDownloadStarted": "{{name}} のダウンロードを開始（ブラウザが処理）",
         "tooLarge": "{{name}} はサイズ上限（{{max}}）を超えています"
       },
       "agentLaunch": {
