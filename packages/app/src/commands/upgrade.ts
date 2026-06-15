@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultInstallDir } from '../constants';
 import { t } from '../i18n';
-import { checkBunVersion } from '../lib/bun';
+import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import { readEnvFile } from '../lib/env-file';
 import { pathExists } from '../lib/fs-utils';
 import {
@@ -95,12 +95,16 @@ export async function runUpgrade(parsed: ParsedArgs): Promise<void> {
     throw new Error(t('upgrade.missingMeta', { path: installLayout.metaPath }));
   }
 
-  const bun = await checkBunVersion();
+  const meta = await readJsonFile<InstallMeta>(installLayout.metaPath);
+  const explicitBunPath = readExplicitBunPath(parsed.flags);
+  const bun = await checkBunVersion(undefined, {
+    explicitPath: explicitBunPath,
+    metaBunPath: meta.bunPath,
+  });
   if (!bun.ok || !bun.path) {
     throw new Error(bun.reason || t('bun.checkFailed'));
   }
 
-  const meta = await readJsonFile<InstallMeta>(installLayout.metaPath);
   const packageLayout = await resolvePackageLayout(import.meta.url);
 
   const backupDir = await mkdtemp(join(tmpdir(), 'tmex-upgrade-'));
@@ -115,6 +119,7 @@ export async function runUpgrade(parsed: ParsedArgs): Promise<void> {
     const cliVersion = await readPackageVersion(packageLayout.packageRoot);
     meta.updatedAt = new Date().toISOString();
     meta.cliVersion = cliVersion;
+    meta.bunPath = bun.path;
     await writeInstallMeta(installLayout, meta);
 
     await installService({

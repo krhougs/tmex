@@ -35,6 +35,7 @@ describe('system prompt 组装', () => {
     expect(out).toContain('## Network devices');
     expect(out).toContain('MikroTik');
     expect(out).toContain('Juniper');
+    expect(out).toContain('## Coding agents in the pane');
     expect(out).toContain('## Untrusted content');
     expect(out).toContain('## Credentials');
     expect(out).toContain('## Understand intent');

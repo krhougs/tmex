@@ -8,7 +8,7 @@ import {
   defaultPort,
 } from '../constants';
 import { t } from '../i18n';
-import { checkBunVersion } from '../lib/bun';
+import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import { writeEnvFile } from '../lib/env-file';
 import { ensureDir, pathExists } from '../lib/fs-utils';
 import {
@@ -142,7 +142,8 @@ async function buildInitConfig(parsed: ParsedArgs): Promise<InitConfig> {
 export async function runInit(parsed: ParsedArgs): Promise<void> {
   const config = await buildInitConfig(parsed);
 
-  const bun = await checkBunVersion();
+  const explicitBunPath = readExplicitBunPath(parsed.flags);
+  const bun = await checkBunVersion(undefined, { explicitPath: explicitBunPath });
   if (!bun.ok || !bun.path) {
     throw new Error(bun.reason || t('bun.checkFailed'));
   }
@@ -201,6 +202,7 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
     installDir: config.installDir,
     updatedAt: new Date().toISOString(),
     cliVersion,
+    bunPath: bun.path,
   };
   await writeInstallMeta(installLayout, meta);
 

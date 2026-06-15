@@ -7,9 +7,9 @@ const MESSAGES: Record<CliLang, Record<string, string>> = {
     'cli.help': `tmex CLI
 
 Usage:
-  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false>]
-  tmex doctor [--install-dir <path>] [--json]
-  tmex upgrade [--version <version>] [--install-dir <path>]
+  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path>]
+  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>]
+  tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]
   tmex uninstall [--install-dir <path>] [--yes] [--purge]
 
 Global flags:
@@ -38,6 +38,8 @@ Global flags:
     'bun.versionExecFailed': 'Failed to execute bun --version. Please verify Bun installation.',
     'bun.versionTooLow': 'Bun version too low: current {{version}}, required >= {{minVersion}}',
     'bun.checkFailed': 'Bun check failed.',
+    'bun.explicitInvalid': 'Specified bun path is invalid or not executable: {{path}}',
+    'bun.unsafePath': 'Unsafe bun path (contains shell metacharacters): {{path}}',
 
     'service.install.unsupportedPlatform':
       'Automatic service installation is not supported on this platform: {{platform}}',
@@ -123,7 +125,7 @@ Global flags:
   },
   'zh-CN': {
     'cli.help':
-      'tmex CLI\n\n用法：\n  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false>]\n  tmex doctor [--install-dir <path>] [--json]\n  tmex upgrade [--version <version>] [--install-dir <path>]\n  tmex uninstall [--install-dir <path>] [--yes] [--purge]\n\n全局参数：\n  --lang <en|zh-CN>',
+      'tmex CLI\n\n用法：\n  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path>]\n  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>]\n  tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]\n  tmex uninstall [--install-dir <path>] [--yes] [--purge]\n\n全局参数：\n  --lang <en|zh-CN>',
 
     'cli.error.unknownCommand': '未知命令：{{command}}',
 
@@ -147,6 +149,8 @@ Global flags:
     'bun.versionExecFailed': '无法执行 bun --version，请检查 Bun 安装是否完整。',
     'bun.versionTooLow': 'Bun 版本过低：当前 {{version}}，要求 >= {{minVersion}}',
     'bun.checkFailed': 'Bun 检查失败。',
+    'bun.explicitInvalid': '指定的 bun 路径无效或不可执行：{{path}}',
+    'bun.unsafePath': 'bun 路径包含 shell 特殊字符，不安全：{{path}}',
 
     'service.install.unsupportedPlatform': '当前平台不支持自动安装服务：{{platform}}',
     'service.systemd.daemonReloadFailed': 'systemctl daemon-reload 失败：{{detail}}',

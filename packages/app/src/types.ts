@@ -31,4 +31,5 @@ export interface InstallMeta {
   installDir: string;
   updatedAt: string;
   cliVersion: string;
+  bunPath?: string;
 }

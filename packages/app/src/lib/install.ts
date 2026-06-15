@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, copyFile, rm } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { t } from '../i18n';
 import type { InstallMeta } from '../types';
 import { copyDirectory, ensureDir, pathExists, writeText } from './fs-utils';
 import type { InstallLayout, PackageLayout } from './install-layout';
@@ -60,6 +62,23 @@ export async function deployRuntimeFiles(
 }
 
 export async function writeRunScript(installLayout: InstallLayout, bunPath: string): Promise<void> {
+  for (let i = 0; i < bunPath.length; i += 1) {
+    const code = bunPath.charCodeAt(i);
+    // 拒绝会破坏生成 run.sh 的 shell 元字符：" ` $ \ 及换行回车（防注入 / DoS）。
+    if (code === 34 || code === 96 || code === 36 || code === 92 || code === 10 || code === 13) {
+      throw new Error(t('bun.unsafePath', { path: bunPath }));
+    }
+  }
+  // 服务由 launchd/systemd 拉起时 PATH 极简，run.sh 显式补全。${HOME}/.bun/bin 由下方条件块
+  // 动态补（故 extraPathDirs 排除它以免重复）；其余补 bun 实际目录 + homebrew/linuxbrew 兜底。
+  const homeBunBin = join(homedir(), '.bun', 'bin');
+  const bunDir = isAbsolute(bunPath) ? dirname(bunPath) : '';
+  const extraPathDirs = [
+    bunDir,
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/home/linuxbrew/.linuxbrew/bin',
+  ].filter((dir, index, arr) => dir.length > 0 && dir !== homeBunBin && arr.indexOf(dir) === index);
   const lines = [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
@@ -75,6 +94,7 @@ export async function writeRunScript(installLayout: InstallLayout, bunPath: stri
     'if [[ -n "${HOME:-}" ]] && [[ -d "${HOME}/.bun/bin" ]]; then',
     '  export PATH="${HOME}/.bun/bin:${PATH:-}"',
     'fi',
+    `export PATH="${[...extraPathDirs, '${PATH:-}'].join(':')}"`,
     '',
     `export TMEX_FE_DIST_DIR="${installLayout.feDir}"`,
     `export TMEX_MIGRATIONS_DIR="${installLayout.drizzleDir}"`,
