@@ -1063,10 +1063,10 @@ export const I18N_RESOURCES = {
       "siteTab": "站点",
       "notificationsTab": "通知",
       "tabGroup": {
-        "general": "通用设置",
+        "general": "通用",
         "devicesAndFiles": "设备与文件",
-        "notifications": "通知设置",
-        "ai": "AI 设置",
+        "notifications": "通知",
+        "ai": "AI",
         "terminal": "终端"
       },
       "terminal": {
@@ -1941,10 +1941,10 @@ export const I18N_RESOURCES = {
       "siteTab": "サイト",
       "notificationsTab": "通知",
       "tabGroup": {
-        "general": "一般設定",
+        "general": "一般",
         "devicesAndFiles": "デバイスとファイル",
-        "notifications": "通知設定",
-        "ai": "AI 設定",
+        "notifications": "通知",
+        "ai": "AI",
         "terminal": "ターミナル"
       },
       "terminal": {

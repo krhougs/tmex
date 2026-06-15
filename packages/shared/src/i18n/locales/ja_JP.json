@@ -179,10 +179,10 @@
       "siteTab": "サイト",
       "notificationsTab": "通知",
       "tabGroup": {
-        "general": "一般設定",
+        "general": "一般",
         "devicesAndFiles": "デバイスとファイル",
-        "notifications": "通知設定",
-        "ai": "AI 設定",
+        "notifications": "通知",
+        "ai": "AI",
         "terminal": "ターミナル"
       },
       "terminal": {

@@ -179,10 +179,10 @@
       "siteTab": "站点",
       "notificationsTab": "通知",
       "tabGroup": {
-        "general": "通用设置",
+        "general": "通用",
         "devicesAndFiles": "设备与文件",
-        "notifications": "通知设置",
-        "ai": "AI 设置",
+        "notifications": "通知",
+        "ai": "AI",
         "terminal": "终端"
       },
       "terminal": {

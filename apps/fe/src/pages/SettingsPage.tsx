@@ -232,7 +232,7 @@ export default function SettingsPage() {
       data-testid="settings-page"
     >
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)}>
-        <TabsList className="w-full !justify-start overflow-x-auto rounded-xl border border-border/60 p-1 group-data-horizontal/tabs:h-11 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <TabsList className="w-full gap-1 !justify-start overflow-x-auto rounded-xl border border-border/60 p-1.5 group-data-horizontal/tabs:h-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {tabItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -240,7 +240,7 @@ export default function SettingsPage() {
                 key={item.value}
                 value={item.value}
                 data-testid={item.testId}
-                className={cn(tabTriggerClassName, 'min-w-max px-1')}
+                className={cn(tabTriggerClassName, 'min-w-max gap-2 px-3.5')}
               >
                 <Icon />
                 {item.label}
