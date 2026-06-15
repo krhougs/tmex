@@ -1,4 +1,4 @@
-# 0.12.3
+# 0.12.4
 
 _2026-06-15_
 
@@ -6,7 +6,11 @@ _2026-06-15_
 
 ### New
 
-- Custom terminal shortcuts: build your own quick-action bar for the terminal — add, remove, drag to reorder, rename, and capture key combinations by pressing them. Your shortcuts are saved on the server and shared across all your browsers. Built-in special actions (paste, toggle the text-input keyboard, start a new Agent session, scroll the terminal to the bottom) can be added too, and an optional icon mode shows keys as Apple-style symbols (⌃⇧⏎). A live preview lets you see the bar before you save.
+- The Agent can now recognize and work with a coding agent running inside a terminal pane — when an AI coding assistant is active in a pane, tmex's Agent understands it and can act on it.
+
+### Fixes
+
+- More reliable Bun detection during install and startup (issue #28). You can now point tmex at a specific Bun with `--bun-path`, and that choice is remembered for later runs.
 
 ---
 
@@ -14,4 +18,8 @@ _2026-06-15_
 
 ### 新增
 
-- 自定义终端快捷键：可以自己定制终端的快捷按钮栏——增删、拖拽排序、重命名，还能直接按下组合键来录入。快捷键保存在服务器、多端共享。内置特殊动作（粘贴、切换文本框键盘、新建 Agent 会话、终端回到最下方）也能一键加入；并可选「图标模式」用苹果风格符号（⌃⇧⏎）显示按键。编辑时提供实时预览，保存后生效。
+- Agent 现在能识别并配合在终端 pane 内运行的编码助手——当某个 pane 里有 AI 编码助手在运行时，tmex 的 Agent 能感知它并对其进行操作。
+
+### 修复
+
+- 更可靠地检测 Bun（安装与启动时，issue #28）；现在可以用 `--bun-path` 指定使用哪个 Bun，并会记住该选择供后续复用。
