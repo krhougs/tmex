@@ -83,6 +83,23 @@ class FakeCanvasContext2D {
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
     this.operations.push({ type: 'setTransform', a, b, c, d, e, f });
   }
+
+  measureText(): {
+    fontBoundingBoxAscent: number;
+    fontBoundingBoxDescent: number;
+    actualBoundingBoxAscent: number;
+    actualBoundingBoxDescent: number;
+    width: number;
+  } {
+    const px = Number.parseFloat(this.font) || 13;
+    return {
+      fontBoundingBoxAscent: px * 0.8,
+      fontBoundingBoxDescent: px * 0.3,
+      actualBoundingBoxAscent: px * 0.7,
+      actualBoundingBoxDescent: px * 0.2,
+      width: px * 0.6,
+    };
+  }
 }
 
 class FakeElement {
@@ -957,13 +974,14 @@ describe('GhosttyTerminalController canvas baseline', () => {
 
     terminal.open(container as unknown as HTMLElement);
 
+    // cell 高 = round(13 × 1.2) = 16px：每次 6px 像素滚动，累计未满 1 cell 不触发本地滚动。
     const root = terminal.element as unknown as FakeElement;
-    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 8 }) as unknown as FakeEvent);
-    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 8 }) as unknown as FakeEvent);
+    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 6 }) as unknown as FakeEvent);
+    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 6 }) as unknown as FakeEvent);
 
     expect(bindings.scrollDeltaCalls).toEqual([]);
 
-    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 8 }) as unknown as FakeEvent);
+    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 6 }) as unknown as FakeEvent);
     expect(bindings.scrollDeltaCalls).toEqual([1]);
   });
 
