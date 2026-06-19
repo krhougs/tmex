@@ -14,6 +14,7 @@ import type {
 import { wsBorsh } from '@tmex/shared';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
+import { navigateToAppUrl } from '../../lib/app-navigation';
 import { useTmuxStore } from '../../stores/tmux';
 import { encodePaneIdForUrl } from '../../utils/tmuxUrl';
 
@@ -67,7 +68,7 @@ function notifyBrowser(title: string, body: string, url: string): void {
     const notification = new Notification(title, { body });
     notification.onclick = () => {
       window.focus();
-      window.location.href = url;
+      navigateToAppUrl(url);
     };
   } catch {
     // 部分平台（如未注册 SW 的移动端）构造 Notification 会抛错，静默降级为 toast
@@ -98,7 +99,7 @@ async function handleTriggered(
     action: {
       label: i18n.t('watch.toast.openTerminal'),
       onClick: () => {
-        window.location.href = url;
+        navigateToAppUrl(url);
       },
     },
   });

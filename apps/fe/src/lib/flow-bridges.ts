@@ -26,3 +26,6 @@ export function bridgeIsMobile(): boolean {
 export function bridgeOpenMobileSidebar(): void {
   if (sidebarBridge?.isMobile) sidebarBridge.setOpenMobile(true);
 }
+export function bridgeCloseMobileSidebar(): void {
+  if (sidebarBridge?.isMobile) sidebarBridge.setOpenMobile(false);
+}

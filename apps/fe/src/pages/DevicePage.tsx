@@ -1,3 +1,4 @@
+import { DeviceStatusBadge } from '@/components/device-status-badge';
 import { ShortcutButtonRow } from '@/components/settings/ShortcutButtonRow';
 import { TerminalSettingsSheet } from '@/components/settings/terminal-settings-sheet';
 import {
@@ -28,6 +29,7 @@ import {
   Loader2,
   Radar,
   RefreshCw,
+  SearchX,
   Send,
   Settings2,
   Smartphone,
@@ -107,6 +109,14 @@ export default function DevicePage() {
   const deviceConnected = useTmuxStore((state) =>
     deviceId ? (state.deviceConnected?.[deviceId] ?? false) : false
   );
+  const deviceReconnecting = useTmuxStore((state) =>
+    deviceId ? state.deviceReconnecting?.[deviceId] : undefined
+  );
+  const isReconnecting = Boolean(deviceReconnecting);
+  // 连接意图：connectDevice 入集、disconnectDevice 出集——用于区分「初次连接中」与「已断开」。
+  const hasConnectIntent = useTmuxStore((state) =>
+    deviceId ? state.connectedDevices.has(deviceId) : false
+  );
   const siteName = useSiteStore((state) => state.settings?.siteName ?? 'tmex');
 
   const resolvedPaneId = useMemo(() => decodePaneIdFromUrlParam(paneId), [paneId]);
@@ -175,9 +185,9 @@ export default function DevicePage() {
     !selectedPane;
 
   const invalidSelectionMessage = isWindowMissing
-    ? t('wsError.checkGateway')
+    ? t('terminal.windowClosed')
     : isPaneMissing
-      ? t('wsError.checkGateway')
+      ? t('terminal.paneClosed')
       : null;
 
   const isSelectionInvalid = Boolean(invalidSelectionMessage);
@@ -890,7 +900,23 @@ export default function DevicePage() {
     );
   }
 
-  const showConnecting = !deviceConnected && !deviceError;
+  // 重连期间保持 Terminal 挂载，避免 xterm 卸载导致已有内容消失（issue: 重连要看得清已有内容）。
+  const showTerminal =
+    Boolean(resolvedPaneId) && !isSelectionInvalid && (deviceConnected || isReconnecting);
+  // 已连接、URL 指定了 pane，但 snapshot 尚未解析出它（且不是 not-found）→ 仍在加载，内容本就空白。
+  const isResolvingSnapshot =
+    deviceConnected && Boolean(resolvedPaneId) && !isSelectionInvalid && !selectedPane;
+  // 有连接意图但尚未 ack、无错误、非重连 → 初次连接中，显示 loading 而非误导性的「已断开」。
+  const isConnecting = hasConnectIntent && !deviceConnected && !deviceError && !isReconnecting;
+
+  const connectingPlaceholder = (
+    <>
+      <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+        <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+      </div>
+      <h3 className="text-lg font-medium">{t('terminal.connecting')}</h3>
+    </>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
@@ -903,7 +929,21 @@ export default function DevicePage() {
           className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
           style={{ backgroundColor: terminalTheme.background }}
         >
-          {deviceConnected && resolvedPaneId ? (
+          {isSelectionInvalid ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+              <div className="max-w-sm space-y-4">
+                <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+                  <SearchX className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="terminal-selection-invalid"
+                >
+                  {invalidSelectionMessage}
+                </p>
+              </div>
+            </div>
+          ) : showTerminal && resolvedPaneId ? (
             <div
               ref={terminalContainerRef}
               className="flex-1 h-full min-h-0 w-full"
@@ -940,7 +980,9 @@ export default function DevicePage() {
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="max-w-sm space-y-4">
-                {!deviceConnected ? (
+                {isConnecting ? (
+                  connectingPlaceholder
+                ) : !deviceConnected && !isReconnecting ? (
                   <>
                     <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
                       <span className="text-2xl text-muted-foreground">🔌</span>
@@ -959,31 +1001,36 @@ export default function DevicePage() {
                     </p>
                   </>
                 ) : (
-                  <>
-                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
-                      <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
-                    </div>
-                    <h3 className="text-lg font-medium">{t('terminal.connecting')}</h3>
-                  </>
+                  connectingPlaceholder
                 )}
               </div>
             </div>
           )}
-        </div>
-
-        {showConnecting && (
-          <div
-            className="absolute inset-0 flex items-center justify-center bg-background/85 backdrop-blur-sm"
-            data-testid="terminal-status-overlay"
-          >
-            <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card/90 px-4 py-3 shadow-sm">
-              <div className="h-7 w-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-              <span className="text-xs text-muted-foreground" data-testid="terminal-status-text">
-                {t('terminal.connecting')}
-              </span>
+          {/* 重连指示：非遮挡、置顶居中，保持已有终端内容可见 */}
+          {isReconnecting && (
+            <div
+              className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
+              data-testid="terminal-reconnecting-indicator"
+            >
+              <DeviceStatusBadge deviceId={deviceId} className="shadow-sm" />
             </div>
-          </div>
-        )}
+          )}
+
+          {/* loading：已连接但 snapshot 尚未解析出该 pane（内容本就空白，用遮罩 spinner） */}
+          {isResolvingSnapshot && (
+            <div
+              className="absolute inset-0 flex items-center justify-center bg-background/85 backdrop-blur-sm"
+              data-testid="terminal-status-overlay"
+            >
+              <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card/90 px-4 py-3 shadow-sm">
+                <div className="h-7 w-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                <span className="text-xs text-muted-foreground" data-testid="terminal-status-text">
+                  {t('terminal.connecting')}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {inputMode === 'editor' && (

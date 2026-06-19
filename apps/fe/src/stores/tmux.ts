@@ -1,4 +1,5 @@
 import { getTmuxWindowStyle } from '@/components/terminal/theme';
+import { navigateToAppUrl } from '@/lib/app-navigation';
 import { getBorshClient } from '@/ws-borsh';
 import {
   buildDeviceConnect,
@@ -365,7 +366,7 @@ function handleTmuxEvent(
         ? {
             label: 'Open',
             onClick: () => {
-              window.location.href = paneUrl;
+              navigateToAppUrl(paneUrl);
             },
           }
         : undefined,
@@ -388,7 +389,7 @@ function handleTmuxEvent(
         ? {
             label: 'Open',
             onClick: () => {
-              window.location.href = paneUrl;
+              navigateToAppUrl(paneUrl);
             },
           }
         : undefined,
