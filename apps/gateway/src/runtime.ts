@@ -12,6 +12,7 @@ import { telegramService } from './telegram/service';
 import { tmuxRuntimeRegistry } from './tmux-client/registry';
 import { primeLocalShellPath } from './tmux/local-shell-path';
 import { watchService } from './watch/service';
+import { weixinService } from './weixin/service';
 import { WebSocketServer } from './ws';
 
 interface GatewayRuntimeOptions {
@@ -54,6 +55,7 @@ export async function createGatewayRuntime(
     wsServer.broadcastDeviceError(deviceId, payload);
   });
   await telegramService.refresh();
+  await weixinService.refresh();
   await pushSupervisor.start();
   await agentSupervisor.start();
   await watchService.start();
@@ -109,6 +111,7 @@ export async function createGatewayRuntime(
       await pushSupervisor.stopAll();
       await tmuxRuntimeRegistry.shutdownAll();
       await telegramService.stopAll();
+      await weixinService.stopAll();
     },
   };
 }
