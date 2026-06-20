@@ -1,16 +1,21 @@
-# 0.12.4
+# 0.13.0
 
-_2026-06-15_
+_2026-06-20_
 
 ## English
 
 ### New
 
-- The Agent can now recognize and work with a coding agent running inside a terminal pane — when an AI coding assistant is active in a pane, tmex's Agent understands it and can act on it.
+- WeChat notifications: scan a QR code to link your WeChat account and receive tmex notifications (such as command completions and alerts) right inside WeChat. The connection stays alive automatically, and tmex sends you a heads-up when it comes online.
+
+### Improvements
+
+- Faster first load: the app downloads noticeably less when you first open it — especially helpful on slow networks.
 
 ### Fixes
 
-- More reliable Bun detection during install and startup (issue #28). You can now point tmex at a specific Bun with `--bun-path`, and that choice is remembered for later runs.
+- Clicking a notification now jumps to the right place inside tmex instead of reloading the whole page.
+- Opening a terminal that no longer exists now shows a clear message instead of a blank screen, with proper loading and reconnecting states — and your existing terminal output stays visible while it reconnects.
 
 ---
 
@@ -18,8 +23,13 @@ _2026-06-15_
 
 ### 新增
 
-- Agent 现在能识别并配合在终端 pane 内运行的编码助手——当某个 pane 里有 AI 编码助手在运行时，tmex 的 Agent 能感知它并对其进行操作。
+- 微信通知：扫码绑定微信账号后，即可直接在微信里收到 tmex 的通知（如命令完成、告警等）。连接会自动保活，tmex 上线时也会给你发来一条提醒。
+
+### 改进
+
+- 首屏加载更快：应用首次打开时需要下载的内容明显减少，弱网环境下尤其明显。
 
 ### 修复
 
-- 更可靠地检测 Bun（安装与启动时，issue #28）；现在可以用 `--bun-path` 指定使用哪个 Bun，并会记住该选择供后续复用。
+- 点击通知现在会正确跳转到 tmex 内对应位置，不再整页刷新。
+- 打开已不存在的终端时会给出清晰提示，而不是一片空白，并补全了加载与重连状态——重连时仍能看清已有的终端内容。
