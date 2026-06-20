@@ -28,6 +28,8 @@ function createSettings(): SiteSettings {
     enableBrowserNotificationToast: true,
     enableTelegramBellPush: true,
     enableTelegramNotificationPush: true,
+    enableWeixinBellPush: false,
+    enableWeixinNotificationPush: false,
     sshReconnectMaxRetries: 2,
     sshReconnectDelaySeconds: 1,
     language: 'zh_CN',

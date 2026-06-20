@@ -1,6 +1,7 @@
 import type {
   CreateDeviceRequest,
   CreateTelegramBotRequest,
+  CreateWeixinAccountRequest,
   Device,
   LocaleCode,
   SiteSettings,
@@ -10,6 +11,7 @@ import type {
   UpdateSiteSettingsRequest,
   UpdateTelegramBotRequest,
   UpdateTerminalShortcutSettingsRequest,
+  UpdateWeixinAccountRequest,
   WebhookEndpoint,
 } from '@tmex/shared';
 import { SUPPORTED_LOCALES, toBCP47 } from '@tmex/shared';
@@ -19,13 +21,17 @@ import { runtimeController } from '../control/runtime';
 import { decrypt, encrypt } from '../crypto';
 import {
   approveTelegramChat,
+  approveWeixinUser,
   createDevice,
   createTelegramBot,
   createWebhookEndpoint,
+  createWeixinAccount,
   deleteDevice,
   deleteTelegramBot,
   deleteTelegramChat,
   deleteWebhookEndpoint,
+  deleteWeixinAccount,
+  deleteWeixinUser,
   getAllDevices,
   getAllWebhookEndpoints,
   getDeviceById,
@@ -34,16 +40,21 @@ import {
   getTelegramBotById,
   getTelegramBotsWithStats,
   getTerminalShortcutSettings,
+  getWeixinAccountById,
+  getWeixinAccountsWithStats,
   listTelegramChatsByBot,
+  listWeixinUsersByAccount,
   reorderDevices,
   updateDevice,
   updateSiteSettings,
   updateTelegramBot,
   updateTerminalShortcutSettings,
+  updateWeixinAccount,
 } from '../db';
 import { t } from '../i18n';
 import { pushSupervisor } from '../push/supervisor';
 import { telegramService } from '../telegram/service';
+import { weixinService } from '../weixin/service';
 import { handleAgentApiRequest } from './agent';
 import { handleFilesApiRequest } from './files';
 import { handleLlmApiRequest } from './llm';
@@ -129,6 +140,20 @@ function normalizeSiteSettingsInput(
       throw new Error(t('apiError.invalidRequest'));
     }
     updates.enableTelegramNotificationPush = body.enableTelegramNotificationPush;
+  }
+
+  if (body.enableWeixinBellPush !== undefined) {
+    if (typeof body.enableWeixinBellPush !== 'boolean') {
+      throw new Error(t('apiError.invalidRequest'));
+    }
+    updates.enableWeixinBellPush = body.enableWeixinBellPush;
+  }
+
+  if (body.enableWeixinNotificationPush !== undefined) {
+    if (typeof body.enableWeixinNotificationPush !== 'boolean') {
+      throw new Error(t('apiError.invalidRequest'));
+    }
+    updates.enableWeixinNotificationPush = body.enableWeixinNotificationPush;
   }
 
   if (body.sshReconnectMaxRetries !== undefined) {
@@ -236,6 +261,55 @@ export function handleApiRequest(
     req.method === 'DELETE'
   ) {
     return handleDeleteTelegramChat(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+
+  if (path === '/api/settings/weixin/accounts' && req.method === 'GET') {
+    return handleGetWeixinAccounts();
+  }
+  if (path === '/api/settings/weixin/accounts' && req.method === 'POST') {
+    return handleCreateWeixinAccount(req);
+  }
+  if (path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+$/) && req.method === 'PATCH') {
+    return handleUpdateWeixinAccount(req, path.split('/')[5]);
+  }
+  if (path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+$/) && req.method === 'DELETE') {
+    return handleDeleteWeixinAccount(path.split('/')[5]);
+  }
+  if (
+    path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/login\/start$/) &&
+    req.method === 'POST'
+  ) {
+    return handleStartWeixinLogin(path.split('/')[5]);
+  }
+  if (
+    path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/login\/status$/) &&
+    req.method === 'GET'
+  ) {
+    return handleGetWeixinLoginStatus(path.split('/')[5]);
+  }
+  if (path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/test$/) && req.method === 'POST') {
+    return handleTestWeixinAccount(path.split('/')[5]);
+  }
+  if (path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/users$/) && req.method === 'GET') {
+    return handleListWeixinUsers(path.split('/')[5]);
+  }
+  if (
+    path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/users\/[^/]+\/approve$/) &&
+    req.method === 'POST'
+  ) {
+    return handleApproveWeixinUser(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+  if (
+    path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/users\/[^/]+\/test$/) &&
+    req.method === 'POST'
+  ) {
+    return handleTestWeixinUser(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
+  }
+  if (
+    path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/users\/[^/]+$/) &&
+    req.method === 'DELETE'
+  ) {
+    return handleDeleteWeixinUser(path.split('/')[5], decodeURIComponent(path.split('/')[7]));
   }
 
   if (path.startsWith('/api/llm/')) {
@@ -616,6 +690,193 @@ async function handleTestTelegramChat(botId: string, chatId: string): Promise<Re
     })
   );
 
+  return json({ success: true });
+}
+
+async function handleGetWeixinAccounts(): Promise<Response> {
+  const accounts = getWeixinAccountsWithStats();
+  return json({ accounts });
+}
+
+async function handleCreateWeixinAccount(req: Request): Promise<Response> {
+  const body = (await req.json()) as CreateWeixinAccountRequest;
+
+  if (!body.name?.trim()) {
+    return json({ error: t('weixin.accountNameRequired') }, 400);
+  }
+
+  const now = new Date().toISOString();
+  const id = uuidv4();
+  createWeixinAccount({
+    id,
+    name: body.name.trim(),
+    enabled: body.enabled ?? true,
+    allowAuthRequests: body.allowAuthRequests ?? true,
+    loggedIn: false,
+    weixinUin: null,
+    botTokenEnc: null,
+    baseUrl: null,
+    syncBuf: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return json({ success: true, accountId: id }, 201);
+}
+
+async function handleUpdateWeixinAccount(req: Request, accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  const body = (await req.json()) as UpdateWeixinAccountRequest;
+  const updates: Partial<{ name: string; enabled: boolean; allowAuthRequests: boolean }> = {};
+
+  if (body.name !== undefined) {
+    const value = body.name.trim();
+    if (!value) {
+      return json({ error: t('weixin.accountNameRequired') }, 400);
+    }
+    updates.name = value;
+  }
+  if (body.enabled !== undefined) {
+    updates.enabled = body.enabled;
+  }
+  if (body.allowAuthRequests !== undefined) {
+    updates.allowAuthRequests = body.allowAuthRequests;
+  }
+
+  updateWeixinAccount(accountId, updates);
+  await weixinService.refresh();
+
+  return json({ success: true });
+}
+
+async function handleDeleteWeixinAccount(accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  deleteWeixinAccount(accountId);
+  await weixinService.refresh();
+
+  return json({ success: true });
+}
+
+async function handleStartWeixinLogin(accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  try {
+    const result = await weixinService.startLogin(accountId);
+    return json(result);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : t('weixin.loginFailed') }, 502);
+  }
+}
+
+async function handleGetWeixinLoginStatus(accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+  return json(weixinService.getLoginStatus(accountId));
+}
+
+async function handleListWeixinUsers(accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+  const users = listWeixinUsersByAccount(accountId);
+  return json({ users });
+}
+
+async function handleApproveWeixinUser(accountId: string, userId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  const user = approveWeixinUser(accountId, userId);
+  if (!user) {
+    return json({ error: t('weixin.userNotFound') }, 404);
+  }
+
+  // 最佳努力发一条批准回执（会话可能已过期，失败不影响批准结果）。
+  const settings = getSiteSettings();
+  try {
+    await weixinService.sendTestMessage(
+      accountId,
+      userId,
+      t('weixin.approveMessageTemplate', {
+        accountName: existing.name,
+        time: new Date().toLocaleString(toBCP47(settings.language)),
+      })
+    );
+  } catch (err) {
+    console.error('[weixin] approve ack failed:', err);
+  }
+
+  return json({ user });
+}
+
+async function handleTestWeixinUser(accountId: string, userId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  const settings = getSiteSettings();
+  try {
+    await weixinService.sendTestMessage(
+      accountId,
+      userId,
+      t('weixin.testMessageTemplate', {
+        siteName: settings.siteName,
+        time: new Date().toLocaleString(toBCP47(settings.language)),
+      })
+    );
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : t('weixin.testMessageFailed') }, 400);
+  }
+
+  return json({ success: true });
+}
+
+// 账号级测试：给该账号（单个）已绑定用户发测试消息。
+async function handleTestWeixinAccount(accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  const settings = getSiteSettings();
+  try {
+    await weixinService.sendTestMessageToBoundUser(
+      accountId,
+      t('weixin.testMessageTemplate', {
+        siteName: settings.siteName,
+        time: new Date().toLocaleString(toBCP47(settings.language)),
+      })
+    );
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : t('weixin.testMessageFailed') }, 400);
+  }
+
+  return json({ success: true });
+}
+
+async function handleDeleteWeixinUser(accountId: string, userId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+  deleteWeixinUser(accountId, userId);
   return json({ success: true });
 }
 

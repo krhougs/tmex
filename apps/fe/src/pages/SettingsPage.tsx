@@ -47,6 +47,7 @@ import { TelegramBotsTab } from '../components/settings/telegram-bots-tab';
 import { TerminalSettingsTab } from '../components/settings/terminal-tab';
 import { VersionTab } from '../components/settings/version-tab';
 import { WebhooksTab } from '../components/settings/webhooks-tab';
+import { WeixinAccountsTab } from '../components/settings/weixin-accounts-tab';
 import { useSiteStore } from '../stores/site';
 import { useUIStore } from '../stores/ui';
 
@@ -88,6 +89,8 @@ export default function SettingsPage() {
   const [enableBrowserNotificationToast, setEnableBrowserNotificationToast] = useState(true);
   const [enableTelegramBellPush, setEnableTelegramBellPush] = useState(true);
   const [enableTelegramNotificationPush, setEnableTelegramNotificationPush] = useState(true);
+  const [enableWeixinBellPush, setEnableWeixinBellPush] = useState(false);
+  const [enableWeixinNotificationPush, setEnableWeixinNotificationPush] = useState(false);
   const [sshReconnectMaxRetries, setSshReconnectMaxRetries] = useState(2);
   const [sshReconnectDelaySeconds, setSshReconnectDelaySeconds] = useState(10);
   const [showRefreshNotice, setShowRefreshNotice] = useState(false);
@@ -124,6 +127,8 @@ export default function SettingsPage() {
     setEnableBrowserNotificationToast(settings.enableBrowserNotificationToast ?? true);
     setEnableTelegramBellPush(settings.enableTelegramBellPush ?? true);
     setEnableTelegramNotificationPush(settings.enableTelegramNotificationPush ?? true);
+    setEnableWeixinBellPush(settings.enableWeixinBellPush ?? false);
+    setEnableWeixinNotificationPush(settings.enableWeixinNotificationPush ?? false);
     setSshReconnectMaxRetries(settings.sshReconnectMaxRetries);
     setSshReconnectDelaySeconds(settings.sshReconnectDelaySeconds);
   }, [settingsQuery.data?.settings]);
@@ -140,6 +145,8 @@ export default function SettingsPage() {
         enableBrowserNotificationToast,
         enableTelegramBellPush,
         enableTelegramNotificationPush,
+        enableWeixinBellPush,
+        enableWeixinNotificationPush,
         sshReconnectMaxRetries,
         sshReconnectDelaySeconds,
       };
@@ -407,6 +414,30 @@ export default function SettingsPage() {
                     data-testid="settings-enable-telegram-notification-push"
                   />
                 </div>
+
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">{t('settings.enableWeixinBellPush')}</div>
+                  </div>
+                  <Switch
+                    checked={enableWeixinBellPush}
+                    onCheckedChange={(checked) => setEnableWeixinBellPush(Boolean(checked))}
+                    data-testid="settings-enable-weixin-bell-push"
+                  />
+                </div>
+
+                <div className="flex min-h-10 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-2.5">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-sm font-medium">
+                      {t('settings.enableWeixinNotificationPush')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={enableWeixinNotificationPush}
+                    onCheckedChange={(checked) => setEnableWeixinNotificationPush(Boolean(checked))}
+                    data-testid="settings-enable-weixin-notification-push"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -482,6 +513,7 @@ export default function SettingsPage() {
           </Card>
 
           <TelegramBotsTab />
+          <WeixinAccountsTab />
           <WebhooksTab />
         </>
       )}

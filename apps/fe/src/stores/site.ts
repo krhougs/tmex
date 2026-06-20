@@ -18,6 +18,8 @@ const DEFAULT_SETTINGS: SiteSettings = {
   enableBrowserNotificationToast: true,
   enableTelegramBellPush: true,
   enableTelegramNotificationPush: true,
+  enableWeixinBellPush: false,
+  enableWeixinNotificationPush: false,
   sshReconnectMaxRetries: 2,
   sshReconnectDelaySeconds: 10,
   language: DEFAULT_LOCALE,

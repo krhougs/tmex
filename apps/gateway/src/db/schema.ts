@@ -41,6 +41,14 @@ export const siteSettings = sqliteTable(
     })
       .notNull()
       .default(true),
+    enableWeixinBellPush: integer('enable_weixin_bell_push', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    enableWeixinNotificationPush: integer('enable_weixin_notification_push', {
+      mode: 'boolean',
+    })
+      .notNull()
+      .default(false),
     sshReconnectMaxRetries: integer('ssh_reconnect_max_retries').notNull(),
     sshReconnectDelaySeconds: integer('ssh_reconnect_delay_seconds').notNull(),
     language: text('language').notNull().default('en_US'),
@@ -372,5 +380,46 @@ export const telegramBotChats = sqliteTable(
       'telegram_bot_chats_chat_type_check',
       sql`${table.chatType} in ('private', 'group', 'supergroup', 'channel', 'unknown')`
     ),
+  ]
+);
+
+// 微信 (iLink) 账号：扫码登录后写入凭证（botTokenEnc 加密落库）。未登录时凭证列为 null。
+export const weixinAccounts = sqliteTable('weixin_accounts', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  allowAuthRequests: integer('allow_auth_requests', { mode: 'boolean' }).notNull().default(true),
+  // iLink 登录确认返回：账号自身标识（uin）/ bearer token / baseurl。
+  weixinUin: text('weixin_uin'),
+  botTokenEnc: text('bot_token_enc'),
+  baseUrl: text('base_url'),
+  // 长轮询游标 get_updates_buf（重启续传）。
+  syncBuf: text('sync_buf'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// 微信账号的会话对象：授权状态 + 半主动推送的最佳努力 context_token 缓存。
+export const weixinAccountUsers = sqliteTable(
+  'weixin_account_users',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => weixinAccounts.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    displayName: text('display_name').notNull(),
+    status: text('status').notNull(),
+    // 最近 inbound 消息的 context_token（iLink 发送必需，失效后置 needsReactivation）。
+    lastContextToken: text('last_context_token'),
+    lastInboundAt: text('last_inbound_at'),
+    needsReactivation: integer('needs_reactivation', { mode: 'boolean' }).notNull().default(false),
+    appliedAt: text('applied_at').notNull(),
+    authorizedAt: text('authorized_at'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    unique('weixin_account_users_account_user_unique').on(table.accountId, table.userId),
+    check('weixin_account_users_status_check', sql`${table.status} in ('pending', 'authorized')`),
   ]
 );
