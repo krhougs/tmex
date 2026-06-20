@@ -4,7 +4,7 @@ import { type CSSProperties, StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Outlet, RouterProvider, createBrowserRouter, useParams } from 'react-router';
 import { Toaster } from 'sonner';
-import './i18n';
+import { i18nReady } from './i18n';
 import './index.css';
 
 // 浏览器 console 打印 monorepo 版本（非 production 带 _dev 后缀）
@@ -246,11 +246,15 @@ if (!rootElement) {
   throw new Error('Root element not found');
 }
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <ThemedToaster />
-    </QueryClientProvider>
-  </StrictMode>
-);
+// 当前语言（及 fallback）按需异步加载，渲染前 await 以避免首屏出现未翻译的 key。
+// 弱网下即便 locale chunk 加载失败也必须渲染（catch 兜底），否则整页空白比未翻译更糟。
+void i18nReady.catch(() => undefined).then(() => {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <ThemedToaster />
+      </QueryClientProvider>
+    </StrictMode>
+  );
+});

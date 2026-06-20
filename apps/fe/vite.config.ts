@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
-import { defineConfig } from 'vite';
+import { visualizer } from 'rollup-plugin-visualizer';
+import { type PluginOption, defineConfig } from 'vite';
 
 // monorepo 版本真相源：发布的 tmex-cli（packages/app）版本。读取失败退回 0.0.0。
 function readMonorepoVersion(): string {
@@ -29,8 +30,20 @@ export default defineConfig(({ mode }) => {
   console.log(`[vite] Frontend port: ${fePort}`);
   console.log(`[vite] Monorepo version: ${monorepoVersion} (prod=${isProd})`);
 
+  // ANALYZE=1 时生成 dist/stats.html treemap（含 gzip/brotli 体积），用于量化包体积优化。
+  const analyzePlugins: PluginOption[] = process.env.ANALYZE
+    ? [
+        visualizer({
+          filename: 'dist/stats.html',
+          gzipSize: true,
+          brotliSize: true,
+          template: 'treemap',
+        }) as PluginOption,
+      ]
+    : [];
+
   return {
-    plugins: [tailwindcss(), react()],
+    plugins: [tailwindcss(), react(), ...analyzePlugins],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -57,7 +70,9 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: true,
+      // 生产构建默认不出 source map：~18MB 的 .map 会进 resources/fe-dist 随包分发，纯属负担
+      // （浏览器正常不下载，但撑大安装/升级体积）。需要线上排障时 BUILD_SOURCEMAP=1 显式开启；dev 构建保留。
+      sourcemap: process.env.BUILD_SOURCEMAP === '1' || !isProd,
     },
     define: {
       // 将关键配置暴露给前端代码
