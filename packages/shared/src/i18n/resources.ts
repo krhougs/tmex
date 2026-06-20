@@ -469,7 +469,15 @@ export const I18N_RESOURCES = {
       "authSuccess": "✅ Authorized. You will now receive notifications.",
       "authPending": "⏳ Authorization request received. Please approve in tmex settings.",
       "testMessageTemplate": "🧪 Test Message\nSite: {{siteName}}\nTime: {{time}}",
-      "approveMessageTemplate": "✅ Authorized via tmex.\nAccount: {{accountName}}\nTime: {{time}}"
+      "approveMessageTemplate": "✅ Authorized via tmex.\nAccount: {{accountName}}\nTime: {{time}}",
+      "keepalivePrompt": "【tmex】To keep notifications flowing, just reply with anything to keep the session alive 🙏",
+      "scanConfirmedSendHint": "Scan confirmed! Now send any message to this bot in WeChat to finish binding.",
+      "bindingInProgress": "Message received, finishing binding…",
+      "bindSuccess": "WeChat bound. You will now receive notifications.",
+      "bound": "Bound",
+      "unbound": "Not bound",
+      "bindAction": "Bind (scan)",
+      "gatewayOnline": "🟢 tmex online @ {{siteName}}"
     },
     "webhook": {
       "title": "Webhooks",
@@ -1443,7 +1451,15 @@ export const I18N_RESOURCES = {
       "authSuccess": "✅ 已授权，你将开始收到通知。",
       "authPending": "⏳ 已收到授权申请，请在 tmex 设置中批准。",
       "testMessageTemplate": "🧪 测试消息\n站点：{{siteName}}\n时间：{{time}}",
-      "approveMessageTemplate": "✅ 已通过 tmex 授权。\n账号：{{accountName}}\n时间：{{time}}"
+      "approveMessageTemplate": "✅ 已通过 tmex 授权。\n账号：{{accountName}}\n时间：{{time}}",
+      "keepalivePrompt": "【tmex】为确保你能正常收到通知，请回复任意内容即可保持连接 🙏",
+      "scanConfirmedSendHint": "扫码成功！请在微信里给该 bot 发送任意一条消息以完成绑定。",
+      "bindingInProgress": "已收到消息，正在完成绑定…",
+      "bindSuccess": "微信已绑定，开始接收通知。",
+      "bound": "已绑定",
+      "unbound": "未绑定",
+      "bindAction": "扫码绑定",
+      "gatewayOnline": "🟢 tmex 已上线 @ {{siteName}}"
     },
     "webhook": {
       "title": "Webhooks",
@@ -2417,7 +2433,15 @@ export const I18N_RESOURCES = {
       "authSuccess": "✅ 認証されました。通知を受け取れます。",
       "authPending": "⏳ 認証リクエストを受け取りました。tmex の設定で承認してください。",
       "testMessageTemplate": "🧪 テストメッセージ\nサイト：{{siteName}}\n時刻：{{time}}",
-      "approveMessageTemplate": "✅ tmex 経由で認証しました。\nアカウント：{{accountName}}\n時刻：{{time}}"
+      "approveMessageTemplate": "✅ tmex 経由で認証しました。\nアカウント：{{accountName}}\n時刻：{{time}}",
+      "keepalivePrompt": "【tmex】通知を確実に受け取るため、任意の内容を返信して接続を維持してください 🙏",
+      "scanConfirmedSendHint": "スキャン完了！WeChat でこの bot に任意のメッセージを送信して紐付けを完了してください。",
+      "bindingInProgress": "メッセージを受信、紐付けを完了しています…",
+      "bindSuccess": "WeChat を紐付けました。通知を受け取れます。",
+      "bound": "紐付け済み",
+      "unbound": "未紐付け",
+      "bindAction": "スキャンして紐付け",
+      "gatewayOnline": "🟢 tmex オンライン @ {{siteName}}"
     },
     "webhook": {
       "title": "Webhooks",

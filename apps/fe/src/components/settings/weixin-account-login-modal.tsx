@@ -1,6 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
-import type { StartWeixinLoginResponse, WeixinLoginStatusResponse } from '@tmex/shared';
+import type {
+  StartWeixinLoginResponse,
+  WeixinAccountUser,
+  WeixinLoginStatusResponse,
+} from '@tmex/shared';
 import { Loader2, QrCode, RefreshCw } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -26,12 +31,8 @@ async function parseApiError(res: Response, fallback: string): Promise<string> {
   }
 }
 
-/** 把后端返回的二维码内容统一规整为可用作 <img src> 的字符串。 */
-function toQrcodeImageSrc(qrcodeUrl: string): string {
-  if (qrcodeUrl.startsWith('data:') || qrcodeUrl.startsWith('http')) {
-    return qrcodeUrl;
-  }
-  return `data:image/png;base64,${qrcodeUrl}`;
+interface WeixinUsersResponse {
+  users: WeixinAccountUser[];
 }
 
 interface WeixinAccountLoginModalProps {
@@ -41,7 +42,7 @@ interface WeixinAccountLoginModalProps {
   accountName: string;
 }
 
-type Phase = 'starting' | 'polling' | 'expired' | 'error';
+type Phase = 'starting' | 'scanning' | 'awaitMessage' | 'binding' | 'expired' | 'error';
 
 export function WeixinAccountLoginModal({
   open,
@@ -76,14 +77,62 @@ export function WeixinAccountLoginModal({
     genRef.current += 1;
   }, [clearPollTimer]);
 
-  const finishLogin = useCallback(async () => {
+  const finishBinding = useCallback(async () => {
     cancelActive();
     await queryClient.invalidateQueries({ queryKey: ['weixin-accounts'] });
-    toast.success(t('weixin.loginConfirmed'));
+    toast.success(t('weixin.bindSuccess'));
     onOpenChange(false);
   }, [cancelActive, onOpenChange, queryClient, t]);
 
-  const poll = useCallback(
+  // 第二段轮询：扫码确认后等用户发新消息，检测到后自动 approve 并完成绑定。
+  const pollBinding = useCallback(
+    async (gen: number, signal: AbortSignal, baseline: Map<string, string | null>) => {
+      try {
+        const res = await fetch(`/api/settings/weixin/accounts/${accountId}/users`, { signal });
+        if (genRef.current !== gen) return;
+        if (!res.ok) {
+          throw new Error(await parseApiError(res, t('weixin.loginFailed')));
+        }
+        const data = (await res.json()) as WeixinUsersResponse;
+        if (genRef.current !== gen) return;
+
+        // 新用户（首次绑定）或 lastInboundAt 变化（重新授权）＝扫码后的新消息。
+        const fresh = data.users.find(
+          (u) => !baseline.has(u.userId) || u.lastInboundAt !== baseline.get(u.userId)
+        );
+
+        if (fresh) {
+          setPhase('binding');
+          setStatusMessage(t('weixin.bindingInProgress'));
+          if (fresh.status === 'pending') {
+            const approveRes = await fetch(
+              `/api/settings/weixin/accounts/${accountId}/users/${encodeURIComponent(fresh.userId)}/approve`,
+              { method: 'POST', signal }
+            );
+            if (genRef.current !== gen) return;
+            if (!approveRes.ok) {
+              throw new Error(await parseApiError(approveRes, t('weixin.approveFailed')));
+            }
+          }
+          await finishBinding();
+          return;
+        }
+
+        pollTimerRef.current = setTimeout(
+          () => void pollBinding(gen, signal, baseline),
+          POLL_INTERVAL_MS
+        );
+      } catch (err) {
+        if (signal.aborted || genRef.current !== gen) return;
+        setPhase('error');
+        setStatusMessage(err instanceof Error ? err.message : t('weixin.loginFailed'));
+      }
+    },
+    [accountId, finishBinding, t]
+  );
+
+  // 第一段轮询：等扫码确认。确认后拍 users baseline 快照，转入第二段。
+  const pollLogin = useCallback(
     async (gen: number, signal: AbortSignal) => {
       try {
         const res = await fetch(`/api/settings/weixin/accounts/${accountId}/login/status`, {
@@ -96,10 +145,6 @@ export function WeixinAccountLoginModal({
         const data = (await res.json()) as WeixinLoginStatusResponse;
         if (genRef.current !== gen) return;
 
-        if (data.loggedIn || data.status === 'confirmed') {
-          await finishLogin();
-          return;
-        }
         if (data.status === 'expired') {
           setPhase('expired');
           setStatusMessage(t('weixin.loginExpired'));
@@ -111,16 +156,40 @@ export function WeixinAccountLoginModal({
           return;
         }
 
-        setPhase('polling');
-        setStatusMessage(t('weixin.loginPending'));
-        pollTimerRef.current = setTimeout(() => void poll(gen, signal), POLL_INTERVAL_MS);
+        if (data.loggedIn || data.status === 'confirmed') {
+          // 扫码确认那一刻拍一份 users 快照作为 baseline（服务端 lastInboundAt 比对，免时钟漂移）。
+          const usersRes = await fetch(`/api/settings/weixin/accounts/${accountId}/users`, {
+            signal,
+          });
+          if (genRef.current !== gen) return;
+          if (!usersRes.ok) {
+            throw new Error(await parseApiError(usersRes, t('weixin.loginFailed')));
+          }
+          const usersData = (await usersRes.json()) as WeixinUsersResponse;
+          if (genRef.current !== gen) return;
+
+          const baseline = new Map<string, string | null>(
+            usersData.users.map((u) => [u.userId, u.lastInboundAt])
+          );
+          setPhase('awaitMessage');
+          setStatusMessage(t('weixin.scanConfirmedSendHint'));
+          pollTimerRef.current = setTimeout(
+            () => void pollBinding(gen, signal, baseline),
+            POLL_INTERVAL_MS
+          );
+          return;
+        }
+
+        setPhase('scanning');
+        setStatusMessage(t('weixin.scanQrcodeHint'));
+        pollTimerRef.current = setTimeout(() => void pollLogin(gen, signal), POLL_INTERVAL_MS);
       } catch (err) {
         if (signal.aborted || genRef.current !== gen) return;
         setPhase('error');
         setStatusMessage(err instanceof Error ? err.message : t('weixin.loginFailed'));
       }
     },
-    [accountId, finishLogin, t]
+    [accountId, pollBinding, t]
   );
 
   const start = useCallback(async () => {
@@ -142,16 +211,20 @@ export function WeixinAccountLoginModal({
       }
       const data = (await res.json()) as StartWeixinLoginResponse;
       if (genRef.current !== gen) return;
-      setQrcodeUrl(toQrcodeImageSrc(data.qrcodeUrl));
-      setPhase('polling');
-      setStatusMessage(t('weixin.loginPending'));
-      pollTimerRef.current = setTimeout(() => void poll(gen, controller.signal), POLL_INTERVAL_MS);
+      // qrcodeUrl 是二维码要编码的 URL（iLink 的 qrcode_img_content 实为 URL，非图片），前端生成二维码。
+      setQrcodeUrl(data.qrcodeUrl);
+      setPhase('scanning');
+      setStatusMessage(t('weixin.scanQrcodeHint'));
+      pollTimerRef.current = setTimeout(
+        () => void pollLogin(gen, controller.signal),
+        POLL_INTERVAL_MS
+      );
     } catch (err) {
       if (controller.signal.aborted || genRef.current !== gen) return;
       setPhase('error');
       setStatusMessage(err instanceof Error ? err.message : t('weixin.loginFailed'));
     }
-  }, [accountId, cancelActive, poll, t]);
+  }, [accountId, cancelActive, pollLogin, t]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在弹窗打开或账号切换时重新发起登录，start/cancelActive 为稳定回调
   useEffect(() => {
@@ -181,17 +254,15 @@ export function WeixinAccountLoginModal({
           <div className="flex h-56 w-56 items-center justify-center rounded-lg border border-border bg-white">
             {isStarting && <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />}
             {!isStarting && qrcodeUrl && (
-              <img
-                src={qrcodeUrl}
-                alt={t('weixin.scanToLogin')}
-                className="h-52 w-52 object-contain"
+              <QRCodeSVG
+                value={qrcodeUrl}
+                size={208}
+                marginSize={3}
                 data-testid={`weixin-account-login-qrcode-${accountId}`}
               />
             )}
             {!isStarting && !qrcodeUrl && <QrCode className="h-10 w-10 text-muted-foreground" />}
           </div>
-
-          <p className="text-center text-sm text-muted-foreground">{t('weixin.scanQrcodeHint')}</p>
 
           {statusMessage && (
             <p

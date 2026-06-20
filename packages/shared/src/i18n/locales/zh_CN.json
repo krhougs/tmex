@@ -463,7 +463,15 @@
       "authSuccess": "✅ 已授权，你将开始收到通知。",
       "authPending": "⏳ 已收到授权申请，请在 tmex 设置中批准。",
       "testMessageTemplate": "🧪 测试消息\n站点：{{siteName}}\n时间：{{time}}",
-      "approveMessageTemplate": "✅ 已通过 tmex 授权。\n账号：{{accountName}}\n时间：{{time}}"
+      "approveMessageTemplate": "✅ 已通过 tmex 授权。\n账号：{{accountName}}\n时间：{{time}}",
+      "keepalivePrompt": "【tmex】为确保你能正常收到通知，请回复任意内容即可保持连接 🙏",
+      "scanConfirmedSendHint": "扫码成功！请在微信里给该 bot 发送任意一条消息以完成绑定。",
+      "bindingInProgress": "已收到消息，正在完成绑定…",
+      "bindSuccess": "微信已绑定，开始接收通知。",
+      "bound": "已绑定",
+      "unbound": "未绑定",
+      "bindAction": "扫码绑定",
+      "gatewayOnline": "🟢 tmex 已上线 @ {{siteName}}"
     },
     "webhook": {
       "title": "Webhooks",

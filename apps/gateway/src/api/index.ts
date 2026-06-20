@@ -287,6 +287,9 @@ export function handleApiRequest(
   ) {
     return handleGetWeixinLoginStatus(path.split('/')[5]);
   }
+  if (path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/test$/) && req.method === 'POST') {
+    return handleTestWeixinAccount(path.split('/')[5]);
+  }
   if (path.match(/^\/api\/settings\/weixin\/accounts\/[^/]+\/users$/) && req.method === 'GET') {
     return handleListWeixinUsers(path.split('/')[5]);
   }
@@ -833,6 +836,29 @@ async function handleTestWeixinUser(accountId: string, userId: string): Promise<
     await weixinService.sendTestMessage(
       accountId,
       userId,
+      t('weixin.testMessageTemplate', {
+        siteName: settings.siteName,
+        time: new Date().toLocaleString(toBCP47(settings.language)),
+      })
+    );
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : t('weixin.testMessageFailed') }, 400);
+  }
+
+  return json({ success: true });
+}
+
+// 账号级测试：给该账号（单个）已绑定用户发测试消息。
+async function handleTestWeixinAccount(accountId: string): Promise<Response> {
+  const existing = getWeixinAccountById(accountId);
+  if (!existing) {
+    return json({ error: t('weixin.accountNotFound') }, 404);
+  }
+
+  const settings = getSiteSettings();
+  try {
+    await weixinService.sendTestMessageToBoundUser(
+      accountId,
       t('weixin.testMessageTemplate', {
         siteName: settings.siteName,
         time: new Date().toLocaleString(toBCP47(settings.language)),

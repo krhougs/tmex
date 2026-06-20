@@ -52,7 +52,6 @@ export function WeixinAccountFormModal({
 
   const [name, setName] = useState('');
   const [enabled, setEnabled] = useState(true);
-  const [allowAuthRequests, setAllowAuthRequests] = useState(true);
 
   const [loginAccount, setLoginAccount] = useState<{ id: string; name: string } | null>(null);
 
@@ -62,7 +61,6 @@ export function WeixinAccountFormModal({
     }
     setName(account?.name ?? '');
     setEnabled(account?.enabled ?? true);
-    setAllowAuthRequests(account?.allowAuthRequests ?? true);
   }, [open, account]);
 
   const createMutation = useMutation({
@@ -73,7 +71,7 @@ export function WeixinAccountFormModal({
         body: JSON.stringify({
           name: name.trim(),
           enabled,
-          allowAuthRequests,
+          allowAuthRequests: true,
         }),
       });
       if (!res.ok) {
@@ -103,7 +101,6 @@ export function WeixinAccountFormModal({
         body: JSON.stringify({
           name: name.trim(),
           enabled,
-          allowAuthRequests,
         }),
       });
       if (!res.ok) {
@@ -168,15 +165,6 @@ export function WeixinAccountFormModal({
                 checked={enabled}
                 data-testid="weixin-account-enabled"
                 onCheckedChange={(checked) => setEnabled(Boolean(checked))}
-              />
-            </div>
-
-            <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
-              <span className="text-sm font-medium">{t('weixin.allowAuthRequests')}</span>
-              <Switch
-                checked={allowAuthRequests}
-                data-testid="weixin-account-allow-auth"
-                onCheckedChange={(checked) => setAllowAuthRequests(Boolean(checked))}
               />
             </div>
           </div>

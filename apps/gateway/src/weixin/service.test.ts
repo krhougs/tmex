@@ -38,6 +38,7 @@ class FakeClient {
     return new Promise<void>(() => {});
   }
   stop(): void {}
+  setContextToken(_userId: string, _token: string): void {}
   async sendText(to: string, text: string): Promise<void> {
     this.sentTexts.push({ to, text });
     this.sendBehavior(to);
@@ -131,7 +132,7 @@ describe('WeixinService send semantics', () => {
     await service.stopAll();
   });
 
-  test('inbound from new user creates pending, caches token, and sends ack', async () => {
+  test('inbound from new user creates pending and caches token (no ack; approve sends it)', async () => {
     const { service, fake, accountId } = await setupRunningAccount();
     const onMessage = fake.startOpts?.onMessage;
     expect(onMessage).toBeDefined();
@@ -144,7 +145,39 @@ describe('WeixinService send semantics', () => {
       userId: 'u2',
       contextToken: 'ctx-u2',
     });
-    expect(fake.sentTexts.some((m) => m.to === 'u2')).toBe(true);
+    // 不再在 inbound 时发回执（绑定走前端一条龙 + approve 端点回执）
+    expect(fake.sentTexts.some((m) => m.to === 'u2')).toBe(false);
+    await service.stopAll();
+  });
+
+  test('sendTestMessageToBoundUser sends to the single authorized user', async () => {
+    const { service, fake, accountId } = await setupRunningAccount({ withUser: true });
+    await service.sendTestMessageToBoundUser(accountId, 'ping');
+    expect(fake.sentTexts).toContainEqual({ to: 'u1', text: 'ping' });
+    await service.stopAll();
+  });
+
+  test('keepalive sweep prompts a bound user idle >= 8h', async () => {
+    const { service, fake, accountId } = await setupRunningAccount({ withUser: true });
+    // 把 u1 的 lastInboundAt 推到 9 小时前（复用 upsert 的 existing 分支更新时间戳）
+    upsertWeixinUserOnInbound({
+      accountId,
+      userId: 'u1',
+      displayName: 'u1',
+      contextToken: 'ctx-u1',
+      allowAuthRequests: true,
+      at: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
+    });
+    await (service as unknown as { runKeepaliveSweep(): Promise<void> }).runKeepaliveSweep();
+    expect(fake.sentTexts.some((m) => m.to === 'u1')).toBe(true);
+    await service.stopAll();
+  });
+
+  test('keepalive sweep skips a recently-active user', async () => {
+    const { service, fake, accountId } = await setupRunningAccount({ withUser: true });
+    void accountId;
+    await (service as unknown as { runKeepaliveSweep(): Promise<void> }).runKeepaliveSweep();
+    expect(fake.sentTexts.length).toBe(0);
     await service.stopAll();
   });
 });

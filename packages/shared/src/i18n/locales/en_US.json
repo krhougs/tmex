@@ -463,7 +463,15 @@
       "authSuccess": "✅ Authorized. You will now receive notifications.",
       "authPending": "⏳ Authorization request received. Please approve in tmex settings.",
       "testMessageTemplate": "🧪 Test Message\nSite: {{siteName}}\nTime: {{time}}",
-      "approveMessageTemplate": "✅ Authorized via tmex.\nAccount: {{accountName}}\nTime: {{time}}"
+      "approveMessageTemplate": "✅ Authorized via tmex.\nAccount: {{accountName}}\nTime: {{time}}",
+      "keepalivePrompt": "【tmex】To keep notifications flowing, just reply with anything to keep the session alive 🙏",
+      "scanConfirmedSendHint": "Scan confirmed! Now send any message to this bot in WeChat to finish binding.",
+      "bindingInProgress": "Message received, finishing binding…",
+      "bindSuccess": "WeChat bound. You will now receive notifications.",
+      "bound": "Bound",
+      "unbound": "Not bound",
+      "bindAction": "Bind (scan)",
+      "gatewayOnline": "🟢 tmex online @ {{siteName}}"
     },
     "webhook": {
       "title": "Webhooks",

@@ -219,8 +219,9 @@ export class WeixinClient {
       throw new Error('iLink get_bot_qrcode returned no qrcode.');
     }
     if (!resp.qrcode_img_content) {
-      // 不回退到 qrcode token（那是轮询 ID，非图像内容），否则前端会渲染成坏图。fail-loud。
-      throw new Error('iLink get_bot_qrcode returned no qrcode image content.');
+      // qrcode_img_content 实为二维码要编码的 URL（非图片本身），前端据此生成二维码；
+      // 缺失则 fail-loud，不回退到 qrcode（那是轮询 ID）。
+      throw new Error('iLink get_bot_qrcode returned no qrcode content.');
     }
     onQrcode({
       url: resp.qrcode_img_content,

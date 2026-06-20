@@ -463,7 +463,15 @@
       "authSuccess": "✅ 認証されました。通知を受け取れます。",
       "authPending": "⏳ 認証リクエストを受け取りました。tmex の設定で承認してください。",
       "testMessageTemplate": "🧪 テストメッセージ\nサイト：{{siteName}}\n時刻：{{time}}",
-      "approveMessageTemplate": "✅ tmex 経由で認証しました。\nアカウント：{{accountName}}\n時刻：{{time}}"
+      "approveMessageTemplate": "✅ tmex 経由で認証しました。\nアカウント：{{accountName}}\n時刻：{{time}}",
+      "keepalivePrompt": "【tmex】通知を確実に受け取るため、任意の内容を返信して接続を維持してください 🙏",
+      "scanConfirmedSendHint": "スキャン完了！WeChat でこの bot に任意のメッセージを送信して紐付けを完了してください。",
+      "bindingInProgress": "メッセージを受信、紐付けを完了しています…",
+      "bindSuccess": "WeChat を紐付けました。通知を受け取れます。",
+      "bound": "紐付け済み",
+      "unbound": "未紐付け",
+      "bindAction": "スキャンして紐付け",
+      "gatewayOnline": "🟢 tmex オンライン @ {{siteName}}"
     },
     "webhook": {
       "title": "Webhooks",

@@ -181,7 +181,8 @@ describe('sendMessage', () => {
 
 describe('non-2xx handling (readJson throws status-bearing error)', () => {
   const statusFetch = (status: number, body = ''): typeof fetch =>
-    (async () => new Response(body, { status })) as typeof fetch;
+    (async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(body, { status })) as typeof fetch;
 
   test('getUpdates rejects on 5xx empty body (not a silent {} success)', async () => {
     await expect(

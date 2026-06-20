@@ -63,6 +63,7 @@ export async function createGatewayRuntime(
   try {
     const settings = getSiteSettings();
     await telegramService.sendGatewayOnlineMessage(settings.siteName);
+    await weixinService.sendGatewayOnlineMessage(settings.siteName);
   } catch (err) {
     console.error('[gateway] failed to push startup message:', err);
   }
