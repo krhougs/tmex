@@ -1,21 +1,24 @@
-# 0.13.0
+# 0.14.0
 
-_2026-06-20_
+_2026-06-29_
 
 ## English
 
 ### New
 
-- WeChat notifications: scan a QR code to link your WeChat account and receive tmex notifications (such as command completions and alerts) right inside WeChat. The connection stays alive automatically, and tmex sends you a heads-up when it comes online.
+- Clipboard support for terminal programs: apps like vim, Claude Code, and other TUI tools can now copy text to your system clipboard via the terminal (OSC 52). A brief toast confirms each copy.
+- Configurable default working directory: set a default path for new terminal windows per device — new windows and panes open there instead of the home directory. Changes take effect immediately without disconnecting.
+- Installer now guides you through installing missing dependencies (tmux, bun) during setup, with distro-specific commands for common Linux distributions.
 
 ### Improvements
 
-- Faster first load: the app downloads noticeably less when you first open it — especially helpful on slow networks.
+- Notification toasts now show the terminal name or running command (e.g. "vim", "make") instead of a numeric pane index, making it easier to identify which terminal triggered an alert.
+- `tmex doctor` suggests `tmex doctor --fix` when it finds fixable issues, and `--fix --no-interactive` works fully unattended for scripted installs.
+- The installer detects whether systemd is available on Linux before proceeding, instead of failing midway on container or WSL environments without it.
 
 ### Fixes
 
-- Clicking a notification now jumps to the right place inside tmex instead of reloading the whole page.
-- Opening a terminal that no longer exists now shows a clear message instead of a blank screen, with proper loading and reconnecting states — and your existing terminal output stays visible while it reconnects.
+- Fixed non-ASCII filenames (Chinese, Japanese, Korean, etc.) showing as garbled escape sequences in the file browser on Linux servers.
 
 ---
 
@@ -23,13 +26,16 @@ _2026-06-20_
 
 ### 新增
 
-- 微信通知：扫码绑定微信账号后，即可直接在微信里收到 tmex 的通知（如命令完成、告警等）。连接会自动保活，tmex 上线时也会给你发来一条提醒。
+- 终端程序剪贴板支持：vim、Claude Code 等 TUI 程序现在可以通过终端直接复制文本到系统剪贴板（OSC 52），复制成功时会显示提示。
+- 可配置默认工作目录：可为每台设备设置新终端窗口的默认路径，新窗口将在该目录下打开而非主目录。修改后立即生效，无需断开连接。
+- 安装器现在会在安装过程中引导用户安装缺失的依赖（tmux、bun），并为常见 Linux 发行版提供专属的安装命令。
 
 ### 改进
 
-- 首屏加载更快：应用首次打开时需要下载的内容明显减少，弱网环境下尤其明显。
+- 通知提示现在显示终端名称或正在运行的命令（如"vim"、"make"），而非数字索引，更容易识别是哪个终端触发了提醒。
+- `tmex doctor` 检测到可修复的问题时会提示使用 `tmex doctor --fix`，且 `--fix --no-interactive` 支持完全无人值守的脚本化安装。
+- 安装器在 Linux 上会先检测 systemd 是否可用，在容器或无 systemd 的 WSL 环境中提前给出明确错误，而非中途失败。
 
 ### 修复
 
-- 点击通知现在会正确跳转到 tmex 内对应位置，不再整页刷新。
-- 打开已不存在的终端时会给出清晰提示，而不是一片空白，并补全了加载与重连状态——重连时仍能看清已有的终端内容。
+- 修复了 Linux 服务器文件浏览器中中日韩等非 ASCII 文件名显示为乱码转义序列的问题。
