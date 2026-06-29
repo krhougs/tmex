@@ -1,41 +1,29 @@
-# 0.14.0
+# 0.15.0
 
 _2026-06-29_
 
 ## English
 
-### New
+### Bug Fixes
 
-- Clipboard support for terminal programs: apps like vim, Claude Code, and other TUI tools can now copy text to your system clipboard via the terminal (OSC 52). A brief toast confirms each copy.
-- Configurable default working directory: set a default path for new terminal windows per device — new windows and panes open there instead of the home directory. Changes take effect immediately without disconnecting.
-- Installer now guides you through installing missing dependencies (tmux, bun) during setup, with distro-specific commands for common Linux distributions.
+- Fix iOS PWA losing WebSocket connection permanently after backgrounding. The client now detects zombie connections via pong timeout and automatically reconnects when the page returns to foreground. (`42c8249`)
+- Fix stdin heartbeat and `%pause` handling in control mode; improve pump recovery on unexpected disconnects. (`a208371`)
 
 ### Improvements
 
-- Notification toasts now show the terminal name or running command (e.g. "vim", "make") instead of a numeric pane index, making it easier to identify which terminal triggered an alert.
-- `tmex doctor` suggests `tmex doctor --fix` when it finds fixable issues, and `--fix --no-interactive` works fully unattended for scripted installs.
-- The installer detects whether systemd is available on Linux before proceeding, instead of failing midway on container or WSL environments without it.
-
-### Fixes
-
-- Fixed non-ASCII filenames (Chinese, Japanese, Korean, etc.) showing as garbled escape sequences in the file browser on Linux servers.
+- Add a floating connection status indicator (bottom-right corner) that shows reconnecting state and provides a manual reconnect button when all retries are exhausted. Replaces the previous unhelpful error toast.
+- Display WebSocket latency next to the dark mode toggle in the sidebar. Values >= 150 ms are highlighted in red.
 
 ---
 
 ## 中文
 
-### 新增
+### 问题修复
 
-- 终端程序剪贴板支持：vim、Claude Code 等 TUI 程序现在可以通过终端直接复制文本到系统剪贴板（OSC 52），复制成功时会显示提示。
-- 可配置默认工作目录：可为每台设备设置新终端窗口的默认路径，新窗口将在该目录下打开而非主目录。修改后立即生效，无需断开连接。
-- 安装器现在会在安装过程中引导用户安装缺失的依赖（tmux、bun），并为常见 Linux 发行版提供专属的安装命令。
+- 修复 iOS PWA 后台化后 WebSocket 永久断连的问题。客户端现在通过 pong 超时检测僵尸连接，页面回到前台时自动恢复连接。(`42c8249`)
+- 修复控制模式下 stdin 心跳和 `%pause` 处理问题，改善意外断连时的 pump 恢复。(`a208371`)
 
-### 改进
+### 体验优化
 
-- 通知提示现在显示终端名称或正在运行的命令（如"vim"、"make"），而非数字索引，更容易识别是哪个终端触发了提醒。
-- `tmex doctor` 检测到可修复的问题时会提示使用 `tmex doctor --fix`，且 `--fix --no-interactive` 支持完全无人值守的脚本化安装。
-- 安装器在 Linux 上会先检测 systemd 是否可用，在容器或无 systemd 的 WSL 环境中提前给出明确错误，而非中途失败。
-
-### 修复
-
-- 修复了 Linux 服务器文件浏览器中中日韩等非 ASCII 文件名显示为乱码转义序列的问题。
+- 新增浮动连接状态指示器（右下角），显示重连状态，重试耗尽后提供手动重连按钮。替换了之前不友好的错误 toast。
+- 在侧边栏深色模式开关旁显示 WebSocket 延迟，延迟 >= 150 ms 时标红。
