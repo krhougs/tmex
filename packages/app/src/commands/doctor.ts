@@ -294,6 +294,10 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
     return;
   }
 
+  if (!fix && fixableFailures.length > 0 && !json) {
+    console.log(`\n[tmex] ${t('doctor.fix.hint')}`);
+  }
+
   const failed = checks.some((check) => check.level === 'fail');
   if (failed) {
     process.exitCode = 1;

@@ -11,7 +11,7 @@ import { t } from '../i18n';
 import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import {
   executeDependencyInstall,
-  getInstallHint,
+  getInstallHintAsync,
   planBunInstall,
   planTmuxInstall,
   type DepInstallPlan,
@@ -158,7 +158,7 @@ async function handleDepFailure(
   config: InitConfig,
   errorMessage: string
 ): Promise<void> {
-  const hint = getInstallHint(dep);
+  const hint = await getInstallHintAsync(dep);
   const commands = dep === 'bun' ? planBunInstall() : await planTmuxInstall();
   const plan: DepInstallPlan = {
     dep,
@@ -167,19 +167,10 @@ async function handleDepFailure(
     issue: 'missing',
   };
 
-  if (config.installDeps) {
+  if (config.installDeps || !config.nonInteractive) {
     const installed = await executeDependencyInstall(plan, {
       nonInteractive: config.nonInteractive,
-      autoConfirm: config.nonInteractive,
-    });
-    if (installed) return;
-    throw new Error(errorMessage);
-  }
-
-  if (!config.nonInteractive) {
-    const installed = await executeDependencyInstall(plan, {
-      nonInteractive: false,
-      autoConfirm: false,
+      autoConfirm: config.installDeps && config.nonInteractive,
     });
     if (installed) return;
     throw new Error(errorMessage);
