@@ -1,5 +1,6 @@
 import { getTmuxWindowStyle } from '@/components/terminal/theme';
 import { navigateToAppUrl } from '@/lib/app-navigation';
+import type { ConnectionState } from '@/ws-borsh';
 import { getBorshClient } from '@/ws-borsh';
 import {
   buildDeviceConnect,
@@ -50,7 +51,9 @@ export interface DeviceInitialErrorInput {
 }
 
 interface TmuxState {
-  socketReady: boolean;
+  connectionState: ConnectionState;
+  hasConnectedOnce: boolean;
+  wsLatencyMs: number | null;
   snapshots: SnapshotMap;
   connectedDevices: Set<string>;
   deviceConnected: Record<string, boolean | undefined>;
@@ -145,7 +148,11 @@ function setupClientHandlers(
   };
 
   client.onStateChange((state) => {
-    setState({ socketReady: state === 'READY' });
+    setState((prev) => ({
+      connectionState: state,
+      hasConnectedOnce: state === 'READY' ? true : prev.hasConnectedOnce,
+      wsLatencyMs: state === 'READY' ? prev.wsLatencyMs : null,
+    }));
   });
 
   client.onMessage((msg) => {
@@ -273,10 +280,10 @@ function setupClientHandlers(
 
   client.onError((error) => {
     console.error('[tmux] borsh ws error:', error);
-    setState({ socketReady: false });
-    toast.error('WebSocket Connection Error', {
-      description: 'Please check Gateway status',
-    });
+  });
+
+  client.onLatency((ms) => {
+    setState({ wsLatencyMs: ms });
   });
 
   // 首次 READY 后补发 connect（避免重连后丢失连接）
@@ -429,7 +436,9 @@ function handleTmuxEvent(
 }
 
 export const useTmuxStore = create<TmuxState>((set, get) => ({
-  socketReady: false,
+  connectionState: 'IDLE' as ConnectionState,
+  hasConnectedOnce: false,
+  wsLatencyMs: null,
   snapshots: {},
   connectedDevices: new Set(),
   deviceConnected: {},

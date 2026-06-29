@@ -10,6 +10,7 @@ import './index.css';
 // 浏览器 console 打印 monorepo 版本（非 production 带 _dev 后缀）
 console.info(`tmex ${formatDisplayVersion(__MONOREPO_VERSION__, __IS_PROD__)}`);
 
+import { ConnectionIndicator } from '@/components/connection-indicator';
 import { FlowBridges } from '@/components/flow-bridges';
 import { GlobalDeviceProvider } from '@/components/global-device-provider';
 import { AppSidebar } from '@/components/page-layouts/components/app-sidebar';
@@ -253,6 +254,7 @@ void i18nReady.catch(() => undefined).then(() => {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
+        <ConnectionIndicator />
         <ThemedToaster />
       </QueryClientProvider>
     </StrictMode>

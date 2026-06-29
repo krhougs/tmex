@@ -540,7 +540,9 @@ export const I18N_RESOURCES = {
       "error": "WebSocket connection error",
       "checkGateway": "Please check Gateway status",
       "upgradeFailed": "Upgrade failed",
-      "invalidMessage": "Invalid message format"
+      "invalidMessage": "Invalid message format",
+      "reconnecting": "Reconnecting",
+      "reconnect": "Reconnect"
     },
     "wsError": {
       "checkGateway": "Please check Gateway status"
@@ -1527,7 +1529,9 @@ export const I18N_RESOURCES = {
       "error": "WebSocket 连接错误",
       "checkGateway": "请检查 Gateway 状态",
       "upgradeFailed": "Upgrade failed",
-      "invalidMessage": "Invalid message format"
+      "invalidMessage": "Invalid message format",
+      "reconnecting": "重连中",
+      "reconnect": "重新连接"
     },
     "wsError": {
       "checkGateway": "请检查 Gateway 状态"
@@ -2514,7 +2518,9 @@ export const I18N_RESOURCES = {
       "error": "WebSocket 接続エラー",
       "checkGateway": "Gateway 状態を確認してください",
       "upgradeFailed": "アップグレードに失敗しました",
-      "invalidMessage": "無効なメッセージ形式"
+      "invalidMessage": "無効なメッセージ形式",
+      "reconnecting": "再接続中",
+      "reconnect": "再接続"
     },
     "wsError": {
       "checkGateway": "Gateway 状態を確認してください"

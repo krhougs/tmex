@@ -174,11 +174,12 @@ function setupWatchEventHandlers(queryClient: QueryClient): void {
 
 export function WatchEventsInit() {
   const queryClient = useQueryClient();
+  const ensureSocketConnected = useTmuxStore((s) => s.ensureSocketConnected);
 
   useEffect(() => {
     setupWatchEventHandlers(queryClient);
-    getBorshClient().connect();
-  }, [queryClient]);
+    ensureSocketConnected();
+  }, [queryClient, ensureSocketConnected]);
 
   return null;
 }

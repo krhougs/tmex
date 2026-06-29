@@ -534,7 +534,9 @@
       "error": "WebSocket connection error",
       "checkGateway": "Please check Gateway status",
       "upgradeFailed": "Upgrade failed",
-      "invalidMessage": "Invalid message format"
+      "invalidMessage": "Invalid message format",
+      "reconnecting": "Reconnecting",
+      "reconnect": "Reconnect"
     },
     "wsError": {
       "checkGateway": "Please check Gateway status"

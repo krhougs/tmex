@@ -3,6 +3,7 @@ import { Moon, Settings, Sun, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSidebar } from "@/components/ui/sidebar";
 import { useSiteStore } from "../../../stores/site";
+import { useTmuxStore } from "../../../stores/tmux";
 import { useUIStore } from "../../../stores/ui";
 import { NavLink } from "./nav-link";
 
@@ -56,6 +57,7 @@ export function SidebarTitle() {
           {displayName}
         </span>
       </NavLink>
+      <WsLatency />
       <button
         type="button"
         onClick={toggleTheme}
@@ -74,5 +76,19 @@ export function SidebarTitle() {
         <Settings className="h-4 w-4" />
       </NavLink>
     </div>
+  );
+}
+
+function WsLatency() {
+  const latency = useTmuxStore((s) => s.wsLatencyMs);
+  if (latency === null) return null;
+
+  const isHigh = latency >= 150;
+  return (
+    <span
+      className={`shrink-0 text-xs tabular-nums ${isHigh ? 'text-destructive' : 'text-muted-foreground'}`}
+    >
+      {latency}ms
+    </span>
   );
 }

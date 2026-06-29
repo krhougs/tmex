@@ -62,15 +62,25 @@ export class BorshWebSocketClient {
 
   // 心跳
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastPingSentAt = 0;
 
   // 回调
   private messageHandlers: Set<MessageHandler> = new Set();
   private stateChangeHandlers: Set<StateChangeHandler> = new Set();
   private errorHandlers: Set<ErrorHandler> = new Set();
+  private latencyHandlers: Set<(ms: number) => void> = new Set();
+
+  // visibilitychange
+  private visibilityHandler: (() => void) | null = null;
+  private lastVisibilityReconnectAt = 0;
 
   // 待发送队列
   private pendingMessages: Array<{ kind: number; payload: Uint8Array }> = [];
   private maxPendingMessages = 100;
+
+  hasConnectedOnce = false;
+  latencyMs: number | null = null;
 
   constructor(options: Partial<BorshClientOptions> = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
@@ -123,9 +133,16 @@ export class BorshWebSocketClient {
     return () => this.errorHandlers.delete(handler);
   }
 
+  onLatency(handler: (ms: number) => void): () => void {
+    this.latencyHandlers.add(handler);
+    return () => this.latencyHandlers.delete(handler);
+  }
+
   // ========== 连接管理 ==========
 
   connect(): void {
+    this.setupVisibilityListener();
+
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
@@ -159,10 +176,16 @@ export class BorshWebSocketClient {
   disconnect(): void {
     this.setState('CLOSED');
     this.clearTimers();
+    this.latencyMs = null;
 
     if (this.ws) {
       this.ws.close();
       this.ws = null;
+    }
+
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
     }
   }
 
@@ -207,6 +230,14 @@ export class BorshWebSocketClient {
 
       // 处理 PONG
       if (envelope.kind === wsBorsh.KIND_PONG) {
+        this.clearPongTimeout();
+        if (this.lastPingSentAt > 0) {
+          const rtt = Date.now() - this.lastPingSentAt;
+          this.latencyMs = rtt;
+          for (const handler of this.latencyHandlers) {
+            try { handler(rtt); } catch {}
+          }
+        }
         return;
       }
 
@@ -237,7 +268,9 @@ export class BorshWebSocketClient {
       console.log('[borsh-client] HELLO_S2C received:', hello);
 
       this.setState('READY');
+      this.hasConnectedOnce = true;
       this.startHeartbeat();
+      this.sendPing();
       this.reconnectAttempts = 0;
     } catch (err) {
       console.error('[borsh-client] Failed to decode HELLO_S2C:', err);
@@ -368,6 +401,13 @@ export class BorshWebSocketClient {
     const envelope = wsBorsh.encodeEnvelope(wsBorsh.KIND_PING, payload, seq);
 
     this.sendRaw(envelope);
+    this.lastPingSentAt = Date.now();
+
+    this.clearPongTimeout();
+    this.pongTimeoutTimer = setTimeout(() => {
+      this.pongTimeoutTimer = null;
+      this.ws?.close();
+    }, 10_000);
   }
 
   // ========== 重连 ==========
@@ -397,6 +437,65 @@ export class BorshWebSocketClient {
       this.reconnectTimer = null;
     }
     this.stopHeartbeat();
+    this.clearPongTimeout();
+  }
+
+  // ========== Pong 超时 ==========
+
+  private clearPongTimeout(): void {
+    if (this.pongTimeoutTimer) {
+      clearTimeout(this.pongTimeoutTimer);
+      this.pongTimeoutTimer = null;
+    }
+  }
+
+  // ========== visibilitychange ==========
+
+  private setupVisibilityListener(): void {
+    if (this.visibilityHandler) return;
+    if (typeof document === 'undefined') return;
+
+    const handler = () => {
+      if (document.visibilityState !== 'visible') return;
+
+      this.clearPongTimeout();
+
+      if (this.state === 'CLOSED') {
+        const now = Date.now();
+        if (now - this.lastVisibilityReconnectAt < 5000) return;
+        this.lastVisibilityReconnectAt = now;
+        this.reconnectAttempts = 0;
+        this.connect();
+      } else if (this.state === 'RECONNECT_BACKOFF') {
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+        this.reconnectAttempts = 0;
+        this.connect();
+      } else if (this.state === 'READY') {
+        this.sendPing();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handler);
+    this.visibilityHandler = handler;
+  }
+
+  // ========== 强制重连 ==========
+
+  reconnect(): void {
+    this.clearTimers();
+    this.latencyMs = null;
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.reconnectAttempts = 0;
+    this.setState('IDLE');
+    this.connect();
   }
 
   // ========== 工具方法 ==========

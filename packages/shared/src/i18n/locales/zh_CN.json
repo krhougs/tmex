@@ -534,7 +534,9 @@
       "error": "WebSocket 连接错误",
       "checkGateway": "请检查 Gateway 状态",
       "upgradeFailed": "Upgrade failed",
-      "invalidMessage": "Invalid message format"
+      "invalidMessage": "Invalid message format",
+      "reconnecting": "重连中",
+      "reconnect": "重新连接"
     },
     "wsError": {
       "checkGateway": "请检查 Gateway 状态"

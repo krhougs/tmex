@@ -529,6 +529,8 @@ export type TranslationKey =
   | 'websocket.checkGateway'
   | 'websocket.upgradeFailed'
   | 'websocket.invalidMessage'
+  | 'websocket.reconnecting'
+  | 'websocket.reconnect'
   | 'wsError'
   | 'wsError.checkGateway'
   | 'apiError'
