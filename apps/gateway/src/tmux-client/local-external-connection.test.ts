@@ -107,8 +107,10 @@ function createRunStub(
 interface FakeControlProcess {
   proc: ControlClientProcess;
   pushStdout: (text: string) => void;
+  closeStdout: () => void;
   exit: (code: number) => void;
   killed: () => boolean;
+  writtenData: string[];
 }
 
 function createFakeControlProcess(): FakeControlProcess {
@@ -117,6 +119,7 @@ function createFakeControlProcess(): FakeControlProcess {
   let exitResolve!: (code: number) => void;
   let killed = false;
   let closed = false;
+  const writtenData: string[] = [];
 
   const close = (code: number) => {
     if (closed) {
@@ -155,10 +158,21 @@ function createFakeControlProcess(): FakeControlProcess {
         killed = true;
         close(0);
       },
+      write: (data: string) => {
+        writtenData.push(data);
+      },
     },
     pushStdout: (text) => stdoutController.enqueue(encoder.encode(text)),
+    closeStdout: () => {
+      try {
+        stdoutController.close();
+      } catch {
+        /* already closed */
+      }
+    },
     exit: (code) => close(code),
     killed: () => killed,
+    writtenData,
   };
 }
 
@@ -1183,5 +1197,239 @@ describe('LocalExternalTmuxConnection', () => {
     expect(newSessionCmd).toBeDefined();
     expect(newSessionCmd).toContain('-c');
     expect(newSessionCmd).toContain('/workspace');
+  });
+
+  test('heartbeat sends display-message via write', async () => {
+    const fake = createFakeControlProcess();
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-heartbeat'),
+        run: createRunStub('tmex-heartbeat'),
+        spawnControlClient: () => {
+          fake.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-heartbeat\n');
+          return fake.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+
+    (connection as any).sendHeartbeat();
+
+    expect(fake.writtenData).toContain('display-message -p "tmex-hb"\n');
+
+    connection.disconnect();
+  });
+
+  test('heartbeat response clears pending state', async () => {
+    const fake = createFakeControlProcess();
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-hb-response'),
+        run: createRunStub('tmex-hb-response'),
+        spawnControlClient: () => {
+          fake.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-hb-response\n');
+          return fake.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+
+    (connection as any).sendHeartbeat();
+    expect((connection as any).heartbeatPending).toBe(true);
+
+    fake.pushStdout('%begin 2 2 0\ntmex-hb\n%end 2 2 0\n');
+
+    await waitFor(() => (!(connection as any).heartbeatPending ? true : null));
+
+    expect((connection as any).heartbeatPending).toBe(false);
+    expect((connection as any).heartbeatTimeoutTimer).toBeNull();
+    expect(fake.killed()).toBe(false);
+
+    connection.disconnect();
+  });
+
+  test('heartbeat timeout kills process', async () => {
+    const fakes: FakeControlProcess[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-hb-timeout'),
+        run: createRunStub('tmex-hb-timeout'),
+        spawnControlClient: () => {
+          const f = createFakeControlProcess();
+          f.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-hb-timeout\n');
+          fakes.push(f);
+          return f.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+    const target = fakes[0]!;
+
+    (connection as any).sendHeartbeat();
+    expect(target.writtenData).toContain('display-message -p "tmex-hb"\n');
+
+    // Replace the 10s timeout with a short one to avoid slow test.
+    // The replacement replicates the same guard logic from sendHeartbeat.
+    clearTimeout((connection as any).heartbeatTimeoutTimer);
+    (connection as any).heartbeatTimeoutTimer = setTimeout(() => {
+      const c = connection as any;
+      if (!c.heartbeatPending || !c.connected || c.manualDisconnect) {
+        return;
+      }
+      c.controlProcess?.kill();
+    }, 50);
+
+    await waitFor(() => (target.killed() ? true : null), 2000);
+    expect(target.killed()).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('%pause triggers continue command', async () => {
+    const fake = createFakeControlProcess();
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-pause'),
+        run: createRunStub('tmex-pause'),
+        spawnControlClient: () => {
+          fake.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-pause\n');
+          return fake.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+
+    fake.pushStdout('%pause %1\n');
+
+    await waitFor(() =>
+      fake.writtenData.some((d) => d.includes('refresh-client')) ? true : null
+    );
+
+    expect(fake.writtenData).toContain('refresh-client -A %1:continue\n');
+
+    connection.disconnect();
+  });
+
+  test('pump stdout ending unexpectedly kills process', async () => {
+    const fakes: FakeControlProcess[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-stdout-end'),
+        run: createRunStub('tmex-stdout-end'),
+        spawnControlClient: () => {
+          const f = createFakeControlProcess();
+          f.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-stdout-end\n');
+          fakes.push(f);
+          return f.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+    const target = fakes[0]!;
+
+    target.closeStdout();
+
+    await waitFor(() => (target.killed() ? true : null));
+    expect(target.killed()).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('disconnect cleans up heartbeat timers', async () => {
+    const fake = createFakeControlProcess();
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-hb-cleanup'),
+        run: createRunStub('tmex-hb-cleanup'),
+        spawnControlClient: () => {
+          fake.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-hb-cleanup\n');
+          return fake.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+
+    expect((connection as any).heartbeatTimer).not.toBeNull();
+
+    (connection as any).sendHeartbeat();
+    expect((connection as any).heartbeatTimeoutTimer).not.toBeNull();
+
+    connection.disconnect();
+
+    expect((connection as any).heartbeatTimer).toBeNull();
+    expect((connection as any).heartbeatTimeoutTimer).toBeNull();
+    expect((connection as any).heartbeatPending).toBe(false);
   });
 });

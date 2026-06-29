@@ -100,24 +100,32 @@ beforeAll(() => {
 
 class FakeChannel extends EventEmitter {
   readonly stderr = new EventEmitter();
+  readonly writes: string[] = [];
+  ended = false;
+  closed = false;
+  destroyed = false;
   onWrite?: (data: string) => void;
 
   write(data: string): boolean {
+    this.writes.push(data);
     this.onWrite?.(data);
     return true;
   }
 
   end(): this {
+    this.ended = true;
     this.emit('close');
     return this;
   }
 
   close(): this {
+    this.closed = true;
     this.emit('close');
     return this;
   }
 
   destroy(): this {
+    this.destroyed = true;
     return this;
   }
 }
@@ -781,6 +789,104 @@ describe('SshExternalTmuxConnection', () => {
         payload.includes("'-n' 'test-win'")
       )
     ).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('control channel supports write after connect', async () => {
+    const fakeClient = new FakeClient();
+    setupCommandChannel(fakeClient, 'tmex-ssh-ctrl-write', {});
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => createDevice('tmex-ssh-ctrl-write'),
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+    const controlChannel = fakeClient.controlChannels[0];
+    expect(controlChannel).toBeDefined();
+    expect(controlChannel!.writes.some((w) => w.includes('-C attach-session'))).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('heartbeat sends display-message to control channel', async () => {
+    const fakeClient = new FakeClient();
+    setupCommandChannel(fakeClient, 'tmex-ssh-hb-send', {});
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => createDevice('tmex-ssh-hb-send'),
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+    const controlChannel = fakeClient.controlChannels[0]!;
+
+    (connection as any).sendHeartbeat();
+    await Bun.sleep(20);
+
+    expect(controlChannel.writes.some((w) => w === 'display-message -p "tmex-hb"\n')).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('heartbeat timeout stops control channel', async () => {
+    const session = 'tmex-ssh-hb-timeout';
+    const fakeClient = new FakeClient();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    setupCommandChannel(fakeClient, session, {});
+
+    const connection = new SshExternalTmuxConnection(
+      { ...createCallbacks({}), onError: () => {} },
+      {
+        getDevice: () => createDevice(session),
+        decrypt: async () => 'secret',
+        createClient: () => fakeClient as unknown as Client,
+      }
+    );
+
+    try {
+      await connection.connect();
+      const controlChannel = fakeClient.controlChannels[0]!;
+
+      (connection as any).sendHeartbeat();
+
+      await waitFor(() => (controlChannel.ended ? true : null), 12000);
+
+      expect(controlChannel.ended).toBe(true);
+      expect(controlChannel.closed).toBe(true);
+      expect(controlChannel.destroyed).toBe(true);
+
+      expect(
+        warn.mock.calls.some((call) =>
+          call.some((arg: unknown) => String(arg).includes('heartbeat timeout'))
+        )
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+      connection.disconnect();
+    }
+  }, 20000);
+
+  test('%pause triggers continue command on control channel', async () => {
+    const fakeClient = new FakeClient();
+    setupCommandChannel(fakeClient, 'tmex-ssh-pause', {});
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => createDevice('tmex-ssh-pause'),
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+    const controlChannel = fakeClient.controlChannels[0]!;
+
+    controlChannel.emit('data', Buffer.from('%pause %1\n'));
+    await Bun.sleep(20);
+
+    expect(controlChannel.writes.some((w) => w === 'refresh-client -A %1:continue\n')).toBe(true);
 
     connection.disconnect();
   });

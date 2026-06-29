@@ -34,6 +34,8 @@ export interface ControlModeSubscriptionCallbacks {
   onNotification: (paneId: string, notification: PaneStreamNotification) => void;
   onPromptMarker?: (paneId: string, marker: PromptMarker) => void;
   onClipboardWrite?: (paneId: string, text: string) => void;
+  onPause?: (paneId: string) => void;
+  onContinue?: (paneId: string) => void;
   onStructureChanged: () => void;
   onExit: (reason: string | null) => void;
   onBlockEnd?: (block: ControlModeBlock) => void;
@@ -100,6 +102,11 @@ export function createControlModeSubscription(
   function handleNotification(notification: ControlModeNotification): void {
     if (STRUCTURE_NOTIFICATION_TYPES.has(notification.type)) {
       scheduleStructureChanged();
+    }
+    if (notification.type === 'pause') {
+      callbacks.onPause?.(notification.args.trim());
+    } else if (notification.type === 'continue') {
+      callbacks.onContinue?.(notification.args.trim());
     }
   }
 

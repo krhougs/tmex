@@ -59,6 +59,7 @@ interface SshExternalTmuxConnectionDeps {
 
 interface ControlChannelHandle {
   stop: () => void;
+  write: (data: string) => void;
 }
 
 function hasRenderableTerminalContent(value: string): boolean {
@@ -72,6 +73,8 @@ const CONTROL_RESTART_DELAY_MS = 500;
 const CONTROL_STABLE_RESET_MS = 10_000;
 const CONTROL_STDERR_TAIL_LIMIT = 2048;
 const CONTROL_ATTACH_READY_TIMEOUT_MS = 3000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
 const PARKING_WINDOW_NAME = 'tmex-park';
 
 export class SshExternalTmuxConnection {
@@ -95,6 +98,9 @@ export class SshExternalTmuxConnection {
   private controlStartedAt = 0;
   private controlRestartCount = 0;
   private controlStderrTail = '';
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatPending = false;
+  private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private sshClient: Client | null = null;
   private commandStream: ClientChannel | null = null;
   private commandStdoutBuffer = '';
@@ -590,6 +596,9 @@ export class SshExternalTmuxConnection {
   }
 
   private async startControlClient(): Promise<void> {
+    // 先清除旧的心跳定时器，防止重连期间旧 timeout 回调看到新 controlChannel 后误杀。
+    this.stopHeartbeat();
+
     let attachReadyResolve: (() => void) | null = null;
     const attachReady = new Promise<void>((resolve) => {
       attachReadyResolve = resolve;
@@ -616,6 +625,8 @@ export class SshExternalTmuxConnection {
         this.controlStderrTail.trim() || 'tmux control client channel closed during attach'
       );
     }
+
+    this.startHeartbeat();
   }
 
   private async openControlChannel(onAttachReady: () => void): Promise<ControlChannelHandle> {
@@ -643,18 +654,26 @@ export class SshExternalTmuxConnection {
         this.requestSnapshot();
       },
       onExit: () => {},
-      onBlockEnd: () => {
+      onPause: (paneId) => {
+        if (this.controlChannel === handle) {
+          handle.write('refresh-client -A ' + paneId + ':continue' + '\n');
+        }
+      },
+      onBlockEnd: (block) => {
         onAttachReady();
+        if (!block.isError && block.lines.length === 1 && block.lines[0] === 'tmex-hb') {
+          this.onHeartbeatResponse();
+        }
       },
     });
 
-    const handle: ControlChannelHandle = { stop: () => {} };
+    const handle: ControlChannelHandle = { stop: () => {}, write: () => {} };
     this.controlChannel = handle;
     this.controlSubscription = subscription;
     this.controlStartedAt = Date.now();
     this.controlStderrTail = '';
 
-    const stopReader = await this.openReaderChannel(
+    const reader = await this.openReaderChannel(
       `exec ${quoteShellArg(this.tmuxBin)} -C attach-session -t ${quoteShellArg(this.sessionName)}`,
       {
         onData: (data) => {
@@ -674,16 +693,65 @@ export class SshExternalTmuxConnection {
         },
       }
     );
-    handle.stop = stopReader;
+    handle.stop = reader.stop;
+    handle.write = reader.write;
     return handle;
   }
 
   private stopControlClient(): void {
+    this.stopHeartbeat();
     const handle = this.controlChannel;
     this.controlChannel = null;
     this.controlSubscription?.dispose();
     this.controlSubscription = null;
     handle?.stop();
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+    }
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+    }
+    this.heartbeatPending = false;
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
+    this.heartbeatPending = false;
+  }
+
+  private sendHeartbeat(): void {
+    if (!this.controlChannel || this.heartbeatPending || !this.connected || this.manualDisconnect) {
+      return;
+    }
+    this.heartbeatPending = true;
+    this.controlChannel.write('display-message -p "tmex-hb"' + '\n');
+    this.heartbeatTimeoutTimer = setTimeout(() => {
+      if (this.heartbeatPending && this.connected && !this.manualDisconnect) {
+        console.warn(
+          `[ssh] tmux control client heartbeat timeout on ${this.deviceId}, killing stalled channel`
+        );
+        this.controlChannel?.stop();
+      }
+    }, HEARTBEAT_TIMEOUT_MS);
+  }
+
+  private onHeartbeatResponse(): void {
+    this.heartbeatPending = false;
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
   }
 
   private handleControlChannelClose(handle: ControlChannelHandle): void {
@@ -1258,7 +1326,7 @@ export class SshExternalTmuxConnection {
       onStderr?: (data: Buffer) => void;
       onClose?: () => void;
     }
-  ): Promise<() => void> {
+  ): Promise<{ stop: () => void; write: (data: string) => void }> {
     const sshClient = this.requireSshClient();
     const stream = await new Promise<ClientChannel>((resolve, reject) => {
       sshClient.exec('/bin/sh -s', { pty: false }, (error, channel) => {
@@ -1287,10 +1355,15 @@ export class SshExternalTmuxConnection {
     });
     stream.write(`${command}\n`);
 
-    return () => {
-      stream.end();
-      stream.close();
-      stream.destroy();
+    return {
+      stop: () => {
+        stream.end();
+        stream.close();
+        stream.destroy();
+      },
+      write: (data: string) => {
+        try { stream.write(data); } catch {}
+      },
     };
   }
 

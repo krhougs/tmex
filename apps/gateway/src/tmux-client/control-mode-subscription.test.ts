@@ -14,6 +14,8 @@ interface Collected {
   titles: Array<{ paneId: string; title: string }>;
   bells: string[];
   notifications: Array<{ paneId: string; notification: PaneStreamNotification }>;
+  pauses: string[];
+  continues: string[];
   structureChanges: number;
   exits: Array<string | null>;
 }
@@ -24,6 +26,8 @@ function createCollector() {
     titles: [],
     bells: [],
     notifications: [],
+    pauses: [],
+    continues: [],
     structureChanges: 0,
     exits: [],
   };
@@ -39,6 +43,12 @@ function createCollector() {
     },
     onNotification: (paneId, notification) => {
       collected.notifications.push({ paneId, notification });
+    },
+    onPause: (paneId) => {
+      collected.pauses.push(paneId);
+    },
+    onContinue: (paneId) => {
+      collected.continues.push(paneId);
     },
     onStructureChanged: () => {
       collected.structureChanges += 1;
@@ -123,8 +133,22 @@ describe('control mode subscription', () => {
 
   test('non-structural notifications do not trigger snapshot refresh', () => {
     const { subscription, collected } = createCollector();
-    subscription.push(lines('%client-session-changed client-1 $0 t1', '%pause %1'));
+    subscription.push(lines('%client-session-changed client-1 $0 t1', '%pause %1', '%continue %1'));
     expect(collected.structureChanges).toBe(0);
+    subscription.dispose();
+  });
+
+  test('%pause notification invokes onPause callback with pane id', () => {
+    const { subscription, collected } = createCollector();
+    subscription.push(lines('%pause %1'));
+    expect(collected.pauses).toEqual(['%1']);
+    subscription.dispose();
+  });
+
+  test('%continue notification invokes onContinue callback with pane id', () => {
+    const { subscription, collected } = createCollector();
+    subscription.push(lines('%continue %1'));
+    expect(collected.continues).toEqual(['%1']);
     subscription.dispose();
   });
 

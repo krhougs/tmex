@@ -44,6 +44,7 @@ export interface ControlClientProcess {
   stderr: ReadableStream<Uint8Array>;
   exited: Promise<number>;
   kill: () => void;
+  write: (data: string) => void;
 }
 
 interface LocalExternalTmuxConnectionDeps {
@@ -59,6 +60,8 @@ const CONTROL_RESTART_DELAY_MS = 500;
 const CONTROL_STABLE_RESET_MS = 10_000;
 const CONTROL_STDERR_TAIL_LIMIT = 2048;
 const CONTROL_ATTACH_READY_TIMEOUT_MS = 3000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
 const PARKING_WINDOW_NAME = 'tmex-park';
 
 function hasRenderableTerminalContent(value: string): boolean {
@@ -132,7 +135,7 @@ function defaultRun(argv: string[]): Promise<CommandResult> {
 function defaultSpawnControlClient(argv: string[]): ControlClientProcess {
   const subprocess = Bun.spawn(argv, {
     env: buildLocalTmuxEnv(getLocalShellPath()),
-    // stdin 保持打开（tmux -C 在 stdin EOF 时退出），但永不写入。
+    // stdin 保持打开（tmux -C 在 stdin EOF 时退出）。
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -150,6 +153,9 @@ function defaultSpawnControlClient(argv: string[]): ControlClientProcess {
         /* ignore */
       }
       subprocess.kill();
+    },
+    write: (data) => {
+      try { stdin?.write(data); } catch {}
     },
   };
 }
@@ -177,6 +183,9 @@ export class LocalExternalTmuxConnection {
   private controlRestartCount = 0;
   private controlStderrTail = '';
   private spawnUnavailableNotified = false;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatPending = false;
+  private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     options: TmuxConnectionOptions,
@@ -581,6 +590,9 @@ export class LocalExternalTmuxConnection {
   }
 
   private async startControlClient(): Promise<void> {
+    // 先清除旧的心跳定时器，防止重连期间旧 timeout 回调看到新 controlProcess 后误杀。
+    this.stopHeartbeat();
+
     let attachReadyResolve: (() => void) | null = null;
     const attachReady = new Promise<void>((resolve) => {
       attachReadyResolve = resolve;
@@ -607,6 +619,8 @@ export class LocalExternalTmuxConnection {
       console.warn(`[local] tmux control client died during attach on ${this.deviceId}: ${message}`);
       throw new Error(message);
     }
+
+    this.startHeartbeat();
   }
 
   private spawnControlClientProcess(onAttachReady: () => void): ControlClientProcess {
@@ -633,9 +647,15 @@ export class LocalExternalTmuxConnection {
       onStructureChanged: () => {
         this.requestSnapshot();
       },
+      onPause: (paneId) => {
+        this.controlProcess?.write('refresh-client -A ' + paneId + ':continue\n');
+      },
       onExit: () => {},
-      onBlockEnd: () => {
+      onBlockEnd: (block) => {
         onAttachReady();
+        if (!block.isError && block.lines.length === 1 && block.lines[0] === 'tmex-hb') {
+          this.onHeartbeatResponse();
+        }
       },
     });
 
@@ -683,6 +703,10 @@ export class LocalExternalTmuxConnection {
       }
     }
     subscription.end();
+    if (this.controlProcess === proc) {
+      console.warn('[local] control client stdout ended unexpectedly on ' + this.deviceId + ', killing process');
+      proc.kill();
+    }
   }
 
   private async pumpControlStderr(proc: ControlClientProcess): Promise<void> {
@@ -706,11 +730,57 @@ export class LocalExternalTmuxConnection {
   }
 
   private stopControlClient(): void {
+    this.stopHeartbeat();
     const proc = this.controlProcess;
     this.controlProcess = null;
     this.controlSubscription?.dispose();
     this.controlSubscription = null;
     proc?.kill();
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.sendHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
+    this.heartbeatPending = false;
+  }
+
+  private sendHeartbeat(): void {
+    if (!this.controlProcess || this.heartbeatPending || !this.connected || this.manualDisconnect) {
+      return;
+    }
+    this.heartbeatPending = true;
+    this.controlProcess.write('display-message -p "tmex-hb"\n');
+    this.heartbeatTimeoutTimer = setTimeout(() => {
+      if (!this.heartbeatPending || !this.connected || this.manualDisconnect) {
+        return;
+      }
+      console.warn(`[local] tmux control client heartbeat timeout on ${this.deviceId}, killing stalled process`);
+      this.controlProcess?.kill();
+    }, HEARTBEAT_TIMEOUT_MS);
+  }
+
+  private onHeartbeatResponse(): void {
+    if (!this.heartbeatPending) {
+      return;
+    }
+    this.heartbeatPending = false;
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
   }
 
   private handleControlClientExit(proc: ControlClientProcess, exitCode: number): void {
