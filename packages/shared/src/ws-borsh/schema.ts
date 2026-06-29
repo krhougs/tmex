@@ -178,6 +178,14 @@ export const TermHistorySchema = b.struct({
   data: b.bytes(),
 });
 
+// ========== 剪贴板 ==========
+
+export const ClipboardWriteSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  text: b.string(),
+});
+
 // ========== 切换屏障 ==========
 
 export const SwitchAckSchema = b.struct({
@@ -316,6 +324,8 @@ export const BellEventSchema = b.struct({
   windowIndex: OptionU16Schema,
   paneIndex: OptionU16Schema,
   paneUrl: OptionStringSchema,
+  paneTitle: OptionStringSchema,
+  paneCurrentCommand: OptionStringSchema,
 });
 
 export const NotificationEventSchema = b.struct({
@@ -327,4 +337,6 @@ export const NotificationEventSchema = b.struct({
   windowIndex: OptionU16Schema,
   paneIndex: OptionU16Schema,
   paneUrl: OptionStringSchema,
+  paneTitle: OptionStringSchema,
+  paneCurrentCommand: OptionStringSchema,
 });

@@ -423,6 +423,7 @@ async function handleCreateDevice(req: Request): Promise<Response> {
     username: body.username,
     sshConfigRef: body.sshConfigRef,
     session: body.session ?? 'tmex',
+    defaultWorkingDir: body.defaultWorkingDir?.trim() || undefined,
     authMode: body.authMode,
     passwordEnc: body.password ? await encrypt(body.password) : undefined,
     privateKeyEnc: body.privateKey ? await encrypt(body.privateKey) : undefined,
@@ -456,6 +457,7 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
   if (body.username !== undefined) updates.username = body.username;
   if (body.sshConfigRef !== undefined) updates.sshConfigRef = body.sshConfigRef;
   if (body.session !== undefined) updates.session = body.session;
+  if (body.defaultWorkingDir !== undefined) updates.defaultWorkingDir = body.defaultWorkingDir.trim() || undefined;
   if (body.authMode !== undefined) updates.authMode = body.authMode;
   if (body.password !== undefined) updates.passwordEnc = await encrypt(body.password);
   if (body.privateKey !== undefined) updates.privateKeyEnc = await encrypt(body.privateKey);
@@ -467,6 +469,11 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
 
   if (shouldReconnectPushSupervisor(existing, updates)) {
     await pushSupervisor.reconnect(id);
+  } else if (
+    updates.defaultWorkingDir !== undefined &&
+    updates.defaultWorkingDir !== existing.defaultWorkingDir
+  ) {
+    pushSupervisor.updateDefaultWorkingDir(id, updates.defaultWorkingDir);
   }
 
   const device = getDeviceById(id);

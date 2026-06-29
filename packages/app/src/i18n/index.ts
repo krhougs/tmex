@@ -7,8 +7,8 @@ const MESSAGES: Record<CliLang, Record<string, string>> = {
     'cli.help': `tmex CLI
 
 Usage:
-  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path>]
-  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>]
+  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path> --install-deps --skip-dep-check]
+  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>] [--fix]
   tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]
   tmex uninstall [--install-dir <path>] [--yes] [--purge]
 
@@ -65,6 +65,8 @@ Global flags:
       'Directory {{installDir}} already exists. Continue (will not delete existing config/db)?',
     'init.error.installDirNotEmpty':
       'Install directory is not empty: {{installDir}}. Use --force to overwrite.',
+    'init.error.noServiceManager':
+      'No supported service manager found (platform: {{platform}}). tmex requires systemd (Linux) or launchd (macOS).',
     'init.warning.noServiceManager':
       'Service manager is not supported on platform {{platform}}. Files are deployed but autostart is not configured.',
     'init.done': 'Initialization completed.',
@@ -81,8 +83,12 @@ Global flags:
       'Platform {{platform}} is not officially supported (only macOS and common Linux distros are guaranteed).',
     'doctor.bun.ok': 'Bun installed: {{version}}',
     'doctor.bun.fail': 'Bun check failed: {{reason}}',
-    'doctor.tmux.ok': 'tmux installed',
-    'doctor.tmux.fail': 'tmux not found (tmex requires tmux).',
+    'doctor.tmux.ok': 'tmux installed: {{version}}',
+    'doctor.tmux.fail': 'tmux not found (tmex requires tmux >= 3.0).',
+    'doctor.tmux.versionLow': 'tmux version too low: {{version}} (requires >= 3.0)',
+    'doctor.fix.header': 'Attempting to fix issues...',
+    'doctor.fix.skip': 'Skipping unfixable item: {{id}}',
+    'doctor.fix.hint': 'Run "tmex doctor --fix" to attempt automatic installation.',
     'doctor.ssh.ok': 'ssh installed',
     'doctor.ssh.missing': 'ssh not found; SSH devices will not work.',
     'doctor.installDir.exists': 'Install directory exists: {{installDir}}',
@@ -116,6 +122,21 @@ Global flags:
     'uninstall.summary.installDir': 'Install dir',
     'uninstall.summary.serviceName': 'Service name',
 
+    'tmux.notFound': 'tmux not found. tmex requires tmux >= 3.0 to operate.',
+    'tmux.versionTooLow': 'tmux version too low: current {{version}}, required >= 3.0',
+
+    'deps.install.confirm': 'Install {{dep}} now?',
+    'deps.install.running': 'Installing {{dep}}...',
+    'deps.install.success': '{{dep}} installed successfully.',
+    'deps.install.failed': 'Failed to install {{dep}}.',
+    'deps.install.manual': 'Please install manually and retry.',
+    'deps.install.sudoRequired': 'This operation requires sudo.',
+    'deps.install.sudoUnavailable': 'sudo is not available. Please run as root or install sudo.',
+    'deps.install.nonInteractive': 'Missing dependency: {{dep}}. Use --install-deps to install automatically.',
+    'deps.install.hint': 'Suggested install command: {{command}}',
+    'deps.install.brewMissing': 'Homebrew not found. Install Homebrew first: https://brew.sh',
+    'deps.install.unknownDistro': 'Unable to detect Linux distribution. Please install {{dep}} manually.',
+
     'runtime.restartRequested': 'Restart requested; exiting for service manager restart.',
     'runtime.started': 'Service started on {{url}}',
     'runtime.frontendMissing': 'Frontend assets not found.',
@@ -125,7 +146,7 @@ Global flags:
   },
   'zh-CN': {
     'cli.help':
-      'tmex CLI\n\n用法：\n  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path>]\n  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>]\n  tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]\n  tmex uninstall [--install-dir <path>] [--yes] [--purge]\n\n全局参数：\n  --lang <en|zh-CN>',
+      'tmex CLI\n\n用法：\n  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path> --install-deps --skip-dep-check]\n  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>] [--fix]\n  tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]\n  tmex uninstall [--install-dir <path>] [--yes] [--purge]\n\n全局参数：\n  --lang <en|zh-CN>',
 
     'cli.error.unknownCommand': '未知命令：{{command}}',
 
@@ -174,6 +195,8 @@ Global flags:
     'init.prompt.dirExistsConfirm':
       '目录 {{installDir}} 已存在，是否继续（不会删除现有配置与数据库）？',
     'init.error.installDirNotEmpty': '安装目录已存在且非空：{{installDir}}。如需覆盖请加 --force',
+    'init.error.noServiceManager':
+      '未检测到可用的服务管理器（平台：{{platform}}）。tmex 需要 systemd（Linux）或 launchd（macOS）。',
     'init.warning.noServiceManager': '当前平台 {{platform}} 未实现自动服务安装，已完成文件部署。',
     'init.done': '初始化完成。',
     'init.summary.installDir': '安装目录',
@@ -189,8 +212,12 @@ Global flags:
       '当前平台 {{platform}} 非官方支持范围（仅保证 macOS 与常见 Linux 发行版）。',
     'doctor.bun.ok': 'Bun 已安装：{{version}}',
     'doctor.bun.fail': 'Bun 检查失败：{{reason}}',
-    'doctor.tmux.ok': 'tmux 已安装',
-    'doctor.tmux.fail': '未检测到 tmux（tmex 需要 tmux 才能工作）。',
+    'doctor.tmux.ok': 'tmux 已安装：{{version}}',
+    'doctor.tmux.fail': '未检测到 tmux（tmex 需要 tmux >= 3.0 才能工作）。',
+    'doctor.tmux.versionLow': 'tmux 版本过低：{{version}}（要求 >= 3.0）',
+    'doctor.fix.header': '正在尝试修复问题...',
+    'doctor.fix.skip': '跳过无法自动修复的项目：{{id}}',
+    'doctor.fix.hint': '运行 "tmex doctor --fix" 尝试自动安装缺失的依赖。',
     'doctor.ssh.ok': 'ssh 已安装',
     'doctor.ssh.missing': '未检测到 ssh，远程设备将不可用。',
     'doctor.installDir.exists': '安装目录存在：{{installDir}}',
@@ -223,6 +250,21 @@ Global flags:
     'uninstall.done': '卸载完成。',
     'uninstall.summary.installDir': '安装目录',
     'uninstall.summary.serviceName': '服务名称',
+
+    'tmux.notFound': '未检测到 tmux。tmex 需要 tmux >= 3.0 才能工作。',
+    'tmux.versionTooLow': 'tmux 版本过低：当前 {{version}}，要求 >= 3.0',
+
+    'deps.install.confirm': '是否现在安装 {{dep}}？',
+    'deps.install.running': '正在安装 {{dep}}...',
+    'deps.install.success': '{{dep}} 安装成功。',
+    'deps.install.failed': '安装 {{dep}} 失败。',
+    'deps.install.manual': '请手动安装后重试。',
+    'deps.install.sudoRequired': '此操作需要 sudo 权限。',
+    'deps.install.sudoUnavailable': 'sudo 不可用，请以 root 身份执行或安装 sudo。',
+    'deps.install.nonInteractive': '缺少依赖：{{dep}}。使用 --install-deps 自动安装。',
+    'deps.install.hint': '建议安装命令：{{command}}',
+    'deps.install.brewMissing': '未检测到 Homebrew，请先安装 Homebrew：https://brew.sh',
+    'deps.install.unknownDistro': '无法检测 Linux 发行版，请手动安装 {{dep}}。',
 
     'runtime.restartRequested': '收到重启请求，退出并等待服务管理器拉起。',
     'runtime.started': '服务已启动：{{url}}',

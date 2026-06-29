@@ -62,6 +62,7 @@ type DeviceFormValues = {
   username: string;
   sshConfigRef: string;
   session: string;
+  defaultWorkingDir: string;
   authMode: CreateDeviceRequest['authMode'];
   password: string;
   privateKey: string;
@@ -85,6 +86,7 @@ function createDefaultFormValues(device?: Device): DeviceFormValues {
       username: 'root',
       sshConfigRef: '',
       session: 'tmex',
+      defaultWorkingDir: '',
       authMode: 'auto',
       password: '',
       privateKey: '',
@@ -100,6 +102,7 @@ function createDefaultFormValues(device?: Device): DeviceFormValues {
     username: device.username ?? '',
     sshConfigRef: device.sshConfigRef ?? '',
     session: device.session ?? 'tmex',
+    defaultWorkingDir: device.defaultWorkingDir ?? '',
     authMode: device.type === 'local' ? 'auto' : device.authMode,
     password: '',
     privateKey: '',
@@ -113,6 +116,7 @@ function buildCreatePayload(values: DeviceFormValues): CreateDeviceRequest {
       name: values.name.trim(),
       type: 'local',
       session: normalizeText(values.session) ?? 'tmex',
+      defaultWorkingDir: normalizeText(values.defaultWorkingDir),
       authMode: 'auto',
     };
   }
@@ -126,6 +130,7 @@ function buildCreatePayload(values: DeviceFormValues): CreateDeviceRequest {
     port: values.port,
     username: values.username.trim(),
     session: normalizeText(values.session) ?? 'tmex',
+    defaultWorkingDir: normalizeText(values.defaultWorkingDir),
     authMode: values.authMode,
   };
 
@@ -150,6 +155,7 @@ function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
     return {
       name: values.name.trim(),
       session: normalizeText(values.session) ?? 'tmex',
+      defaultWorkingDir: normalizeText(values.defaultWorkingDir) ?? '',
       authMode: 'auto',
     };
   }
@@ -163,6 +169,7 @@ function buildUpdatePayload(values: DeviceFormValues): UpdateDeviceRequest {
     username: values.username.trim(),
     sshConfigRef: values.authMode === 'configRef' ? values.sshConfigRef.trim() : '',
     session: normalizeText(values.session) ?? 'tmex',
+    defaultWorkingDir: normalizeText(values.defaultWorkingDir) ?? '',
     authMode: values.authMode,
   };
 
@@ -588,6 +595,7 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
   const sshPortInputId = `${mode}-device-port`;
   const sshUsernameInputId = `${mode}-device-username`;
   const sessionInputId = `${mode}-device-session`;
+  const defaultWorkingDirInputId = `${mode}-device-default-working-dir`;
   const authModeSelectId = `${mode}-device-auth-mode`;
   const passwordInputId = `${mode}-device-password`;
   const privateKeyTextareaId = `${mode}-device-private-key`;
@@ -690,6 +698,20 @@ function DeviceDialog({ mode, device, onClose }: DeviceDialogProps) {
                     value={formData.session}
                     onChange={(e) => setFormData((d) => ({ ...d, session: e.target.value }))}
                     placeholder={t('device.sessionPlaceholder')}
+                  />
+                </div>
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  {fieldLabel(defaultWorkingDirInputId, t('device.defaultWorkingDir'))}
+                  <Input
+                    id={defaultWorkingDirInputId}
+                    data-testid="device-default-working-dir-input"
+                    type="text"
+                    value={formData.defaultWorkingDir}
+                    onChange={(e) =>
+                      setFormData((d) => ({ ...d, defaultWorkingDir: e.target.value }))
+                    }
+                    placeholder={t('device.defaultWorkingDirPlaceholder')}
                   />
                 </div>
               </div>

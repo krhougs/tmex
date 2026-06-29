@@ -190,6 +190,11 @@ export class PushSupervisor {
     await this.upsert(deviceId);
   }
 
+  updateDefaultWorkingDir(deviceId: string, dir: string | undefined): void {
+    const entry = this.entries.get(deviceId);
+    entry?.runtime?.updateDefaultWorkingDir(dir);
+  }
+
   remove(deviceId: string): void {
     const entry = this.entries.get(deviceId);
     if (!entry) {

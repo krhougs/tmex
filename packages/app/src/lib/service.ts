@@ -189,7 +189,7 @@ async function installLaunchdService(options: ServiceInstallOptions): Promise<vo
 }
 
 export async function installService(options: ServiceInstallOptions): Promise<void> {
-  const manager = detectServiceManager();
+  const manager = await detectServiceManager();
 
   if (manager === 'systemd-user') {
     await installSystemdService(options);
@@ -209,7 +209,7 @@ async function stopSystemd(serviceName: string): Promise<void> {
 }
 
 export async function stopService(serviceName: string, installDir?: string): Promise<void> {
-  const manager = detectServiceManager();
+  const manager = await detectServiceManager();
   if (manager === 'systemd-user') {
     await stopSystemd(serviceName);
     return;
@@ -245,7 +245,7 @@ export async function startService(
   autostart: boolean,
   installDir?: string
 ): Promise<void> {
-  const manager = detectServiceManager();
+  const manager = await detectServiceManager();
   if (manager === 'systemd-user') {
     await startSystemd(serviceName, autostart);
     return;
@@ -284,7 +284,7 @@ async function uninstallSystemdService(serviceName: string): Promise<void> {
 }
 
 export async function uninstallService(options: ServiceUninstallOptions): Promise<void> {
-  const manager = detectServiceManager();
+  const manager = await detectServiceManager();
 
   if (manager === 'systemd-user') {
     await uninstallSystemdService(options.serviceName);
@@ -357,7 +357,7 @@ export async function getServiceStatus(
   serviceName: string,
   installDir?: string
 ): Promise<ServiceStatus> {
-  const manager = detectServiceManager();
+  const manager = await detectServiceManager();
 
   if (manager === 'systemd-user') {
     return await querySystemdStatus(serviceName);
@@ -376,8 +376,8 @@ export async function getServiceStatus(
   };
 }
 
-export function serviceHint(serviceName: string): string {
-  const manager = detectServiceManager();
+export async function serviceHint(serviceName: string): Promise<string> {
+  const manager = await detectServiceManager();
   if (manager === 'systemd-user') {
     return t('service.hint.systemd', { serviceName });
   }

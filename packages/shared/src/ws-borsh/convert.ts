@@ -129,6 +129,8 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         windowIndex?: number;
         paneIndex?: number;
         paneUrl?: string;
+        paneTitle?: string;
+        paneCurrentCommand?: string;
       };
       return schema.BellEventSchema.serialize({
         windowId: d.windowId ?? null,
@@ -136,6 +138,8 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         windowIndex: d.windowIndex ?? null,
         paneIndex: d.paneIndex ?? null,
         paneUrl: d.paneUrl ?? null,
+        paneTitle: d.paneTitle ?? null,
+        paneCurrentCommand: d.paneCurrentCommand ?? null,
       });
     }
     case 'output':
@@ -150,6 +154,8 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         windowIndex?: number;
         paneIndex?: number;
         paneUrl?: string;
+        paneTitle?: string;
+        paneCurrentCommand?: string;
       };
       return schema.NotificationEventSchema.serialize({
         source: notificationSourceToU8[d.source],
@@ -160,6 +166,8 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         windowIndex: d.windowIndex ?? null,
         paneIndex: d.paneIndex ?? null,
         paneUrl: d.paneUrl ?? null,
+        paneTitle: d.paneTitle ?? null,
+        paneCurrentCommand: d.paneCurrentCommand ?? null,
       });
     }
     default:
@@ -284,6 +292,8 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
           windowIndex: bell.windowIndex ?? undefined,
           paneIndex: bell.paneIndex ?? undefined,
           paneUrl: bell.paneUrl ?? undefined,
+          paneTitle: bell.paneTitle ?? undefined,
+          paneCurrentCommand: bell.paneCurrentCommand ?? undefined,
         };
       }
       case 'notification': {
@@ -297,6 +307,8 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
           windowIndex: notification.windowIndex ?? undefined,
           paneIndex: notification.paneIndex ?? undefined,
           paneUrl: notification.paneUrl ?? undefined,
+          paneTitle: notification.paneTitle ?? undefined,
+          paneCurrentCommand: notification.paneCurrentCommand ?? undefined,
         };
       }
       default:

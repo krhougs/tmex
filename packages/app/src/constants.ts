@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
 export const MIN_BUN_VERSION = '1.3.0';
+export const MIN_TMUX_VERSION = { major: 3, minor: 0 };
 export const DEFAULT_SERVICE_NAME = 'tmex';
 
 export function defaultInstallDir(platform: NodeJS.Platform): string {

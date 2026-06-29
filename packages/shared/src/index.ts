@@ -102,6 +102,7 @@ export interface Device {
   passwordEnc?: string;
   privateKeyEnc?: string;
   privateKeyPassphraseEnc?: string;
+  defaultWorkingDir?: string;
   // device tree 中的自定义显示顺序，升序；越小越靠前
   sortOrder: number;
   createdAt: string;
@@ -548,6 +549,7 @@ export interface CreateDeviceRequest {
   username?: string;
   sshConfigRef?: string;
   session?: string;
+  defaultWorkingDir?: string;
   authMode: AuthMode;
   password?: string;
   privateKey?: string;
@@ -561,6 +563,7 @@ export interface UpdateDeviceRequest {
   username?: string;
   sshConfigRef?: string;
   session?: string;
+  defaultWorkingDir?: string;
   authMode?: AuthMode;
   password?: string;
   privateKey?: string;

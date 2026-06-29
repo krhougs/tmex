@@ -101,6 +101,9 @@ export class WebSocketServer {
       onTerminalHistory: (paneId, data, alternateScreen) => {
         this.broadcastTerminalHistory(deviceId, paneId, data, alternateScreen);
       },
+      onClipboardWrite: (paneId, text) => {
+        this.broadcastClipboardWrite(deviceId, paneId, text);
+      },
       onSnapshot: (payload) => {
         this.broadcastStateSnapshot(deviceId, payload);
       },
@@ -264,6 +267,11 @@ export class WebSocketServer {
     for (const deviceId of toDelete) {
       this.connections.delete(deviceId);
     }
+  }
+
+  updateDefaultWorkingDir(deviceId: string, dir: string | undefined): void {
+    const entry = this.connections.get(deviceId);
+    entry?.runtime.updateDefaultWorkingDir(dir);
   }
 
   closeAll(): void {
@@ -982,6 +990,24 @@ export class WebSocketServer {
         data,
       });
       this.sendChunked(client, wsBorsh.KIND_TERM_OUTPUT, payloadBytes);
+    }
+  }
+
+  private broadcastClipboardWrite(deviceId: string, paneId: string, text: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+
+    const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.ClipboardWriteSchema, {
+      deviceId,
+      paneId,
+      text,
+    });
+
+    for (const client of entry.clients) {
+      if (client.data.borshState.selectedPanes[deviceId] !== paneId) {
+        continue;
+      }
+      this.sendEnvelope(client, wsBorsh.KIND_CLIPBOARD_WRITE, payloadBytes);
     }
   }
 

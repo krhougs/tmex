@@ -13,6 +13,8 @@ export interface InitConfig {
   serviceName: string;
   force: boolean;
   nonInteractive: boolean;
+  installDeps: boolean;
+  skipDepCheck: boolean;
 }
 
 export type CheckLevel = 'pass' | 'warn' | 'fail';
@@ -22,6 +24,8 @@ export interface DoctorCheck {
   level: CheckLevel;
   message: string;
   detail?: string;
+  hint?: string;
+  fixable?: boolean;
 }
 
 export interface InstallMeta {

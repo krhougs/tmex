@@ -214,9 +214,10 @@ export class SshExternalTmuxConnection {
       return;
     }
 
-    const argv = name
-      ? ['new-window', '-t', this.sessionName, '-n', name]
-      : ['new-window', '-t', this.sessionName];
+    const argv = ['new-window', '-t', this.sessionName, '-c', this.resolveDefaultWorkingDir()];
+    if (name) {
+      argv.push('-n', name);
+    }
     void this.runAndRefresh(argv).catch((error) => {
       this.callbacks.onError(error);
     });
@@ -252,7 +253,21 @@ export class SshExternalTmuxConnection {
     });
   }
 
-  // 同 local 版本：TMEX_TMUX_WINDOW_STYLE=off 时尊重配置，跳过动态更新。
+  updateDefaultWorkingDir(dir: string | undefined): void {
+    if (this.device) {
+      this.device = { ...this.device, defaultWorkingDir: dir };
+    }
+    if (this.connected) {
+      void this.runTmuxAllowFailure([
+        'set-option',
+        '-t',
+        this.sessionName,
+        'default-path',
+        this.resolveDefaultWorkingDir(),
+      ]);
+    }
+  }
+
   setWindowStyle(style: string): void {
     if (!this.connected) {
       return;
@@ -410,13 +425,17 @@ export class SshExternalTmuxConnection {
     }
   }
 
+  private resolveDefaultWorkingDir(): string {
+    return this.device?.defaultWorkingDir?.trim() || this.remoteHomeDir;
+  }
+
   private async ensureSession(): Promise<void> {
     const exists = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
     if (exists.exitCode === 0) {
       return;
     }
 
-    await this.runTmux(['new-session', '-d', '-c', this.remoteHomeDir, '-s', this.sessionName]);
+    await this.runTmux(['new-session', '-d', '-c', this.resolveDefaultWorkingDir(), '-s', this.sessionName]);
   }
 
   private async configureSessionOptions(): Promise<void> {
@@ -475,6 +494,14 @@ export class SshExternalTmuxConnection {
       this.sessionName,
       'COLORTERM',
       'truecolor',
+    ]);
+
+    await this.runTmuxAllowFailure([
+      'set-option',
+      '-t',
+      this.sessionName,
+      'default-path',
+      this.resolveDefaultWorkingDir(),
     ]);
 
     await this.configureWindowStyle();
@@ -609,6 +636,9 @@ export class SshExternalTmuxConnection {
       onPromptMarker: (paneId, marker) => {
         this.callbacks.onPromptMarker?.(paneId, marker);
       },
+      onClipboardWrite: (paneId, text) => {
+        this.callbacks.onClipboardWrite?.(paneId, text);
+      },
       onStructureChanged: () => {
         this.requestSnapshot();
       },
@@ -741,7 +771,7 @@ export class SshExternalTmuxConnection {
     );
 
     if (count <= 1) {
-      await this.runTmux(['new-window', '-d', '-t', this.sessionName]);
+      await this.runTmux(['new-window', '-d', '-t', this.sessionName, '-c', this.resolveDefaultWorkingDir()]);
     }
 
     await this.runAndRefresh(['kill-window', '-t', windowId], true);

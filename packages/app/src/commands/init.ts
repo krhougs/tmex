@@ -9,6 +9,13 @@ import {
 } from '../constants';
 import { t } from '../i18n';
 import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
+import {
+  executeDependencyInstall,
+  getInstallHintAsync,
+  planBunInstall,
+  planTmuxInstall,
+  type DepInstallPlan,
+} from '../lib/dep-install';
 import { writeEnvFile } from '../lib/env-file';
 import { ensureDir, pathExists } from '../lib/fs-utils';
 import {
@@ -27,6 +34,7 @@ import {
 import { detectServiceManager } from '../lib/platform';
 import { promptConfirm, promptText } from '../lib/prompt';
 import { installService, serviceHint } from '../lib/service';
+import { checkTmuxVersion } from '../lib/tmux';
 import { asBoolean, asString, assertNonEmpty, parsePort } from '../lib/validate';
 import { readPackageVersion } from '../lib/version';
 import type { InitConfig, InstallMeta, ParsedArgs } from '../types';
@@ -59,6 +67,8 @@ async function directoryHasContent(path: string): Promise<boolean> {
 async function buildInitConfig(parsed: ParsedArgs): Promise<InitConfig> {
   const nonInteractive = parsed.flags['no-interactive'] === true;
   const force = asBoolean(parsed.flags.force) ?? false;
+  const installDeps = asBoolean(parsed.flags['install-deps']) ?? false;
+  const skipDepCheck = asBoolean(parsed.flags['skip-dep-check']) ?? false;
 
   if (nonInteractive) {
     const installDir = resolveInstallDir(
@@ -84,6 +94,8 @@ async function buildInitConfig(parsed: ParsedArgs): Promise<InitConfig> {
       serviceName,
       force,
       nonInteractive,
+      installDeps,
+      skipDepCheck,
     };
   }
 
@@ -136,16 +148,69 @@ async function buildInitConfig(parsed: ParsedArgs): Promise<InitConfig> {
     serviceName,
     force,
     nonInteractive,
+    installDeps,
+    skipDepCheck,
   };
 }
 
+async function handleDepFailure(
+  dep: 'bun' | 'tmux',
+  config: InitConfig,
+  errorMessage: string
+): Promise<void> {
+  const hint = await getInstallHintAsync(dep);
+  const commands = dep === 'bun' ? planBunInstall() : await planTmuxInstall();
+  const plan: DepInstallPlan = {
+    dep,
+    commands,
+    requiredVersion: dep === 'tmux' ? '>= 3.0' : '>= 1.3.0',
+    issue: 'missing',
+  };
+
+  if (config.installDeps || !config.nonInteractive) {
+    const installed = await executeDependencyInstall(plan, {
+      nonInteractive: config.nonInteractive,
+      autoConfirm: config.installDeps && config.nonInteractive,
+    });
+    if (installed) return;
+    throw new Error(errorMessage);
+  }
+
+  throw new Error(`${errorMessage}\n${t('deps.install.hint', { command: hint })}`);
+}
+
 export async function runInit(parsed: ParsedArgs): Promise<void> {
+  const manager = await detectServiceManager();
+  if (manager === 'none') {
+    throw new Error(t('init.error.noServiceManager', { platform: process.platform }));
+  }
+
   const config = await buildInitConfig(parsed);
+
+  if (!config.skipDepCheck) {
+    const tmux = await checkTmuxVersion();
+    if (!tmux.ok) {
+      const reason = tmux.reason === 'version-too-low'
+        ? t('tmux.versionTooLow', { version: tmux.versionRaw || '' })
+        : t('tmux.notFound');
+      await handleDepFailure('tmux', config, reason);
+    }
+  }
 
   const explicitBunPath = readExplicitBunPath(parsed.flags);
   const bun = await checkBunVersion(undefined, { explicitPath: explicitBunPath });
   if (!bun.ok || !bun.path) {
-    throw new Error(bun.reason || t('bun.checkFailed'));
+    const reason = bun.reason || t('bun.checkFailed');
+    if (!config.skipDepCheck) {
+      await handleDepFailure('bun', config, reason);
+      const bunRetry = await checkBunVersion(undefined, { explicitPath: explicitBunPath });
+      if (!bunRetry.ok || !bunRetry.path) {
+        throw new Error(bunRetry.reason || t('bun.checkFailed'));
+      }
+      Object.assign(bun, bunRetry);
+    } else {
+      throw new Error(reason);
+    }
   }
 
   if (!config.force && (await directoryHasContent(config.installDir))) {
@@ -182,17 +247,12 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
   await writeEnvFile(installLayout.envPath, envValues);
   await writeRunScript(installLayout, bun.path);
 
-  const manager = detectServiceManager();
-  if (manager === 'none') {
-    console.warn(`[tmex] ${t('init.warning.noServiceManager', { platform: process.platform })}`);
-  } else {
-    await installService({
-      serviceName: config.serviceName,
-      installDir: config.installDir,
-      runScriptPath: installLayout.runScriptPath,
-      autostart: config.autostart,
-    });
-  }
+  await installService({
+    serviceName: config.serviceName,
+    installDir: config.installDir,
+    runScriptPath: installLayout.runScriptPath,
+    autostart: config.autostart,
+  });
 
   const cliVersion = await readPackageVersion(packageLayout.packageRoot);
   const meta: InstallMeta = {
@@ -213,7 +273,5 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
   console.log(
     `- ${t('init.summary.autostart')}: ${config.autostart ? t('init.summary.autostart.on') : t('init.summary.autostart.off')}`
   );
-  if (manager !== 'none') {
-    console.log(`- ${t('init.summary.serviceHint')}: ${serviceHint(config.serviceName)}`);
-  }
+  console.log(`- ${t('init.summary.serviceHint')}: ${await serviceHint(config.serviceName)}`);
 }

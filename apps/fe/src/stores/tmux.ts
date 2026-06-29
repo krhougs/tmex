@@ -24,8 +24,9 @@ import type { EventDevicePayload, EventTmuxPayload, StateSnapshotPayload } from 
 import { wsBorsh } from '@tmex/shared';
 import { toast } from 'sonner';
 import { create } from 'zustand';
+import i18n from '../i18n';
 import { useSiteStore } from './site';
-import { formatTerminalNotificationToast } from './tmux-notification-format';
+import { buildPaneLocationLabel, formatTerminalNotificationToast } from './tmux-notification-format';
 import { useUIStore } from './ui';
 
 type SnapshotMap = Record<string, StateSnapshotPayload | undefined>;
@@ -240,6 +241,29 @@ function setupClientHandlers(
         return;
       }
 
+      case wsBorsh.KIND_CLIPBOARD_WRITE: {
+        const decoded = wsBorsh.decodePayload(
+          wsBorsh.schema.ClipboardWriteSchema,
+          msg.payload
+        );
+        if (document.visibilityState !== 'visible') {
+          return;
+        }
+        const current = getState().selectedPanes[decoded.deviceId];
+        if (!current || current.paneId !== decoded.paneId) {
+          return;
+        }
+        navigator.clipboard.writeText(decoded.text).then(
+          () => {
+            toast.success(i18n.t('terminal.copied'));
+          },
+          (err) => {
+            console.warn('[tmux] clipboard write failed:', err);
+          },
+        );
+        return;
+      }
+
       case wsBorsh.KIND_ERROR: {
         // 连接级错误不一定需要 toast；保留给上层需要时再做
         return;
@@ -352,16 +376,11 @@ function handleTmuxEvent(
     }
 
     const data = (payload.data ?? {}) as Record<string, unknown>;
-    const title = 'Terminal Bell';
-    const description = [
-      typeof data.windowIndex === 'number' ? `Window ${data.windowIndex}` : undefined,
-      typeof data.paneIndex === 'number' ? `Pane ${data.paneIndex}` : undefined,
-    ]
-      .filter(Boolean)
-      .join(' · ');
+    const title = i18n.t('terminal.bellNotification');
+    const description = buildPaneLocationLabel(data);
     const paneUrl = typeof data.paneUrl === 'string' ? data.paneUrl : undefined;
     toast(title, {
-      description: description || 'Received tmux bell',
+      description: description || i18n.t('terminal.bellFallback'),
       action: paneUrl
         ? {
             label: 'Open',
