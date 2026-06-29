@@ -65,6 +65,8 @@ Global flags:
       'Directory {{installDir}} already exists. Continue (will not delete existing config/db)?',
     'init.error.installDirNotEmpty':
       'Install directory is not empty: {{installDir}}. Use --force to overwrite.',
+    'init.error.noServiceManager':
+      'No supported service manager found (platform: {{platform}}). tmex requires systemd (Linux) or launchd (macOS).',
     'init.warning.noServiceManager':
       'Service manager is not supported on platform {{platform}}. Files are deployed but autostart is not configured.',
     'init.done': 'Initialization completed.',
@@ -193,6 +195,8 @@ Global flags:
     'init.prompt.dirExistsConfirm':
       '目录 {{installDir}} 已存在，是否继续（不会删除现有配置与数据库）？',
     'init.error.installDirNotEmpty': '安装目录已存在且非空：{{installDir}}。如需覆盖请加 --force',
+    'init.error.noServiceManager':
+      '未检测到可用的服务管理器（平台：{{platform}}）。tmex 需要 systemd（Linux）或 launchd（macOS）。',
     'init.warning.noServiceManager': '当前平台 {{platform}} 未实现自动服务安装，已完成文件部署。',
     'init.done': '初始化完成。',
     'init.summary.installDir': '安装目录',

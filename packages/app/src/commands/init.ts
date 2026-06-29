@@ -180,6 +180,11 @@ async function handleDepFailure(
 }
 
 export async function runInit(parsed: ParsedArgs): Promise<void> {
+  const manager = await detectServiceManager();
+  if (manager === 'none') {
+    throw new Error(t('init.error.noServiceManager', { platform: process.platform }));
+  }
+
   const config = await buildInitConfig(parsed);
 
   if (!config.skipDepCheck) {
@@ -242,17 +247,12 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
   await writeEnvFile(installLayout.envPath, envValues);
   await writeRunScript(installLayout, bun.path);
 
-  const manager = detectServiceManager();
-  if (manager === 'none') {
-    console.warn(`[tmex] ${t('init.warning.noServiceManager', { platform: process.platform })}`);
-  } else {
-    await installService({
-      serviceName: config.serviceName,
-      installDir: config.installDir,
-      runScriptPath: installLayout.runScriptPath,
-      autostart: config.autostart,
-    });
-  }
+  await installService({
+    serviceName: config.serviceName,
+    installDir: config.installDir,
+    runScriptPath: installLayout.runScriptPath,
+    autostart: config.autostart,
+  });
 
   const cliVersion = await readPackageVersion(packageLayout.packageRoot);
   const meta: InstallMeta = {
@@ -273,7 +273,5 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
   console.log(
     `- ${t('init.summary.autostart')}: ${config.autostart ? t('init.summary.autostart.on') : t('init.summary.autostart.off')}`
   );
-  if (manager !== 'none') {
-    console.log(`- ${t('init.summary.serviceHint')}: ${serviceHint(config.serviceName)}`);
-  }
+  console.log(`- ${t('init.summary.serviceHint')}: ${await serviceHint(config.serviceName)}`);
 }
