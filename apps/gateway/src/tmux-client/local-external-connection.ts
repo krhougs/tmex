@@ -351,7 +351,21 @@ export class LocalExternalTmuxConnection {
     });
   }
 
-  // TMEX_TMUX_WINDOW_STYLE=off 表示用户不希望 tmex 接管 window-style，动态更新同样跳过。
+  updateDefaultWorkingDir(dir: string | undefined): void {
+    if (this.device) {
+      this.device = { ...this.device, defaultWorkingDir: dir };
+    }
+    if (this.connected) {
+      void this.runTmuxAllowFailure([
+        'set-option',
+        '-t',
+        this.sessionName,
+        'default-path',
+        this.resolveDefaultWorkingDir(),
+      ]);
+    }
+  }
+
   setWindowStyle(style: string): void {
     if (!this.connected) {
       return;

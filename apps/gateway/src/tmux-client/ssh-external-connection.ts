@@ -253,7 +253,21 @@ export class SshExternalTmuxConnection {
     });
   }
 
-  // 同 local 版本：TMEX_TMUX_WINDOW_STYLE=off 时尊重配置，跳过动态更新。
+  updateDefaultWorkingDir(dir: string | undefined): void {
+    if (this.device) {
+      this.device = { ...this.device, defaultWorkingDir: dir };
+    }
+    if (this.connected) {
+      void this.runTmuxAllowFailure([
+        'set-option',
+        '-t',
+        this.sessionName,
+        'default-path',
+        this.resolveDefaultWorkingDir(),
+      ]);
+    }
+  }
+
   setWindowStyle(style: string): void {
     if (!this.connected) {
       return;

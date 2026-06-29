@@ -269,6 +269,11 @@ export class WebSocketServer {
     }
   }
 
+  updateDefaultWorkingDir(deviceId: string, dir: string | undefined): void {
+    const entry = this.connections.get(deviceId);
+    entry?.runtime.updateDefaultWorkingDir(dir);
+  }
+
   closeAll(): void {
     for (const [deviceId, entry] of this.connections) {
       this.releaseConnectionEntry(deviceId, entry);

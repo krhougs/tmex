@@ -75,8 +75,6 @@ function shouldReconnectPushSupervisor(existing: Device, updates: Partial<Device
   if (updates.passwordEnc !== undefined) return true;
   if (updates.privateKeyEnc !== undefined) return true;
   if (updates.privateKeyPassphraseEnc !== undefined) return true;
-  if (updates.defaultWorkingDir !== undefined && updates.defaultWorkingDir !== existing.defaultWorkingDir)
-    return true;
 
   return false;
 }
@@ -471,6 +469,11 @@ async function handleUpdateDevice(req: Request, id: string): Promise<Response> {
 
   if (shouldReconnectPushSupervisor(existing, updates)) {
     await pushSupervisor.reconnect(id);
+  } else if (
+    updates.defaultWorkingDir !== undefined &&
+    updates.defaultWorkingDir !== existing.defaultWorkingDir
+  ) {
+    pushSupervisor.updateDefaultWorkingDir(id, updates.defaultWorkingDir);
   }
 
   const device = getDeviceById(id);
