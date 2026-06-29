@@ -77,6 +77,7 @@ function toDevice(row: typeof devices.$inferSelect): Device {
     passwordEnc: optional(row.passwordEnc),
     privateKeyEnc: optional(row.privateKeyEnc),
     privateKeyPassphraseEnc: optional(row.privateKeyPassphraseEnc),
+    defaultWorkingDir: optional(row.defaultWorkingDir),
     sortOrder: row.sortOrder,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -228,6 +229,7 @@ export function createDevice(device: Device): void {
         passwordEnc: device.passwordEnc ?? null,
         privateKeyEnc: device.privateKeyEnc ?? null,
         privateKeyPassphraseEnc: device.privateKeyPassphraseEnc ?? null,
+        defaultWorkingDir: device.defaultWorkingDir ?? null,
         sortOrder: nextSortOrder,
         createdAt: device.createdAt,
         updatedAt: device.updatedAt,
@@ -313,6 +315,9 @@ export function updateDevice(id: string, updates: Partial<Device>): void {
   }
   if (updates.privateKeyPassphraseEnc !== undefined) {
     setValues.privateKeyPassphraseEnc = updates.privateKeyPassphraseEnc;
+  }
+  if (updates.defaultWorkingDir !== undefined) {
+    setValues.defaultWorkingDir = updates.defaultWorkingDir || null;
   }
 
   orm.update(devices).set(setValues).where(eq(devices.id, id)).run();

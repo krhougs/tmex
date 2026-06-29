@@ -88,6 +88,8 @@ export type TranslationKey =
   | 'device.session'
   | 'device.sessionPlaceholder'
   | 'device.sessionHint'
+  | 'device.defaultWorkingDir'
+  | 'device.defaultWorkingDirPlaceholder'
   | 'device.authMode'
   | 'device.authPassword'
   | 'device.authKey'

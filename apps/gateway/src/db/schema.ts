@@ -88,6 +88,7 @@ export const devices = sqliteTable(
     passwordEnc: text('password_enc'),
     privateKeyEnc: text('private_key_enc'),
     privateKeyPassphraseEnc: text('private_key_passphrase_enc'),
+    defaultWorkingDir: text('default_working_dir'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),

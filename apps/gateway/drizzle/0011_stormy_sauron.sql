@@ -1,0 +1,1 @@
+ALTER TABLE `devices` ADD `default_working_dir` text;

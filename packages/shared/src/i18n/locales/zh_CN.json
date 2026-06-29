@@ -75,6 +75,8 @@
       "session": "Tmux 会话名称",
       "sessionPlaceholder": "tmex",
       "sessionHint": "留空将使用默认值 \"tmex\"",
+      "defaultWorkingDir": "默认工作目录",
+      "defaultWorkingDirPlaceholder": "留空使用用户 home 目录",
       "authMode": "认证方式",
       "authPassword": "密码",
       "authKey": "私钥",

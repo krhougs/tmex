@@ -46,6 +46,7 @@ function isConfigureSessionOptionCommand(command: string, session: string): bool
     command === `set-option -t ${session} destroy-unattached off` ||
     command === `set-environment -t ${session} TERM_PROGRAM ghostty` ||
     command === `set-environment -t ${session} COLORTERM truecolor` ||
+    command.startsWith(`set-option -t ${session} default-path `) ||
     command ===
       `set-hook -t ${session} after-new-window set-option -w window-style 'fg=#d0d0d0,bg=#262626'` ||
     command === 'set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626'
@@ -74,6 +75,9 @@ function createRunStub(
     }
     if (command === `new-window -t ${session} -n tmex-park -P -F #{window_id} sleep 30`) {
       return ok('@99\n');
+    }
+    if (command.startsWith(`new-window -t ${session} -c `) || command.startsWith(`new-window -d -t ${session} -c `)) {
+      return ok();
     }
     if (command === `last-window -t ${session}` || command === 'kill-window -t @99') {
       return ok();
@@ -223,9 +227,10 @@ describe('LocalExternalTmuxConnection', () => {
 
     await connection.connect();
 
+    const homedir = require('node:os').homedir();
     expect(calls.map((argv) => argv.join(' '))).toEqual([
       'tmux has-session -t tmex-snapshot',
-      'tmux new-session -d -c /Users/krhougs -s tmex-snapshot',
+      `tmux new-session -d -c ${homedir} -s tmex-snapshot`,
       'tmux set-option -t tmex-snapshot -s allow-passthrough off',
       'tmux set-option -t tmex-snapshot -g extended-keys on',
       'tmux set-option -t tmex-snapshot -s extended-keys-format csi-u',
@@ -233,6 +238,7 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux set-option -t tmex-snapshot destroy-unattached off',
       'tmux set-environment -t tmex-snapshot TERM_PROGRAM ghostty',
       'tmux set-environment -t tmex-snapshot COLORTERM truecolor',
+      `tmux set-option -t tmex-snapshot default-path ${homedir}`,
       "tmux set-hook -t tmex-snapshot after-new-window set-option -w window-style 'fg=#d0d0d0,bg=#262626'",
       'tmux list-windows -t tmex-snapshot -F #{window_id}',
       'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
@@ -1021,5 +1027,161 @@ describe('LocalExternalTmuxConnection', () => {
     expect(status.lastError).toBeNull();
 
     connection.disconnect();
+  });
+
+  test('createWindow uses homedir when defaultWorkingDir is empty', async () => {
+    const session = 'tmex-cwd-empty';
+    const calls: string[][] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice(session),
+        run: createRunStub(session, { record: calls }),
+      }
+    );
+
+    await connection.connect();
+    calls.length = 0;
+
+    connection.createWindow();
+    await Bun.sleep(50);
+
+    const homedir = require('node:os').homedir();
+    const createCmd = calls.find((argv) => argv.includes('new-window'));
+    expect(createCmd).toBeDefined();
+    expect(createCmd).toContain('-c');
+    expect(createCmd).toContain(homedir);
+  });
+
+  test('createWindow uses custom dir when defaultWorkingDir is set', async () => {
+    const session = 'tmex-cwd-custom';
+    const calls: string[][] = [];
+    const device = createDevice(session);
+    device.defaultWorkingDir = '/custom/path';
+
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => device,
+        run: createRunStub(session, { record: calls }),
+      }
+    );
+
+    await connection.connect();
+    calls.length = 0;
+
+    connection.createWindow('test-win');
+    await Bun.sleep(50);
+
+    const createCmd = calls.find((argv) => argv.includes('new-window'));
+    expect(createCmd).toBeDefined();
+    expect(createCmd).toContain('-c');
+    expect(createCmd).toContain('/custom/path');
+    expect(createCmd).toContain('-n');
+    expect(createCmd).toContain('test-win');
+  });
+
+  test('configureSessionOptions sets default-path with custom dir', async () => {
+    const session = 'tmex-defpath';
+    const calls: string[][] = [];
+    const device = createDevice(session);
+    device.defaultWorkingDir = '/projects';
+
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => device,
+        run: createRunStub(session, { record: calls }),
+      }
+    );
+
+    await connection.connect();
+
+    const defaultPathCmd = calls.find(
+      (argv) => argv.includes('set-option') && argv.includes('default-path')
+    );
+    expect(defaultPathCmd).toBeDefined();
+    expect(defaultPathCmd).toContain('/projects');
+  });
+
+  test('ensureSession uses custom defaultWorkingDir for new session', async () => {
+    const session = 'tmex-newsess-cwd';
+    const calls: string[][] = [];
+    const device = createDevice(session);
+    device.defaultWorkingDir = '/workspace';
+
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: (error) => {
+          throw error;
+        },
+        onClose: () => {},
+      },
+      {
+        enableSubscription: false,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => device,
+        run: createRunStub(session, {
+          record: calls,
+          overrides: (command) => {
+            if (command === `has-session -t ${session}`) {
+              return { exitCode: 1, stdout: '', stderr: `can't find session: ${session}` };
+            }
+            if (command === `new-session -d -c /workspace -s ${session}`) {
+              return ok();
+            }
+            return null;
+          },
+        }),
+      }
+    );
+
+    await connection.connect();
+
+    const newSessionCmd = calls.find((argv) => argv.includes('new-session'));
+    expect(newSessionCmd).toBeDefined();
+    expect(newSessionCmd).toContain('-c');
+    expect(newSessionCmd).toContain('/workspace');
   });
 });

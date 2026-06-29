@@ -78,6 +78,13 @@
       "when": 1781940934364,
       "tag": "0010_lucky_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1782709181895,
+      "tag": "0011_stormy_sauron",
+      "breakpoints": true
     }
   ]
 }

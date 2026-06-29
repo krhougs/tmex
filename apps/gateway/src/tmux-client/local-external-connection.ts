@@ -312,9 +312,10 @@ export class LocalExternalTmuxConnection {
       return;
     }
 
-    const argv = name
-      ? ['new-window', '-t', this.sessionName, '-n', name]
-      : ['new-window', '-t', this.sessionName];
+    const argv = ['new-window', '-t', this.sessionName, '-c', this.resolveDefaultWorkingDir()];
+    if (name) {
+      argv.push('-n', name);
+    }
     void this.runAndRefresh(argv).catch((error) => {
       this.callbacks.onError(error);
     });
@@ -392,13 +393,17 @@ export class LocalExternalTmuxConnection {
     return parsePaneMeta(stdout);
   }
 
+  private resolveDefaultWorkingDir(): string {
+    return this.device?.defaultWorkingDir?.trim() || homedir();
+  }
+
   private async ensureSession(): Promise<void> {
     const exists = await this.runTmuxAllowFailure(['has-session', '-t', this.sessionName]);
     if (exists.exitCode === 0) {
       return;
     }
 
-    await this.runTmux(['new-session', '-d', '-c', homedir(), '-s', this.sessionName]);
+    await this.runTmux(['new-session', '-d', '-c', this.resolveDefaultWorkingDir(), '-s', this.sessionName]);
   }
 
   private async configureSessionOptions(): Promise<void> {
@@ -459,6 +464,14 @@ export class LocalExternalTmuxConnection {
       this.sessionName,
       'COLORTERM',
       'truecolor',
+    ]);
+
+    await this.runTmuxAllowFailure([
+      'set-option',
+      '-t',
+      this.sessionName,
+      'default-path',
+      this.resolveDefaultWorkingDir(),
     ]);
 
     await this.configureWindowStyle();
@@ -777,7 +790,7 @@ export class LocalExternalTmuxConnection {
     );
 
     if (count <= 1) {
-      await this.runTmux(['new-window', '-d', '-t', this.sessionName]);
+      await this.runTmux(['new-window', '-d', '-t', this.sessionName, '-c', this.resolveDefaultWorkingDir()]);
     }
 
     await this.runAndRefresh(['kill-window', '-t', windowId], true);

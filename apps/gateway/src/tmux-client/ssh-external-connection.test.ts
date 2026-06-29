@@ -45,6 +45,7 @@ function isConfigureSessionOptionPayload(payload: string, session: string): bool
     payload.includes(`'set-option' '-t' '${session}' 'destroy-unattached' 'off'`) ||
     payload.includes(`'set-environment' '-t' '${session}' 'TERM_PROGRAM' 'ghostty'`) ||
     payload.includes(`'set-environment' '-t' '${session}' 'COLORTERM' 'truecolor'`) ||
+    payload.includes(`'set-option' '-t' '${session}' 'default-path'`) ||
     payload.includes(`'set-hook' '-t' '${session}' 'after-new-window'`) ||
     payload.includes("'set-option' '-w' '-t' '@1' 'window-style' 'fg=#d0d0d0,bg=#262626'")
   );
@@ -71,6 +72,9 @@ function respondToPayload(
     )
   ) {
     return { stdout: '@99\n', exitCode: 0 };
+  }
+  if (payload.includes(`'new-window' '-t' '${session}' '-c'`) || payload.includes(`'new-window' '-d' '-t' '${session}' '-c'`)) {
+    return { stdout: '', exitCode: 0 };
   }
   if (payload.includes(`'last-window' '-t' '${session}'`) || payload.includes("'kill-window' '-t' '@99'")) {
     return { stdout: '', exitCode: 0 };
@@ -719,6 +723,127 @@ describe('SshExternalTmuxConnection', () => {
       writes.some((payload) => payload.includes('find ') && payload.includes('/tmp/tmex'))
     ).toBe(false);
     expect(writes.some((payload) => payload.includes('rm -rf'))).toBe(false);
+
+    connection.disconnect();
+  });
+
+  test('createWindow uses remoteHomeDir when defaultWorkingDir is empty', async () => {
+    const session = 'tmex-ssh-cwd-empty';
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    setupCommandChannel(fakeClient, session, { record: writes });
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => createDevice(session),
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+    writes.length = 0;
+
+    connection.createWindow();
+    await Bun.sleep(100);
+
+    expect(
+      writes.some((payload) =>
+        payload.includes(`'new-window' '-t' '${session}' '-c' '/home/alice'`)
+      )
+    ).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('createWindow uses custom dir when defaultWorkingDir is set', async () => {
+    const session = 'tmex-ssh-cwd-custom';
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    const device = createDevice(session);
+    device.defaultWorkingDir = '/custom/remote/path';
+
+    setupCommandChannel(fakeClient, session, { record: writes });
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => device,
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+    writes.length = 0;
+
+    connection.createWindow('test-win');
+    await Bun.sleep(100);
+
+    expect(
+      writes.some((payload) =>
+        payload.includes(`'new-window' '-t' '${session}' '-c' '/custom/remote/path'`) &&
+        payload.includes("'-n' 'test-win'")
+      )
+    ).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('configureSessionOptions sets default-path with custom dir', async () => {
+    const session = 'tmex-ssh-defpath';
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    const device = createDevice(session);
+    device.defaultWorkingDir = '/projects';
+
+    setupCommandChannel(fakeClient, session, { record: writes });
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => device,
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+
+    expect(
+      writes.some((payload) =>
+        payload.includes(`'set-option' '-t' '${session}' 'default-path' '/projects'`)
+      )
+    ).toBe(true);
+
+    connection.disconnect();
+  });
+
+  test('ensureSession uses custom defaultWorkingDir for new session', async () => {
+    const session = 'tmex-ssh-newsess-cwd';
+    const fakeClient = new FakeClient();
+    const writes: string[] = [];
+    const device = createDevice(session);
+    device.defaultWorkingDir = '/workspace';
+
+    setupCommandChannel(fakeClient, session, {
+      record: writes,
+      overrides: (payload) => {
+        if (payload.includes(`'has-session' '-t' '${session}'`)) {
+          return { stdout: '', exitCode: 1 };
+        }
+        if (payload.includes(`'new-session' '-d' '-c' '/workspace' '-s' '${session}'`)) {
+          return { stdout: '', exitCode: 0 };
+        }
+        return null;
+      },
+    });
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => device,
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+
+    expect(
+      writes.some((payload) =>
+        payload.includes(`'new-session' '-d' '-c' '/workspace' '-s' '${session}'`)
+      )
+    ).toBe(true);
 
     connection.disconnect();
   });
