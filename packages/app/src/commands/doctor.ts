@@ -5,7 +5,7 @@ import { t } from '../i18n';
 import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import {
   executeDependencyInstall,
-  getInstallHint,
+  getInstallHintAsync,
   planBunInstall,
   planTmuxInstall,
   type DepInstallPlan,
@@ -83,7 +83,7 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
       level: 'fail',
       message: t('doctor.bun.fail', { reason: bun.reason || t('bun.checkFailed') }),
       detail: bun.path,
-      hint: getInstallHint('bun'),
+      hint: await getInstallHintAsync('bun'),
       fixable: true,
     });
   }
@@ -101,7 +101,7 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
       id: 'tmux',
       level: 'fail',
       message: t('doctor.tmux.versionLow', { version: tmux.versionRaw || '' }),
-      hint: getInstallHint('tmux'),
+      hint: await getInstallHintAsync('tmux'),
       fixable: true,
     });
   } else {
@@ -109,7 +109,7 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
       id: 'tmux',
       level: 'fail',
       message: t('doctor.tmux.fail'),
-      hint: getInstallHint('tmux'),
+      hint: await getInstallHintAsync('tmux'),
       fixable: true,
     });
   }
@@ -281,9 +281,10 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
         issue: check.id === 'tmux' && check.message.includes('version') ? 'version-too-low' : 'missing',
       };
 
+      const nonInteractive = asBoolean(parsed.flags['no-interactive']) ?? false;
       await executeDependencyInstall(plan, {
-        nonInteractive: false,
-        autoConfirm: false,
+        nonInteractive,
+        autoConfirm: nonInteractive,
       });
     }
 
