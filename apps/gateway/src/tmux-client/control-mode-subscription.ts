@@ -33,6 +33,7 @@ export interface ControlModeSubscriptionCallbacks {
   onBell: (paneId: string) => void;
   onNotification: (paneId: string, notification: PaneStreamNotification) => void;
   onPromptMarker?: (paneId: string, marker: PromptMarker) => void;
+  onClipboardWrite?: (paneId: string, text: string) => void;
   onStructureChanged: () => void;
   onExit: (reason: string | null) => void;
   onBlockEnd?: (block: ControlModeBlock) => void;
@@ -63,6 +64,7 @@ export function createControlModeSubscription(
       onBell: () => callbacks.onBell(paneId),
       onNotification: (notification) => callbacks.onNotification(paneId, notification),
       onPromptMarker: (marker) => callbacks.onPromptMarker?.(paneId, marker),
+      onClipboardWrite: (text) => callbacks.onClipboardWrite?.(paneId, text),
     });
     paneParsers.set(paneId, parser);
     return parser;

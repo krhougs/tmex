@@ -15,6 +15,7 @@ import {
   KIND_PING,
   KIND_TMUX_REORDER_PANES,
   KIND_TMUX_REORDER_WINDOWS,
+  KIND_CLIPBOARD_WRITE,
   KIND_WATCH_EVENT,
   MAGIC,
   WATCH_EVENT_TRIGGERED,
@@ -37,6 +38,7 @@ import {
   AgentEventSchema,
   AgentSubscribeSchema,
   AgentUnsubscribeSchema,
+  ClipboardWriteSchema,
   PingPongSchema,
   TmuxReorderPanesSchema,
   TmuxReorderWindowsSchema,
@@ -322,6 +324,7 @@ describe('kind', () => {
     expect(isValidKind(KIND_AGENT_UNSUBSCRIBE)).toBe(true);
     expect(isValidKind(KIND_AGENT_EVENT)).toBe(true);
     expect(isValidKind(KIND_WATCH_EVENT)).toBe(true);
+    expect(isValidKind(KIND_CLIPBOARD_WRITE)).toBe(true);
     expect(isValidKind(0x9999)).toBe(false);
     expect(isValidKind(0)).toBe(false);
   });
@@ -333,6 +336,7 @@ describe('kind', () => {
     expect(kindToString(KIND_AGENT_UNSUBSCRIBE)).toBe('AGENT_UNSUBSCRIBE');
     expect(kindToString(KIND_AGENT_EVENT)).toBe('AGENT_EVENT');
     expect(kindToString(KIND_WATCH_EVENT)).toBe('WATCH_EVENT');
+    expect(kindToString(KIND_CLIPBOARD_WRITE)).toBe('CLIPBOARD_WRITE');
     expect(kindToString(0x9999)).toBe('UNKNOWN(0x9999)');
   });
 });
@@ -366,6 +370,29 @@ describe('tmux reorder 协议消息', () => {
       encodePayload(TmuxReorderWindowsSchema, { deviceId: 'd', windowIds: [] })
     );
     expect(decoded.windowIds).toEqual([]);
+  });
+});
+
+describe('clipboard write 协议消息', () => {
+  it('ClipboardWriteSchema payload roundtrip', () => {
+    const data = { deviceId: 'dev-1', paneId: '%0', text: 'hello world' };
+    const encoded = encodePayload(ClipboardWriteSchema, data);
+    const decoded = decodePayload(ClipboardWriteSchema, encoded);
+    expect(decoded.deviceId).toBe('dev-1');
+    expect(decoded.paneId).toBe('%0');
+    expect(decoded.text).toBe('hello world');
+  });
+
+  it('ClipboardWriteSchema with empty text roundtrip', () => {
+    const data = { deviceId: 'dev-1', paneId: '%0', text: '' };
+    const decoded = decodePayload(ClipboardWriteSchema, encodePayload(ClipboardWriteSchema, data));
+    expect(decoded.text).toBe('');
+  });
+
+  it('ClipboardWriteSchema with unicode text roundtrip', () => {
+    const data = { deviceId: 'dev-1', paneId: '%0', text: '你好世界 🌍' };
+    const decoded = decodePayload(ClipboardWriteSchema, encodePayload(ClipboardWriteSchema, data));
+    expect(decoded.text).toBe('你好世界 🌍');
   });
 });
 

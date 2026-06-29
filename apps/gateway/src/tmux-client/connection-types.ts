@@ -9,6 +9,7 @@ export interface TmuxConnectionOptions {
   onTerminalOutput: (paneId: string, data: Uint8Array) => void;
   onTerminalHistory: (paneId: string, data: string, alternateScreen: boolean) => void;
   onPromptMarker?: (paneId: string, marker: PromptMarker) => void;
+  onClipboardWrite?: (paneId: string, text: string) => void;
   onSnapshot: (payload: StateSnapshotPayload) => void;
   onError: (error: Error) => void;
   onClose: () => void;

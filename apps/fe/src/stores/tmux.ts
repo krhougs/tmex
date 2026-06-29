@@ -240,6 +240,24 @@ function setupClientHandlers(
         return;
       }
 
+      case wsBorsh.KIND_CLIPBOARD_WRITE: {
+        const decoded = wsBorsh.decodePayload(
+          wsBorsh.schema.ClipboardWriteSchema,
+          msg.payload
+        );
+        if (document.visibilityState !== 'visible') {
+          return;
+        }
+        const current = getState().selectedPanes[decoded.deviceId];
+        if (!current || current.paneId !== decoded.paneId) {
+          return;
+        }
+        navigator.clipboard.writeText(decoded.text).catch((err) => {
+          console.warn('[tmux] clipboard write failed:', err);
+        });
+        return;
+      }
+
       case wsBorsh.KIND_ERROR: {
         // 连接级错误不一定需要 toast；保留给上层需要时再做
         return;

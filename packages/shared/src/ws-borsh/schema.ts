@@ -178,6 +178,14 @@ export const TermHistorySchema = b.struct({
   data: b.bytes(),
 });
 
+// ========== 剪贴板 ==========
+
+export const ClipboardWriteSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  text: b.string(),
+});
+
 // ========== 切换屏障 ==========
 
 export const SwitchAckSchema = b.struct({

@@ -622,6 +622,9 @@ export class SshExternalTmuxConnection {
       onPromptMarker: (paneId, marker) => {
         this.callbacks.onPromptMarker?.(paneId, marker);
       },
+      onClipboardWrite: (paneId, text) => {
+        this.callbacks.onClipboardWrite?.(paneId, text);
+      },
       onStructureChanged: () => {
         this.requestSnapshot();
       },

@@ -36,6 +36,7 @@ export const KIND_TERM_RESIZE = 0x0303;
 export const KIND_TERM_SYNC_SIZE = 0x0304;
 export const KIND_TERM_OUTPUT = 0x0305;
 export const KIND_TERM_HISTORY = 0x0306;
+export const KIND_CLIPBOARD_WRITE = 0x0307;
 
 // ========== 切换屏障 (0x0400-0x04FF) ==========
 export const KIND_SWITCH_ACK = 0x0401;
@@ -82,6 +83,7 @@ const VALID_KINDS = new Set<number>([
   KIND_TERM_SYNC_SIZE,
   KIND_TERM_OUTPUT,
   KIND_TERM_HISTORY,
+  KIND_CLIPBOARD_WRITE,
   KIND_SWITCH_ACK,
   KIND_LIVE_RESUME,
   KIND_CHUNK,
@@ -125,6 +127,7 @@ export function kindToString(kind: number): string {
     [KIND_TERM_SYNC_SIZE]: 'TERM_SYNC_SIZE',
     [KIND_TERM_OUTPUT]: 'TERM_OUTPUT',
     [KIND_TERM_HISTORY]: 'TERM_HISTORY',
+    [KIND_CLIPBOARD_WRITE]: 'CLIPBOARD_WRITE',
     [KIND_SWITCH_ACK]: 'SWITCH_ACK',
     [KIND_LIVE_RESUME]: 'LIVE_RESUME',
     [KIND_CHUNK]: 'CHUNK',

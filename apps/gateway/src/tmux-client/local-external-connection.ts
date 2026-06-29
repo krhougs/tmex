@@ -613,6 +613,9 @@ export class LocalExternalTmuxConnection {
       onPromptMarker: (paneId, marker) => {
         this.callbacks.onPromptMarker?.(paneId, marker);
       },
+      onClipboardWrite: (paneId, text) => {
+        this.callbacks.onClipboardWrite?.(paneId, text);
+      },
       onStructureChanged: () => {
         this.requestSnapshot();
       },

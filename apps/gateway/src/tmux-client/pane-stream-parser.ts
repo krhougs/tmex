@@ -36,6 +36,7 @@ export interface PaneStreamParserOptions {
   onBell: () => void;
   onNotification: (notification: PaneStreamNotification) => void;
   onPromptMarker?: (marker: PromptMarker) => void;
+  onClipboardWrite?: (text: string) => void;
 }
 
 export interface PaneStreamParser {
@@ -164,6 +165,30 @@ export function createPaneStreamParser(options: PaneStreamParserOptions): PaneSt
           options.onNotification({ source: 'osc1337', body: 'RequestAttention' });
         }
         return;
+      case '52': {
+        const separatorIndex = payload.indexOf(';');
+        if (separatorIndex < 0) {
+          return;
+        }
+        const base64Data = payload.slice(separatorIndex + 1);
+        if (!base64Data || base64Data === '?') {
+          return;
+        }
+        try {
+          const binaryString = atob(base64Data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+          if (text) {
+            options.onClipboardWrite?.(text);
+          }
+        } catch {
+          // invalid base64 — silently discard
+        }
+        return;
+      }
       case '133': {
         const parts = payload.split(';');
         const kind = parts[0];
@@ -319,6 +344,7 @@ export function createPaneStreamParser(options: PaneStreamParserOptions): PaneSt
               oscKind === '1' ||
               oscKind === '2' ||
               oscKind === '9' ||
+              oscKind === '52' ||
               oscKind === '99' ||
               oscKind === '133' ||
               oscKind === '777' ||

@@ -31,6 +31,7 @@ export interface DeviceSessionRuntimeListener {
   onTerminalOutput?: (paneId: string, data: Uint8Array) => void;
   onTerminalHistory?: (paneId: string, data: string, alternateScreen: boolean) => void;
   onPromptMarker?: (paneId: string, marker: PromptMarker) => void;
+  onClipboardWrite?: (paneId: string, text: string) => void;
   onSnapshot?: (payload: StateSnapshotPayload) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
@@ -76,6 +77,9 @@ export class DeviceSessionRuntime {
       },
       onPromptMarker: (paneId, marker) => {
         this.broadcast((listener) => listener.onPromptMarker?.(paneId, marker));
+      },
+      onClipboardWrite: (paneId, text) => {
+        this.broadcast((listener) => listener.onClipboardWrite?.(paneId, text));
       },
       onSnapshot: (payload) => {
         this.broadcast((listener) => listener.onSnapshot?.(payload));

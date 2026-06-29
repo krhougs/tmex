@@ -116,6 +116,14 @@ export function encodeSwitchAck(
   return wsBorsh.encodeEnvelope(wsBorsh.KIND_SWITCH_ACK, payload, seq);
 }
 
+export function encodeClipboardWrite(
+  params: b.infer<typeof wsBorsh.schema.ClipboardWriteSchema>,
+  seq: number
+): Uint8Array {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.ClipboardWriteSchema, params);
+  return wsBorsh.encodeEnvelope(wsBorsh.KIND_CLIPBOARD_WRITE, payload, seq);
+}
+
 export function encodeLiveResume(
   params: b.infer<typeof wsBorsh.schema.LiveResumeSchema>,
   seq: number

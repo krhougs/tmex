@@ -442,3 +442,121 @@ describe('pane stream parser', () => {
     expect(notifications).toEqual([{ source: 'osc9', body: 'ab\u001bxcd' }]);
   });
 });
+
+describe('pane stream parser - OSC 52 clipboard', () => {
+  function collectClipboard() {
+    const writes: string[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: () => {},
+      onBell: () => {},
+      onNotification: () => {},
+      onClipboardWrite: (text) => writes.push(text),
+    });
+    return { parser, writes };
+  }
+
+  const ST = bytes(0x1b, 0x5c);
+
+  test('basic write with BEL terminator', () => {
+    const { parser, writes } = collectClipboard();
+    // "hello" -> base64 "aGVsbG8="
+    const output = parser.push(bytes('X', 0x1b, ']', '52;c;aGVsbG8=', 0x07, 'Y'));
+    expect(Array.from(output)).toEqual([0x58, 0x59]);
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('basic write with ST terminator', () => {
+    const { parser, writes } = collectClipboard();
+    const output = parser.push(bytes('X', 0x1b, ']', '52;c;aGVsbG8=', ST, 'Y'));
+    expect(Array.from(output)).toEqual([0x58, 0x59]);
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('read request (?) is silently discarded', () => {
+    const { parser, writes } = collectClipboard();
+    const output = parser.push(bytes(0x1b, ']', '52;c;?', 0x07, 'Z'));
+    expect(Array.from(output)).toEqual([0x5a]);
+    expect(writes).toEqual([]);
+  });
+
+  test('invalid base64 is silently discarded', () => {
+    const { parser, writes } = collectClipboard();
+    const output = parser.push(bytes(0x1b, ']', '52;c;%%%invalid', 0x07, 'Z'));
+    expect(Array.from(output)).toEqual([0x5a]);
+    expect(writes).toEqual([]);
+  });
+
+  test('empty base64 payload is discarded', () => {
+    const { parser, writes } = collectClipboard();
+    const output = parser.push(bytes(0x1b, ']', '52;c;', 0x07, 'Z'));
+    expect(Array.from(output)).toEqual([0x5a]);
+    expect(writes).toEqual([]);
+  });
+
+  test('primary selection parameter (s)', () => {
+    const { parser, writes } = collectClipboard();
+    parser.push(bytes(0x1b, ']', '52;s;aGVsbG8=', 0x07));
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('multiple selection parameters (pc)', () => {
+    const { parser, writes } = collectClipboard();
+    parser.push(bytes(0x1b, ']', '52;pc;aGVsbG8=', 0x07));
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('tmux passthrough wrapped OSC 52', () => {
+    const { parser, writes } = collectClipboard();
+    // DCS tmux; ESC ESC ] 52;c;aGVsbG8= BEL ESC \
+    const output = parser.push(
+      bytes(0x1b, 'Ptmux;', 0x1b, 0x1b, ']52;c;aGVsbG8=', 0x07, 0x1b, 0x5c, 'Z')
+    );
+    expect(Array.from(output)).toEqual([0x5a]);
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('cross-push split OSC 52 sequence', () => {
+    const { parser, writes } = collectClipboard();
+    const out1 = parser.push(bytes(0x1b, ']', '52;c;aGVs'));
+    const out2 = parser.push(bytes('bG8=', 0x07, 'Z'));
+    expect(Array.from(out1)).toEqual([]);
+    expect(Array.from(out2)).toEqual([0x5a]);
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('oversized payload is dropped', () => {
+    const { parser, writes } = collectClipboard();
+    // MAX_OSC_PAYLOAD_BYTES = 8KB; generate > 8KB of base64 data
+    const largeBase64 = 'A'.repeat(9000);
+    const output = parser.push(bytes(0x1b, ']', '52;c;', largeBase64, 0x07, 'Z'));
+    expect(Array.from(output)).toEqual([0x5a]);
+    expect(writes).toEqual([]);
+  });
+
+  test('OSC 52 interleaved with other OSC types', () => {
+    const titles: string[] = [];
+    const writes: string[] = [];
+    const parser = createPaneStreamParser({
+      onTitle: (title) => titles.push(title),
+      onBell: () => {},
+      onNotification: () => {},
+      onClipboardWrite: (text) => writes.push(text),
+    });
+
+    const output = parser.push(
+      bytes(
+        'A',
+        0x1b, ']', '2;my-title', 0x07,
+        'B',
+        0x1b, ']', '52;c;aGVsbG8=', 0x07,
+        'C',
+        0x1b, ']', '2;title2', 0x07,
+        'D'
+      )
+    );
+
+    expect(new TextDecoder().decode(output)).toBe('ABCD');
+    expect(titles).toEqual(['my-title', 'title2']);
+    expect(writes).toEqual(['hello']);
+  });
+});
