@@ -253,9 +253,14 @@ function setupClientHandlers(
         if (!current || current.paneId !== decoded.paneId) {
           return;
         }
-        navigator.clipboard.writeText(decoded.text).catch((err) => {
-          console.warn('[tmux] clipboard write failed:', err);
-        });
+        navigator.clipboard.writeText(decoded.text).then(
+          () => {
+            toast.success(i18n.t('terminal.copied'));
+          },
+          (err) => {
+            console.warn('[tmux] clipboard write failed:', err);
+          },
+        );
         return;
       }
 
