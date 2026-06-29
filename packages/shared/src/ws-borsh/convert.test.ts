@@ -116,6 +116,8 @@ describe('convert', () => {
           windowIndex: 1,
           paneIndex: 2,
           paneUrl: 'https://example.com',
+          paneTitle: 'vim session',
+          paneCurrentCommand: 'vim',
         },
       };
 
@@ -130,7 +132,31 @@ describe('convert', () => {
         windowIndex: 1,
         paneIndex: 2,
         paneUrl: 'https://example.com',
+        paneTitle: 'vim session',
+        paneCurrentCommand: 'vim',
       });
+    });
+
+    it('bell 事件无 paneTitle/paneCurrentCommand 时解码为 undefined', () => {
+      const payload: EventTmuxPayload = {
+        deviceId: 'device-1',
+        type: 'bell',
+        data: {
+          windowId: '@1',
+          paneId: '%2',
+          windowIndex: 0,
+          paneIndex: 1,
+        },
+      };
+
+      const encoded = encodeTmuxEventPayload(payload);
+      const decoded = decodeTmuxEventPayload(encoded);
+
+      const data = decoded.data as Record<string, unknown>;
+      expect(data.paneTitle).toBeUndefined();
+      expect(data.paneCurrentCommand).toBeUndefined();
+      expect(data.windowId).toBe('@1');
+      expect(data.paneId).toBe('%2');
     });
 
     it('应该正确编解码 notification 事件', () => {
@@ -146,6 +172,8 @@ describe('convert', () => {
           windowIndex: 1,
           paneIndex: 2,
           paneUrl: 'https://example.com/build',
+          paneTitle: 'build monitor',
+          paneCurrentCommand: 'make',
         },
       };
 
@@ -155,6 +183,31 @@ describe('convert', () => {
       expect(decoded.deviceId).toBe(payload.deviceId);
       expect(decoded.type).toBe('notification');
       expect(decoded.data).toEqual(payload.data);
+    });
+
+    it('notification 事件无 paneTitle/paneCurrentCommand 时解码为 undefined', () => {
+      const payload: EventTmuxPayload = {
+        deviceId: 'device-1',
+        type: 'notification',
+        data: {
+          source: 'osc9',
+          title: 'Alert',
+          body: 'Something happened',
+          windowId: '@1',
+          paneId: '%2',
+          windowIndex: 0,
+          paneIndex: 1,
+        },
+      };
+
+      const encoded = encodeTmuxEventPayload(payload);
+      const decoded = decodeTmuxEventPayload(encoded);
+
+      const data = decoded.data as Record<string, unknown>;
+      expect(data.paneTitle).toBeUndefined();
+      expect(data.paneCurrentCommand).toBeUndefined();
+      expect(data.source).toBe('osc9');
+      expect(data.body).toBe('Something happened');
     });
 
     it('应该正确编解码 layout-change 事件', () => {

@@ -334,6 +334,8 @@ export const EnvelopeSchema = b.struct({
   - `windowIndex: option(u16)`
   - `paneIndex: option(u16)`
   - `paneUrl: option(string)`
+  - `paneTitle: option(string)`
+  - `paneCurrentCommand: option(string)`
 - output：保留空 schema（`{}`），当前仍通过 `TERM_CHUNK` / `TERM_HISTORY` 传输终端字节流。
 - notification：
   - `source: u8`（1=`osc9`，2=`osc777`，3=`osc1337`，4=`osc99`）
@@ -344,6 +346,8 @@ export const EnvelopeSchema = b.struct({
   - `windowIndex: option(u16)`
   - `paneIndex: option(u16)`
   - `paneUrl: option(string)`
+  - `paneTitle: option(string)`
+  - `paneCurrentCommand: option(string)`
 
 ### STATE_SNAPSHOT（0x0208）
 
