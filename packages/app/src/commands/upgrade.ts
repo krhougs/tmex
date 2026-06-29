@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { defaultInstallDir } from '../constants';
 import { t } from '../i18n';
 import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
+import { getInstallHint } from '../lib/dep-install';
 import { readEnvFile } from '../lib/env-file';
 import { pathExists } from '../lib/fs-utils';
 import {
@@ -102,7 +103,9 @@ export async function runUpgrade(parsed: ParsedArgs): Promise<void> {
     metaBunPath: meta.bunPath,
   });
   if (!bun.ok || !bun.path) {
-    throw new Error(bun.reason || t('bun.checkFailed'));
+    const hint = getInstallHint('bun');
+    const reason = bun.reason || t('bun.checkFailed');
+    throw new Error(`${reason}\n${t('deps.install.hint', { command: hint })}`);
   }
 
   const packageLayout = await resolvePackageLayout(import.meta.url);

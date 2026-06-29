@@ -3,6 +3,13 @@ import { resolve } from 'node:path';
 import { defaultInstallDir } from '../constants';
 import { t } from '../i18n';
 import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
+import {
+  executeDependencyInstall,
+  getInstallHint,
+  planBunInstall,
+  planTmuxInstall,
+  type DepInstallPlan,
+} from '../lib/dep-install';
 import { readEnvFile } from '../lib/env-file';
 import { pathExists } from '../lib/fs-utils';
 import { createInstallLayout, resolveInstallDir } from '../lib/install-layout';
@@ -10,22 +17,9 @@ import { readJsonFile } from '../lib/json-file';
 import { isSupportedPlatform } from '../lib/platform';
 import { runCommand } from '../lib/process';
 import { getServiceStatus } from '../lib/service';
+import { checkTmuxVersion } from '../lib/tmux';
 import { asBoolean, asString } from '../lib/validate';
 import type { DoctorCheck, InstallMeta, ParsedArgs } from '../types';
-
-async function checkCommandExists(
-  bin: string,
-  args: string[],
-  id: string,
-  okMessage: string,
-  failMessage: string
-): Promise<DoctorCheck> {
-  const result = await runCommand(bin, args, { stdio: 'pipe' }).catch(() => null);
-  if (result?.code === 0) {
-    return { id, level: 'pass', message: okMessage, detail: result.stdout.trim() };
-  }
-  return { id, level: 'fail', message: failMessage, detail: result?.stderr || result?.stdout };
-}
 
 function printChecks(checks: DoctorCheck[], json: boolean): void {
   if (json) {
@@ -39,11 +33,15 @@ function printChecks(checks: DoctorCheck[], json: boolean): void {
     if (check.detail) {
       console.log(`  ${check.detail.trim()}`);
     }
+    if (check.hint && check.level !== 'pass') {
+      console.log(`  ${t('deps.install.hint', { command: check.hint })}`);
+    }
   }
 }
 
 export async function runDoctor(parsed: ParsedArgs): Promise<void> {
   const json = asBoolean(parsed.flags.json) ?? false;
+  const fix = asBoolean(parsed.flags.fix) ?? false;
   const installDirFlag = asString(parsed.flags['install-dir']);
   const installDir = resolveInstallDir(installDirFlag || defaultInstallDir(process.platform));
   const installLayout = createInstallLayout(installDir);
@@ -85,12 +83,36 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
       level: 'fail',
       message: t('doctor.bun.fail', { reason: bun.reason || t('bun.checkFailed') }),
       detail: bun.path,
+      hint: getInstallHint('bun'),
+      fixable: true,
     });
   }
 
-  checks.push(
-    await checkCommandExists('tmux', ['-V'], 'tmux', t('doctor.tmux.ok'), t('doctor.tmux.fail'))
-  );
+  const tmux = await checkTmuxVersion();
+  if (tmux.ok) {
+    checks.push({
+      id: 'tmux',
+      level: 'pass',
+      message: t('doctor.tmux.ok', { version: tmux.versionRaw || 'unknown' }),
+      detail: tmux.versionRaw,
+    });
+  } else if (tmux.reason === 'version-too-low') {
+    checks.push({
+      id: 'tmux',
+      level: 'fail',
+      message: t('doctor.tmux.versionLow', { version: tmux.versionRaw || '' }),
+      hint: getInstallHint('tmux'),
+      fixable: true,
+    });
+  } else {
+    checks.push({
+      id: 'tmux',
+      level: 'fail',
+      message: t('doctor.tmux.fail'),
+      hint: getInstallHint('tmux'),
+      fixable: true,
+    });
+  }
   const ssh = await runCommand('ssh', ['-V'], { stdio: 'pipe' }).catch(() => null);
   if (ssh?.code === 0) {
     checks.push({
@@ -238,6 +260,38 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
   }
 
   printChecks(checks, json);
+
+  const fixableFailures = checks.filter((c) => c.level === 'fail' && c.fixable);
+
+  if (fix && fixableFailures.length > 0) {
+    console.log(`\n[tmex] ${t('doctor.fix.header')}`);
+
+    for (const check of fixableFailures) {
+      const dep = check.id as 'bun' | 'tmux';
+      if (dep !== 'bun' && dep !== 'tmux') {
+        console.log(`[tmex] ${t('doctor.fix.skip', { id: check.id })}`);
+        continue;
+      }
+
+      const commands = dep === 'bun' ? planBunInstall() : await planTmuxInstall();
+      const plan: DepInstallPlan = {
+        dep,
+        commands,
+        requiredVersion: dep === 'tmux' ? '>= 3.0' : '>= 1.3.0',
+        issue: check.id === 'tmux' && check.message.includes('version') ? 'version-too-low' : 'missing',
+      };
+
+      await executeDependencyInstall(plan, {
+        nonInteractive: false,
+        autoConfirm: false,
+      });
+    }
+
+    console.log('');
+    const rerunParsed = { ...parsed, flags: { ...parsed.flags, fix: false } };
+    await runDoctor(rerunParsed);
+    return;
+  }
 
   const failed = checks.some((check) => check.level === 'fail');
   if (failed) {
