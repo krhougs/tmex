@@ -192,6 +192,58 @@ function typeFromPerms(perms: string): RsyncEntry['type'] {
   }
 }
 
+// 将 GNU rsync（LC_ALL=C）的八进制转义序列还原为原始 UTF-8 字符。
+// 连续的 \NNN 字节先收集再统一 UTF-8 解码，避免多字节字符被截断。
+// \\ 还原为单个 \；不合法的转义（非 [0-7] 或值 > 255）原样保留。
+export function unescapeOctal(input: string): string {
+  if (!input.includes('\\')) return input;
+
+  const result: string[] = [];
+  let pendingBytes: number[] = [];
+
+  const flushBytes = () => {
+    if (pendingBytes.length === 0) return;
+    result.push(new TextDecoder().decode(new Uint8Array(pendingBytes)));
+    pendingBytes = [];
+  };
+
+  let i = 0;
+  while (i < input.length) {
+    if (input[i] !== '\\') {
+      flushBytes();
+      result.push(input[i]);
+      i++;
+      continue;
+    }
+
+    if (input[i + 1] === '\\') {
+      flushBytes();
+      result.push('\\');
+      i += 2;
+      continue;
+    }
+
+    if (i + 3 < input.length) {
+      const digits = input.slice(i + 1, i + 4);
+      if (/^[0-7]{3}$/.test(digits)) {
+        const val = parseInt(digits, 8);
+        if (val <= 255) {
+          pendingBytes.push(val);
+          i += 4;
+          continue;
+        }
+      }
+    }
+
+    flushBytes();
+    result.push('\\');
+    i++;
+  }
+
+  flushBytes();
+  return result.join('');
+}
+
 export function parseListOnly(stdout: string): RsyncEntry[] {
   const entries: RsyncEntry[] = [];
   for (const rawLine of stdout.split('\n')) {
@@ -200,7 +252,7 @@ export function parseListOnly(stdout: string): RsyncEntry[] {
     if (!m) continue;
 
     const type = typeFromPerms(m[1]);
-    let name = m[9];
+    let name = unescapeOctal(m[9]);
     if (type === 'symlink') {
       const arrow = name.indexOf(' -> ');
       if (arrow >= 0) name = name.slice(0, arrow);

@@ -140,10 +140,16 @@ describe('rsync arg builders', () => {
     expect(rsyncTargetArg(sshSpec, "/a/b'c")).toBe("u@h:'/a/b'\\''c'");
   });
   test('list args (local)', () => {
-    expect(rsyncListArgs(localSpec, '/a/')).toEqual(['--list-only', '/a/']);
+    expect(rsyncListArgs(localSpec, '/a/')).toEqual(['--list-only', '--8-bit-output', '/a/']);
   });
   test('list args (ssh) include -e', () => {
-    expect(rsyncListArgs(sshSpec, '/a/')).toEqual(['--list-only', '-e', 'ssh -p 22', "u@h:'/a/'"]);
+    expect(rsyncListArgs(sshSpec, '/a/')).toEqual([
+      '--list-only',
+      '--8-bit-output',
+      '-e',
+      'ssh -p 22',
+      "u@h:'/a/'",
+    ]);
   });
   test('copy args follow symlinks (-L) and request progress', () => {
     expect(rsyncCopyArgs(localSpec, '/a/f', '/tmp/d')).toEqual([

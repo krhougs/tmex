@@ -157,7 +157,7 @@ export function rsyncTargetArg(spec: RsyncDeviceSpec, remotePath: string): strin
 
 // rsync argv：list-only / 拷贝。spec.rsh 存在时插入 -e。
 export function rsyncListArgs(spec: RsyncDeviceSpec, remotePath: string): string[] {
-  const args = ['--list-only'];
+  const args = ['--list-only', '--8-bit-output'];
   if (spec.rsh) args.push('-e', spec.rsh);
   args.push(rsyncTargetArg(spec, remotePath));
   return args;
