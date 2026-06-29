@@ -13,7 +13,7 @@ const DEFAULT_OPTIONS: BorshClientOptions = {
   maxFrameBytes: 1048576, // 1MB
   reconnectDelayMs: 1000,
   maxReconnectAttempts: 5,
-  heartbeatIntervalMs: 15000,
+  heartbeatIntervalMs: 5000,
 };
 
 // ========== 类型定义 ==========

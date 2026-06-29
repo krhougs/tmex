@@ -83,10 +83,10 @@ function WsLatency() {
   const latency = useTmuxStore((s) => s.wsLatencyMs);
   if (latency === null) return null;
 
-  const isHigh = latency >= 150;
+  const isHigh = latency >= 200;
   return (
     <span
-      className={`shrink-0 text-xs tabular-nums ${isHigh ? 'text-destructive' : 'text-muted-foreground'}`}
+      className={`inline-flex h-8 shrink-0 items-center text-xs tabular-nums ${isHigh ? 'text-orange-400' : 'text-muted-foreground'}`}
     >
       {latency}ms
     </span>
