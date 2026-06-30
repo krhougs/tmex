@@ -1,19 +1,19 @@
-# 0.15.1
+# 0.15.2
 
-_2026-06-29_
+_2026-06-30_
 
 ## English
 
-### Improvements
+### Features
 
-- Latency display: raise high-latency threshold to 200 ms, use softer orange color instead of red, fix vertical alignment with adjacent buttons.
-- Reduce heartbeat interval from 15 s to 5 s for more responsive latency updates.
+- Show the current working directory of the active pane in the sidebar (e.g. `zsh@~/projects/myapp`)
+- Add "New window here" context menu item on windows and panes to open a new window in the same directory
 
 ---
 
 ## 中文
 
-### 体验优化
+### 新功能
 
-- 延迟显示：高延迟阈值调整为 200 ms，颜色由红色改为更柔和的橙色，修复与相邻按钮的垂直对齐。
-- 心跳间隔从 15 秒缩短至 5 秒，延迟数值更新更及时。
+- 侧边栏显示当前活动面板的工作目录（如 `zsh@~/projects/myapp`）
+- 窗口和面板右键菜单新增「在此目录新建窗口」，可在当前目录打开新窗口
