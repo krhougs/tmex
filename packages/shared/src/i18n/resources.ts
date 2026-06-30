@@ -781,6 +781,7 @@ export const I18N_RESOURCES = {
     "window": {
       "noWindows": "No windows",
       "new": "New Window",
+      "newInCwd": "New window here",
       "close": "Close window",
       "closePane": "Close pane",
       "closeConfirmTitle": "Close this window?",
@@ -1770,6 +1771,7 @@ export const I18N_RESOURCES = {
     "window": {
       "noWindows": "暂无窗口",
       "new": "新建窗口",
+      "newInCwd": "在此目录新建窗口",
       "close": "关闭窗口",
       "closePane": "关闭面板",
       "closeConfirmTitle": "关闭此窗口？",
@@ -2759,6 +2761,7 @@ export const I18N_RESOURCES = {
     "window": {
       "noWindows": "ウィンドウがありません",
       "new": "新規ウィンドウ",
+      "newInCwd": "この場所で新規ウィンドウ",
       "close": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
       "closeConfirmTitle": "このウィンドウを閉じますか？",

@@ -61,11 +61,13 @@ export function buildTmuxSelectWindow(
 
 export function buildTmuxCreateWindow(
   deviceId: string,
-  name?: string
+  name?: string,
+  cwd?: string
 ): { kind: number; payload: Uint8Array } {
   const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxCreateWindowSchema, {
     deviceId,
     name: name ?? null,
+    cwd: cwd ?? null,
   });
   return { kind: wsBorsh.KIND_TMUX_CREATE_WINDOW, payload };
 }

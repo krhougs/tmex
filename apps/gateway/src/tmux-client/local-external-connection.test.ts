@@ -98,7 +98,7 @@ function createRunStub(
       return ok('@1|0|main|1\n');
     }
     if (command.startsWith(`list-panes -s -t ${session}`)) {
-      return ok('%1|@1|0|bash|1|80|24|1|node\n');
+      return ok('%1|@1|0|bash|1|80|24|1|node|/home/user\n');
     }
     throw new Error(`unexpected command: ${argv.join(' ')}`);
   };
@@ -258,7 +258,7 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
       'tmux display-message -p -t tmex-snapshot #{session_id}|#{session_name}',
       'tmux list-windows -t tmex-snapshot -F #{window_id}|#{window_index}|#{window_name}|#{window_active}',
-      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}',
+      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}',
     ]);
     expect(snapshots).toEqual([
       {
@@ -279,6 +279,7 @@ describe('LocalExternalTmuxConnection', () => {
                   index: 0,
                   title: 'bash',
                   currentCommand: 'node',
+                  currentPath: '/home/user',
                   active: true,
                   width: 80,
                   height: 24,
@@ -323,9 +324,9 @@ describe('LocalExternalTmuxConnection', () => {
             }
             if (
               command ===
-              `list-panes -s -t ${session} -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}`
+              `list-panes -s -t ${session} -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}`
             ) {
-              return ok('%1_@0_0_bash_1_80_24_1_node\n');
+              return ok('%1_@0_0_bash_1_80_24_1_node_/home/user\n');
             }
             return null;
           },

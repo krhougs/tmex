@@ -212,6 +212,7 @@ function encodePaneWire(pane: TmuxPane): b.infer<typeof schema.PaneWireSchema> {
     active: pane.active,
     width: pane.width,
     height: pane.height,
+    currentPath: pane.currentPath ?? null,
   };
 }
 
@@ -356,5 +357,6 @@ function decodePaneWire(wire: b.infer<typeof schema.PaneWireSchema>): TmuxPane {
     active: wire.active,
     width: wire.width,
     height: wire.height,
+    currentPath: wire.currentPath ?? undefined,
   };
 }

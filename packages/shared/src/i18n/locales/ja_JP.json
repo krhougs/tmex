@@ -775,6 +775,7 @@
     "window": {
       "noWindows": "ウィンドウがありません",
       "new": "新規ウィンドウ",
+      "newInCwd": "この場所で新規ウィンドウ",
       "close": "ウィンドウを閉じる",
       "closePane": "ペインを閉じる",
       "closeConfirmTitle": "このウィンドウを閉じますか？",

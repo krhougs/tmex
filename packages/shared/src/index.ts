@@ -415,6 +415,8 @@ export interface TmuxPane {
   title?: string;
   /** pane 当前运行的进程名（tmux #{pane_current_command}） */
   currentCommand?: string;
+  /** pane 当前工作目录（tmux #{pane_current_path}） */
+  currentPath?: string;
   active: boolean;
   width: number;
   height: number;

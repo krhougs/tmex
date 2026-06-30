@@ -775,6 +775,7 @@
     "window": {
       "noWindows": "暂无窗口",
       "new": "新建窗口",
+      "newInCwd": "在此目录新建窗口",
       "close": "关闭窗口",
       "closePane": "关闭面板",
       "closeConfirmTitle": "关闭此窗口？",

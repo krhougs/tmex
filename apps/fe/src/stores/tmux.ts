@@ -79,7 +79,7 @@ interface TmuxState {
   resizePane: (deviceId: string, paneId: string, cols: number, rows: number) => void;
   syncPaneSize: (deviceId: string, paneId: string, cols: number, rows: number) => void;
   paste: (deviceId: string, paneId: string, data: string) => void;
-  createWindow: (deviceId: string, name?: string) => void;
+  createWindow: (deviceId: string, name?: string, cwd?: string) => void;
   clearPendingCreateWindow: (deviceId: string) => void;
   closeWindow: (deviceId: string, windowId: string) => void;
   closePane: (deviceId: string, paneId: string) => void;
@@ -580,9 +580,9 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
     getBorshClient().send(msg.kind, msg.payload);
   },
 
-  createWindow(deviceId, name) {
+  createWindow(deviceId, name, cwd) {
     if (!deviceId) return;
-    const msg = buildTmuxCreateWindow(deviceId, name);
+    const msg = buildTmuxCreateWindow(deviceId, name, cwd);
     getBorshClient().send(msg.kind, msg.payload);
     set((prev) => ({
       pendingCreateWindowAt: { ...prev.pendingCreateWindowAt, [deviceId]: Date.now() },

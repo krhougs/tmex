@@ -272,6 +272,7 @@ describe('convert', () => {
                   active: true,
                   width: 80,
                   height: 24,
+                  currentPath: '/home/user',
                 },
               ],
             },
@@ -292,6 +293,7 @@ describe('convert', () => {
         expect(decoded.session.windows[0].panes).toHaveLength(1);
         expect(decoded.session.windows[0].panes[0].id).toBe('%1');
         expect(decoded.session.windows[0].panes[0].title).toBe('bash');
+        expect(decoded.session.windows[0].panes[0].currentPath).toBe('/home/user');
       }
     });
 
@@ -341,6 +343,43 @@ describe('convert', () => {
       expect(decoded.session).not.toBeNull();
       if (decoded.session) {
         expect(decoded.session.windows[0].panes[0].title).toBeUndefined();
+      }
+    });
+
+    it('应该正确处理不含 currentPath 的 pane（向后兼容）', () => {
+      const payload: StateSnapshotPayload = {
+        deviceId: 'device-1',
+        session: {
+          id: '$0',
+          name: 'main',
+          windows: [
+            {
+              id: '@1',
+              name: 'window-1',
+              index: 0,
+              active: true,
+              panes: [
+                {
+                  id: '%1',
+                  windowId: '@1',
+                  index: 0,
+                  title: 'bash',
+                  active: true,
+                  width: 80,
+                  height: 24,
+                },
+              ],
+            },
+          ],
+        },
+      };
+
+      const encoded = encodeStateSnapshot(payload);
+      const decoded = decodeStateSnapshot(encoded);
+
+      expect(decoded.session).not.toBeNull();
+      if (decoded.session) {
+        expect(decoded.session.windows[0].panes[0].currentPath).toBeUndefined();
       }
     });
   });

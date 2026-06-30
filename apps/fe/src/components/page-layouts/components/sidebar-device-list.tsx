@@ -60,6 +60,7 @@ import {
   Bot,
   ChevronRight,
   EllipsisVertical,
+  FolderOpen,
   Globe,
   GripVertical,
   History,
@@ -961,6 +962,8 @@ function WindowItem({
   const { isMobile } = useSidebar();
   const hasMultiplePanes = window.panes.length > 1;
   const titleParts = buildWindowTitleParts(window);
+  const activePane = window.panes.find((p) => p.active) ?? window.panes[0];
+  const activePaneCwd = activePane?.currentPath;
 
   // Find which pane is selected in this window
   const selectedPaneInWindow = window.panes.find((p) => p.id === selectedPaneId);
@@ -1036,7 +1039,9 @@ function WindowItem({
             </span>
             {titleParts.processName && (
               <span className="font-mono text-[10.5px] leading-tight text-muted-foreground line-clamp-1 break-all">
-                {titleParts.processName}
+                {activePaneCwd
+                  ? `${titleParts.processName}@${activePaneCwd}`
+                  : titleParts.processName}
               </span>
             )}
           </span>
@@ -1093,6 +1098,18 @@ function WindowItem({
               <Plus className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
               {t('agent.session.new')}
             </DropdownMenuItem>
+            {activePaneCwd && (
+              <DropdownMenuItem
+                className={cn(
+                  '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                  isMobile && 'py-3 px-2.5 text-base gap-2.5'
+                )}
+                onClick={() => useTmuxStore.getState().createWindow(deviceId, undefined, activePaneCwd)}
+              >
+                <FolderOpen className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+                {t('window.newInCwd')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               variant="destructive"
               data-testid={`window-menu-close-${window.id}`}
@@ -1265,6 +1282,18 @@ function PaneRow({
           backdrop
           className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
         >
+          {pane.currentPath && (
+            <DropdownMenuItem
+              className={cn(
+                '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                isMobile && 'py-3 px-2.5 text-base gap-2.5'
+              )}
+              onClick={() => useTmuxStore.getState().createWindow(deviceId, undefined, pane.currentPath)}
+            >
+              <FolderOpen className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+              {t('window.newInCwd')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             data-testid={`pane-watch-${pane.id}`}
             className={cn(
