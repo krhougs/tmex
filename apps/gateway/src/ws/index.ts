@@ -332,7 +332,7 @@ export class WebSocketServer {
 
       case wsBorsh.KIND_TMUX_CREATE_WINDOW: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
-        this.handleCreateWindow(decoded.deviceId, decoded.name ?? undefined);
+        this.handleCreateWindow(decoded.deviceId, decoded.name ?? undefined, decoded.cwd ?? undefined);
         return;
       }
 
@@ -714,10 +714,10 @@ export class WebSocketServer {
     }
   }
 
-  private handleCreateWindow(deviceId: string, name?: string): void {
+  private handleCreateWindow(deviceId: string, name?: string, cwd?: string): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.runtime.createWindow(name);
+    entry.runtime.createWindow(name, cwd);
   }
 
   private handleCloseWindow(deviceId: string, windowId: string): void {

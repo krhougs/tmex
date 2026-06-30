@@ -316,12 +316,12 @@ export class LocalExternalTmuxConnection {
     });
   }
 
-  createWindow(name?: string): void {
+  createWindow(name?: string, cwd?: string): void {
     if (!this.connected) {
       return;
     }
 
-    const argv = ['new-window', '-t', this.sessionName, '-c', this.resolveDefaultWorkingDir()];
+    const argv = ['new-window', '-t', this.sessionName, '-c', cwd ?? this.resolveDefaultWorkingDir()];
     if (name) {
       argv.push('-n', name);
     }
@@ -998,6 +998,7 @@ export class LocalExternalTmuxConnection {
           '#{pane_height}',
           '#{window_active}',
           '#{pane_current_command}',
+          '#{pane_current_path}',
         ].join(SNAPSHOT_FIELD_SEPARATOR),
       ]),
     ]);
@@ -1095,8 +1096,8 @@ export class LocalExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw, currentCommandRaw] =
-        splitSnapshotFields(line, 9);
+      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw, currentCommandRaw, currentPathRaw] =
+        splitSnapshotFields(line, 10);
       const index = parseSnapshotInteger(indexRaw);
       const width = parseSnapshotInteger(widthRaw);
       const height = parseSnapshotInteger(heightRaw);
@@ -1120,6 +1121,7 @@ export class LocalExternalTmuxConnection {
         index,
         title: this.pendingPaneTitles.get(paneId) ?? (titleRaw?.trim() ? titleRaw : undefined),
         currentCommand: currentCommandRaw?.trim() ? currentCommandRaw.trim() : undefined,
+        currentPath: currentPathRaw?.trim() ? currentPathRaw.trim() : undefined,
         // pane_active 是窗口内 active；list-panes -s 下每个窗口都有一个
         active: activeRaw === '1',
         width,

@@ -744,6 +744,7 @@ export type TranslationKey =
   | 'window'
   | 'window.noWindows'
   | 'window.new'
+  | 'window.newInCwd'
   | 'window.close'
   | 'window.closePane'
   | 'window.closeConfirmTitle'

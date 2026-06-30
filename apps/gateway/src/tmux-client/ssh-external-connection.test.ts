@@ -89,7 +89,7 @@ function respondToPayload(
     return { stdout: '@1|0|main|1\n', exitCode: 0 };
   }
   if (payload.includes(`'list-panes' '-s' '-t' '${session}'`)) {
-    return { stdout: '%1|@1|0|bash|1|80|24|1|node\n', exitCode: 0 };
+    return { stdout: '%1|@1|0|bash|1|80|24|1|node|/home/alice\n', exitCode: 0 };
   }
   return null;
 }
@@ -398,6 +398,7 @@ describe('SshExternalTmuxConnection', () => {
                   index: 0,
                   title: 'bash',
                   currentCommand: 'node',
+                  currentPath: '/home/alice',
                   active: true,
                   width: 80,
                   height: 24,
@@ -440,10 +441,10 @@ describe('SshExternalTmuxConnection', () => {
         }
         if (
           payload.includes(
-            `'list-panes' '-s' '-t' '${session}' '-F' '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}'`
+            `'list-panes' '-s' '-t' '${session}' '-F' '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}'`
           )
         ) {
-          return { stdout: '%1_@0_0_bash_1_80_24_1_node\n', exitCode: 0 };
+          return { stdout: '%1_@0_0_bash_1_80_24_1_node_/home/alice\n', exitCode: 0 };
         }
         return null;
       },

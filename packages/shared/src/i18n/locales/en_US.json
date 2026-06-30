@@ -775,6 +775,7 @@
     "window": {
       "noWindows": "No windows",
       "new": "New Window",
+      "newInCwd": "New window here",
       "close": "Close window",
       "closePane": "Close pane",
       "closeConfirmTitle": "Close this window?",

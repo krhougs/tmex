@@ -95,6 +95,7 @@ export const TmuxSelectWindowSchema = b.struct({
 export const TmuxCreateWindowSchema = b.struct({
   deviceId: b.string(),
   name: OptionStringSchema,
+  cwd: OptionStringSchema,
 });
 
 export const TmuxCloseWindowSchema = b.struct({
@@ -222,6 +223,7 @@ export const PaneWireSchema = b.struct({
   active: b.bool(),
   width: b.u16(),
   height: b.u16(),
+  currentPath: OptionStringSchema,
 });
 
 export const WindowWireSchema = b.struct({
