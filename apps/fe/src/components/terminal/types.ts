@@ -10,6 +10,13 @@ export interface TerminalProps {
   inputMode: 'direct' | 'editor';
   deviceConnected: boolean;
   isSelectionInvalid: boolean;
+  /**
+   * report（默认）：容器尺寸变化上报 onResize/onSync（单 pane 整窗语义）。
+   * follow：分屏模式，尺寸由 tmux layout 经外部 resize() 设定，不测量不上报。
+   */
+  sizingMode?: 'report' | 'follow';
+  /** direct 模式挂载时是否自动聚焦（默认 true）；分屏非焦点 pane 传 false 防互抢 */
+  autoFocus?: boolean;
   onData?: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
   onSync: (cols: number, rows: number) => void;
@@ -35,4 +42,6 @@ export interface TerminalRef {
    */
   calculateSizeFromContainer: () => { cols: number; rows: number } | null;
   getPendingLocalSize: () => { cols: number; rows: number; at: number } | null;
+  /** 当前渲染 cell 的 CSS 像素尺寸（分屏几何换算用），渲染服务未就绪时返回 null */
+  getCellSize: () => { width: number; height: number } | null;
 }

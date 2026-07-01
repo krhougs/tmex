@@ -167,6 +167,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       inputMode,
       deviceConnected,
       isSelectionInvalid,
+      sizingMode = 'report',
+      autoFocus = true,
       onResize,
       onSync,
       children,
@@ -262,6 +264,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         paneId,
         deviceConnected,
         isSelectionInvalid,
+        sizingMode,
         onResize,
         onSync,
         getContainerRect: () => {
@@ -344,7 +347,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     // direct 模式下终端就绪（刷新、切换 pane 导致的重新挂载）或从 editor 切回时，
     // 焦点应回到终端；移动端跳过，避免自动弹出软键盘
     useEffect(() => {
-      if (!instance || inputMode !== 'direct') {
+      if (!instance || inputMode !== 'direct' || !autoFocus) {
         return;
       }
       const isMobileLike = window.innerWidth < 768 || 'ontouchstart' in window;
@@ -352,7 +355,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         return;
       }
       instance.focus();
-    }, [instance, inputMode]);
+    }, [instance, inputMode, autoFocus]);
 
     const paneSink: PaneSink | null = useMemo(() => {
       if (!instance) {
@@ -638,6 +641,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           return { cols, rows };
         },
         getPendingLocalSize: () => pendingLocalSize.current,
+        getCellSize: () => {
+          const core = instance?._core;
+          const cell = core?._renderService?.dimensions?.css?.cell;
+          if (!cell?.width || !cell?.height) return null;
+          return { width: cell.width, height: cell.height };
+        },
       }),
       [instance, pendingLocalSize, runPostSelectResize, scheduleResize]
     );

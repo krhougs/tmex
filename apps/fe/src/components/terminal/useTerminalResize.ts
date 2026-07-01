@@ -8,6 +8,12 @@ interface UseTerminalResizeOptions {
   paneId: string;
   deviceConnected: boolean;
   isSelectionInvalid: boolean;
+  /**
+   * report（默认）：容器尺寸变化测量后上报 onResize/onSync（单 pane 整窗语义）。
+   * follow：分屏模式，pane 尺寸由 tmux layout 决定，本地只对齐不上报，
+   * 避免多个 pane 实例互相抢整窗尺寸。
+   */
+  sizingMode?: 'report' | 'follow';
   onResize: (cols: number, rows: number) => void;
   onSync: (cols: number, rows: number) => void;
   /** 获取容器尺寸的回调函数，用于 fitAddon 失败时的回退计算 */
@@ -19,6 +25,7 @@ export function useTerminalResize({
   paneId,
   deviceConnected,
   isSelectionInvalid,
+  sizingMode = 'report',
   onResize,
   onSync,
   getContainerRect,
@@ -100,6 +107,11 @@ export function useTerminalResize({
 
   const reportSize = useCallback(
     (kind: 'resize' | 'sync', force = false) => {
+      // follow 模式：pane 的 cols/rows 由 tmux layout 决定并经外部 resize() 显式设定，
+      // 容器像素测量（zoom 下有舍入误差）不可作为尺寸来源，也不上报
+      if (sizingMode === 'follow') {
+        return false;
+      }
       // sync 操作即使在 isSelectionInvalid 时也应该执行，因为尺寸同步是基础功能
       // isSelectionInvalid 主要影响用户输入，不应该阻止终端尺寸同步
       if (!deviceId || !paneId || !deviceConnected) {
@@ -144,7 +156,15 @@ export function useTerminalResize({
       return true;
     },
     // Only depend on stable values, not the callbacks
-    [applyTerminalSize, deviceConnected, deviceId, isSelectionInvalid, measureTerminalSize, paneId]
+    [
+      applyTerminalSize,
+      deviceConnected,
+      deviceId,
+      isSelectionInvalid,
+      measureTerminalSize,
+      paneId,
+      sizingMode,
+    ]
   );
 
   const scheduleResize = useCallback(
