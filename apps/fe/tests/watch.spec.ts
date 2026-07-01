@@ -51,7 +51,7 @@ test.describe.serial('watch rules', () => {
     await page.goto(
       `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
     );
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('watch-open-button').click();
     await expect(page.getByTestId('watch-dialog')).toBeVisible();
   }
@@ -140,7 +140,7 @@ test.describe.serial('watch rules', () => {
     await page.goto(
       `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
     );
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     // 让 token 出现在屏幕上，等待 watch service 下一次采样命中并广播
     tmux(`send-keys -t ${paneId} "echo ${token}" Enter`);

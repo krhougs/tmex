@@ -47,7 +47,7 @@ test('sidebar: close window/pane requires confirm dialog', async ({ page, reques
     await page.goto(
       `/devices/${deviceId}/windows/${windowIds[0]}/panes/${encodeURIComponent(paneIds[0])}`
     );
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     const dialog = page.locator('[data-slot="alert-dialog-content"]');
 
@@ -108,7 +108,7 @@ test.describe('mobile', () => {
       await page.goto(
         `/devices/${deviceId}/windows/${windowIds[0]}/panes/${encodeURIComponent(paneIds[0])}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       await page.getByTestId('mobile-sidebar-open').click();
       const sidebar = page.getByTestId('sidebar');

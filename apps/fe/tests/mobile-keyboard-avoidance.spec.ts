@@ -1,6 +1,6 @@
 import { type APIRequestContext, type Page, devices, expect, test } from '@playwright/test';
 import type { KeyboardBehaviorMode } from '../src/stores/ui';
-import { createTwoPaneSession, ensureCleanSession } from './helpers/tmux';
+import { createSinglePaneSession, ensureCleanSession } from './helpers/tmux';
 import { KIND, decodeEnvelope } from './helpers/ws-borsh';
 
 // Android 形态：非 iOS UA + 触屏，needsManualKeyboardAvoidance 才会启用避让
@@ -49,7 +49,7 @@ async function bootstrap(
   mode: KeyboardBehaviorMode
 ): Promise<KeyboardTestContext> {
   const sessionName = `tmex-e2e-kb-${mode}-${Date.now()}`;
-  createTwoPaneSession(sessionName);
+  createSinglePaneSession(sessionName);
 
   const name = `e2e-kb-${mode}-${Date.now()}`;
   const createRes = await request.post('/api/devices', {

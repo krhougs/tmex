@@ -26,7 +26,7 @@ test('terminal regains focus on load, pane switch, mode toggle and refresh', asy
     await page.goto(
       `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneIds[0])}`
     );
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await expect
       .poll(() => activeElementClass(page), { timeout: 10_000 })
       .toContain('xterm-helper-textarea');
@@ -36,7 +36,7 @@ test('terminal regains focus on load, pane switch, mode toggle and refresh', asy
     await expect
       .poll(() => page.evaluate(() => window.location.pathname), { timeout: 20_000 })
       .toContain(encodeURIComponent(paneIds[1]));
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await expect
       .poll(() => activeElementClass(page), { timeout: 10_000 })
       .toContain('xterm-helper-textarea');
@@ -51,7 +51,7 @@ test('terminal regains focus on load, pane switch, mode toggle and refresh', asy
 
     // 页面刷新后焦点应回到终端
     await page.reload();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await expect
       .poll(() => activeElementClass(page), { timeout: 10_000 })
       .toContain('xterm-helper-textarea');

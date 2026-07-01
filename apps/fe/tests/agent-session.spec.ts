@@ -278,7 +278,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       // 进入 Agent Tab → 当前 pane 自动起草，输入区可用（无需手动新建）
       await openAgentTab(page);
@@ -325,7 +325,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       // 串行套件共享 pane，前序用例已留存会话；先记录已有会话 id，
       // 再显式新建并发消息落库，挑出新出现的 id 精准定位（标题统一是 MOCK_TITLE）
@@ -397,7 +397,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
       await openAgentTab(page);
 
       const textarea = page.getByTestId('agent-chat-input-textarea');
@@ -425,7 +425,7 @@ test.describe
       const paneUrl = `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`;
 
       await page.goto(paneUrl);
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
       await openAgentTab(page);
 
       // 发消息创建 session（activeSessionId 持久化进同 context 的 localStorage，
@@ -439,7 +439,7 @@ test.describe
 
       const pageB = await context.newPage();
       await pageB.goto(paneUrl);
-      await expect(pageB.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(pageB.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       // B 从 Panes 树显式选中同一 session（setActiveSession→subscribe+loadHistory，
       // 比依赖 rehydration 时序更稳），随后通过 WS 订阅/历史回放同步内容
@@ -479,7 +479,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       // 进入 Agent Tab 即得到干净草稿会话（默认 writeMode=confirm）
       await openAgentTab(page);
@@ -547,7 +547,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       // 进入 Agent Tab 即得到干净草稿会话，无需点新建按钮
       await openAgentTab(page);

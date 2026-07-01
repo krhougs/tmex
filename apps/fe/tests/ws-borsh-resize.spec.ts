@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createTwoPaneSession, ensureCleanSession, getPaneSize } from './helpers/tmux';
+import {
+  createSinglePaneSession,
+  createTwoPaneSession,
+  ensureCleanSession,
+  getPaneSize,
+} from './helpers/tmux';
 import { KIND, decodeEnvelope } from './helpers/ws-borsh';
 
 async function readTerminalSize(page: Page): Promise<{
@@ -124,7 +129,7 @@ test('ws-borsh: initial load and browser resize converge to tmux pane size', asy
     await page.setViewportSize({ width: 1200, height: 800 });
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     await expect
       .poll(() => readTerminalPaneMatchState(page, targetPaneId), { timeout: 20_000 })
@@ -161,7 +166,7 @@ test('ws-borsh: growing viewport converges to latest tmux pane size instead of s
     await page.setViewportSize({ width: 1200, height: 700 });
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     await expect
       .poll(() => readTerminalPaneMatchState(page, targetPaneId), { timeout: 20_000 })
@@ -204,8 +209,8 @@ test('ws-borsh: remote tmux resize does not trigger resize echo from another bro
     await Promise.all([
       expect(pageA.getByTestId('device-page')).toBeVisible(),
       expect(pageB.getByTestId('device-page')).toBeVisible(),
-      expect(pageA.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
-      expect(pageB.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
+      expect(pageA.locator('.xterm').first()).toBeVisible({ timeout: 20_000 }),
+      expect(pageB.locator('.xterm').first()).toBeVisible({ timeout: 20_000 }),
     ]);
 
     await pageA.waitForTimeout(1_200);
@@ -245,7 +250,7 @@ test('ws-borsh: focus restore does not emit TERM_SYNC_SIZE when terminal size is
     await page.goto(`/devices/${deviceId}`);
     await Promise.all([
       expect(page.getByTestId('device-page')).toBeVisible(),
-      expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
+      expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 }),
     ]);
 
     await page.waitForTimeout(1_200);
@@ -268,7 +273,7 @@ test('ws-borsh: focus restore resyncs one stale terminal without reintroducing r
   request,
 }) => {
   const sessionName = `tmex-e2e-resize-focus-stale-${Date.now()}`;
-  createTwoPaneSession(sessionName);
+  createSinglePaneSession(sessionName);
 
   const name = `e2e-borsh-resize-focus-stale-${Date.now()}`;
   const createRes = await request.post('/api/devices', {
@@ -283,7 +288,7 @@ test('ws-borsh: focus restore resyncs one stale terminal without reintroducing r
     await page.goto(`/devices/${deviceId}`);
     await Promise.all([
       expect(page.getByTestId('device-page')).toBeVisible(),
-      expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 }),
+      expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 }),
     ]);
 
     await page.waitForTimeout(1_200);

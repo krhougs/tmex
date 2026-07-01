@@ -42,7 +42,7 @@ test('sidebar: window tab follows terminal title and supports rename via menu', 
     await page.goto(
       `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
     );
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     const windowItem = page.getByTestId(`window-item-${windowId}`);
     await expect(windowItem).toBeVisible();
@@ -80,7 +80,7 @@ test('sidebar: window tab follows terminal title and supports rename via menu', 
 
     // 刷新页面后自定义名仍在（持久化在 gateway 内存中）
     await page.reload();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId(`window-item-${windowId}`)).toContainText(customName, {
       timeout: 20_000,
     });

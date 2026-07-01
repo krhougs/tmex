@@ -304,7 +304,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         if (mountRef.current) {
           terminal.open(mountRef.current);
         }
-        setE2eTerminalProbe(terminal);
         setInstance(terminal);
       })();
 
@@ -316,6 +315,14 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       };
       // 字体设置变更（无 post-init 改字体 API）时重建控制器：重新测度量 + 重排。
     }, [terminalFontId, terminalFontSize, terminalLineHeight]);
+
+    // e2e 桥指向焦点实例（分屏多实例下 autoFocus 即焦点性；单 pane 恒 true）
+    useEffect(() => {
+      if (!instance || !autoFocus) {
+        return;
+      }
+      setE2eTerminalProbe(instance);
+    }, [instance, autoFocus]);
 
     useEffect(() => {
       if (!instance || !('setTheme' in instance)) {
