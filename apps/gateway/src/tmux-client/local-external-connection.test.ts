@@ -95,10 +95,10 @@ function createRunStub(
       return ok('@1\n');
     }
     if (command.startsWith(`list-windows -t ${session}`)) {
-      return ok('@1|0|main|1\n');
+      return ok('@1|0|1|ba9d,80x24,0,0,1|main\n');
     }
     if (command.startsWith(`list-panes -s -t ${session}`)) {
-      return ok('%1|@1|0|bash|1|80|24|1|node|/home/user\n');
+      return ok('%1|@1|0|1|80|24|0|0|1|bash|node|/home/user\n');
     }
     throw new Error(`unexpected command: ${argv.join(' ')}`);
   };
@@ -257,8 +257,8 @@ describe('LocalExternalTmuxConnection', () => {
       'tmux list-windows -t tmex-snapshot -F #{window_id}',
       'tmux set-option -w -t @1 window-style fg=#d0d0d0,bg=#262626',
       'tmux display-message -p -t tmex-snapshot #{session_id}|#{session_name}',
-      'tmux list-windows -t tmex-snapshot -F #{window_id}|#{window_index}|#{window_name}|#{window_active}',
-      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}',
+      'tmux list-windows -t tmex-snapshot -F #{window_id}|#{window_index}|#{window_active}|#{window_layout}|#{window_name}',
+      'tmux list-panes -s -t tmex-snapshot -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_active}|#{pane_title}|#{pane_current_command}|#{pane_current_path}',
     ]);
     expect(snapshots).toEqual([
       {
@@ -272,6 +272,7 @@ describe('LocalExternalTmuxConnection', () => {
               index: 0,
               name: 'main',
               active: true,
+              layout: 'ba9d,80x24,0,0,1',
               panes: [
                 {
                   id: '%1',
@@ -283,6 +284,8 @@ describe('LocalExternalTmuxConnection', () => {
                   active: true,
                   width: 80,
                   height: 24,
+                  left: 0,
+                  top: 0,
                 },
               ],
             },
@@ -318,15 +321,15 @@ describe('LocalExternalTmuxConnection', () => {
             }
             if (
               command ===
-              `list-windows -t ${session} -F #{window_id}|#{window_index}|#{window_name}|#{window_active}`
+              `list-windows -t ${session} -F #{window_id}|#{window_index}|#{window_active}|#{window_layout}|#{window_name}`
             ) {
-              return ok('@0_0_bash_1\n');
+              return ok('@0_0_1_ba9d,80x24,0,0,1_bash\n');
             }
             if (
               command ===
-              `list-panes -s -t ${session} -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}`
+              `list-panes -s -t ${session} -F #{pane_id}|#{window_id}|#{pane_index}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_active}|#{pane_title}|#{pane_current_command}|#{pane_current_path}`
             ) {
-              return ok('%1_@0_0_bash_1_80_24_1_node_/home/user\n');
+              return ok('%1_@0_0_1_80_24_0_0_1_bash_node_/home/user\n');
             }
             return null;
           },

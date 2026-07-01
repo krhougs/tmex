@@ -199,6 +199,7 @@ function encodeWindowWire(window: TmuxWindow): b.infer<typeof schema.WindowWireS
     customName: window.customName ?? null,
     index: window.index,
     active: window.active,
+    layout: window.layout ?? null,
     panes: window.panes.map(encodePaneWire),
   };
 }
@@ -213,6 +214,9 @@ function encodePaneWire(pane: TmuxPane): b.infer<typeof schema.PaneWireSchema> {
     width: pane.width,
     height: pane.height,
     currentPath: pane.currentPath ?? null,
+    currentCommand: pane.currentCommand ?? null,
+    left: pane.left ?? null,
+    top: pane.top ?? null,
   };
 }
 
@@ -344,6 +348,7 @@ function decodeWindowWire(wire: b.infer<typeof schema.WindowWireSchema>): TmuxWi
     customName: wire.customName ?? undefined,
     index: wire.index,
     active: wire.active,
+    layout: wire.layout ?? undefined,
     panes: wire.panes.map(decodePaneWire),
   };
 }
@@ -358,5 +363,8 @@ function decodePaneWire(wire: b.infer<typeof schema.PaneWireSchema>): TmuxPane {
     width: wire.width,
     height: wire.height,
     currentPath: wire.currentPath ?? undefined,
+    currentCommand: wire.currentCommand ?? undefined,
+    left: wire.left ?? undefined,
+    top: wire.top ?? undefined,
   };
 }

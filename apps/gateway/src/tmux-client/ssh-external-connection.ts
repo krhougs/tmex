@@ -23,12 +23,16 @@ import { buildEnsureGhosttyTerminfoScript } from './ghostty-terminfo';
 import { encodeInputToHexChunks } from './input-encoder';
 import type { PaneStreamNotification } from './pane-stream-parser';
 import {
+  PANE_SNAPSHOT_FORMAT,
   SNAPSHOT_FIELD_SEPARATOR,
+  WINDOW_SNAPSHOT_FORMAT,
   formatSnapshotRowForLog,
   isTmuxPaneId,
   isTmuxSessionId,
   isTmuxWindowId,
+  parsePaneSnapshotRow,
   parseSnapshotInteger,
+  parseWindowSnapshotRow,
   splitSnapshotFields,
 } from './snapshot-format';
 import { resolveSshConnectConfig } from './ssh-connect-config';
@@ -942,16 +946,9 @@ export class SshExternalTmuxConnection {
         '-t',
         this.sessionName,
         '-F',
-        '#{window_id}|#{window_index}|#{window_name}|#{window_active}',
+        WINDOW_SNAPSHOT_FORMAT,
       ]),
-      this.runTmuxAllowFailure([
-        'list-panes',
-        '-s',
-        '-t',
-        this.sessionName,
-        '-F',
-        '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}',
-      ]),
+      this.runTmuxAllowFailure(['list-panes', '-s', '-t', this.sessionName, '-F', PANE_SNAPSHOT_FORMAT]),
     ]);
 
     if (sessionRes.exitCode !== 0 || windowsRes.exitCode !== 0 || panesRes.exitCode !== 0) {
@@ -1006,23 +1003,22 @@ export class SshExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [id, indexRaw, name, activeRaw] = splitSnapshotFields(line, 4);
-      const index = parseSnapshotInteger(indexRaw);
-      if (!isTmuxWindowId(id) || index === null || !this.isSnapshotFlag(activeRaw)) {
+      const row = parseWindowSnapshotRow(line);
+      if (!row) {
         console.warn(
           `[ssh] ignoring invalid tmux window snapshot row on ${this.deviceId}: ${formatSnapshotRowForLog(line)}`
         );
         continue;
       }
-      const active = activeRaw === '1';
-      if (active) {
-        this.activeWindowId = id;
+      if (row.active) {
+        this.activeWindowId = row.id;
       }
-      this.snapshotWindows.set(id, {
-        id,
-        index,
-        name: name ?? '',
-        active,
+      this.snapshotWindows.set(row.id, {
+        id: row.id,
+        index: row.index,
+        name: row.name,
+        active: row.active,
+        layout: row.layout,
         panes: [],
       });
     }
@@ -1037,49 +1033,39 @@ export class SshExternalTmuxConnection {
       if (!line.trim()) {
         continue;
       }
-      const [paneId, windowId, indexRaw, titleRaw, activeRaw, widthRaw, heightRaw, windowActiveRaw, currentCommandRaw, currentPathRaw] =
-        splitSnapshotFields(line, 10);
-      const index = parseSnapshotInteger(indexRaw);
-      const width = parseSnapshotInteger(widthRaw);
-      const height = parseSnapshotInteger(heightRaw);
-      if (
-        !isTmuxPaneId(paneId) ||
-        !isTmuxWindowId(windowId) ||
-        index === null ||
-        width === null ||
-        height === null ||
-        !this.isSnapshotFlag(activeRaw) ||
-        !this.isSnapshotFlag(windowActiveRaw)
-      ) {
+      const row = parsePaneSnapshotRow(line);
+      if (!row) {
         console.warn(
           `[ssh] ignoring invalid tmux pane snapshot row on ${this.deviceId}: ${formatSnapshotRowForLog(line)}`
         );
         continue;
       }
       const pane: TmuxPane = {
-        id: paneId,
-        windowId,
-        index,
-        title: this.pendingPaneTitles.get(paneId) ?? (titleRaw?.trim() ? titleRaw : undefined),
-        currentCommand: currentCommandRaw?.trim() ? currentCommandRaw.trim() : undefined,
-        currentPath: currentPathRaw?.trim() ? currentPathRaw.trim() : undefined,
+        id: row.id,
+        windowId: row.windowId,
+        index: row.index,
+        title: this.pendingPaneTitles.get(row.id) ?? row.title,
+        currentCommand: row.currentCommand,
+        currentPath: row.currentPath,
         // pane_active 是窗口内 active；list-panes -s 下每个窗口都有一个
-        active: activeRaw === '1',
-        width,
-        height,
+        active: row.active,
+        width: row.width,
+        height: row.height,
+        left: row.left,
+        top: row.top,
       };
 
-      if (pane.active && windowActiveRaw === '1') {
-        this.activePaneId = paneId;
-        this.activeWindowId = windowId;
+      if (pane.active && row.windowActive) {
+        this.activePaneId = row.id;
+        this.activeWindowId = row.windowId;
       }
 
-      const window = this.snapshotWindows.get(windowId);
+      const window = this.snapshotWindows.get(row.windowId);
       if (!window) {
         continue;
       }
       window.panes.push(pane);
-      this.pendingPaneTitles.delete(paneId);
+      this.pendingPaneTitles.delete(row.id);
     }
 
     for (const window of this.snapshotWindows.values()) {

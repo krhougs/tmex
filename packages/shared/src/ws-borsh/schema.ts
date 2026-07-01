@@ -224,6 +224,9 @@ export const PaneWireSchema = b.struct({
   width: b.u16(),
   height: b.u16(),
   currentPath: OptionStringSchema,
+  currentCommand: OptionStringSchema,
+  left: OptionU16Schema,
+  top: OptionU16Schema,
 });
 
 export const WindowWireSchema = b.struct({
@@ -232,6 +235,7 @@ export const WindowWireSchema = b.struct({
   customName: OptionStringSchema,
   index: b.u16(),
   active: b.bool(),
+  layout: OptionStringSchema,
   panes: b.vec(PaneWireSchema),
 });
 
