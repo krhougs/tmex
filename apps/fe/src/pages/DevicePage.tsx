@@ -466,6 +466,16 @@ export default function DevicePage() {
   // 分屏内同 window 切焦点时改走轻量 FOCUS_PANE，避免已渲染 pane 被 reset 重放
   const lastFullSelectWindowRef = useRef<string | null>(null);
 
+  // isSplitView 翻转会重建 Terminal 实例（单 Terminal ↔ SplitTerminalArea），
+  // 焦点 pane 的新实例需要完整 select 重新拉 history，否则空白
+  const prevSplitViewRef = useRef(isSplitView);
+  useEffect(() => {
+    if (prevSplitViewRef.current === isSplitView) return;
+    prevSplitViewRef.current = isSplitView;
+    lastDispatchedSelectRef.current = null;
+    lastFullSelectWindowRef.current = null;
+  }, [isSplitView]);
+
   // Select pane when ready
   useEffect(() => {
     if (!deviceId || !windowId || !resolvedPaneId) return;
@@ -481,7 +491,7 @@ export default function DevicePage() {
     lastDispatchedSelectRef.current = dispatchKey;
 
     const canUseLightFocus =
-      isSplitViewRef.current &&
+      isSplitView &&
       lastFullSelectWindowRef.current === `${deviceId}:${windowId}` &&
       Boolean(selectedWindow?.panes.some((pane) => pane.id === resolvedPaneId));
 
@@ -500,6 +510,7 @@ export default function DevicePage() {
     focusPane,
     getSelectSize,
     isLoading,
+    isSplitView,
     recordSelectRequest,
     resolvedPaneId,
     selectPane,
