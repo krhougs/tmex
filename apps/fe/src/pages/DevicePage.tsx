@@ -36,6 +36,8 @@ import {
   Send,
   Settings2,
   Smartphone,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
   Trash2,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1386,6 +1388,19 @@ export function PageActions() {
     [deviceId, windowId, navigate]
   );
 
+  const currentPane = useMemo(() => {
+    if (!resolvedPaneId || !selectedWindow) return undefined;
+    return selectedWindow.panes.find((p) => p.id === resolvedPaneId);
+  }, [resolvedPaneId, selectedWindow]);
+
+  const handleSplitPane = useCallback(
+    (direction: 'right' | 'down') => {
+      if (!deviceId || !resolvedPaneId) return;
+      useTmuxStore.getState().splitPane(deviceId, resolvedPaneId, direction, currentPane?.currentPath);
+    },
+    [deviceId, resolvedPaneId, currentPane?.currentPath]
+  );
+
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
   const [showWatchDialog, setShowWatchDialog] = useState(false);
   const [showTerminalSettings, setShowTerminalSettings] = useState(false);
@@ -1426,6 +1441,33 @@ export function PageActions() {
           currentPaneId={resolvedPaneId}
           onSelectPane={handleSwitchPane}
         />
+      )}
+      {/* 桌面端：对当前焦点 pane 分屏 */}
+      {!isMobileViewport && (
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => handleSplitPane('right')}
+            disabled={!canInteract}
+            data-testid="split-right-button"
+            aria-label={t('window.splitRight')}
+            title={t('window.splitRight')}
+          >
+            <SquareSplitHorizontal className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => handleSplitPane('down')}
+            disabled={!canInteract}
+            data-testid="split-down-button"
+            aria-label={t('window.splitDown')}
+            title={t('window.splitDown')}
+          >
+            <SquareSplitVertical className="h-4 w-4" />
+          </Button>
+        </>
       )}
       <Button
         variant="ghost"

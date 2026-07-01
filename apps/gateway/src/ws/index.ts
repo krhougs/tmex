@@ -278,6 +278,10 @@ export class WebSocketServer {
     entry?.runtime.updateDefaultWorkingDir(dir);
   }
 
+  getLastSnapshot(deviceId: string): StateSnapshotPayload | null {
+    return this.connections.get(deviceId)?.lastSnapshot ?? null;
+  }
+
   closeAll(): void {
     for (const [deviceId, entry] of this.connections) {
       this.releaseConnectionEntry(deviceId, entry);

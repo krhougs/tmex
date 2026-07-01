@@ -38,6 +38,8 @@ import {
   PaneEmulatorRegistry,
 } from '../tmux-client/pane-emulator';
 import { tmuxRuntimeRegistry } from '../tmux-client/registry';
+import { resolvePaneContext } from '../tmux/bell-context';
+import { getDeviceSnapshot } from '../tmux/snapshot-directory';
 import { createRedactionMiddleware } from './redaction-middleware';
 
 /** 全局 per-pane 模拟器池（引用计数复用 + 显式 free，见 pane-emulator.ts）。 */
@@ -932,6 +934,16 @@ export class AgentRun {
     try {
       const settings = getSiteSettings();
       const device = session.deviceId ? getDeviceById(session.deviceId) : null;
+      // 由 paneId 从快照反查 windowId 等上下文，使 buildPaneUrl 能生成 pane 深链
+      const paneContext =
+        session.deviceId && session.paneId
+          ? resolvePaneContext({
+              deviceId: session.deviceId,
+              siteUrl: settings.siteUrl,
+              snapshot: getDeviceSnapshot(session.deviceId),
+              rawData: { paneId: session.paneId },
+            })
+          : null;
       await this.deps.notify(eventType, {
         site: {
           name: settings.siteName,
@@ -945,6 +957,7 @@ export class AgentRun {
         },
         tmux: {
           sessionName: device?.session,
+          ...(paneContext ?? {}),
           paneId: session.paneId ?? undefined,
         },
         payload: {

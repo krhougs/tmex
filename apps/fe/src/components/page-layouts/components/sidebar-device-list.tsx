@@ -71,6 +71,8 @@ import {
   Power,
   PowerOff,
   Radar,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
   Trash2,
   X,
 } from 'lucide-react';
@@ -1294,6 +1296,32 @@ function PaneRow({
               {t('window.newInCwd')}
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem
+            data-testid={`pane-split-right-${pane.id}`}
+            className={cn(
+              '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+              isMobile && 'py-3 px-2.5 text-base gap-2.5'
+            )}
+            onClick={() =>
+              useTmuxStore.getState().splitPane(deviceId, pane.id, 'right', pane.currentPath)
+            }
+          >
+            <SquareSplitHorizontal className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+            {t('window.splitRight')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid={`pane-split-down-${pane.id}`}
+            className={cn(
+              '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+              isMobile && 'py-3 px-2.5 text-base gap-2.5'
+            )}
+            onClick={() =>
+              useTmuxStore.getState().splitPane(deviceId, pane.id, 'down', pane.currentPath)
+            }
+          >
+            <SquareSplitVertical className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+            {t('window.splitDown')}
+          </DropdownMenuItem>
           <DropdownMenuItem
             data-testid={`pane-watch-${pane.id}`}
             className={cn(

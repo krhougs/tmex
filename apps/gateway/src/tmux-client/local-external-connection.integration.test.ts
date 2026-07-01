@@ -626,7 +626,9 @@ describe('LocalExternalTmuxConnection integration', () => {
         throw new Error('split pane missing');
       }
       const splitEvent = events.find(
-        (event) => event.type === 'pane-active' && event.data.paneId === secondPaneId
+        (event) =>
+          event.type === 'pane-active' &&
+          (event.data as { paneId?: string } | undefined)?.paneId === secondPaneId
       );
       expect(splitEvent).toBeTruthy();
       const rightPane = afterSplit.panes.find((pane) => pane.id === secondPaneId);
@@ -663,7 +665,7 @@ describe('LocalExternalTmuxConnection integration', () => {
         .slice()
         .reverse()
         .find((event) => event.type === 'pane-active');
-      expect(focusEvent?.data.paneId).toBe(firstPaneId);
+      expect((focusEvent?.data as { paneId?: string } | undefined)?.paneId).toBe(firstPaneId);
       expect(histories.length).toBe(historyCountBefore);
 
       // 向下分屏：三 pane，layout 出现垂直排列
