@@ -21,6 +21,12 @@ export interface DeviceSessionRuntimeConnection {
   createWindow(name?: string, cwd?: string): void;
   closeWindow(windowId: string): void;
   closePane(paneId: string): void;
+  splitPane(paneId: string, direction: 'h' | 'v', cwd?: string): void;
+  resizePaneById(paneId: string, size: { cols?: number; rows?: number }): void;
+  resizeWindow(windowId: string, cols: number, rows: number): void;
+  selectLayout(windowId: string, preset: 'even-horizontal'): void;
+  focusPane(windowId: string, paneId: string): void;
+  requestPaneHistory(paneId: string): Promise<void>;
   renameWindow(windowId: string, name: string): void;
   setWindowStyle(style: string): void;
   capturePaneText(paneId: string, opts?: { historyLines?: number }): Promise<string>;
@@ -184,6 +190,30 @@ export class DeviceSessionRuntime {
 
   closePane(paneId: string): void {
     this.connection.closePane(paneId);
+  }
+
+  splitPane(paneId: string, direction: 'h' | 'v', cwd?: string): void {
+    this.connection.splitPane(paneId, direction, cwd);
+  }
+
+  resizePaneById(paneId: string, size: { cols?: number; rows?: number }): void {
+    this.connection.resizePaneById(paneId, size);
+  }
+
+  resizeWindow(windowId: string, cols: number, rows: number): void {
+    this.connection.resizeWindow(windowId, cols, rows);
+  }
+
+  selectLayout(windowId: string, preset: 'even-horizontal'): void {
+    this.connection.selectLayout(windowId, preset);
+  }
+
+  focusPane(windowId: string, paneId: string): void {
+    this.connection.focusPane(windowId, paneId);
+  }
+
+  async requestPaneHistory(paneId: string): Promise<void> {
+    return this.connection.requestPaneHistory(paneId);
   }
 
   renameWindow(windowId: string, name: string): void {

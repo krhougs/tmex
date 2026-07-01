@@ -354,6 +354,63 @@ export class LocalExternalTmuxConnection {
     });
   }
 
+  splitPane(paneId: string, direction: 'h' | 'v', cwd?: string): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.splitPaneInternal(paneId, direction, cwd).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  resizePaneById(paneId: string, size: { cols?: number; rows?: number }): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.resizePaneByIdInternal(paneId, size).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  resizeWindow(windowId: string, cols: number, rows: number): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.resizeWindowInternal(windowId, cols, rows).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  selectLayout(windowId: string, preset: 'even-horizontal'): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.runAndRefresh(['select-layout', '-t', windowId, preset], true).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  focusPane(windowId: string, paneId: string): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.focusPaneInternal(windowId, paneId).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  async requestPaneHistory(paneId: string): Promise<void> {
+    if (!this.connected) {
+      return;
+    }
+    await this.capturePaneHistory(paneId);
+  }
+
   renameWindow(windowId: string, name: string): void {
     if (!this.connected) {
       return;
@@ -888,8 +945,6 @@ export class LocalExternalTmuxConnection {
   }
 
   private async resizePaneInternal(paneId: string, cols: number, rows: number): Promise<void> {
-    const safeCols = Math.max(2, Math.floor(cols));
-    const safeRows = Math.max(2, Math.floor(rows));
     const windowId =
       this.findPaneWindowId(paneId) ??
       (
@@ -899,10 +954,79 @@ export class LocalExternalTmuxConnection {
       return;
     }
 
+    await this.resizeWindowInternal(windowId, cols, rows);
+  }
+
+  private async resizeWindowInternal(windowId: string, cols: number, rows: number): Promise<void> {
+    const safeCols = Math.max(2, Math.floor(cols));
+    const safeRows = Math.max(2, Math.floor(rows));
     await this.runTmux(
       ['resize-window', '-t', windowId, '-x', String(safeCols), '-y', String(safeRows)],
       true
     );
+    await this.requestSnapshotInternal();
+  }
+
+  private async resizePaneByIdInternal(
+    paneId: string,
+    size: { cols?: number; rows?: number }
+  ): Promise<void> {
+    const argv = ['resize-pane', '-t', paneId];
+    if (size.cols !== undefined) {
+      argv.push('-x', String(Math.max(2, Math.floor(size.cols))));
+    }
+    if (size.rows !== undefined) {
+      argv.push('-y', String(Math.max(2, Math.floor(size.rows))));
+    }
+    if (argv.length === 3) {
+      return;
+    }
+    await this.runTmux(argv, true);
+    await this.requestSnapshotInternal();
+  }
+
+  private async splitPaneInternal(
+    paneId: string,
+    direction: 'h' | 'v',
+    cwd?: string
+  ): Promise<void> {
+    const result = await this.runTmux(
+      [
+        'split-window',
+        direction === 'h' ? '-h' : '-v',
+        '-t',
+        paneId,
+        '-c',
+        cwd ?? this.resolveDefaultWorkingDir(),
+        '-P',
+        '-F',
+        `#{window_id}${SNAPSHOT_FIELD_SEPARATOR}#{pane_id}`,
+      ],
+      true
+    );
+    const [windowId, newPaneId] = result.stdout.trim().split(SNAPSHOT_FIELD_SEPARATOR);
+    if (isTmuxWindowId(windowId) && isTmuxPaneId(newPaneId)) {
+      this.activeWindowId = windowId;
+      this.activePaneId = newPaneId;
+      this.callbacks.onEvent({
+        type: 'pane-active',
+        data: { windowId, paneId: newPaneId },
+      });
+    }
+    await this.requestSnapshotInternal();
+  }
+
+  private async focusPaneInternal(windowId: string, paneId: string): Promise<void> {
+    this.activeWindowId = windowId;
+    this.activePaneId = paneId;
+
+    await this.runTmux(['select-window', '-t', windowId], true);
+    await this.runTmux(['select-pane', '-t', paneId], true);
+
+    this.callbacks.onEvent({
+      type: 'pane-active',
+      data: { windowId, paneId },
+    });
     await this.requestSnapshotInternal();
   }
 
