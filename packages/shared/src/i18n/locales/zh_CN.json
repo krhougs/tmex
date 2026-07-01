@@ -787,7 +787,10 @@
       "rename": "重命名窗口",
       "renamePlaceholder": "输入名称",
       "renameDesc": "自定义名称会覆盖终端设置的标题，并保留至 gateway 重启。",
-      "renameReset": "恢复自动名称"
+      "renameReset": "恢复自动名称",
+      "switchPane": "切换 Pane",
+      "splitRight": "向右分屏",
+      "splitDown": "向下分屏"
     },
     "watch": {
       "title": "监控规则",

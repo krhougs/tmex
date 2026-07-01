@@ -6,8 +6,10 @@ import {
   terminalShortcutsQueryKey,
 } from '@/components/settings/terminal-shortcuts-api';
 import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
+import { PaneSwitcherMenu } from '@/components/terminal/PaneSwitcherMenu';
 import { SplitTerminalArea } from '@/components/terminal/SplitTerminalArea';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -235,10 +237,25 @@ export default function DevicePage() {
     return { windowId: activeWindow.id, paneId: activePane.id };
   }, [windows]);
 
+  // 移动端多 pane window：终端上报的尺寸即「单屏适配尺寸」，改道拼接布局
+  // （window 宽 = N*cols+(N-1)、even-horizontal，每 pane 恰好一屏），
+  // 不得发普通 TERM_RESIZE，否则整窗被压成单 pane 尺寸破坏拼接
+  const stackedLayoutTarget =
+    isMobile && selectedWindow && selectedWindow.panes.length > 1 ? selectedWindow.id : null;
+  const stackedLayoutTargetRef = useRef(stackedLayoutTarget);
+  useEffect(() => {
+    stackedLayoutTargetRef.current = stackedLayoutTarget;
+  }, [stackedLayoutTarget]);
+
   // Handle resize from terminal - use store directly to avoid unstable callback deps
   const handleResize = useCallback(
     (cols: number, rows: number) => {
       if (!deviceId || !resolvedPaneId) return;
+      const stackedWindowId = stackedLayoutTargetRef.current;
+      if (stackedWindowId) {
+        useTmuxStore.getState().applyStackedLayout(deviceId, stackedWindowId, cols, rows);
+        return;
+      }
       useTmuxStore.getState().resizePane(deviceId, resolvedPaneId, cols, rows);
     },
     [deviceId, resolvedPaneId]
@@ -248,6 +265,11 @@ export default function DevicePage() {
   const handleSync = useCallback(
     (cols: number, rows: number) => {
       if (!deviceId || !resolvedPaneId) return;
+      const stackedWindowId = stackedLayoutTargetRef.current;
+      if (stackedWindowId) {
+        useTmuxStore.getState().applyStackedLayout(deviceId, stackedWindowId, cols, rows);
+        return;
+      }
       useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
     },
     [deviceId, resolvedPaneId]
@@ -271,6 +293,15 @@ export default function DevicePage() {
         return undefined;
       }
 
+      // 移动端多 pane window：select 不带尺寸（否则整窗被 resize 成单 pane 尺寸），
+      // 尺寸由随后的 sync 经 applyStackedLayout 处理
+      if (targetWindowId && windows) {
+        const targetWindow = windows.find((window) => window.id === targetWindowId);
+        if (isMobile && targetWindow && targetWindow.panes.length > 1) {
+          return undefined;
+        }
+      }
+
       const terminalSize =
         terminal?.calculateSizeFromContainer() ?? terminal?.getSize() ?? undefined;
       if (terminalSize) {
@@ -292,7 +323,7 @@ export default function DevicePage() {
         rows: targetPane.height,
       };
     },
-    [windows]
+    [isMobile, windows]
   );
 
   // 分屏：点击非焦点 pane 切焦点（URL 为真相源，select effect 走轻量 FOCUS_PANE）
@@ -1329,12 +1360,30 @@ export function PageTitle() {
 // Page actions component - shows input mode toggle, jump to latest and refresh page
 export function PageActions() {
   const { t } = useTranslation();
-  const { deviceId, paneId } = useParams();
+  const { deviceId, windowId, paneId } = useParams();
+  const navigate = useNavigate();
+  const isMobileViewport = useIsMobile();
   const resolvedPaneId = paneId ? decodePaneIdFromUrlParam(paneId) : undefined;
   const inputMode = useUIStore((state) => state.inputMode);
   const setInputMode = useUIStore((state) => state.setInputMode);
   const deviceConnected = useTmuxStore((state) =>
     deviceId ? (state.deviceConnected?.[deviceId] ?? false) : false
+  );
+  const snapshot = useTmuxStore((state) => (deviceId ? state.snapshots[deviceId] : undefined));
+  const selectedWindow = useMemo(() => {
+    if (!windowId || !snapshot?.session?.windows) return undefined;
+    return snapshot.session.windows.find((w) => w.id === windowId);
+  }, [windowId, snapshot]);
+
+  const handleSwitchPane = useCallback(
+    (targetPaneId: string) => {
+      if (!deviceId || !windowId) return;
+      navigate(
+        `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPaneId)}`,
+        { replace: true }
+      );
+    },
+    [deviceId, windowId, navigate]
   );
 
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
@@ -1370,6 +1419,14 @@ export function PageActions() {
 
   return (
     <>
+      {/* 移动端单 pane 展示：多 pane window 时提供切换入口（标题栏样式不变） */}
+      {isMobileViewport && resolvedPaneId && selectedWindow && selectedWindow.panes.length > 1 && (
+        <PaneSwitcherMenu
+          window={selectedWindow}
+          currentPaneId={resolvedPaneId}
+          onSelectPane={handleSwitchPane}
+        />
+      )}
       <Button
         variant="ghost"
         size="icon-sm"
