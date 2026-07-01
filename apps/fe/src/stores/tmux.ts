@@ -9,18 +9,32 @@ import {
   buildTermPaste,
   buildTermResize,
   buildTermSyncSize,
+  buildTmuxApplyStackedLayout,
   buildTmuxClosePane,
   buildTmuxCloseWindow,
   buildTmuxCreateWindow,
+  buildTmuxFetchPaneHistory,
+  buildTmuxFocusPane,
   buildTmuxRenameWindow,
   buildTmuxReorderPanes,
   buildTmuxReorderWindows,
+  buildTmuxResizePane,
   buildTmuxSelect,
   buildTmuxSelectWindow,
   buildTmuxSetWindowStyle,
+  buildTmuxSplitPane,
+  buildTmuxSubscribePanes,
   generateSelectToken,
 } from '@/ws-borsh';
 import { getSelectStateMachine } from '@/ws-borsh';
+import {
+  beginPaneHistoryGate,
+  cleanupDevicePaneState,
+  dispatchPaneApplyHistory,
+  dispatchPaneHistory,
+  dispatchPaneOutput,
+  dispatchPaneReset,
+} from '@/ws-borsh/pane-sink-registry';
 import type { EventDevicePayload, EventTmuxPayload, StateSnapshotPayload } from '@tmex/shared';
 import { wsBorsh } from '@tmex/shared';
 import { toast } from 'sonner';
@@ -86,6 +100,17 @@ interface TmuxState {
   renameWindow: (deviceId: string, windowId: string, name: string) => void;
   reorderWindows: (deviceId: string, windowIds: string[]) => void;
   reorderPanes: (deviceId: string, windowId: string, paneIds: string[]) => void;
+  // ---------- 分屏 ----------
+  subscribePanes: (deviceId: string, paneIds: string[]) => void;
+  fetchPaneHistory: (deviceId: string, paneId: string) => void;
+  focusPane: (deviceId: string, windowId: string, paneId: string) => void;
+  splitPane: (deviceId: string, paneId: string, direction: 'right' | 'down', cwd?: string) => void;
+  resizePaneInWindow: (
+    deviceId: string,
+    paneId: string,
+    size: { cols?: number; rows?: number }
+  ) => void;
+  applyStackedLayout: (deviceId: string, windowId: string, cols: number, rows: number) => void;
 }
 
 const CONNECT_DEDUP_WINDOW_MS = 500;
@@ -135,6 +160,25 @@ function setupClientHandlers(
 
   const client = getBorshClient();
 
+  // 选择状态机的输出/历史统一经 pane-sink-registry 按 (deviceId, paneId) 路由到
+  // 各 Terminal 实例（分屏多实例）；回调一次性设置，Terminal 只注册/注销 sink
+  getSelectStateMachine({
+    onResetTerminal: (deviceId, paneId) => {
+      dispatchPaneReset(deviceId, paneId);
+    },
+    onApplyHistory: (deviceId, paneId, data, alternateScreen) => {
+      dispatchPaneApplyHistory(deviceId, paneId, data, alternateScreen);
+    },
+    onFlushBuffer: (deviceId, paneId, buffer) => {
+      for (const chunk of buffer) {
+        dispatchPaneOutput(deviceId, paneId, chunk);
+      }
+    },
+    onOutput: (deviceId, paneId, data) => {
+      dispatchPaneOutput(deviceId, paneId, data);
+    },
+  });
+
   const maybeReselectCurrentPane = (deviceId: string): void => {
     const current = getState().selectedPanes[deviceId];
     if (!current) return;
@@ -174,6 +218,7 @@ function setupClientHandlers(
       case wsBorsh.KIND_DEVICE_DISCONNECTED: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.DeviceDisconnectedSchema, msg.payload);
         sm.cleanup(decoded.deviceId);
+        cleanupDevicePaneState(decoded.deviceId);
         setState((prev) => ({
           deviceConnected: { ...prev.deviceConnected, [decoded.deviceId]: false },
         }));
@@ -217,6 +262,18 @@ function setupClientHandlers(
       case wsBorsh.KIND_TERM_HISTORY: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermHistorySchema, msg.payload);
         const text = new TextDecoder().decode(decoded.data);
+        // 先试非焦点 pane 的 fetch-history 路径（token 命中 gate 才消费）
+        if (
+          dispatchPaneHistory(
+            decoded.deviceId,
+            decoded.paneId,
+            decoded.selectToken,
+            text,
+            decoded.alternateScreen
+          )
+        ) {
+          return;
+        }
         sm.dispatch({
           type: 'HISTORY',
           deviceId: decoded.deviceId,
@@ -635,6 +692,50 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
       };
     });
     const msg = buildTmuxReorderWindows(deviceId, windowIds);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  subscribePanes(deviceId, paneIds) {
+    if (!deviceId) return;
+    const msg = buildTmuxSubscribePanes(deviceId, paneIds);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  fetchPaneHistory(deviceId, paneId) {
+    if (!deviceId || !paneId) return;
+    const requestToken = generateSelectToken();
+    beginPaneHistoryGate(deviceId, paneId, requestToken);
+    const msg = buildTmuxFetchPaneHistory(deviceId, paneId, requestToken);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  focusPane(deviceId, windowId, paneId) {
+    if (!deviceId || !windowId || !paneId) return;
+    set((prev) => ({
+      selectedPanes: { ...prev.selectedPanes, [deviceId]: { windowId, paneId } },
+    }));
+    const msg = buildTmuxFocusPane(deviceId, windowId, paneId);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  splitPane(deviceId, paneId, direction, cwd) {
+    if (!deviceId || !paneId) return;
+    const msg = buildTmuxSplitPane(deviceId, paneId, direction, cwd);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  resizePaneInWindow(deviceId, paneId, size) {
+    if (!deviceId || !paneId) return;
+    if (size.cols === undefined && size.rows === undefined) return;
+    const msg = buildTmuxResizePane(deviceId, paneId, size);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  applyStackedLayout(deviceId, windowId, cols, rows) {
+    if (!deviceId || !windowId) return;
+    const normalized = normalizeTerminalSize(cols, rows);
+    if (!normalized) return;
+    const msg = buildTmuxApplyStackedLayout(deviceId, windowId, normalized.cols, normalized.rows);
     getBorshClient().send(msg.kind, msg.payload);
   },
 

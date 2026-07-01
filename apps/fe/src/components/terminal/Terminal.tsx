@@ -5,7 +5,7 @@ import {
   registerCursorRectGetter,
   unregisterCursorRectGetter,
 } from '@/utils/keyboard-cursor-bridge';
-import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
+import { type PaneSink, registerPaneSink } from '@/ws-borsh/pane-sink-registry';
 import {
   type CompatibleTerminalLike,
   FitAddon,
@@ -354,22 +354,20 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       instance.focus();
     }, [instance, inputMode]);
 
-    const callbacks: SelectCallbacks = useMemo(() => {
+    const paneSink: PaneSink | null = useMemo(() => {
       if (!instance) {
-        return {};
+        return null;
       }
 
       return {
-        onResetTerminal: (targetDeviceId) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
+        onReset: () => {
           persistTerminalModes(instance, attachedDeviceIdRef.current, attachedPaneIdRef.current);
           skipNextDetachPersistRef.current = true;
           instance.reset();
           liveOutputEndedWithCR.current = false;
           runPostSelectResize();
         },
-        onApplyHistory: (targetDeviceId, data, alternateScreen) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
+        onApplyHistory: (data, alternateScreen) => {
           const recoveredModes = reconcileRecoveredModes(
             readTerminalModeCache(currentDeviceIdRef.current, currentPaneIdRef.current),
             alternateScreen
@@ -387,26 +385,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           attachedPaneIdRef.current = currentPaneIdRef.current;
           persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
         },
-        onFlushBuffer: (targetDeviceId, buffer) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
-          for (const chunk of buffer) {
-            const normalized = normalizeLiveOutputForTerminal(chunk, liveOutputEndedWithCR.current);
-            liveOutputEndedWithCR.current = normalized.endedWithCR;
-            instance.write(normalized.normalized);
-          }
-          if (keepShortHistoryVisibleRef.current) {
-            if (instance.buffer.active.baseY <= 1) {
-              instance.scrollToTop();
-            }
-            keepShortHistoryVisibleRef.current = false;
-          }
-          attachedDeviceIdRef.current = currentDeviceIdRef.current;
-          attachedPaneIdRef.current = currentPaneIdRef.current;
-          persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
-        },
-        onOutput: (targetDeviceId, targetPaneId, data) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
-          if (currentPaneIdRef.current !== targetPaneId) return;
+        onOutput: (data) => {
           const normalized = normalizeLiveOutputForTerminal(data, liveOutputEndedWithCR.current);
           liveOutputEndedWithCR.current = normalized.endedWithCR;
           instance.write(normalized.normalized);
@@ -449,14 +428,11 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     }, [deviceId, instance, paneId, persistTerminalModes]);
 
     useEffect(() => {
-      getSelectStateMachine(callbacks);
-    }, [callbacks]);
-
-    useEffect(() => {
-      return () => {
-        getSelectStateMachine({});
-      };
-    }, []);
+      if (!paneSink || !deviceId || !paneId) {
+        return;
+      }
+      return registerPaneSink(deviceId, paneId, paneSink);
+    }, [paneSink, deviceId, paneId]);
 
     useEffect(() => {
       if (!instance) {

@@ -122,8 +122,10 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
 
-    const hasSelectedPaneClient = Array.from(entry.clients).some((client) =>
-      Boolean(client.data.borshState.selectedPanes[deviceId])
+    const hasSelectedPaneClient = Array.from(entry.clients).some(
+      (client) =>
+        Boolean(client.data.borshState.selectedPanes[deviceId]) ||
+        Boolean(client.data.borshState.subscribedPanes[deviceId]?.size)
     );
 
     if (!hasSelectedPaneClient) {
@@ -254,6 +256,8 @@ export class WebSocketServer {
       if (!entry.clients.has(ws)) continue;
       entry.clients.delete(ws);
       delete ws.data.borshState.selectedPanes[deviceId];
+      delete ws.data.borshState.subscribedPanes[deviceId];
+      this.clearPendingHistoryFetches(ws, deviceId);
 
       if (entry.clients.size === 0) {
         console.log(`[ws] no more clients for device ${deviceId}, disconnecting`);
@@ -372,6 +376,52 @@ export class WebSocketServer {
         return;
       }
 
+      case wsBorsh.KIND_TMUX_SUBSCRIBE_PANES: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxSubscribePanesSchema, payload);
+        this.handleSubscribePanes(ws, decoded.deviceId, decoded.paneIds);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_FETCH_PANE_HISTORY: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxFetchPaneHistorySchema, payload);
+        this.handleFetchPaneHistory(ws, decoded.deviceId, decoded.paneId, decoded.requestToken);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_RESIZE_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxResizePaneSchema, payload);
+        this.handleResizePaneById(
+          decoded.deviceId,
+          decoded.paneId,
+          decoded.cols ?? undefined,
+          decoded.rows ?? undefined
+        );
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_APPLY_STACKED_LAYOUT: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxApplyStackedLayoutSchema, payload);
+        this.handleApplyStackedLayout(decoded.deviceId, decoded.windowId, decoded.cols, decoded.rows);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_SPLIT_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxSplitPaneSchema, payload);
+        this.handleSplitPane(
+          decoded.deviceId,
+          decoded.paneId,
+          decoded.direction,
+          decoded.cwd ?? undefined
+        );
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_FOCUS_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxFocusPaneSchema, payload);
+        this.handleFocusPane(ws, decoded.deviceId, decoded.windowId, decoded.paneId);
+        return;
+      }
+
       case wsBorsh.KIND_TERM_INPUT: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermInputSchema, payload);
         if (decoded.isComposing) return;
@@ -445,7 +495,7 @@ export class WebSocketServer {
       selectedVersion: wsBorsh.CURRENT_VERSION,
       maxFrameBytes: serverMaxFrameBytes,
       heartbeatIntervalMs: 15000,
-      capabilities: ['tmex-ws-borsh-v1', 'tmex-agent-v1'],
+      capabilities: ['tmex-ws-borsh-v1', 'tmex-agent-v1', 'tmex-split-v1'],
     };
 
     const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.HelloS2CSchema, helloS2C);
@@ -583,11 +633,22 @@ export class WebSocketServer {
     }
 
     delete ws.data.borshState.selectedPanes[deviceId];
+    delete ws.data.borshState.subscribedPanes[deviceId];
+    this.clearPendingHistoryFetches(ws, deviceId);
 
     const disconnectedPayload = wsBorsh.encodePayload(wsBorsh.schema.DeviceDisconnectedSchema, {
       deviceId,
     });
     this.sendEnvelope(ws, wsBorsh.KIND_DEVICE_DISCONNECTED, disconnectedPayload);
+  }
+
+  private clearPendingHistoryFetches(ws: ServerWebSocket<ClientState>, deviceId: string): void {
+    const prefix = `${deviceId}:`;
+    for (const key of ws.data.borshState.pendingHistoryFetches.keys()) {
+      if (key.startsWith(prefix)) {
+        ws.data.borshState.pendingHistoryFetches.delete(key);
+      }
+    }
   }
 
   private handleTmuxSelect(
@@ -769,6 +830,132 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry?.lastSnapshot) return;
     this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
+  // 幂等全量声明附加订阅集：只接受当前快照中存在的 pane，替换旧集合
+  private handleSubscribePanes(
+    ws: ServerWebSocket<ClientState>,
+    deviceId: string,
+    paneIds: string[]
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+
+    const knownPaneIds = new Set(
+      entry.lastSnapshot?.session?.windows.flatMap((window) =>
+        window.panes.map((pane) => pane.id)
+      ) ?? []
+    );
+    const accepted = new Set<string>();
+    for (const paneId of paneIds) {
+      if (isTmuxPaneId(paneId) && knownPaneIds.has(paneId)) {
+        accepted.add(paneId);
+      }
+    }
+
+    if (accepted.size > 0) {
+      ws.data.borshState.subscribedPanes[deviceId] = accepted;
+    } else {
+      delete ws.data.borshState.subscribedPanes[deviceId];
+    }
+    this.refreshSnapshotPolling(deviceId);
+  }
+
+  private handleFetchPaneHistory(
+    ws: ServerWebSocket<ClientState>,
+    deviceId: string,
+    paneId: string,
+    requestToken: Uint8Array
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry || !isTmuxPaneId(paneId)) return;
+
+    ws.data.borshState.pendingHistoryFetches.set(`${deviceId}:${paneId}`, requestToken);
+    void entry.runtime.requestPaneHistory(paneId).catch((error) => {
+      console.warn(`[ws] fetch pane history failed on ${deviceId}/${paneId}:`, error);
+      ws.data.borshState.pendingHistoryFetches.delete(`${deviceId}:${paneId}`);
+    });
+  }
+
+  private handleResizePaneById(
+    deviceId: string,
+    paneId: string,
+    cols?: number,
+    rows?: number
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry || !isTmuxPaneId(paneId)) return;
+    if (cols === undefined && rows === undefined) return;
+    entry.runtime.resizePaneById(paneId, { cols, rows });
+  }
+
+  // 移动端拼接布局：window 宽 = N*cols+(N-1)、高 = rows，even-horizontal 后每 pane 恰好 cols×rows。
+  // 快照几何已匹配时跳过，避免多端/多次触发互相打架。
+  private handleApplyStackedLayout(
+    deviceId: string,
+    windowId: string,
+    cols: number,
+    rows: number
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    if (!this.canSelectWindow(entry, deviceId, windowId)) return;
+    if (cols < 2 || rows < 2) return;
+
+    const window = entry.lastSnapshot?.session?.windows.find(
+      (candidate) => candidate.id === windowId
+    );
+    const paneCount = window?.panes.length ?? 0;
+    if (!window || paneCount === 0) return;
+
+    const alreadyStacked = window.panes.every(
+      (pane) => pane.width === cols && pane.height === rows
+    );
+    if (alreadyStacked) return;
+
+    // tmux 窗口宽度硬上限（layout cell 级），超限截断并告警
+    const TMUX_MAX_WINDOW_COLS = 10_000;
+    const totalCols = paneCount * cols + (paneCount - 1);
+    const clampedCols = Math.min(totalCols, TMUX_MAX_WINDOW_COLS);
+    if (clampedCols !== totalCols) {
+      console.warn(
+        `[ws] stacked layout width clamped on ${deviceId}/${windowId}: ${totalCols} -> ${clampedCols}`
+      );
+    }
+
+    entry.runtime.resizeWindow(windowId, clampedCols, rows);
+    if (paneCount > 1) {
+      entry.runtime.selectLayout(windowId, 'even-horizontal');
+    }
+  }
+
+  private handleSplitPane(
+    deviceId: string,
+    paneId: string,
+    direction: number,
+    cwd?: string
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry || !isTmuxPaneId(paneId)) return;
+    const dir = direction === 2 ? 'v' : 'h';
+    entry.runtime.splitPane(paneId, dir, cwd);
+  }
+
+  // 分屏内轻量焦点切换：更新 selectedPanes 并 select-window/select-pane，
+  // 不走 switch-barrier、不触发 history capture（pane 已在前端持续渲染）
+  private handleFocusPane(
+    ws: ServerWebSocket<ClientState>,
+    deviceId: string,
+    windowId: string,
+    paneId: string
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry) return;
+    if (!this.canSelectPane(entry, deviceId, windowId, paneId)) return;
+
+    ws.data.borshState.selectedPanes[deviceId] = paneId;
+    this.refreshSnapshotPolling(deviceId);
+    entry.runtime.focusPane(windowId, paneId);
   }
 
   private applyWindowCustomNames(payload: StateSnapshotPayload): StateSnapshotPayload {
@@ -974,11 +1161,15 @@ export class WebSocketServer {
     if (!entry) return;
 
     for (const client of entry.clients) {
-      if (client.data.borshState.selectedPanes[deviceId] !== paneId) {
+      const isFocused = client.data.borshState.selectedPanes[deviceId] === paneId;
+      const isSubscribed = client.data.borshState.subscribedPanes[deviceId]?.has(paneId) ?? false;
+      if (!isFocused && !isSubscribed) {
         continue;
       }
 
-      if (switchBarrier.shouldBufferOutput(client, deviceId)) {
+      // 只有焦点 pane 参与 switch-barrier：barrier flush 会按事务 paneId 重编码缓冲，
+      // 非焦点订阅 pane 的输出混入会被错误归属
+      if (isFocused && switchBarrier.shouldBufferOutput(client, deviceId)) {
         switchBarrier.bufferOutput(client, deviceId, data);
         continue;
       }
@@ -1021,12 +1212,29 @@ export class WebSocketServer {
     if (!entry) return;
 
     const historyBytes = new TextEncoder().encode(data);
+    const fetchKey = `${deviceId}:${paneId}`;
 
     for (const client of entry.clients) {
-      if (client.data.borshState.selectedPanes[deviceId] !== paneId) {
+      if (client.data.borshState.selectedPanes[deviceId] === paneId) {
+        switchBarrier.sendTermHistory(client as any, deviceId, paneId, historyBytes, alternateScreen);
         continue;
       }
-      switchBarrier.sendTermHistory(client as any, deviceId, paneId, historyBytes, alternateScreen);
+
+      // 非焦点 pane：仅在该 client 主动 fetch 过时用其 requestToken 直发（不经 barrier）
+      const requestToken = client.data.borshState.pendingHistoryFetches.get(fetchKey);
+      if (!requestToken) {
+        continue;
+      }
+      client.data.borshState.pendingHistoryFetches.delete(fetchKey);
+      const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.TermHistorySchema, {
+        deviceId,
+        paneId,
+        selectToken: requestToken,
+        encoding: 1,
+        alternateScreen,
+        data: historyBytes,
+      });
+      this.sendChunked(client, wsBorsh.KIND_TERM_HISTORY, payloadBytes);
     }
   }
 

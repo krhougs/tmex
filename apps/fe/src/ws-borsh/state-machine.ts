@@ -30,6 +30,7 @@ export interface OutputGate {
 }
 
 interface DeferredHistory {
+  paneId: string;
   data: string;
   alternateScreen: boolean;
 }
@@ -88,9 +89,14 @@ export type SelectEvent =
 // ========== 回调定义 ==========
 
 export interface SelectCallbacks {
-  onResetTerminal?: (deviceId: string) => void;
-  onApplyHistory?: (deviceId: string, data: string, alternateScreen: boolean) => void;
-  onFlushBuffer?: (deviceId: string, buffer: Uint8Array[]) => void;
+  onResetTerminal?: (deviceId: string, paneId: string) => void;
+  onApplyHistory?: (
+    deviceId: string,
+    paneId: string,
+    data: string,
+    alternateScreen: boolean
+  ) => void;
+  onFlushBuffer?: (deviceId: string, paneId: string, buffer: Uint8Array[]) => void;
   onOutput?: (deviceId: string, paneId: string, data: Uint8Array) => void;
   onSelectFailed?: (deviceId: string) => void;
 }
@@ -100,9 +106,9 @@ export interface SelectCallbacks {
 export class SelectStateMachine {
   private transactions = new Map<string, SelectTransaction>();
   private outputGates = new Map<string, OutputGate>();
-  private deferredResets = new Set<string>();
+  private deferredResets = new Map<string, string>();
   private deferredHistories = new Map<string, DeferredHistory>();
-  private deferredFlushes = new Map<string, Uint8Array[]>();
+  private deferredFlushes = new Map<string, { paneId: string; buffer: Uint8Array[] }>();
   private deferredOutputs = new Map<string, Array<{ paneId: string; data: Uint8Array }>>();
   private callbacks: SelectCallbacks;
 
@@ -122,7 +128,7 @@ export class SelectStateMachine {
     for (const deviceId of this.transactions.keys()) {
       this.replayDeferred(deviceId);
     }
-    for (const deviceId of this.deferredResets) {
+    for (const deviceId of this.deferredResets.keys()) {
       this.replayDeferred(deviceId);
     }
     for (const deviceId of this.deferredHistories.keys()) {
@@ -233,9 +239,9 @@ export class SelectStateMachine {
     transaction.state = 'ACKED';
 
     if (this.callbacks.onResetTerminal) {
-      this.callbacks.onResetTerminal(deviceId);
+      this.callbacks.onResetTerminal(deviceId, transaction.paneId);
     } else {
-      this.deferredResets.add(deviceId);
+      this.deferredResets.set(deviceId, transaction.paneId);
     }
 
     // ACK 后进入等待 LIVE_RESUME。history 可选且不会阻塞 live。
@@ -264,9 +270,10 @@ export class SelectStateMachine {
     transaction.state = 'HISTORY_APPLIED';
 
     if (this.callbacks.onApplyHistory) {
-      this.callbacks.onApplyHistory(deviceId, data, event.alternateScreen);
+      this.callbacks.onApplyHistory(deviceId, transaction.paneId, data, event.alternateScreen);
     } else {
       this.deferredHistories.set(deviceId, {
+        paneId: transaction.paneId,
         data,
         alternateScreen: event.alternateScreen,
       });
@@ -302,14 +309,15 @@ export class SelectStateMachine {
 
     // 停止输出门控并 flush
     const buffered = this.stopOutputBuffering(deviceId);
+    const transactionPaneId = transaction.paneId;
 
     // 完成事务
     this.completeTransaction(deviceId);
 
     if (this.callbacks.onFlushBuffer) {
-      this.callbacks.onFlushBuffer(deviceId, buffered);
+      this.callbacks.onFlushBuffer(deviceId, transactionPaneId, buffered);
     } else if (buffered.length > 0) {
-      this.deferredFlushes.set(deviceId, buffered);
+      this.deferredFlushes.set(deviceId, { paneId: transactionPaneId, buffer: buffered });
     }
 
     this.replayDeferred(deviceId);
@@ -319,8 +327,9 @@ export class SelectStateMachine {
     const { deviceId, paneId, data } = event;
     const transaction = this.transactions.get(deviceId);
 
-    // 检查 pane 是否匹配
+    // 非事务 pane 的输出（分屏兄弟 pane）直接路由，不参与切换门控
     if (transaction && transaction.paneId !== paneId) {
+      this.emitOutput(deviceId, paneId, data);
       return;
     }
 
@@ -330,6 +339,10 @@ export class SelectStateMachine {
       return;
     }
 
+    this.emitOutput(deviceId, paneId, data);
+  }
+
+  private emitOutput(deviceId: string, paneId: string, data: Uint8Array): void {
     if (this.callbacks.onOutput) {
       this.callbacks.onOutput(deviceId, paneId, data);
       return;
@@ -432,20 +445,21 @@ export class SelectStateMachine {
   }
 
   private replayDeferred(deviceId: string): void {
-    if (this.deferredResets.has(deviceId)) {
+    const resetPaneId = this.deferredResets.get(deviceId);
+    if (resetPaneId !== undefined && this.callbacks.onResetTerminal) {
       this.deferredResets.delete(deviceId);
-      this.callbacks.onResetTerminal?.(deviceId);
+      this.callbacks.onResetTerminal(deviceId, resetPaneId);
     }
 
     const history = this.deferredHistories.get(deviceId);
     if (history !== undefined && this.callbacks.onApplyHistory) {
-      this.callbacks.onApplyHistory(deviceId, history.data, history.alternateScreen);
+      this.callbacks.onApplyHistory(deviceId, history.paneId, history.data, history.alternateScreen);
       this.deferredHistories.delete(deviceId);
     }
 
     const flush = this.deferredFlushes.get(deviceId);
     if (flush && this.callbacks.onFlushBuffer) {
-      this.callbacks.onFlushBuffer(deviceId, flush);
+      this.callbacks.onFlushBuffer(deviceId, flush.paneId, flush.buffer);
       this.deferredFlushes.delete(deviceId);
     }
 
