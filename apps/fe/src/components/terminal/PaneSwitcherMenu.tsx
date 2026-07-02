@@ -1,5 +1,5 @@
 // 移动端 pane 切换按钮：当前 window 多 pane 时出现在标题栏 PageActions，
-// 点击弹出 pane 列表（index / title / 进程 / cwd + active 圆点），点击项切换 pane。
+// 点击弹出 pane 列表（与侧栏 pane 行同款两行排版：标题 + 进程@路径），点击项切换 pane。
 
 import {
   DropdownMenu,
@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { TmuxPane, TmuxWindow } from '@tmex/shared';
+import type { TmuxWindow } from '@tmex/shared';
 import { Columns2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -15,22 +15,6 @@ export interface PaneSwitcherMenuProps {
   window: TmuxWindow;
   currentPaneId: string;
   onSelectPane: (paneId: string) => void;
-}
-
-function paneLabel(pane: TmuxPane): string {
-  const name = pane.customName?.trim() || pane.title?.trim();
-  const command = pane.currentCommand?.trim();
-  if (name && name !== command) {
-    return command ? `${name} · ${command}` : name;
-  }
-  return command || name || 'Pane';
-}
-
-function cwdBasename(pane: TmuxPane): string | null {
-  const path = pane.currentPath?.trim();
-  if (!path) return null;
-  const segments = path.split('/').filter(Boolean);
-  return segments.at(-1) ?? path;
 }
 
 export function PaneSwitcherMenu({ window, currentPaneId, onSelectPane }: PaneSwitcherMenuProps) {
@@ -52,19 +36,22 @@ export function PaneSwitcherMenu({ window, currentPaneId, onSelectPane }: PaneSw
       <DropdownMenuContent
         align="end"
         backdrop
-        className="min-w-52"
+        className="min-w-56 max-w-[80vw]"
         data-testid="pane-switcher-menu"
       >
         {window.panes.map((pane) => {
           const isCurrent = pane.id === currentPaneId;
-          const cwd = cwdBasename(pane);
           return (
             <DropdownMenuItem
               key={pane.id}
               data-testid="pane-switcher-item"
               data-pane-id={pane.id}
-              className={`[@media(any-pointer:coarse)]:py-2.5 ${
-                isCurrent ? 'bg-primary/10 text-primary' : ''
+              className={`py-2 [@media(any-pointer:coarse)]:py-2.5 ${
+                isCurrent
+                  ? 'bg-primary/10 text-primary'
+                  : pane.active
+                    ? 'bg-accent text-accent-foreground'
+                    : ''
               }`}
               onClick={() => {
                 if (!isCurrent) {
@@ -72,12 +59,19 @@ export function PaneSwitcherMenu({ window, currentPaneId, onSelectPane }: PaneSw
                 }
               }}
             >
-              <span className="min-w-0 flex-1 truncate">{paneLabel(pane)}</span>
-              {cwd && (
-                <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">
-                  {cwd}
+              {/* 与侧栏 pane 行一致的两行排版 */}
+              <span className="min-w-0 flex-1">
+                <span className="font-mono text-[11px] leading-tight font-medium line-clamp-2 [overflow-wrap:break-word]">
+                  {pane.customName || pane.title || t('window.pane')}
                 </span>
-              )}
+                {pane.currentCommand && (
+                  <span className="font-mono text-[10.5px] leading-tight text-muted-foreground line-clamp-1 break-all">
+                    {pane.currentPath
+                      ? `${pane.currentCommand}@${pane.currentPath}`
+                      : pane.currentCommand}
+                  </span>
+                )}
+              </span>
               {isCurrent && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
             </DropdownMenuItem>
           );
