@@ -792,7 +792,9 @@
       "splitRight": "Split right",
       "splitDown": "Split down",
       "paneCount": "{{count}} panes",
-      "pane": "Pane"
+      "pane": "Pane",
+      "moveToWindow": "Move into this window",
+      "breakToWindow": "Break into new window"
     },
     "watch": {
       "title": "Watch rules",

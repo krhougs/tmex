@@ -798,7 +798,9 @@ export const I18N_RESOURCES = {
       "splitRight": "Split right",
       "splitDown": "Split down",
       "paneCount": "{{count}} panes",
-      "pane": "Pane"
+      "pane": "Pane",
+      "moveToWindow": "Move into this window",
+      "breakToWindow": "Break into new window"
     },
     "watch": {
       "title": "Watch rules",
@@ -1793,7 +1795,9 @@ export const I18N_RESOURCES = {
       "splitRight": "向右分屏",
       "splitDown": "向下分屏",
       "paneCount": "{{count}} 个 pane",
-      "pane": "Pane"
+      "pane": "Pane",
+      "moveToWindow": "移入此窗口",
+      "breakToWindow": "拆为独立窗口"
     },
     "watch": {
       "title": "监控规则",
@@ -2788,7 +2792,9 @@ export const I18N_RESOURCES = {
       "splitRight": "右に分割",
       "splitDown": "下に分割",
       "paneCount": "{{count}} ペイン",
-      "pane": "ペイン"
+      "pane": "ペイン",
+      "moveToWindow": "このウィンドウへ移動",
+      "breakToWindow": "新しいウィンドウに分離"
     },
     "watch": {
       "title": "監視ルール",

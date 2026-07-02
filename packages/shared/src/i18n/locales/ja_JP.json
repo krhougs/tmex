@@ -792,7 +792,9 @@
       "splitRight": "右に分割",
       "splitDown": "下に分割",
       "paneCount": "{{count}} ペイン",
-      "pane": "ペイン"
+      "pane": "ペイン",
+      "moveToWindow": "このウィンドウへ移動",
+      "breakToWindow": "新しいウィンドウに分離"
     },
     "watch": {
       "title": "監視ルール",

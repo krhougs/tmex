@@ -51,6 +51,7 @@ export {
   buildTmuxFocusPane,
   buildTmuxRenamePane,
   buildTmuxMovePane,
+  buildTmuxBreakPane,
   type MovePanePosition,
   buildTermInput,
   buildTermPaste,

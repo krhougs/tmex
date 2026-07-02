@@ -321,6 +321,46 @@ export class SshExternalTmuxConnection {
     });
   }
 
+
+  breakPane(paneId: string): void {
+    if (!this.connected) {
+      return;
+    }
+
+    void this.breakPaneInternal(paneId).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
+  // 把 pane 拆出为独立窗口。必须显式 -t 回本 session：无 attached client 时
+  // break-pane 的默认目标是"最近使用的 session"，会把 pane 丢进用户的其他 session。
+  // -P 回传新窗口信息并发 pane-active，驱动前端跟随导航（同 splitPane）
+  private async breakPaneInternal(paneId: string): Promise<void> {
+    const result = await this.runTmux(
+      [
+        'break-pane',
+        '-s',
+        paneId,
+        '-t',
+        `${this.sessionName}:`,
+        '-P',
+        '-F',
+        `#{window_id}${SNAPSHOT_FIELD_SEPARATOR}#{pane_id}`,
+      ],
+      true
+    );
+    const [windowId, newPaneId] = result.stdout.trim().split(SNAPSHOT_FIELD_SEPARATOR);
+    if (isTmuxWindowId(windowId) && isTmuxPaneId(newPaneId)) {
+      this.activeWindowId = windowId;
+      this.activePaneId = newPaneId;
+      this.callbacks.onEvent({
+        type: 'pane-active',
+        data: { windowId, paneId: newPaneId },
+      });
+    }
+    await this.requestSnapshotInternal();
+  }
+
   async requestPaneHistory(paneId: string): Promise<void> {
     if (!this.connected) {
       return;

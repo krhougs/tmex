@@ -792,7 +792,9 @@
       "splitRight": "向右分屏",
       "splitDown": "向下分屏",
       "paneCount": "{{count}} 个 pane",
-      "pane": "Pane"
+      "pane": "Pane",
+      "moveToWindow": "移入此窗口",
+      "breakToWindow": "拆为独立窗口"
     },
     "watch": {
       "title": "监控规则",

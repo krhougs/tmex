@@ -14,6 +14,7 @@ import { useTmuxStore } from '@/stores/tmux';
 import type { TmuxPane, TmuxWindow } from '@tmex/shared';
 import { parseWindowLayout } from '@tmex/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Terminal } from './Terminal';
 import {
   type DropPosition,
@@ -44,19 +45,34 @@ interface DragState {
   deltaPx: number;
 }
 
+interface DragRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+type PaneDragTarget =
+  | { type: 'pane'; paneId: string; position: DropPosition }
+  // 拖到侧栏其他窗口行：移入该窗口
+  | { type: 'window'; windowId: string; rect: DragRect }
+  // 拖到侧栏其余区域：拆为独立窗口
+  | { type: 'break'; rect: DragRect };
+
 interface PaneDragState {
   srcPaneId: string;
   /** 超过拖拽阈值才算真正开始（避免与点击聚焦冲突） */
   active: boolean;
   pointerX: number;
   pointerY: number;
-  target: { paneId: string; position: DropPosition } | null;
+  target: PaneDragTarget | null;
 }
 
 const WINDOW_RESIZE_DEBOUNCE_MS = 150;
 const CELL_SIZE_RETRY_MS = 200;
 const CELL_SIZE_MAX_RETRIES = 15;
-const PANE_TITLE_BAR_PX = 24;
+// 标题栏区域总占位：上留白 6px + 浮起标题栏 24px + 下方视觉空间 8px
+const PANE_HEADER_PX = 38;
 const PANE_DRAG_THRESHOLD_PX = 6;
 
 function paneDisplayName(pane: TmuxPane | undefined): string {
@@ -93,10 +109,13 @@ export function SplitTerminalArea({
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [paneDrag, setPaneDrag] = useState<PaneDragState | null>(null);
 
+  const { t } = useTranslation();
   const subscribePanes = useTmuxStore((state) => state.subscribePanes);
   const fetchPaneHistory = useTmuxStore((state) => state.fetchPaneHistory);
   const resizePaneInWindow = useTmuxStore((state) => state.resizePaneInWindow);
   const movePane = useTmuxStore((state) => state.movePane);
+  const breakPane = useTmuxStore((state) => state.breakPane);
+  const closePane = useTmuxStore((state) => state.closePane);
 
   const paneInfoById = useMemo(() => {
     const map = new Map<string, TmuxPane>();
@@ -186,7 +205,7 @@ export function SplitTerminalArea({
     if (rect.width < 1 || rect.height < 1) return false;
     const cell = getFocusedCellSize();
     if (!cell) return false;
-    const usableHeight = Math.max(0, rect.height - titleBarStackDepth * PANE_TITLE_BAR_PX);
+    const usableHeight = Math.max(0, rect.height - titleBarStackDepth * PANE_HEADER_PX);
     const cols = Math.max(2, Math.floor(rect.width / cell.width));
     const rows = Math.max(2, Math.floor(usableHeight / cell.height));
     onWindowResize(cols, rows);
@@ -310,7 +329,7 @@ export function SplitTerminalArea({
       handle.setPointerCapture(event.pointerId);
       let activated = false;
 
-      const hitTest = (
+      const hitTestPanes = (
         clientX: number,
         clientY: number
       ): { paneId: string; position: DropPosition } | null => {
@@ -333,17 +352,53 @@ export function SplitTerminalArea({
         return null;
       };
 
+      const within = (clientX: number, clientY: number, r: DOMRect) =>
+        clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+
+      // 侧栏落点：窗口行 = 移入该窗口；侧栏其余区域 = 拆为独立窗口
+      const hitTestSidebar = (clientX: number, clientY: number): PaneDragTarget | null => {
+        for (const row of Array.from(
+          document.querySelectorAll('[data-testid^="window-item-"]')
+        )) {
+          const r = row.getBoundingClientRect();
+          if (r.width < 1 || !within(clientX, clientY, r)) continue;
+          const windowId = (row.getAttribute('data-testid') ?? '').replace('window-item-', '');
+          if (!windowId || windowId === tmuxWindow.id) return null;
+          return {
+            type: 'window',
+            windowId,
+            rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+          };
+        }
+        for (const sidebar of Array.from(document.querySelectorAll('[data-slot="sidebar"]'))) {
+          const r = sidebar.getBoundingClientRect();
+          if (r.width < 1 || !within(clientX, clientY, r)) continue;
+          return {
+            type: 'break',
+            rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+          };
+        }
+        return null;
+      };
+
+      const resolveTarget = (clientX: number, clientY: number): PaneDragTarget | null => {
+        const paneHit = hitTestPanes(clientX, clientY);
+        if (paneHit) {
+          return paneHit.paneId === srcPaneId ? null : { type: 'pane', ...paneHit };
+        }
+        return hitTestSidebar(clientX, clientY);
+      };
+
       const onMove = (moveEvent: PointerEvent) => {
         const distance = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
         if (!activated && distance < PANE_DRAG_THRESHOLD_PX) return;
         activated = true;
-        const hit = hitTest(moveEvent.clientX, moveEvent.clientY);
         setPaneDrag({
           srcPaneId,
           active: true,
           pointerX: moveEvent.clientX,
           pointerY: moveEvent.clientY,
-          target: hit && hit.paneId !== srcPaneId ? hit : null,
+          target: resolveTarget(moveEvent.clientX, moveEvent.clientY),
         });
       };
 
@@ -353,10 +408,23 @@ export function SplitTerminalArea({
         handle.removeEventListener('pointercancel', onCancel);
         setPaneDrag(null);
         if (!commit || !activated) return;
-        const hit = hitTest(upEvent.clientX, upEvent.clientY);
-        if (hit && hit.paneId !== srcPaneId) {
-          movePane(deviceId, srcPaneId, hit.paneId, hit.position);
+        const target = resolveTarget(upEvent.clientX, upEvent.clientY);
+        if (!target) return;
+        if (target.type === 'pane') {
+          movePane(deviceId, srcPaneId, target.paneId, target.position);
+          return;
         }
+        if (target.type === 'window') {
+          // 移入目标窗口：挂到其 active pane 右侧（tmux move-pane 支持跨窗口目标）
+          const windows = useTmuxStore.getState().snapshots[deviceId]?.session?.windows;
+          const dstWindow = windows?.find((w) => w.id === target.windowId);
+          const dstPane = dstWindow?.panes.find((p) => p.active) ?? dstWindow?.panes[0];
+          if (dstPane) {
+            movePane(deviceId, srcPaneId, dstPane.id, 'right');
+          }
+          return;
+        }
+        breakPane(deviceId, srcPaneId);
       };
 
       const onUp = (upEvent: PointerEvent) => finish(upEvent, true);
@@ -366,7 +434,7 @@ export function SplitTerminalArea({
       handle.addEventListener('pointerup', onUp);
       handle.addEventListener('pointercancel', onCancel);
     },
-    [deviceId, geometry, movePane, rootCols, rootRows]
+    [deviceId, geometry, movePane, breakPane, rootCols, rootRows, tmuxWindow.id]
   );
 
   const bindTerminalRef = useCallback(
@@ -406,13 +474,15 @@ export function SplitTerminalArea({
         const meta = paneMetaText(info);
         const isDragSource = paneDrag?.active && paneDrag.srcPaneId === pane.paneId;
         const dropPreview =
-          paneDrag?.active && paneDrag.target?.paneId === pane.paneId
+          paneDrag?.active &&
+          paneDrag.target?.type === 'pane' &&
+          paneDrag.target.paneId === pane.paneId
             ? paneDrag.target.position
             : null;
         return (
           <div
             key={pane.paneId}
-            className={`absolute flex flex-col overflow-hidden rounded-lg ${isDragSource ? 'opacity-60' : ''}`}
+            className={`absolute flex flex-col ${isDragSource ? 'opacity-60' : ''}`}
             data-testid="split-pane"
             data-pane-id={pane.paneId}
             data-focused={isFocused || undefined}
@@ -428,35 +498,48 @@ export function SplitTerminalArea({
               }
             }}
           >
-            {/* pane 标题栏：基本信息 + 拖拽重排把手；active 以柔和圆点 + 文字亮度区分 */}
-            <div
-              data-testid="split-pane-titlebar"
-              className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1.5 border-b border-foreground/10 bg-foreground/[0.05] px-2.5 active:cursor-grabbing"
-              style={{ height: PANE_TITLE_BAR_PX }}
-              onPointerDown={(event) => handleTitleBarPointerDown(pane.paneId, event)}
-            >
-              {isFocused && (
-                <span
-                  data-testid="split-pane-active-indicator"
-                  className="h-1 w-1 shrink-0 rounded-full bg-primary/60"
-                />
-              )}
-              <span
-                className={`shrink-0 truncate font-mono text-[10.5px] leading-none ${
-                  isFocused ? 'text-foreground/90' : 'text-foreground/55'
+            {/* 浮起式标题栏：四角圆角、无边框无阴影的独立矩形，下方留 8px 视觉空间；
+                active 以背景透明度区分 */}
+            <div className="shrink-0 px-1.5 pt-1.5 pb-2" style={{ height: PANE_HEADER_PX }}>
+              <div
+                data-testid="split-pane-titlebar"
+                data-active={isFocused || undefined}
+                className={`flex h-6 cursor-grab touch-none select-none items-center gap-1.5 rounded-md px-2.5 transition-colors active:cursor-grabbing ${
+                  isFocused ? 'bg-foreground/10' : 'bg-foreground/[0.04]'
                 }`}
+                onPointerDown={(event) => handleTitleBarPointerDown(pane.paneId, event)}
               >
-                {paneDisplayName(info)}
-              </span>
-              {meta && (
                 <span
-                  className={`min-w-0 flex-1 truncate font-mono text-[10px] leading-none ${
-                    isFocused ? 'text-muted-foreground' : 'text-muted-foreground/60'
+                  className={`shrink-0 truncate font-mono text-[10.5px] leading-none ${
+                    isFocused ? 'text-foreground/90' : 'text-foreground/50'
                   }`}
                 >
-                  {meta}
+                  {paneDisplayName(info)}
                 </span>
-              )}
+                {meta && (
+                  <span
+                    className={`min-w-0 flex-1 truncate font-mono text-[10px] leading-none ${
+                      isFocused ? 'text-muted-foreground' : 'text-muted-foreground/60'
+                    }`}
+                  >
+                    {meta}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  data-testid={`split-pane-close-${pane.paneId}`}
+                  aria-label={t('window.closePane')}
+                  title={t('window.closePane')}
+                  className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:bg-foreground/10 hover:text-foreground"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closePane(deviceId, pane.paneId);
+                  }}
+                >
+                  <span className="text-xs leading-none">×</span>
+                </button>
+              </div>
             </div>
             <div className="relative min-h-0 flex-1">
               <Terminal
@@ -486,13 +569,34 @@ export function SplitTerminalArea({
         );
       })}
 
-      {/* 拖拽中的浮动标签：跟随指针提示正在移动的 pane */}
+      {/* 侧栏落点高亮：移入其他窗口 / 拆为独立窗口 */}
+      {paneDrag?.active && paneDrag.target && paneDrag.target.type !== 'pane' && (
+        <div
+          data-testid="split-pane-sidebar-drop"
+          data-drop-type={paneDrag.target.type}
+          className="pointer-events-none fixed z-40 rounded-lg bg-primary/15 ring-1 ring-inset ring-primary/50"
+          style={{
+            left: paneDrag.target.rect.left,
+            top: paneDrag.target.rect.top,
+            width: paneDrag.target.rect.width,
+            height: paneDrag.target.rect.height,
+          }}
+        />
+      )}
+
+      {/* 拖拽中的浮动标签：跟随指针提示正在移动的 pane 与动作 */}
       {paneDrag?.active && (
         <div
           className="pointer-events-none fixed z-50 rounded border border-primary/40 bg-popover/95 px-2 py-1 font-mono text-[10.5px] text-popover-foreground shadow-md"
           style={{ left: paneDrag.pointerX + 12, top: paneDrag.pointerY + 12 }}
         >
-          {paneDisplayName(paneInfoById.get(paneDrag.srcPaneId))}
+          <div>{paneDisplayName(paneInfoById.get(paneDrag.srcPaneId))}</div>
+          {paneDrag.target?.type === 'window' && (
+            <div className="text-[9.5px] text-muted-foreground">{t('window.moveToWindow')}</div>
+          )}
+          {paneDrag.target?.type === 'break' && (
+            <div className="text-[9.5px] text-muted-foreground">{t('window.breakToWindow')}</div>
+          )}
         </div>
       )}
 
@@ -522,7 +626,7 @@ export function SplitTerminalArea({
               onPointerDown={(event) => handleGutterPointerDown(index, gutter, event)}
             >
               <div
-                className={`absolute bg-foreground/20 transition-colors hover:bg-primary/70 ${
+                className={`absolute bg-foreground/[0.08] transition-colors hover:bg-primary/50 ${
                   isVertical
                     ? 'inset-y-0 left-1/2 w-px -translate-x-1/2'
                     : 'inset-x-0 top-1/2 h-px -translate-y-1/2'

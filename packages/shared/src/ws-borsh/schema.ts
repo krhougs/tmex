@@ -198,6 +198,12 @@ export const TmuxMovePaneSchema = b.struct({
   position: b.u8(),
 });
 
+// 把 pane 拆出为独立窗口（tmux break-pane，焦点跟随新窗口）
+export const TmuxBreakPaneSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+});
+
 // ========== 终端数据 ==========
 
 export const TermInputSchema = b.struct({

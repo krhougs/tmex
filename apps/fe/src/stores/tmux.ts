@@ -10,6 +10,7 @@ import {
   buildTermResize,
   buildTermSyncSize,
   buildTmuxApplyStackedLayout,
+  buildTmuxBreakPane,
   buildTmuxClosePane,
   buildTmuxCloseWindow,
   buildTmuxCreateWindow,
@@ -114,6 +115,7 @@ interface TmuxState {
     dstPaneId: string,
     position: 'left' | 'right' | 'top' | 'bottom'
   ) => void;
+  breakPane: (deviceId: string, paneId: string) => void;
   resizePaneInWindow: (
     deviceId: string,
     paneId: string,
@@ -742,6 +744,12 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   movePane(deviceId, srcPaneId, dstPaneId, position) {
     if (!deviceId || !srcPaneId || !dstPaneId || srcPaneId === dstPaneId) return;
     const msg = buildTmuxMovePane(deviceId, srcPaneId, dstPaneId, position);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  breakPane(deviceId, paneId) {
+    if (!deviceId || !paneId) return;
+    const msg = buildTmuxBreakPane(deviceId, paneId);
     getBorshClient().send(msg.kind, msg.payload);
   },
 

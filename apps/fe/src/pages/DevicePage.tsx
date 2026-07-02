@@ -441,6 +441,18 @@ export default function DevicePage() {
     // Check if current pane exists in the window
     const currentPane = targetWindow.panes.find((p) => p.id === resolvedPaneId);
     if (!currentPane) {
+      // pane 不在本窗口时先查它是否被 move/break 到了其他窗口——是则跟随过去
+      // （否则这里抢先导航回本窗口会与 pane-active 事件竞争，把 tmux 焦点拉回来）
+      const relocatedWindow = windows.find((w) =>
+        w.panes.some((p) => p.id === resolvedPaneId)
+      );
+      if (relocatedWindow) {
+        navigate(
+          `/devices/${deviceId}/windows/${relocatedWindow.id}/panes/${encodePaneIdForUrl(resolvedPaneId)}`,
+          { replace: true }
+        );
+        return;
+      }
       // Pane was closed, navigate to active pane in same window
       const activePane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
       if (activePane) {

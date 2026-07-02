@@ -45,11 +45,14 @@ test('desktop: multi-pane window renders split view with focus indicator and dra
   try {
     await page.goto(`/devices/${device.id}`);
 
-    // 打开即分屏：两 pane、一条垂直 gutter、一个焦点角标
+    // 打开即分屏：两 pane、一条垂直 gutter、恰好一个 active 标题栏（背景透明度区分焦点）
     await expect(page.getByTestId('split-terminal-area')).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId('split-pane')).toHaveCount(2);
     await expect(page.getByTestId('split-gutter')).toHaveCount(1);
-    await expect(page.getByTestId('split-pane-active-indicator')).toHaveCount(1);
+    await expect(page.getByTestId('split-pane-titlebar')).toHaveCount(2);
+    await expect(
+      page.locator('[data-testid="split-pane-titlebar"][data-active]')
+    ).toHaveCount(1);
 
     // 点击非焦点 pane：角标切换 + tmux active 同步
     const focusedBefore = await page

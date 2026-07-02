@@ -310,6 +310,17 @@ const MOVE_PANE_POSITION_CODE: Record<MovePanePosition, number> = {
   bottom: 4,
 };
 
+export function buildTmuxBreakPane(
+  deviceId: string,
+  paneId: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxBreakPaneSchema, {
+    deviceId,
+    paneId,
+  });
+  return { kind: wsBorsh.KIND_TMUX_BREAK_PANE, payload };
+}
+
 export function buildTmuxMovePane(
   deviceId: string,
   srcPaneId: string,

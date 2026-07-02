@@ -440,6 +440,12 @@ export class WebSocketServer {
         return;
       }
 
+      case wsBorsh.KIND_TMUX_BREAK_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxBreakPaneSchema, payload);
+        this.handleBreakPane(decoded.deviceId, decoded.paneId);
+        return;
+      }
+
       case wsBorsh.KIND_TERM_INPUT: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TermInputSchema, payload);
         if (decoded.isComposing) return;
@@ -828,6 +834,12 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry?.lastSnapshot) return;
     this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
+  private handleBreakPane(deviceId: string, paneId: string): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry || !isTmuxPaneId(paneId)) return;
+    entry.runtime.breakPane(paneId);
   }
 
   private handleMovePane(

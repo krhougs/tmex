@@ -762,6 +762,8 @@ export type TranslationKey =
   | 'window.splitDown'
   | 'window.paneCount'
   | 'window.pane'
+  | 'window.moveToWindow'
+  | 'window.breakToWindow'
   | 'watch'
   | 'watch.title'
   | 'watch.dialogDesc'
