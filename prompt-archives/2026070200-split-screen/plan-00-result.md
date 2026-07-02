@@ -49,6 +49,14 @@
 3. 与 pane 数无关、two-pane 只是脚手架的测试改 `createSinglePaneSession`：`terminal-mouse-recovery` 的 3 个 vim/opencode 用例、`ws-borsh-resize` 的 focus-restore 用例、`mobile-keyboard-avoidance`（移动端多 pane 的 resize 现在改道 stacked-layout 消息）、selection toolbar 用例。
 4. **测试假绿修复**：`terminal-selection-canvas` 的 COPY_SHORTCUT 原按 `process.platform` 选 Meta+C，但 e2e Desktop Chrome 的 UA 恒为 Windows（`isMacPlatform()`=false 要求 Ctrl+C）——此前靠 two-pane resize 抖动清选区碰巧通过；单 pane 化后暴露，已改为固定 `Control+C`（与浏览器 UA 一致）。产品代码在真实浏览器无问题。
 
+## 第二轮迭代（用户修改意见，2026-07-02）
+
+- **pane customName 链路**：`TmuxPane.customName`（wire optional）+ gateway `paneCustomNames` 内存 overlay（不写 tmux pane title，避免被应用 OSC 覆盖）+ `KIND_TMUX_RENAME_PANE`；重命名对话框复用窗口的（`RenameCandidate` 判别联合）。
+- **move-pane 原语**：`KIND_TMUX_MOVE_PANE` + `movePane(src, dst, left|right|top|bottom)`（tmux `move-pane -h/-v [-b]`，local/ssh 双实现）。
+- **侧栏**：多 pane 窗口行精简为「N 个 pane」（无标题/进程/窗口菜单），pane 行两行完整信息（customName||title + 进程@路径）；单 pane 窗口不变；pane 菜单与单 pane 窗口菜单集合一致（重命名/Agent 会话/newInCwd/分屏×2/Watch/关闭）。
+- **全局去编号**：侧栏窗口 Badge 与 pane index、顶栏 `buildTerminalLabel` 的 `w/p:` 前缀、移动端 PaneSwitcherMenu 的 index 全部移除；标题优先展示 pane customName。
+- **分屏 pane 标题栏 + 拖拽重排**：每 pane 24px 标题栏（角标+名称+进程@路径）；整窗 rows 换算按 `maxVerticalStackDepth` 扣除标题栏堆叠总高；拖动标题栏到目标 pane 四分区（`resolveDropPosition` 距最近边判定）重排，拖拽中半区高亮预览 + 浮动标签；实测左右布局拖成上下（layout `{...}`→`[...]`）。
+
 ## 遗留与后续可做
 
 - 非焦点 pane 的渲染降帧（多实例功耗优化）——本期未做，有 TerminalPreview 先例可参考。
