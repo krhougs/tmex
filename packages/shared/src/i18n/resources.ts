@@ -796,7 +796,9 @@ export const I18N_RESOURCES = {
       "renameReset": "Use automatic name",
       "switchPane": "Switch pane",
       "splitRight": "Split right",
-      "splitDown": "Split down"
+      "splitDown": "Split down",
+      "paneCount": "{{count}} panes",
+      "pane": "Pane"
     },
     "watch": {
       "title": "Watch rules",
@@ -1789,7 +1791,9 @@ export const I18N_RESOURCES = {
       "renameReset": "恢复自动名称",
       "switchPane": "切换 Pane",
       "splitRight": "向右分屏",
-      "splitDown": "向下分屏"
+      "splitDown": "向下分屏",
+      "paneCount": "{{count}} 个 pane",
+      "pane": "Pane"
     },
     "watch": {
       "title": "监控规则",
@@ -2782,7 +2786,9 @@ export const I18N_RESOURCES = {
       "renameReset": "自動名に戻す",
       "switchPane": "ペイン切替",
       "splitRight": "右に分割",
-      "splitDown": "下に分割"
+      "splitDown": "下に分割",
+      "paneCount": "{{count}} ペイン",
+      "pane": "ペイン"
     },
     "watch": {
       "title": "監視ルール",

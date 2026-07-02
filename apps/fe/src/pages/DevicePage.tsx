@@ -218,8 +218,7 @@ export default function DevicePage() {
     }
     const deviceName = currentDevice?.name ?? deviceId;
     return buildTerminalLabel({
-      paneIdx: selectedPane.index,
-      windowIdx: selectedWindow.index,
+      paneCustomName: selectedPane.customName,
       paneTitle: selectedPane.title,
       windowName: selectedWindow.name,
       windowCustomName: selectedWindow.customName,
@@ -1345,8 +1344,7 @@ export function PageTitle() {
   const title = useMemo(() => {
     if (selectedWindow && selectedPane) {
       return buildTerminalLabel({
-        paneIdx: selectedPane.index,
-        windowIdx: selectedWindow.index,
+        paneCustomName: selectedPane.customName,
         paneTitle: selectedPane.title,
         windowName: selectedWindow.name,
         windowCustomName: selectedWindow.customName,

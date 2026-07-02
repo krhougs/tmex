@@ -3,6 +3,7 @@ import { getSiteNameFallback } from './site';
 interface TerminalLabelInput {
   paneIdx?: number | null;
   windowIdx?: number | null;
+  paneCustomName?: string | null;
   paneTitle?: string | null;
   windowName?: string | null;
   windowCustomName?: string | null;
@@ -14,19 +15,17 @@ function toSafeText(value: string | null | undefined): string {
   return trimmed && trimmed.length > 0 ? trimmed : '?';
 }
 
+// window/pane 编号对用户无意义，标题只呈现名称与设备
 export function buildTerminalLabel({
-  paneIdx,
-  windowIdx,
+  paneCustomName,
   paneTitle,
   windowName,
   windowCustomName,
   deviceName,
 }: TerminalLabelInput): string {
-  const safeWindowIdx = windowIdx ?? '?';
-  const safePaneIdx = paneIdx ?? '?';
-  const safePaneTitle = toSafeText(windowCustomName ?? paneTitle ?? windowName);
+  const safePaneTitle = toSafeText(paneCustomName ?? windowCustomName ?? paneTitle ?? windowName);
   const safeDeviceName = toSafeText(deviceName);
-  return `${safeWindowIdx}/${safePaneIdx}: ${safePaneTitle}@${safeDeviceName}`;
+  return `${safePaneTitle}@${safeDeviceName}`;
 }
 
 interface WindowTitleInput {

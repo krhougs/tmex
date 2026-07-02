@@ -790,7 +790,9 @@
       "renameReset": "自動名に戻す",
       "switchPane": "ペイン切替",
       "splitRight": "右に分割",
-      "splitDown": "下に分割"
+      "splitDown": "下に分割",
+      "paneCount": "{{count}} ペイン",
+      "pane": "ペイン"
     },
     "watch": {
       "title": "監視ルール",

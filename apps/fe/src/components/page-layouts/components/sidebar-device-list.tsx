@@ -11,7 +11,6 @@ import {
   AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -89,11 +88,9 @@ type CloseCandidate =
   | { kind: 'window'; deviceId: string; windowId: string; name: string }
   | { kind: 'pane'; deviceId: string; paneId: string; name: string };
 
-interface RenameCandidate {
-  deviceId: string;
-  windowId: string;
-  hasCustomName: boolean;
-}
+type RenameCandidate =
+  | { kind: 'window'; deviceId: string; windowId: string; hasCustomName: boolean }
+  | { kind: 'pane'; deviceId: string; paneId: string; hasCustomName: boolean };
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
 import { useSiteStore } from '../../../stores/site';
@@ -359,22 +356,46 @@ export function SideBarDeviceList() {
     const target = windows?.find((w) => w.id === windowId);
     if (!target) return;
     setRenameValue(target.customName ?? buildWindowTitleParts(target).title);
-    setRenameCandidate({ deviceId, windowId, hasCustomName: Boolean(target.customName) });
+    setRenameCandidate({
+      kind: 'window',
+      deviceId,
+      windowId,
+      hasCustomName: Boolean(target.customName),
+    });
   }, []);
 
+  const requestRenamePane = useCallback((deviceId: string, paneId: string) => {
+    const windows = useTmuxStore.getState().snapshots[deviceId]?.session?.windows;
+    const target = windows?.flatMap((w) => w.panes).find((p) => p.id === paneId);
+    if (!target) return;
+    setRenameValue(target.customName ?? target.title ?? '');
+    setRenameCandidate({ kind: 'pane', deviceId, paneId, hasCustomName: Boolean(target.customName) });
+  }, []);
+
+  const renamePane = useTmuxStore((state) => state.renamePane);
+
+  const applyRename = useCallback(
+    (name: string) => {
+      if (!renameCandidate) return;
+      if (renameCandidate.kind === 'window') {
+        renameWindow(renameCandidate.deviceId, renameCandidate.windowId, name);
+      } else {
+        renamePane(renameCandidate.deviceId, renameCandidate.paneId, name);
+      }
+      setRenameCandidate(null);
+    },
+    [renameCandidate, renameWindow, renamePane]
+  );
+
   const confirmRename = useCallback(() => {
-    if (!renameCandidate) return;
     const trimmed = renameValue.trim();
     if (!trimmed) return;
-    renameWindow(renameCandidate.deviceId, renameCandidate.windowId, trimmed);
-    setRenameCandidate(null);
-  }, [renameCandidate, renameValue, renameWindow]);
+    applyRename(trimmed);
+  }, [applyRename, renameValue]);
 
   const resetRename = useCallback(() => {
-    if (!renameCandidate) return;
-    renameWindow(renameCandidate.deviceId, renameCandidate.windowId, '');
-    setRenameCandidate(null);
-  }, [renameCandidate, renameWindow]);
+    applyRename('');
+  }, [applyRename]);
 
   const handleCreateWindow = useCallback((deviceId: string) => {
     useTmuxStore.getState().createWindow(deviceId);
@@ -529,6 +550,7 @@ export function SideBarDeviceList() {
               onCloseWindow={requestCloseWindow}
               onClosePane={requestClosePane}
               onRenameWindow={requestRenameWindow}
+              onRenamePane={requestRenamePane}
               onPaneClick={navigateToPane}
               onWindowClick={navigateToWindow}
               onWatchPane={requestWatchPane}
@@ -734,6 +756,7 @@ interface DeviceSectionProps {
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
   onRenameWindow: (deviceId: string, windowId: string) => void;
+  onRenamePane: (deviceId: string, paneId: string) => void;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onWindowClick: (deviceId: string, windowId: string, panes: TmuxPane[]) => void;
   onWatchPane: (deviceId: string, paneId: string) => void;
@@ -757,6 +780,7 @@ function DeviceSection({
   onCloseWindow,
   onClosePane,
   onRenameWindow,
+  onRenamePane,
   onPaneClick,
   onWindowClick,
   onWatchPane,
@@ -892,6 +916,7 @@ function DeviceSection({
                     onCloseWindow={onCloseWindow}
                     onClosePane={onClosePane}
                     onRenameWindow={onRenameWindow}
+                    onRenamePane={onRenamePane}
                     onWatchPane={onWatchPane}
                     sessionsByPane={sessionsByPane}
                     activeSessionId={activeSessionId}
@@ -933,6 +958,7 @@ interface WindowItemProps {
   onCloseWindow: (deviceId: string, windowId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
   onRenameWindow: (deviceId: string, windowId: string) => void;
+  onRenamePane: (deviceId: string, paneId: string) => void;
   onWatchPane: (deviceId: string, paneId: string) => void;
   sessionsByPane: Map<string, AgentSessionDto[]>;
   activeSessionId: string | null;
@@ -952,6 +978,7 @@ function WindowItem({
   onCloseWindow,
   onClosePane,
   onRenameWindow,
+  onRenamePane,
   onWatchPane,
   sessionsByPane,
   activeSessionId,
@@ -1028,28 +1055,29 @@ function WindowItem({
                 : 'hover:bg-accent/50 text-foreground'
           )}
         >
-          <Badge
-            variant={isPaneSelected ? 'default' : 'outline'}
-            className="h-5 text-[10px] px-1.5 shrink-0"
-          >
-            {window.index}
-          </Badge>
-
-          <span className="flex-1 min-w-0">
-            <span className="font-mono text-[11px] leading-tight font-medium line-clamp-2 [overflow-wrap:break-word]">
-              {titleParts.title}
+          {hasMultiplePanes ? (
+            // 多 pane 窗口：窗口行只做分组标识，标题/进程细节由各 pane 行完整呈现
+            <span className="flex-1 min-w-0 font-mono text-[10.5px] leading-tight text-muted-foreground">
+              {t('window.paneCount', { count: window.panes.length })}
             </span>
-            {titleParts.processName && (
-              <span className="font-mono text-[10.5px] leading-tight text-muted-foreground line-clamp-1 break-all">
-                {activePaneCwd
-                  ? `${titleParts.processName}@${activePaneCwd}`
-                  : titleParts.processName}
+          ) : (
+            <span className="flex-1 min-w-0">
+              <span className="font-mono text-[11px] leading-tight font-medium line-clamp-2 [overflow-wrap:break-word]">
+                {titleParts.title}
               </span>
-            )}
-          </span>
+              {titleParts.processName && (
+                <span className="font-mono text-[10.5px] leading-tight text-muted-foreground line-clamp-1 break-all">
+                  {activePaneCwd
+                    ? `${titleParts.processName}@${activePaneCwd}`
+                    : titleParts.processName}
+                </span>
+              )}
+            </span>
+          )}
         </button>
 
-        {/* Window Actions Menu - positioned absolutely */}
+        {/* Window Actions Menu - positioned absolutely；多 pane 窗口的操作全部下放到各 pane 行 */}
+        {!hasMultiplePanes && (
         <DropdownMenu>
           <DropdownMenuTrigger
             data-testid={`window-menu-${window.id}`}
@@ -1112,6 +1140,51 @@ function WindowItem({
                 {t('window.newInCwd')}
               </DropdownMenuItem>
             )}
+            {activePane && (
+              <>
+                <DropdownMenuItem
+                  data-testid={`window-menu-split-right-${window.id}`}
+                  className={cn(
+                    '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                    isMobile && 'py-3 px-2.5 text-base gap-2.5'
+                  )}
+                  onClick={() =>
+                    useTmuxStore
+                      .getState()
+                      .splitPane(deviceId, activePane.id, 'right', activePane.currentPath)
+                  }
+                >
+                  <SquareSplitHorizontal className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+                  {t('window.splitRight')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-testid={`window-menu-split-down-${window.id}`}
+                  className={cn(
+                    '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                    isMobile && 'py-3 px-2.5 text-base gap-2.5'
+                  )}
+                  onClick={() =>
+                    useTmuxStore
+                      .getState()
+                      .splitPane(deviceId, activePane.id, 'down', activePane.currentPath)
+                  }
+                >
+                  <SquareSplitVertical className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+                  {t('window.splitDown')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-testid={`window-menu-watch-${window.id}`}
+                  className={cn(
+                    '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+                    isMobile && 'py-3 px-2.5 text-base gap-2.5'
+                  )}
+                  onClick={() => onWatchPane(deviceId, activePane.id)}
+                >
+                  <Radar className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+                  {t('watch.openMonitor')}
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuItem
               variant="destructive"
               data-testid={`window-menu-close-${window.id}`}
@@ -1126,6 +1199,7 @@ function WindowItem({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </div>
 
       {/* Panes List - Only show if window has multiple panes */}
@@ -1150,7 +1224,9 @@ function WindowItem({
                   isMobile={isMobile}
                   onPaneClick={onPaneClick}
                   onClosePane={onClosePane}
+                  onRenamePane={onRenamePane}
                   onWatchPane={onWatchPane}
+                  onCreateSessionForPane={onCreateSessionForPane}
                   sessions={sessionsByPane.get(`${deviceId}:${pane.id}`)}
                   activeSessionId={activeSessionId}
                   onSelectSession={onSelectSession}
@@ -1187,7 +1263,9 @@ function PaneRow({
   isMobile,
   onPaneClick,
   onClosePane,
+  onRenamePane,
   onWatchPane,
+  onCreateSessionForPane,
   sessions,
   activeSessionId,
   onSelectSession,
@@ -1201,7 +1279,9 @@ function PaneRow({
   isMobile: boolean;
   onPaneClick: (deviceId: string, windowId: string, paneId: string) => void;
   onClosePane: (deviceId: string, windowId: string, paneId: string) => void;
+  onRenamePane: (deviceId: string, paneId: string) => void;
   onWatchPane: (deviceId: string, paneId: string) => void;
+  onCreateSessionForPane: (deviceId: string, windowId: string, pane: TmuxPane) => void;
   sessions: AgentSessionDto[] | undefined;
   activeSessionId: string | null;
   onSelectSession: (session: AgentSessionDto) => void;
@@ -1254,10 +1334,18 @@ function PaneRow({
                 : 'hover:bg-accent/30 text-muted-foreground'
           )}
         >
-          <span className="text-[10px] font-mono opacity-60 w-4">{pane.index}</span>
-
-          <span className="flex-1 text-xs line-clamp-2 break-all">
-            {pane.title || `Pane ${pane.index}`}
+          {/* 多 pane 窗口的窗口行不再展示细节，pane 行呈现完整的标题 + 进程@路径 */}
+          <span className="flex-1 min-w-0">
+            <span className="font-mono text-[11px] leading-tight font-medium line-clamp-2 [overflow-wrap:break-word]">
+              {pane.customName || pane.title || t('window.pane')}
+            </span>
+            {pane.currentCommand && (
+              <span className="font-mono text-[10.5px] leading-tight text-muted-foreground line-clamp-1 break-all">
+                {pane.currentPath
+                  ? `${pane.currentCommand}@${pane.currentPath}`
+                  : pane.currentCommand}
+              </span>
+            )}
           </span>
         </button>
       </div>
@@ -1284,6 +1372,28 @@ function PaneRow({
           backdrop
           className="w-auto min-w-36 [@media(any-pointer:coarse)]:min-w-48"
         >
+          <DropdownMenuItem
+            data-testid={`pane-menu-rename-${pane.id}`}
+            className={cn(
+              '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+              isMobile && 'py-3 px-2.5 text-base gap-2.5'
+            )}
+            onClick={() => onRenamePane(deviceId, pane.id)}
+          >
+            <Pencil className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+            {t('window.rename')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid={`pane-menu-new-session-${pane.id}`}
+            className={cn(
+              '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+              isMobile && 'py-3 px-2.5 text-base gap-2.5'
+            )}
+            onClick={() => onCreateSessionForPane(deviceId, windowId, pane)}
+          >
+            <Plus className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+            {t('agent.session.new')}
+          </DropdownMenuItem>
           {pane.currentPath && (
             <DropdownMenuItem
               className={cn(
@@ -1332,6 +1442,18 @@ function PaneRow({
           >
             <Radar className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
             {t('watch.openMonitor')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            data-testid={`pane-menu-close-${pane.id}`}
+            className={cn(
+              '[@media(any-pointer:coarse)]:py-2.5 [@media(any-pointer:coarse)]:px-2',
+              isMobile && 'py-3 px-2.5 text-base gap-2.5'
+            )}
+            onClick={() => onClosePane(deviceId, windowId, pane.id)}
+          >
+            <X className={cn('h-4 w-4', isMobile && 'h-5 w-5')} />
+            {t('window.closePane')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

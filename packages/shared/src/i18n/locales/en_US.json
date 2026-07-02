@@ -790,7 +790,9 @@
       "renameReset": "Use automatic name",
       "switchPane": "Switch pane",
       "splitRight": "Split right",
-      "splitDown": "Split down"
+      "splitDown": "Split down",
+      "paneCount": "{{count}} panes",
+      "pane": "Pane"
     },
     "watch": {
       "title": "Watch rules",

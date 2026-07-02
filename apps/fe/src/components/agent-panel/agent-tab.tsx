@@ -179,8 +179,7 @@ function resolveBinding(
     if (pane) {
       return {
         label: buildTerminalLabel({
-          paneIdx: pane.index,
-          windowIdx: window.index,
+          paneCustomName: pane.customName,
           paneTitle: pane.title,
           windowName: window.name,
           windowCustomName: window.customName,

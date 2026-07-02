@@ -18,12 +18,12 @@ export interface PaneSwitcherMenuProps {
 }
 
 function paneLabel(pane: TmuxPane): string {
-  const title = pane.title?.trim();
+  const name = pane.customName?.trim() || pane.title?.trim();
   const command = pane.currentCommand?.trim();
-  if (title && title !== command) {
-    return command ? `${title} · ${command}` : title;
+  if (name && name !== command) {
+    return command ? `${name} · ${command}` : name;
   }
-  return command || title || `Pane ${pane.index}`;
+  return command || name || 'Pane';
 }
 
 function cwdBasename(pane: TmuxPane): string | null {
@@ -72,7 +72,6 @@ export function PaneSwitcherMenu({ window, currentPaneId, onSelectPane }: PaneSw
                 }
               }}
             >
-              <span className="w-5 shrink-0 text-xs text-muted-foreground">{pane.index}</span>
               <span className="min-w-0 flex-1 truncate">{paneLabel(pane)}</span>
               {cwd && (
                 <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">

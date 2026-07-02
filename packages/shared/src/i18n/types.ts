@@ -760,6 +760,8 @@ export type TranslationKey =
   | 'window.switchPane'
   | 'window.splitRight'
   | 'window.splitDown'
+  | 'window.paneCount'
+  | 'window.pane'
   | 'watch'
   | 'watch.title'
   | 'watch.dialogDesc'

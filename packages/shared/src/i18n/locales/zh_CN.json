@@ -790,7 +790,9 @@
       "renameReset": "恢复自动名称",
       "switchPane": "切换 Pane",
       "splitRight": "向右分屏",
-      "splitDown": "向下分屏"
+      "splitDown": "向下分屏",
+      "paneCount": "{{count}} 个 pane",
+      "pane": "Pane"
     },
     "watch": {
       "title": "监控规则",
