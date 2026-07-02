@@ -189,6 +189,26 @@ export function maxVerticalStackDepth(node: TmuxLayoutNode): number {
   return max;
 }
 
+// 对称地，最大水平并排 pane 数：每个 pane 左右各有视觉留白，
+// 整窗 cols 换算按最宽的一行扣除留白总宽
+export function maxHorizontalStackDepth(node: TmuxLayoutNode): number {
+  if (node.type === 'leaf') {
+    return 1;
+  }
+  if (node.type === 'row') {
+    let total = 0;
+    for (const child of node.children) {
+      total += maxHorizontalStackDepth(child);
+    }
+    return total;
+  }
+  let max = 1;
+  for (const child of node.children) {
+    max = Math.max(max, maxHorizontalStackDepth(child));
+  }
+  return max;
+}
+
 export type DropPosition = 'left' | 'right' | 'top' | 'bottom';
 
 // 指针在目标 pane 内的相对位置 → 四分区判定（距哪条边最近归哪侧）

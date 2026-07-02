@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseWindowLayout } from '@tmex/shared';
 import {
   computeSplitLayoutGeometry,
+  maxHorizontalStackDepth,
   maxVerticalStackDepth,
   resolveDropPosition,
   resolveGutterDrag,
@@ -118,6 +119,40 @@ describe('maxVerticalStackDepth', () => {
   test('column of row+leaf accumulates', () => {
     expect(
       maxVerticalStackDepth(
+        rootOf('abcd,100x50,0,0[100x24,0,0{49x24,0,0,0,50x24,50,0,1},100x25,0,25,2]')
+      )
+    ).toBe(2);
+  });
+});
+
+describe('maxHorizontalStackDepth', () => {
+  const rootOf = (layout: string) => {
+    const parsed = parseWindowLayout(layout);
+    if (!parsed) throw new Error('bad layout');
+    return parsed.root;
+  };
+
+  test('single pane = 1', () => {
+    expect(maxHorizontalStackDepth(rootOf('ba9d,208x62,0,0,0'))).toBe(1);
+  });
+
+  test('side-by-side row accumulates', () => {
+    expect(maxHorizontalStackDepth(rootOf('7d1d,208x62,0,0{104x62,0,0,0,103x62,105,0,1}'))).toBe(
+      2
+    );
+  });
+
+  test('row with nested column: column takes max of children', () => {
+    expect(
+      maxHorizontalStackDepth(
+        rootOf('5ee7,208x62,0,0{104x62,0,0,0,103x62,105,0[103x31,105,0,1,103x30,105,32,2]}')
+      )
+    ).toBe(2);
+  });
+
+  test('column of row+leaf takes the widest branch', () => {
+    expect(
+      maxHorizontalStackDepth(
         rootOf('abcd,100x50,0,0[100x24,0,0{49x24,0,0,0,50x24,50,0,1},100x25,0,25,2]')
       )
     ).toBe(2);

@@ -20,6 +20,7 @@ import {
   type DropPosition,
   type SplitGutter,
   computeSplitLayoutGeometry,
+  maxHorizontalStackDepth,
   maxVerticalStackDepth,
   resolveDropPosition,
   resolveGutterDrag,
@@ -71,8 +72,12 @@ interface PaneDragState {
 const WINDOW_RESIZE_DEBOUNCE_MS = 150;
 const CELL_SIZE_RETRY_MS = 200;
 const CELL_SIZE_MAX_RETRIES = 15;
-// 标题栏区域总占位：上留白 6px + 浮起标题栏 24px + 下方视觉空间 8px
+// 每个 pane 的垂直占位：上留白 6px + 浮起标题栏 24px + 下方视觉空间 8px + 底部留白 8px
+const PANE_V_OVERHEAD_PX = 46;
+// 标题栏区域高度（垂直占位的上半部分）
 const PANE_HEADER_PX = 38;
+// 每个 pane 的水平留白：左右各 6px，让内容与 splitter/边缘之间有视觉空白
+const PANE_H_OVERHEAD_PX = 12;
 const PANE_DRAG_THRESHOLD_PX = 6;
 
 function paneDisplayName(pane: TmuxPane | undefined): string {
@@ -196,6 +201,10 @@ export function SplitTerminalArea({
     () => (layout ? maxVerticalStackDepth(layout.root) : 1),
     [layout]
   );
+  const horizontalStackDepth = useMemo(
+    () => (layout ? maxHorizontalStackDepth(layout.root) : 1),
+    [layout]
+  );
 
   // window 级 resize：容器尺寸 / cell 尺寸 → 整窗 cols/rows（防抖 + cellSize 未就绪重试）
   const reportWindowSize = useCallback(() => {
@@ -205,12 +214,13 @@ export function SplitTerminalArea({
     if (rect.width < 1 || rect.height < 1) return false;
     const cell = getFocusedCellSize();
     if (!cell) return false;
-    const usableHeight = Math.max(0, rect.height - titleBarStackDepth * PANE_HEADER_PX);
-    const cols = Math.max(2, Math.floor(rect.width / cell.width));
+    const usableHeight = Math.max(0, rect.height - titleBarStackDepth * PANE_V_OVERHEAD_PX);
+    const usableWidth = Math.max(0, rect.width - horizontalStackDepth * PANE_H_OVERHEAD_PX);
+    const cols = Math.max(2, Math.floor(usableWidth / cell.width));
     const rows = Math.max(2, Math.floor(usableHeight / cell.height));
     onWindowResize(cols, rows);
     return true;
-  }, [getFocusedCellSize, onWindowResize, titleBarStackDepth]);
+  }, [getFocusedCellSize, onWindowResize, titleBarStackDepth, horizontalStackDepth]);
 
   const reportWindowSizeRef = useRef(reportWindowSize);
   useEffect(() => {
@@ -257,7 +267,7 @@ export function SplitTerminalArea({
       reportWindowSizeRef.current();
     }, WINDOW_RESIZE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [titleBarStackDepth]);
+  }, [titleBarStackDepth, horizontalStackDepth]);
 
   // splitter 拖拽：pointermove 只更新参考线，pointerup 提交 resize-pane 绝对值
   const handleGutterPointerDown = useCallback(
@@ -541,7 +551,7 @@ export function SplitTerminalArea({
                 </button>
               </div>
             </div>
-            <div className="relative min-h-0 flex-1">
+            <div className="relative min-h-0 flex-1 px-1.5 pb-2">
               <Terminal
                 key={`${deviceId}:${pane.paneId}`}
                 ref={bindTerminalRef(pane.paneId)}
@@ -568,6 +578,21 @@ export function SplitTerminalArea({
           </div>
         );
       })}
+
+      {/* 拖拽（splitter / 标题栏）期间的事件隔离层：吞掉滑过终端的鼠标事件，
+          避免触发 canvas 的文本选择等另一套事件体系（拖拽本身经 pointer capture 不受遮挡影响） */}
+      {(dragState !== null || paneDrag?.active) && (
+        <div
+          data-testid="split-drag-shield"
+          className={`absolute inset-0 z-30 ${
+            dragState !== null
+              ? geometry.gutters[dragState.gutterIndex]?.axis === 'x'
+                ? 'cursor-col-resize'
+                : 'cursor-row-resize'
+              : 'cursor-grabbing'
+          }`}
+        />
+      )}
 
       {/* 侧栏落点高亮：移入其他窗口 / 拆为独立窗口 */}
       {paneDrag?.active && paneDrag.target && paneDrag.target.type !== 'pane' && (
