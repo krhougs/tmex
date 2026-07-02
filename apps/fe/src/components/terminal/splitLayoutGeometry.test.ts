@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { parseWindowLayout } from '@tmex/shared';
-import { computeSplitLayoutGeometry, resolveGutterDrag } from './splitLayoutGeometry';
+import {
+  computeSplitLayoutGeometry,
+  maxVerticalStackDepth,
+  resolveDropPosition,
+  resolveGutterDrag,
+} from './splitLayoutGeometry';
 
 const CELL = { width: 10, height: 20 };
 
@@ -84,6 +89,52 @@ describe('computeSplitLayoutGeometry', () => {
     expect(horizontal?.minDeltaCells).toBe(-(24 - 2));
     // before 是 row，最小宽度 = 2+2+1 = 5（信息在 vertical gutter 上）
     expect(vertical?.minDeltaCells).toBe(-(49 - 2));
+  });
+});
+
+describe('maxVerticalStackDepth', () => {
+  const rootOf = (layout: string) => {
+    const parsed = parseWindowLayout(layout);
+    if (!parsed) throw new Error('bad layout');
+    return parsed.root;
+  };
+
+  test('single pane = 1', () => {
+    expect(maxVerticalStackDepth(rootOf('ba9d,208x62,0,0,0'))).toBe(1);
+  });
+
+  test('side-by-side row = 1', () => {
+    expect(maxVerticalStackDepth(rootOf('7d1d,208x62,0,0{104x62,0,0,0,103x62,105,0,1}'))).toBe(1);
+  });
+
+  test('row with nested column takes the deepest branch', () => {
+    expect(
+      maxVerticalStackDepth(
+        rootOf('5ee7,208x62,0,0{104x62,0,0,0,103x62,105,0[103x31,105,0,1,103x30,105,32,2]}')
+      )
+    ).toBe(2);
+  });
+
+  test('column of row+leaf accumulates', () => {
+    expect(
+      maxVerticalStackDepth(
+        rootOf('abcd,100x50,0,0[100x24,0,0{49x24,0,0,0,50x24,50,0,1},100x25,0,25,2]')
+      )
+    ).toBe(2);
+  });
+});
+
+describe('resolveDropPosition', () => {
+  test('nearest edge wins', () => {
+    expect(resolveDropPosition(0.1, 0.5)).toBe('left');
+    expect(resolveDropPosition(0.9, 0.5)).toBe('right');
+    expect(resolveDropPosition(0.5, 0.1)).toBe('top');
+    expect(resolveDropPosition(0.5, 0.9)).toBe('bottom');
+  });
+
+  test('clamps out-of-range input', () => {
+    expect(resolveDropPosition(-0.5, 0.5)).toBe('left');
+    expect(resolveDropPosition(1.5, 0.5)).toBe('right');
   });
 });
 

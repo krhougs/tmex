@@ -169,6 +169,42 @@ export function computeSplitLayoutGeometry(
   return { panes, gutters };
 }
 
+// layout 树的最大垂直堆叠 pane 数：每个 pane 有一条占空间的标题栏，
+// 整窗 rows 换算时需按最深的一列扣除标题栏总高，保证该列也能放下
+export function maxVerticalStackDepth(node: TmuxLayoutNode): number {
+  if (node.type === 'leaf') {
+    return 1;
+  }
+  if (node.type === 'column') {
+    let total = 0;
+    for (const child of node.children) {
+      total += maxVerticalStackDepth(child);
+    }
+    return total;
+  }
+  let max = 1;
+  for (const child of node.children) {
+    max = Math.max(max, maxVerticalStackDepth(child));
+  }
+  return max;
+}
+
+export type DropPosition = 'left' | 'right' | 'top' | 'bottom';
+
+// 指针在目标 pane 内的相对位置 → 四分区判定（距哪条边最近归哪侧）
+export function resolveDropPosition(relativeX: number, relativeY: number): DropPosition {
+  const x = Math.min(1, Math.max(0, relativeX));
+  const y = Math.min(1, Math.max(0, relativeY));
+  const distances: Array<[DropPosition, number]> = [
+    ['left', x],
+    ['right', 1 - x],
+    ['top', y],
+    ['bottom', 1 - y],
+  ];
+  distances.sort((a, b) => a[1] - b[1]);
+  return (distances[0] as [DropPosition, number])[0];
+}
+
 // 拖拽 px 位移 → clamp 后的 cells 位移；无有效移动返回 null
 export function resolveGutterDrag(
   gutter: SplitGutter,

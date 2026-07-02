@@ -2,19 +2,25 @@
 //
 // - 布局真相源是 tmux layout：pane 容器按 layout 树的 cells 比例绝对定位，
 //   每个 pane 挂一个 sizingMode="follow" 的 Terminal 实例并 resize 到精确 cols/rows；
+// - 每个 pane 顶部有标题栏（名称 + 进程@路径），拖动标题栏到目标 pane 的
+//   上/下/左/右四分区可重排布局（tmux move-pane），拖拽中显示半区预览；
 // - 相邻 pane 间的 1 cell 间隙渲染 splitter，拖拽中只画参考线，
 //   pointerup 一次性提交 resize-pane 绝对值，等 layout 经快照回流刷新（无回弹）；
-// - 整个区域的容器尺寸经防抖上报为 window 尺寸（resize-window 语义）；
+// - 整个区域的容器尺寸经防抖上报为 window 尺寸（resize-window 语义），
+//   高度按最深垂直堆叠扣除标题栏总高；
 // - 焦点 pane 由 URL 决定，点击非焦点 pane 触发 onUserSelectPane（轻量 focus 路径）。
 
 import { useTmuxStore } from '@/stores/tmux';
-import type { TmuxWindow } from '@tmex/shared';
+import type { TmuxPane, TmuxWindow } from '@tmex/shared';
 import { parseWindowLayout } from '@tmex/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from './Terminal';
 import {
+  type DropPosition,
   type SplitGutter,
   computeSplitLayoutGeometry,
+  maxVerticalStackDepth,
+  resolveDropPosition,
   resolveGutterDrag,
 } from './splitLayoutGeometry';
 import type { TerminalRef, TerminalTheme } from './types';
@@ -38,9 +44,38 @@ interface DragState {
   deltaPx: number;
 }
 
+interface PaneDragState {
+  srcPaneId: string;
+  /** 超过拖拽阈值才算真正开始（避免与点击聚焦冲突） */
+  active: boolean;
+  pointerX: number;
+  pointerY: number;
+  target: { paneId: string; position: DropPosition } | null;
+}
+
 const WINDOW_RESIZE_DEBOUNCE_MS = 150;
 const CELL_SIZE_RETRY_MS = 200;
 const CELL_SIZE_MAX_RETRIES = 15;
+const PANE_TITLE_BAR_PX = 24;
+const PANE_DRAG_THRESHOLD_PX = 6;
+
+function paneDisplayName(pane: TmuxPane | undefined): string {
+  return pane?.customName?.trim() || pane?.title?.trim() || 'Pane';
+}
+
+function paneMetaText(pane: TmuxPane | undefined): string | null {
+  const command = pane?.currentCommand?.trim();
+  if (!command) return null;
+  const path = pane?.currentPath?.trim();
+  return path ? `${command}@${path}` : command;
+}
+
+const DROP_PREVIEW_CLASS: Record<DropPosition, string> = {
+  left: 'left-0 top-0 bottom-0 w-1/2',
+  right: 'right-0 top-0 bottom-0 w-1/2',
+  top: 'left-0 right-0 top-0 h-1/2',
+  bottom: 'left-0 right-0 bottom-0 h-1/2',
+};
 
 export function SplitTerminalArea({
   deviceId,
@@ -56,10 +91,20 @@ export function SplitTerminalArea({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRefs = useRef(new Map<string, TerminalRef | null>());
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [paneDrag, setPaneDrag] = useState<PaneDragState | null>(null);
 
   const subscribePanes = useTmuxStore((state) => state.subscribePanes);
   const fetchPaneHistory = useTmuxStore((state) => state.fetchPaneHistory);
   const resizePaneInWindow = useTmuxStore((state) => state.resizePaneInWindow);
+  const movePane = useTmuxStore((state) => state.movePane);
+
+  const paneInfoById = useMemo(() => {
+    const map = new Map<string, TmuxPane>();
+    for (const pane of tmuxWindow.panes) {
+      map.set(pane.id, pane);
+    }
+    return map;
+  }, [tmuxWindow.panes]);
 
   const layout = useMemo(
     () => (tmuxWindow.layout ? parseWindowLayout(tmuxWindow.layout) : null),
@@ -126,6 +171,13 @@ export function SplitTerminalArea({
     return null;
   }, [focusedPaneId]);
 
+  // 每个 pane 的标题栏占据实际空间：整窗 rows 按最深的一列扣除标题栏总高，
+  // 保证该列的终端区也能放下 layout 分配的行数（其余列底部允许少量留白）
+  const titleBarStackDepth = useMemo(
+    () => (layout ? maxVerticalStackDepth(layout.root) : 1),
+    [layout]
+  );
+
   // window 级 resize：容器尺寸 / cell 尺寸 → 整窗 cols/rows（防抖 + cellSize 未就绪重试）
   const reportWindowSize = useCallback(() => {
     const container = containerRef.current;
@@ -134,11 +186,12 @@ export function SplitTerminalArea({
     if (rect.width < 1 || rect.height < 1) return false;
     const cell = getFocusedCellSize();
     if (!cell) return false;
+    const usableHeight = Math.max(0, rect.height - titleBarStackDepth * PANE_TITLE_BAR_PX);
     const cols = Math.max(2, Math.floor(rect.width / cell.width));
-    const rows = Math.max(2, Math.floor(rect.height / cell.height));
+    const rows = Math.max(2, Math.floor(usableHeight / cell.height));
     onWindowResize(cols, rows);
     return true;
-  }, [getFocusedCellSize, onWindowResize]);
+  }, [getFocusedCellSize, onWindowResize, titleBarStackDepth]);
 
   const reportWindowSizeRef = useRef(reportWindowSize);
   useEffect(() => {
@@ -233,6 +286,80 @@ export function SplitTerminalArea({
     [deviceId, resizePaneInWindow, rootCols, rootRows]
   );
 
+  // 标题栏拖拽重排：命中测试基于 layout 比例几何（与渲染同源），
+  // 目标 pane 内距最近边的四分区决定 move-pane 的方向
+  const handleTitleBarPointerDown = useCallback(
+    (srcPaneId: string, event: React.PointerEvent<HTMLDivElement>) => {
+      const container = containerRef.current;
+      const currentGeometry = geometry;
+      if (!container || !currentGeometry) return;
+      event.preventDefault();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const handle = event.currentTarget;
+      handle.setPointerCapture(event.pointerId);
+      let activated = false;
+
+      const hitTest = (
+        clientX: number,
+        clientY: number
+      ): { paneId: string; position: DropPosition } | null => {
+        const rect = container.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return null;
+        const cellX = ((clientX - rect.left) / rect.width) * Math.max(1, rootCols);
+        const cellY = ((clientY - rect.top) / rect.height) * Math.max(1, rootRows);
+        for (const pane of currentGeometry.panes) {
+          if (
+            cellX >= pane.rect.left &&
+            cellX <= pane.rect.left + pane.rect.width &&
+            cellY >= pane.rect.top &&
+            cellY <= pane.rect.top + pane.rect.height
+          ) {
+            const relX = (cellX - pane.rect.left) / Math.max(1e-6, pane.rect.width);
+            const relY = (cellY - pane.rect.top) / Math.max(1e-6, pane.rect.height);
+            return { paneId: pane.paneId, position: resolveDropPosition(relX, relY) };
+          }
+        }
+        return null;
+      };
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const distance = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
+        if (!activated && distance < PANE_DRAG_THRESHOLD_PX) return;
+        activated = true;
+        const hit = hitTest(moveEvent.clientX, moveEvent.clientY);
+        setPaneDrag({
+          srcPaneId,
+          active: true,
+          pointerX: moveEvent.clientX,
+          pointerY: moveEvent.clientY,
+          target: hit && hit.paneId !== srcPaneId ? hit : null,
+        });
+      };
+
+      const finish = (upEvent: PointerEvent, commit: boolean) => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onCancel);
+        setPaneDrag(null);
+        if (!commit || !activated) return;
+        const hit = hitTest(upEvent.clientX, upEvent.clientY);
+        if (hit && hit.paneId !== srcPaneId) {
+          movePane(deviceId, srcPaneId, hit.paneId, hit.position);
+        }
+      };
+
+      const onUp = (upEvent: PointerEvent) => finish(upEvent, true);
+      const onCancel = (cancelEvent: PointerEvent) => finish(cancelEvent, false);
+
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onCancel);
+    },
+    [deviceId, geometry, movePane, rootCols, rootRows]
+  );
+
   const bindTerminalRef = useCallback(
     (paneId: string) => (ref: TerminalRef | null) => {
       if (ref) {
@@ -266,10 +393,17 @@ export function SplitTerminalArea({
     >
       {geometry.panes.map((pane) => {
         const isFocused = pane.paneId === focusedPaneId;
+        const info = paneInfoById.get(pane.paneId);
+        const meta = paneMetaText(info);
+        const isDragSource = paneDrag?.active && paneDrag.srcPaneId === pane.paneId;
+        const dropPreview =
+          paneDrag?.active && paneDrag.target?.paneId === pane.paneId
+            ? paneDrag.target.position
+            : null;
         return (
           <div
             key={pane.paneId}
-            className="absolute"
+            className={`absolute flex flex-col ${isDragSource ? 'opacity-60' : ''}`}
             data-testid="split-pane"
             data-pane-id={pane.paneId}
             data-focused={isFocused || undefined}
@@ -285,30 +419,65 @@ export function SplitTerminalArea({
               }
             }}
           >
-            <Terminal
-              key={`${deviceId}:${pane.paneId}`}
-              ref={bindTerminalRef(pane.paneId)}
-              deviceId={deviceId}
-              paneId={pane.paneId}
-              theme={theme}
-              inputMode={inputMode}
-              deviceConnected={deviceConnected}
-              isSelectionInvalid={false}
-              sizingMode="follow"
-              autoFocus={isFocused}
-              onResize={() => {}}
-              onSync={() => {}}
-            />
-            {/* active pane 角标：右上角小圆点，不改边框、不遮内容 */}
-            {isFocused && (
+            {/* pane 标题栏：基本信息 + 拖拽重排把手；active 角标在最左侧 */}
+            <div
+              data-testid="split-pane-titlebar"
+              className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1.5 border-b border-foreground/10 bg-foreground/[0.05] px-2 active:cursor-grabbing"
+              style={{ height: PANE_TITLE_BAR_PX }}
+              onPointerDown={(event) => handleTitleBarPointerDown(pane.paneId, event)}
+            >
+              {isFocused && (
+                <span
+                  data-testid="split-pane-active-indicator"
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_6px_1px] shadow-primary/50"
+                />
+              )}
+              <span className="shrink-0 truncate font-mono text-[10.5px] leading-none text-foreground/80">
+                {paneDisplayName(info)}
+              </span>
+              {meta && (
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] leading-none text-muted-foreground">
+                  {meta}
+                </span>
+              )}
+            </div>
+            <div className="relative min-h-0 flex-1">
+              <Terminal
+                key={`${deviceId}:${pane.paneId}`}
+                ref={bindTerminalRef(pane.paneId)}
+                deviceId={deviceId}
+                paneId={pane.paneId}
+                theme={theme}
+                inputMode={inputMode}
+                deviceConnected={deviceConnected}
+                isSelectionInvalid={false}
+                sizingMode="follow"
+                autoFocus={isFocused}
+                onResize={() => {}}
+                onSync={() => {}}
+              />
+            </div>
+            {/* 拖拽重排的落点预览：目标 pane 的半区高亮 */}
+            {dropPreview && (
               <div
-                className="pointer-events-none absolute right-1.5 top-1.5 z-10 h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_6px_1px] shadow-primary/50"
-                data-testid="split-pane-active-indicator"
+                data-testid="split-pane-drop-preview"
+                data-position={dropPreview}
+                className={`pointer-events-none absolute z-30 rounded-sm bg-primary/20 ring-1 ring-inset ring-primary/60 ${DROP_PREVIEW_CLASS[dropPreview]}`}
               />
             )}
           </div>
         );
       })}
+
+      {/* 拖拽中的浮动标签：跟随指针提示正在移动的 pane */}
+      {paneDrag?.active && (
+        <div
+          className="pointer-events-none fixed z-50 rounded border border-primary/40 bg-popover/95 px-2 py-1 font-mono text-[10.5px] text-popover-foreground shadow-md"
+          style={{ left: paneDrag.pointerX + 12, top: paneDrag.pointerY + 12 }}
+        >
+          {paneDisplayName(paneInfoById.get(paneDrag.srcPaneId))}
+        </div>
+      )}
 
       {geometry.gutters.map((gutter, index) => {
         const isVertical = gutter.axis === 'x';
