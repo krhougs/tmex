@@ -288,6 +288,43 @@ export function buildTmuxFocusPane(
   return { kind: wsBorsh.KIND_TMUX_FOCUS_PANE, payload };
 }
 
+export function buildTmuxRenamePane(
+  deviceId: string,
+  paneId: string,
+  name: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxRenamePaneSchema, {
+    deviceId,
+    paneId,
+    name,
+  });
+  return { kind: wsBorsh.KIND_TMUX_RENAME_PANE, payload };
+}
+
+export type MovePanePosition = 'left' | 'right' | 'top' | 'bottom';
+
+const MOVE_PANE_POSITION_CODE: Record<MovePanePosition, number> = {
+  left: 1,
+  right: 2,
+  top: 3,
+  bottom: 4,
+};
+
+export function buildTmuxMovePane(
+  deviceId: string,
+  srcPaneId: string,
+  dstPaneId: string,
+  position: MovePanePosition
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxMovePaneSchema, {
+    deviceId,
+    srcPaneId,
+    dstPaneId,
+    position: MOVE_PANE_POSITION_CODE[position],
+  });
+  return { kind: wsBorsh.KIND_TMUX_MOVE_PANE, payload };
+}
+
 export function buildAgentSubscribe(sessionId: string): { kind: number; payload: Uint8Array } {
   const payload = wsBorsh.encodePayload(wsBorsh.schema.AgentSubscribeSchema, {
     sessionId,

@@ -54,6 +54,8 @@ export class WebSocketServer {
   pendingConnectionEntries = new Map<string, Promise<DeviceConnectionEntry | null>>();
   // 窗口自定义名 overlay：deviceId -> windowId -> name，仅存于 gateway 内存（进程生命周期内有效）
   windowCustomNames = new Map<string, Map<string, string>>();
+  // pane 自定义名 overlay：deviceId -> paneId -> name（不写 tmux pane title，避免被应用 OSC 覆盖）
+  paneCustomNames = new Map<string, Map<string, string>>();
   private readonly deps: WebSocketServerDeps;
 
   constructor(options: WebSocketServerOptions = {}) {
@@ -423,6 +425,18 @@ export class WebSocketServer {
       case wsBorsh.KIND_TMUX_FOCUS_PANE: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxFocusPaneSchema, payload);
         this.handleFocusPane(ws, decoded.deviceId, decoded.windowId, decoded.paneId);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_RENAME_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxRenamePaneSchema, payload);
+        this.handleRenamePane(decoded.deviceId, decoded.paneId, decoded.name);
+        return;
+      }
+
+      case wsBorsh.KIND_TMUX_MOVE_PANE: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxMovePaneSchema, payload);
+        this.handleMovePane(decoded.deviceId, decoded.srcPaneId, decoded.dstPaneId, decoded.position);
         return;
       }
 
@@ -797,6 +811,45 @@ export class WebSocketServer {
     entry.runtime.closePane(paneId);
   }
 
+  // pane 重命名同窗口：写内存 overlay 而非 tmux pane title，避免被应用 OSC 持续覆盖
+  private handleRenamePane(deviceId: string, paneId: string, name: string): void {
+    if (!isTmuxPaneId(paneId)) return;
+    const trimmed = name.trim().slice(0, 64);
+    const names = this.paneCustomNames.get(deviceId);
+
+    if (!trimmed) {
+      names?.delete(paneId);
+    } else if (names) {
+      names.set(paneId, trimmed);
+    } else {
+      this.paneCustomNames.set(deviceId, new Map([[paneId, trimmed]]));
+    }
+
+    const entry = this.connections.get(deviceId);
+    if (!entry?.lastSnapshot) return;
+    this.sendSnapshotToClients(entry, entry.lastSnapshot);
+  }
+
+  private handleMovePane(
+    deviceId: string,
+    srcPaneId: string,
+    dstPaneId: string,
+    position: number
+  ): void {
+    const entry = this.connections.get(deviceId);
+    if (!entry || !isTmuxPaneId(srcPaneId) || !isTmuxPaneId(dstPaneId)) return;
+    if (srcPaneId === dstPaneId) return;
+    const positionMap: Record<number, 'left' | 'right' | 'top' | 'bottom'> = {
+      1: 'left',
+      2: 'right',
+      3: 'top',
+      4: 'bottom',
+    };
+    const resolved = positionMap[position];
+    if (!resolved) return;
+    entry.runtime.movePane(srcPaneId, dstPaneId, resolved);
+  }
+
   // 重命名写入内存 overlay 而非 tmux rename-window，避免关闭 automatic-rename 导致标题不再跟随终端
   private handleRenameWindow(deviceId: string, windowId: string, name: string): void {
     const trimmed = name.trim().slice(0, 64);
@@ -964,12 +1017,22 @@ export class WebSocketServer {
 
   private applyWindowCustomNames(payload: StateSnapshotPayload): StateSnapshotPayload {
     const names = this.windowCustomNames.get(payload.deviceId);
-    if (!names?.size || !payload.session) return payload;
+    const paneNames = this.paneCustomNames.get(payload.deviceId);
+    if ((!names?.size && !paneNames?.size) || !payload.session) return payload;
 
     const liveWindowIds = new Set(payload.session.windows.map((w) => w.id));
-    for (const windowId of names.keys()) {
+    for (const windowId of names?.keys() ?? []) {
       if (!liveWindowIds.has(windowId)) {
-        names.delete(windowId);
+        names?.delete(windowId);
+      }
+    }
+
+    const livePaneIds = new Set(
+      payload.session.windows.flatMap((w) => w.panes.map((pane) => pane.id))
+    );
+    for (const paneId of paneNames?.keys() ?? []) {
+      if (!livePaneIds.has(paneId)) {
+        paneNames?.delete(paneId);
       }
     }
 
@@ -978,8 +1041,16 @@ export class WebSocketServer {
       session: {
         ...payload.session,
         windows: payload.session.windows.map((window) => {
-          const customName = names.get(window.id);
-          return customName ? { ...window, customName } : window;
+          const customName = names?.get(window.id);
+          const panes = paneNames?.size
+            ? window.panes.map((pane) => {
+                const paneCustomName = paneNames.get(pane.id);
+                return paneCustomName ? { ...pane, customName: paneCustomName } : pane;
+              })
+            : window.panes;
+          return customName || panes !== window.panes
+            ? { ...window, ...(customName ? { customName } : {}), panes }
+            : window;
         }),
       },
     };

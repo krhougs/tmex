@@ -182,6 +182,22 @@ export const TmuxFocusPaneSchema = b.struct({
   paneId: b.string(),
 });
 
+// pane 自定义名（gateway 内存 overlay，空串 = 恢复自动名）
+export const TmuxRenamePaneSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  name: b.string(),
+});
+
+// 拖拽重排：把 srcPane 移到 dstPane 的某一侧（tmux move-pane）
+// position: 1=left 2=right 3=top 4=bottom
+export const TmuxMovePaneSchema = b.struct({
+  deviceId: b.string(),
+  srcPaneId: b.string(),
+  dstPaneId: b.string(),
+  position: b.u8(),
+});
+
 // ========== 终端数据 ==========
 
 export const TermInputSchema = b.struct({
@@ -266,6 +282,7 @@ export const PaneWireSchema = b.struct({
   windowId: b.string(),
   index: b.u16(),
   title: OptionStringSchema,
+  customName: OptionStringSchema,
   active: b.bool(),
   width: b.u16(),
   height: b.u16(),

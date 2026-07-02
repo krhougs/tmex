@@ -15,6 +15,8 @@ import {
   buildTmuxCreateWindow,
   buildTmuxFetchPaneHistory,
   buildTmuxFocusPane,
+  buildTmuxMovePane,
+  buildTmuxRenamePane,
   buildTmuxRenameWindow,
   buildTmuxReorderPanes,
   buildTmuxReorderWindows,
@@ -105,6 +107,13 @@ interface TmuxState {
   fetchPaneHistory: (deviceId: string, paneId: string) => void;
   focusPane: (deviceId: string, windowId: string, paneId: string) => void;
   splitPane: (deviceId: string, paneId: string, direction: 'right' | 'down', cwd?: string) => void;
+  renamePane: (deviceId: string, paneId: string, name: string) => void;
+  movePane: (
+    deviceId: string,
+    srcPaneId: string,
+    dstPaneId: string,
+    position: 'left' | 'right' | 'top' | 'bottom'
+  ) => void;
   resizePaneInWindow: (
     deviceId: string,
     paneId: string,
@@ -721,6 +730,18 @@ export const useTmuxStore = create<TmuxState>((set, get) => ({
   splitPane(deviceId, paneId, direction, cwd) {
     if (!deviceId || !paneId) return;
     const msg = buildTmuxSplitPane(deviceId, paneId, direction, cwd);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  renamePane(deviceId, paneId, name) {
+    if (!deviceId || !paneId) return;
+    const msg = buildTmuxRenamePane(deviceId, paneId, name);
+    getBorshClient().send(msg.kind, msg.payload);
+  },
+
+  movePane(deviceId, srcPaneId, dstPaneId, position) {
+    if (!deviceId || !srcPaneId || !dstPaneId || srcPaneId === dstPaneId) return;
+    const msg = buildTmuxMovePane(deviceId, srcPaneId, dstPaneId, position);
     getBorshClient().send(msg.kind, msg.payload);
   },
 

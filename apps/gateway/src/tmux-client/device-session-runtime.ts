@@ -26,6 +26,7 @@ export interface DeviceSessionRuntimeConnection {
   resizeWindow(windowId: string, cols: number, rows: number): void;
   selectLayout(windowId: string, preset: 'even-horizontal'): void;
   focusPane(windowId: string, paneId: string): void;
+  movePane(srcPaneId: string, dstPaneId: string, position: 'left' | 'right' | 'top' | 'bottom'): void;
   requestPaneHistory(paneId: string): Promise<void>;
   renameWindow(windowId: string, name: string): void;
   setWindowStyle(style: string): void;
@@ -210,6 +211,14 @@ export class DeviceSessionRuntime {
 
   focusPane(windowId: string, paneId: string): void {
     this.connection.focusPane(windowId, paneId);
+  }
+
+  movePane(
+    srcPaneId: string,
+    dstPaneId: string,
+    position: 'left' | 'right' | 'top' | 'bottom'
+  ): void {
+    this.connection.movePane(srcPaneId, dstPaneId, position);
   }
 
   async requestPaneHistory(paneId: string): Promise<void> {

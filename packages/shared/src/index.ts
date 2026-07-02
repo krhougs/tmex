@@ -425,6 +425,8 @@ export interface TmuxPane {
   windowId: string;
   index: number;
   title?: string;
+  /** 用户自定义 pane 名（gateway 内存 overlay，优先于 title 展示） */
+  customName?: string;
   /** pane 当前运行的进程名（tmux #{pane_current_command}） */
   currentCommand?: string;
   /** pane 当前工作目录（tmux #{pane_current_path}） */

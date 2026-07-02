@@ -23,6 +23,7 @@ function createStubConnectionRecorder() {
     resizeWindowCalls: [] as Array<[string, number, number]>,
     selectLayoutCalls: [] as Array<[string, string]>,
     focusPaneCalls: [] as Array<[string, string]>,
+    movePaneCalls: [] as Array<[string, string, string]>,
     requestPaneHistoryCalls: [] as string[],
     updateDefaultWorkingDirCalls: [] as Array<string | undefined>,
     renameWindowCalls: [] as Array<[string, string]>,
@@ -87,6 +88,9 @@ function createStubConnectionRecorder() {
     },
     focusPane(windowId, paneId) {
       state.focusPaneCalls.push([windowId, paneId]);
+    },
+    movePane(srcPaneId, dstPaneId, position) {
+      state.movePaneCalls.push([srcPaneId, dstPaneId, position]);
     },
     async requestPaneHistory(paneId) {
       state.requestPaneHistoryCalls.push(paneId);

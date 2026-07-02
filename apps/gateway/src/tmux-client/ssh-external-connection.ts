@@ -303,6 +303,24 @@ export class SshExternalTmuxConnection {
     });
   }
 
+  // 拖拽重排：把 src pane 移到 dst pane 的某一侧。
+  // move-pane -h 产生左右排列、-v 上下排列，-b 放在目标之前（左/上）
+  movePane(srcPaneId: string, dstPaneId: string, position: 'left' | 'right' | 'top' | 'bottom'): void {
+    if (!this.connected) {
+      return;
+    }
+
+    const argv = ['move-pane'];
+    argv.push(position === 'left' || position === 'right' ? '-h' : '-v');
+    if (position === 'left' || position === 'top') {
+      argv.push('-b');
+    }
+    argv.push('-s', srcPaneId, '-t', dstPaneId);
+    void this.runAndRefresh(argv, true).catch((error) => {
+      this.callbacks.onError(error);
+    });
+  }
+
   async requestPaneHistory(paneId: string): Promise<void> {
     if (!this.connected) {
       return;
