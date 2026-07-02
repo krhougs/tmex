@@ -231,6 +231,15 @@ export function SplitTerminalArea({
     };
   }, []);
 
+  // 布局结构变化（split/move-pane 使垂直堆叠数变化）时容器尺寸不变、RO 不触发，
+  // 但标题栏占用的总高变了，需要重报整窗 rows（如左右拖成上下后可用高度减一条标题栏）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      reportWindowSizeRef.current();
+    }, WINDOW_RESIZE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [titleBarStackDepth]);
+
   // splitter 拖拽：pointermove 只更新参考线，pointerup 提交 resize-pane 绝对值
   const handleGutterPointerDown = useCallback(
     (gutterIndex: number, gutter: SplitGutter, event: React.PointerEvent<HTMLDivElement>) => {
@@ -403,7 +412,7 @@ export function SplitTerminalArea({
         return (
           <div
             key={pane.paneId}
-            className={`absolute flex flex-col ${isDragSource ? 'opacity-60' : ''}`}
+            className={`absolute flex flex-col overflow-hidden rounded-lg ${isDragSource ? 'opacity-60' : ''}`}
             data-testid="split-pane"
             data-pane-id={pane.paneId}
             data-focused={isFocused || undefined}
@@ -419,24 +428,32 @@ export function SplitTerminalArea({
               }
             }}
           >
-            {/* pane 标题栏：基本信息 + 拖拽重排把手；active 角标在最左侧 */}
+            {/* pane 标题栏：基本信息 + 拖拽重排把手；active 以柔和圆点 + 文字亮度区分 */}
             <div
               data-testid="split-pane-titlebar"
-              className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1.5 border-b border-foreground/10 bg-foreground/[0.05] px-2 active:cursor-grabbing"
+              className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1.5 border-b border-foreground/10 bg-foreground/[0.05] px-2.5 active:cursor-grabbing"
               style={{ height: PANE_TITLE_BAR_PX }}
               onPointerDown={(event) => handleTitleBarPointerDown(pane.paneId, event)}
             >
               {isFocused && (
                 <span
                   data-testid="split-pane-active-indicator"
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_6px_1px] shadow-primary/50"
+                  className="h-1 w-1 shrink-0 rounded-full bg-primary/60"
                 />
               )}
-              <span className="shrink-0 truncate font-mono text-[10.5px] leading-none text-foreground/80">
+              <span
+                className={`shrink-0 truncate font-mono text-[10.5px] leading-none ${
+                  isFocused ? 'text-foreground/90' : 'text-foreground/55'
+                }`}
+              >
                 {paneDisplayName(info)}
               </span>
               {meta && (
-                <span className="min-w-0 flex-1 truncate font-mono text-[10px] leading-none text-muted-foreground">
+                <span
+                  className={`min-w-0 flex-1 truncate font-mono text-[10px] leading-none ${
+                    isFocused ? 'text-muted-foreground' : 'text-muted-foreground/60'
+                  }`}
+                >
                   {meta}
                 </span>
               )}
