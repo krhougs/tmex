@@ -23,7 +23,7 @@ async function createDevice(
 
 async function waitForCanvasTerminal(page: Page): Promise<void> {
   await expect(page.getByTestId('device-page')).toBeVisible();
-  await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(
       () =>
@@ -54,7 +54,7 @@ async function readVisibleTerminalText(page: Page): Promise<string> {
 }
 
 async function focusTerminal(page: Page): Promise<void> {
-  await page.locator('.xterm').click();
+  await page.locator('.xterm').first().click();
 }
 
 test('desktop: paste shortcut should deliver clipboard text to the terminal', async ({

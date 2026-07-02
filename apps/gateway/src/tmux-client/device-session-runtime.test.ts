@@ -18,6 +18,15 @@ function createStubConnectionRecorder() {
     createWindowCalls: [] as Array<[string | undefined]>,
     closeWindowCalls: [] as string[],
     closePaneCalls: [] as string[],
+    splitPaneCalls: [] as Array<[string, 'h' | 'v', string | undefined]>,
+    resizePaneByIdCalls: [] as Array<[string, number | undefined, number | undefined]>,
+    resizeWindowCalls: [] as Array<[string, number, number]>,
+    selectLayoutCalls: [] as Array<[string, string]>,
+    focusPaneCalls: [] as Array<[string, string]>,
+    movePaneCalls: [] as Array<[string, string, string]>,
+    breakPaneCalls: [] as string[],
+    requestPaneHistoryCalls: [] as string[],
+    updateDefaultWorkingDirCalls: [] as Array<string | undefined>,
     renameWindowCalls: [] as Array<[string, string]>,
     setWindowStyleCalls: [] as string[],
     capturePaneTextCalls: [] as Array<[string, number | undefined]>,
@@ -65,6 +74,33 @@ function createStubConnectionRecorder() {
     },
     closePane(paneId) {
       state.closePaneCalls.push(paneId);
+    },
+    splitPane(paneId, direction, cwd) {
+      state.splitPaneCalls.push([paneId, direction, cwd]);
+    },
+    resizePaneById(paneId, size) {
+      state.resizePaneByIdCalls.push([paneId, size.cols, size.rows]);
+    },
+    resizeWindow(windowId, cols, rows) {
+      state.resizeWindowCalls.push([windowId, cols, rows]);
+    },
+    selectLayout(windowId, preset) {
+      state.selectLayoutCalls.push([windowId, preset]);
+    },
+    focusPane(windowId, paneId) {
+      state.focusPaneCalls.push([windowId, paneId]);
+    },
+    movePane(srcPaneId, dstPaneId, position) {
+      state.movePaneCalls.push([srcPaneId, dstPaneId, position]);
+    },
+    breakPane(paneId) {
+      state.breakPaneCalls.push(paneId);
+    },
+    async requestPaneHistory(paneId) {
+      state.requestPaneHistoryCalls.push(paneId);
+    },
+    updateDefaultWorkingDir(dir) {
+      state.updateDefaultWorkingDirCalls.push(dir);
     },
     renameWindow(windowId, name) {
       state.renameWindowCalls.push([windowId, name]);

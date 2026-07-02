@@ -205,6 +205,137 @@ export function buildTermSyncSize(
   return { kind: wsBorsh.KIND_TERM_SYNC_SIZE, payload };
 }
 
+// ========== 分屏（split screen） ==========
+
+export function buildTmuxSubscribePanes(
+  deviceId: string,
+  paneIds: string[]
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxSubscribePanesSchema, {
+    deviceId,
+    paneIds,
+  });
+  return { kind: wsBorsh.KIND_TMUX_SUBSCRIBE_PANES, payload };
+}
+
+export function buildTmuxFetchPaneHistory(
+  deviceId: string,
+  paneId: string,
+  requestToken: Uint8Array
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxFetchPaneHistorySchema, {
+    deviceId,
+    paneId,
+    requestToken,
+  });
+  return { kind: wsBorsh.KIND_TMUX_FETCH_PANE_HISTORY, payload };
+}
+
+export function buildTmuxResizePane(
+  deviceId: string,
+  paneId: string,
+  size: { cols?: number; rows?: number }
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxResizePaneSchema, {
+    deviceId,
+    paneId,
+    cols: size.cols ?? null,
+    rows: size.rows ?? null,
+  });
+  return { kind: wsBorsh.KIND_TMUX_RESIZE_PANE, payload };
+}
+
+export function buildTmuxApplyStackedLayout(
+  deviceId: string,
+  windowId: string,
+  cols: number,
+  rows: number
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxApplyStackedLayoutSchema, {
+    deviceId,
+    windowId,
+    cols,
+    rows,
+  });
+  return { kind: wsBorsh.KIND_TMUX_APPLY_STACKED_LAYOUT, payload };
+}
+
+export function buildTmuxSplitPane(
+  deviceId: string,
+  paneId: string,
+  direction: 'right' | 'down',
+  cwd?: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxSplitPaneSchema, {
+    deviceId,
+    paneId,
+    direction: direction === 'down' ? 2 : 1,
+    cwd: cwd ?? null,
+  });
+  return { kind: wsBorsh.KIND_TMUX_SPLIT_PANE, payload };
+}
+
+export function buildTmuxFocusPane(
+  deviceId: string,
+  windowId: string,
+  paneId: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxFocusPaneSchema, {
+    deviceId,
+    windowId,
+    paneId,
+  });
+  return { kind: wsBorsh.KIND_TMUX_FOCUS_PANE, payload };
+}
+
+export function buildTmuxRenamePane(
+  deviceId: string,
+  paneId: string,
+  name: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxRenamePaneSchema, {
+    deviceId,
+    paneId,
+    name,
+  });
+  return { kind: wsBorsh.KIND_TMUX_RENAME_PANE, payload };
+}
+
+export type MovePanePosition = 'left' | 'right' | 'top' | 'bottom';
+
+const MOVE_PANE_POSITION_CODE: Record<MovePanePosition, number> = {
+  left: 1,
+  right: 2,
+  top: 3,
+  bottom: 4,
+};
+
+export function buildTmuxBreakPane(
+  deviceId: string,
+  paneId: string
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxBreakPaneSchema, {
+    deviceId,
+    paneId,
+  });
+  return { kind: wsBorsh.KIND_TMUX_BREAK_PANE, payload };
+}
+
+export function buildTmuxMovePane(
+  deviceId: string,
+  srcPaneId: string,
+  dstPaneId: string,
+  position: MovePanePosition
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TmuxMovePaneSchema, {
+    deviceId,
+    srcPaneId,
+    dstPaneId,
+    position: MOVE_PANE_POSITION_CODE[position],
+  });
+  return { kind: wsBorsh.KIND_TMUX_MOVE_PANE, payload };
+}
+
 export function buildAgentSubscribe(sessionId: string): { kind: number; payload: Uint8Array } {
   const payload = wsBorsh.encodePayload(wsBorsh.schema.AgentSubscribeSchema, {
     sessionId,

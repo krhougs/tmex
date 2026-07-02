@@ -70,12 +70,12 @@ test('ssh device: probe and runtime connect are parameterized by target name', a
   const marker = `__TMEX_SSH_SMOKE_${Date.now()}__`;
   await page.goto(`/devices/${target.id}`);
   await expect(page.getByTestId('device-page')).toBeVisible();
-  await expect(page.locator('.xterm')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 30_000 });
   await expect
     .poll(() => page.evaluate(() => Boolean((window as any).__tmexE2eXterm)), { timeout: 30_000 })
     .toBeTruthy();
 
-  await page.locator('.xterm').click();
+  await page.locator('.xterm').first().click();
   await page.keyboard.type(`printf "${marker}\\n"`);
   await page.keyboard.press('Enter');
 

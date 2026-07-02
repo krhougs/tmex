@@ -1,7 +1,16 @@
 import { type APIRequestContext, expect, test, type Page } from '@playwright/test';
-import { createTwoPaneSession, ensureCleanSession, tmux } from './helpers/tmux';
+import {
+  createSinglePaneSession,
+  createTwoPaneSession,
+  createTwoWindowSession,
+  ensureCleanSession,
+  tmux,
+} from './helpers/tmux';
 
-const COPY_SHORTCUT = process.platform === 'darwin' ? 'Meta+C' : 'Control+C';
+// 终端的 copy 快捷键按浏览器 UA 平台判定（isMacPlatform），而 e2e 的 Desktop Chrome
+// 设备描述 UA 恒为 Windows —— 快捷键必须跟浏览器 UA 而非宿主 process.platform，
+// 否则 macOS 宿主上发 Meta+C 不会命中 copy 分支（此前靠 two-pane resize 抖动清选区假绿）。
+const COPY_SHORTCUT = 'Control+C';
 
 type VisibleTextRange = {
   row: number;
@@ -29,7 +38,7 @@ async function createDevice(
 
 async function waitForCanvasTerminal(page: Page): Promise<void> {
   await expect(page.getByTestId('device-page')).toBeVisible();
-  await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(
       () =>
@@ -221,8 +230,9 @@ test('desktop: pane switch, reconnect and resize should clear canvas selection s
   page,
   request,
 }) => {
+  // 分屏时代同窗切 pane 不再重建终端；「切换清选区」语义由跨 window 切换保留
   const sessionName = `tmex-e2e-canvas-selection-reset-${Date.now()}`;
-  const { paneIds, windowId } = createTwoPaneSession(sessionName);
+  const { paneIds, windowIds } = createTwoWindowSession(sessionName);
   expect(paneIds.length >= 2).toBeTruthy();
 
   const deviceId = await createDevice(
@@ -230,12 +240,12 @@ test('desktop: pane switch, reconnect and resize should clear canvas selection s
     sessionName,
     `e2e-canvas-selection-reset-${Date.now()}`
   );
-  const pane0Path = `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneIds[0] ?? '')}`;
-  const pane1Path = `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneIds[1] ?? '')}`;
+  const pane0Path = `/devices/${deviceId}/windows/${windowIds[0]}/panes/${encodeURIComponent(paneIds[0] ?? '')}`;
+  const pane1Path = `/devices/${deviceId}/windows/${windowIds[1]}/panes/${encodeURIComponent(paneIds[1] ?? '')}`;
 
   try {
-    tmux(`send-keys -t ${sessionName}.0 "printf 'panezero\\r\\n'" C-m`);
-    tmux(`send-keys -t ${sessionName}.1 "printf 'paneone\\r\\n'" C-m`);
+    tmux(`send-keys -t '${paneIds[0]}' "printf 'panezero\\r\\n'" C-m`);
+    tmux(`send-keys -t '${paneIds[1]}' "printf 'paneone\\r\\n'" C-m`);
 
     await page.goto(pane0Path);
     await waitForCanvasTerminal(page);
@@ -334,7 +344,7 @@ test('desktop: selection toolbar copies via GUI and copy shortcut clears selecti
   request,
 }) => {
   const sessionName = `tmex-e2e-canvas-selection-toolbar-${Date.now()}`;
-  createTwoPaneSession(sessionName);
+  createSinglePaneSession(sessionName);
 
   const deviceId = await createDevice(
     request,

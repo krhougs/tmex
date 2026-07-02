@@ -86,10 +86,10 @@ function respondToPayload(
     return { stdout: '@1\n', exitCode: 0 };
   }
   if (payload.includes(`'list-windows' '-t' '${session}'`)) {
-    return { stdout: '@1|0|main|1\n', exitCode: 0 };
+    return { stdout: '@1|0|1|ba9d,80x24,0,0,1|main\n', exitCode: 0 };
   }
   if (payload.includes(`'list-panes' '-s' '-t' '${session}'`)) {
-    return { stdout: '%1|@1|0|bash|1|80|24|1|node|/home/alice\n', exitCode: 0 };
+    return { stdout: '%1|@1|0|1|80|24|0|0|1|bash|node|/home/alice\n', exitCode: 0 };
   }
   return null;
 }
@@ -391,6 +391,7 @@ describe('SshExternalTmuxConnection', () => {
               index: 0,
               name: 'main',
               active: true,
+              layout: 'ba9d,80x24,0,0,1',
               panes: [
                 {
                   id: '%1',
@@ -402,6 +403,8 @@ describe('SshExternalTmuxConnection', () => {
                   active: true,
                   width: 80,
                   height: 24,
+                  left: 0,
+                  top: 0,
                 },
               ],
             },
@@ -434,14 +437,14 @@ describe('SshExternalTmuxConnection', () => {
         }
         if (
           payload.includes(
-            `'list-windows' '-t' '${session}' '-F' '#{window_id}|#{window_index}|#{window_name}|#{window_active}'`
+            `'list-windows' '-t' '${session}' '-F' '#{window_id}|#{window_index}|#{window_active}|#{window_layout}|#{window_name}'`
           )
         ) {
           return { stdout: '@0_0_bash_1\n', exitCode: 0 };
         }
         if (
           payload.includes(
-            `'list-panes' '-s' '-t' '${session}' '-F' '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{window_active}|#{pane_current_command}|#{pane_current_path}'`
+            `'list-panes' '-s' '-t' '${session}' '-F' '#{pane_id}|#{window_id}|#{pane_index}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_active}|#{pane_title}|#{pane_current_command}|#{pane_current_path}'`
           )
         ) {
           return { stdout: '%1_@0_0_bash_1_80_24_1_node_/home/alice\n', exitCode: 0 };

@@ -33,6 +33,39 @@ export function createTwoPaneSession(sessionName: string): { paneIds: string[]; 
   return { paneIds, windowId };
 }
 
+export function createSinglePaneSession(sessionName: string): {
+  paneId: string;
+  windowId: string;
+} {
+  ensureCleanSession(sessionName);
+  tmux(`new-session -d -s ${sessionName} "sh -lc 'echo PANE0_READY; exec sh'"`);
+  const paneId = tmux(`display-message -p -t ${sessionName} '#{pane_id}'`);
+  const windowId = tmux(`display-message -p -t ${sessionName}:0 '#{window_id}'`);
+  return { paneId, windowId };
+}
+
+// 两个 window 各一个 pane：桌面分屏时代，跨 window 切换才走完整 select（barrier/history/重挂载），
+// 需要该语义的测试用本 helper 替代 createTwoPaneSession（同窗切 pane 已是轻量 FOCUS_PANE）
+export function createTwoWindowSession(sessionName: string): {
+  paneIds: string[];
+  windowIds: string[];
+} {
+  ensureCleanSession(sessionName);
+  tmux(`new-session -d -s ${sessionName} "sh -lc 'echo PANE0_READY; exec sh'"`);
+  tmux(`new-window -t ${sessionName} "sh -lc 'echo PANE1_READY; exec sh'"`);
+  tmux(`select-window -t ${sessionName}:0`);
+
+  const rows = tmux(`list-panes -s -t ${sessionName} -F '#{window_id} #{pane_id}'`)
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(' '))
+    .filter((parts) => parts.length === 2);
+
+  return {
+    windowIds: rows.map((parts) => parts[0] as string),
+    paneIds: rows.map((parts) => parts[1] as string),
+  };
+}
+
 export function getPaneSize(paneId: string): { cols: number; rows: number } {
   const [colsRaw, rowsRaw] = tmux(`display-message -p -t ${paneId} '#{pane_width}\t#{pane_height}'`)
     .split('\t')

@@ -58,7 +58,7 @@ test('desktop: visible terminal should follow the latest viewport contents', asy
   try {
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await waitForCanvasTerminal(page);
 
     tmux(
@@ -112,10 +112,10 @@ test('desktop: direct input should become visible in the current viewport', asyn
   try {
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await waitForCanvasTerminal(page);
 
-    await page.locator('.xterm').click();
+    await page.locator('.xterm').first().click();
     await page.keyboard.type(`echo ${marker}`);
     await page.keyboard.press('Enter');
 

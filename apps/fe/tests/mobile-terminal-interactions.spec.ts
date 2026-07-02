@@ -429,7 +429,7 @@ test('mobile: long press should select word and selection toolbar copies it', as
   try {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.goto(`/devices/${deviceId}`);
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     tmux(`send-keys -t ${sessionName}.0 "printf 'longpress_target\\r\\n'" C-m`);
 

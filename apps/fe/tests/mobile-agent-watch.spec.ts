@@ -44,7 +44,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       // 移动端：从顶栏打开 sidebar Sheet，再切到 Agent Tab
       await page.getByTestId('mobile-sidebar-open').click();
@@ -75,7 +75,7 @@ test.describe
       await page.goto(
         `/devices/${deviceId}/windows/${windowId}/panes/${encodeURIComponent(paneId)}`
       );
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
       await page.getByTestId('watch-open-button').click();
       await expect(page.getByTestId('watch-dialog')).toBeVisible();

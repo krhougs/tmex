@@ -787,7 +787,14 @@
       "rename": "Rename window",
       "renamePlaceholder": "Enter a name",
       "renameDesc": "The custom name overrides the title set by the terminal and is kept until the gateway restarts.",
-      "renameReset": "Use automatic name"
+      "renameReset": "Use automatic name",
+      "switchPane": "Switch pane",
+      "splitRight": "Split right",
+      "splitDown": "Split down",
+      "paneCount": "{{count}} panes",
+      "pane": "Pane",
+      "moveToWindow": "Move into this window",
+      "breakToWindow": "Break into new window"
     },
     "watch": {
       "title": "Watch rules",

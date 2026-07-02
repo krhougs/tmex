@@ -549,4 +549,145 @@ describe('LocalExternalTmuxConnection integration', () => {
     }
   }, 20_000);
 
+  test('splitPane / resizePaneById / selectLayout / focusPane drive real tmux layout', async () => {
+    const socketName = `tmex-test-split-${Date.now()}`;
+    const sessionName = 'tmex-split';
+
+    execSync(
+      `tmux -L ${socketName} new-session -d -x 200 -y 50 -s ${sessionName} "sh -lc 'exec sh'"`,
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    const runOnSocket = async (argv: string[]) => {
+      const subprocess = Bun.spawn(['tmux', '-L', socketName, ...argv.slice(1)], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+        subprocess.exited,
+      ]);
+      return { stdout, stderr, exitCode };
+    };
+
+    const snapshots: StateSnapshotPayload[] = [];
+    const events: TmuxEvent[] = [];
+    const histories: string[] = [];
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: (event) => {
+          events.push(event);
+        },
+        onTerminalOutput: () => {},
+        onTerminalHistory: (paneId) => {
+          histories.push(paneId);
+        },
+        onSnapshot: (payload) => {
+          snapshots.push(payload);
+        },
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        getDevice: () => createLocalDevice(sessionName),
+        run: runOnSocket,
+        ensureGhosttyTerminfo: async () => false,
+        enableSubscription: false,
+      }
+    );
+
+    try {
+      await connection.connect();
+      const initial = await waitFor(() => snapshots.at(-1)?.session ?? null);
+      const windowId = initial.windows[0]?.id;
+      const firstPaneId = initial.windows[0]?.panes[0]?.id;
+      if (!windowId || !firstPaneId) {
+        throw new Error('snapshot missing window/pane');
+      }
+      expect(initial.windows[0]?.layout).toMatch(/^[0-9a-f]{4},/);
+
+      connection.resizeWindow(windowId, 200, 50);
+      await waitFor(() => {
+        const win = snapshots.at(-1)?.session?.windows[0];
+        return win?.panes[0]?.width === 200 ? win : null;
+      });
+
+      // 向右分屏：出现第二个 pane，layout 变为水平排列，焦点跟到新 pane
+      connection.splitPane(firstPaneId, 'h');
+      const afterSplit = await waitFor(() => {
+        const win = snapshots.at(-1)?.session?.windows[0];
+        return win && win.panes.length === 2 ? win : null;
+      });
+      expect(afterSplit.layout).toContain('{');
+      const secondPaneId = afterSplit.panes.find((pane) => pane.id !== firstPaneId)?.id;
+      if (!secondPaneId) {
+        throw new Error('split pane missing');
+      }
+      const splitEvent = events.find(
+        (event) =>
+          event.type === 'pane-active' &&
+          (event.data as { paneId?: string } | undefined)?.paneId === secondPaneId
+      );
+      expect(splitEvent).toBeTruthy();
+      const rightPane = afterSplit.panes.find((pane) => pane.id === secondPaneId);
+      expect((rightPane?.left ?? 0) > 0).toBe(true);
+
+      // 按绝对值调整左 pane 宽度，右 pane 应互补变化
+      connection.resizePaneById(firstPaneId, { cols: 150 });
+      const afterResize = await waitFor(() => {
+        const win = snapshots.at(-1)?.session?.windows[0];
+        return win?.panes.find((pane) => pane.id === firstPaneId)?.width === 150 ? win : null;
+      });
+      const rightAfterResize = afterResize.panes.find((pane) => pane.id === secondPaneId);
+      expect(rightAfterResize?.width).toBe(200 - 150 - 1);
+
+      // even-horizontal：两 pane 宽度差 <= 1
+      connection.selectLayout(windowId, 'even-horizontal');
+      await waitFor(() => {
+        const win = snapshots.at(-1)?.session?.windows[0];
+        if (!win) {
+          return null;
+        }
+        const widths = win.panes.map((pane) => pane.width);
+        return Math.abs((widths[0] ?? 0) - (widths[1] ?? 0)) <= 1 ? win : null;
+      });
+
+      // focusPane：切回第一个 pane，发 pane-active 但不触发 history capture
+      const historyCountBefore = histories.length;
+      connection.focusPane(windowId, firstPaneId);
+      await waitFor(() => {
+        const win = snapshots.at(-1)?.session?.windows[0];
+        return win?.panes.find((pane) => pane.id === firstPaneId)?.active ? win : null;
+      });
+      const focusEvent = events
+        .slice()
+        .reverse()
+        .find((event) => event.type === 'pane-active');
+      expect((focusEvent?.data as { paneId?: string } | undefined)?.paneId).toBe(firstPaneId);
+      expect(histories.length).toBe(historyCountBefore);
+
+      // 向下分屏：三 pane，layout 出现垂直排列
+      connection.splitPane(firstPaneId, 'v');
+      const afterVSplit = await waitFor(() => {
+        const win = snapshots.at(-1)?.session?.windows[0];
+        return win && win.panes.length === 3 ? win : null;
+      });
+      expect(afterVSplit.layout).toContain('[');
+      const bottomPane = afterVSplit.panes.find(
+        (pane) => pane.id !== firstPaneId && (pane.top ?? 0) > 0
+      );
+      expect(bottomPane).toBeTruthy();
+    } finally {
+      connection.disconnect();
+      try {
+        execSync(`tmux -L ${socketName} kill-server`, { stdio: 'ignore' });
+      } catch {
+        // server 已退出则忽略
+      }
+      execSync(`rm -f "\${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/${socketName}"`, { stdio: 'ignore' });
+    }
+  }, 30_000);
+
 });

@@ -11,6 +11,7 @@ import { pushSupervisor } from './push/supervisor';
 import { telegramService } from './telegram/service';
 import { tmuxRuntimeRegistry } from './tmux-client/registry';
 import { primeLocalShellPath } from './tmux/local-shell-path';
+import { registerSnapshotLookup } from './tmux/snapshot-directory';
 import { watchService } from './watch/service';
 import { weixinService } from './weixin/service';
 import { WebSocketServer } from './ws';
@@ -54,6 +55,7 @@ export async function createGatewayRuntime(
   connectionAlertNotifier.setBroadcaster((deviceId, payload) => {
     wsServer.broadcastDeviceError(deviceId, payload);
   });
+  registerSnapshotLookup((deviceId) => wsServer.getLastSnapshot(deviceId));
   await telegramService.refresh();
   await weixinService.refresh();
   await pushSupervisor.start();

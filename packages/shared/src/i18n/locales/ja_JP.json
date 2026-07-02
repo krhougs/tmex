@@ -787,7 +787,14 @@
       "rename": "ウィンドウ名を変更",
       "renamePlaceholder": "名前を入力",
       "renameDesc": "カスタム名はターミナルが設定したタイトルを上書きし、ゲートウェイが再起動するまで保持されます。",
-      "renameReset": "自動名に戻す"
+      "renameReset": "自動名に戻す",
+      "switchPane": "ペイン切替",
+      "splitRight": "右に分割",
+      "splitDown": "下に分割",
+      "paneCount": "{{count}} ペイン",
+      "pane": "ペイン",
+      "moveToWindow": "このウィンドウへ移動",
+      "breakToWindow": "新しいウィンドウに分離"
     },
     "watch": {
       "title": "監視ルール",

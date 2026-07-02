@@ -76,7 +76,7 @@ test('desktop: sidebar new-window click does not inject SGR mouse sequences into
 
   try {
     await page.goto(vimPath);
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => readVisibleTerminalText(page), { timeout: 20_000 }).toContain('~');
 
     await page.waitForTimeout(500);

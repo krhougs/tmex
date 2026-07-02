@@ -135,7 +135,7 @@ test('ws-borsh: applies TERM_HISTORY on initial load (shows pane ready marker)',
     await expect(page.getByTestId('device-page')).toBeVisible();
 
     // Wait for xterm to appear and history to be applied.
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => page.evaluate(() => Boolean((window as any).__tmexE2eXterm)), { timeout: 20_000 }).toBeTruthy();
     await expect.poll(() => received.selectTokenByPane.get(targetPaneId) ?? null, { timeout: 20_000 }).toBeTruthy();
 

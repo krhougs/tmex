@@ -113,7 +113,7 @@ test('ws-borsh: direct pane route preserves encoded pane id and loads target pan
   try {
     await page.goto(targetPath);
     await expect(page.getByTestId('device-page')).toBeVisible();
-    await expect(page.locator('.xterm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 20_000 });
 
     await expect
       .poll(() => page.evaluate(() => window.location.pathname), { timeout: 20_000 })

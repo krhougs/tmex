@@ -12,6 +12,10 @@ export interface BorshClientState {
   maxFrameBytes: number;
   chunkReassembler: wsBorsh.ChunkReassembler;
   selectedPanes: Record<string, string | null>;
+  // 分屏：焦点 pane（selectedPanes）之外还要接收输出的 pane 集合（per device）
+  subscribedPanes: Record<string, Set<string>>;
+  // 分屏：非焦点 pane 的 history 拉取请求，键为 `${deviceId}:${paneId}`，值为 requestToken
+  pendingHistoryFetches: Map<string, Uint8Array>;
 }
 
 export function createBorshClientState(): BorshClientState {
@@ -21,6 +25,8 @@ export function createBorshClientState(): BorshClientState {
     maxFrameBytes: wsBorsh.DEFAULT_MAX_FRAME_BYTES,
     chunkReassembler: new wsBorsh.ChunkReassembler(),
     selectedPanes: {},
+    subscribedPanes: {},
+    pendingHistoryFetches: new Map(),
   };
 }
 

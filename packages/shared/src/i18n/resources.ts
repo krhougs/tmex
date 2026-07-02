@@ -793,7 +793,14 @@ export const I18N_RESOURCES = {
       "rename": "Rename window",
       "renamePlaceholder": "Enter a name",
       "renameDesc": "The custom name overrides the title set by the terminal and is kept until the gateway restarts.",
-      "renameReset": "Use automatic name"
+      "renameReset": "Use automatic name",
+      "switchPane": "Switch pane",
+      "splitRight": "Split right",
+      "splitDown": "Split down",
+      "paneCount": "{{count}} panes",
+      "pane": "Pane",
+      "moveToWindow": "Move into this window",
+      "breakToWindow": "Break into new window"
     },
     "watch": {
       "title": "Watch rules",
@@ -1783,7 +1790,14 @@ export const I18N_RESOURCES = {
       "rename": "重命名窗口",
       "renamePlaceholder": "输入名称",
       "renameDesc": "自定义名称会覆盖终端设置的标题，并保留至 gateway 重启。",
-      "renameReset": "恢复自动名称"
+      "renameReset": "恢复自动名称",
+      "switchPane": "切换 Pane",
+      "splitRight": "向右分屏",
+      "splitDown": "向下分屏",
+      "paneCount": "{{count}} 个 pane",
+      "pane": "Pane",
+      "moveToWindow": "移入此窗口",
+      "breakToWindow": "拆为独立窗口"
     },
     "watch": {
       "title": "监控规则",
@@ -2773,7 +2787,14 @@ export const I18N_RESOURCES = {
       "rename": "ウィンドウ名を変更",
       "renamePlaceholder": "名前を入力",
       "renameDesc": "カスタム名はターミナルが設定したタイトルを上書きし、ゲートウェイが再起動するまで保持されます。",
-      "renameReset": "自動名に戻す"
+      "renameReset": "自動名に戻す",
+      "switchPane": "ペイン切替",
+      "splitRight": "右に分割",
+      "splitDown": "下に分割",
+      "paneCount": "{{count}} ペイン",
+      "pane": "ペイン",
+      "moveToWindow": "このウィンドウへ移動",
+      "breakToWindow": "新しいウィンドウに分離"
     },
     "watch": {
       "title": "監視ルール",

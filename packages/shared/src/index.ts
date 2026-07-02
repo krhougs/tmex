@@ -304,6 +304,16 @@ export interface WsMessage<T = unknown> {
 export { b } from './ws-borsh';
 export * as wsBorsh from './ws-borsh';
 
+export {
+  collectLayoutLeaves,
+  layoutLeafPaneId,
+  parseWindowLayout,
+  type ParsedWindowLayout,
+  type TmuxLayoutLeaf,
+  type TmuxLayoutNode,
+  type TmuxLayoutSplit,
+} from './tmux-layout';
+
 // Agent/Watch WS 事件 payload 类型（JSON 形状约定，前后端共用）
 export type {
   AgentSessionWireStatus,
@@ -405,6 +415,8 @@ export interface TmuxWindow {
   customName?: string;
   index: number;
   active: boolean;
+  /** tmux #{window_layout} 布局字符串，分屏渲染的真相源 */
+  layout?: string;
   panes: TmuxPane[];
 }
 
@@ -413,6 +425,8 @@ export interface TmuxPane {
   windowId: string;
   index: number;
   title?: string;
+  /** 用户自定义 pane 名（gateway 内存 overlay，优先于 title 展示） */
+  customName?: string;
   /** pane 当前运行的进程名（tmux #{pane_current_command}） */
   currentCommand?: string;
   /** pane 当前工作目录（tmux #{pane_current_path}） */
@@ -420,6 +434,10 @@ export interface TmuxPane {
   active: boolean;
   width: number;
   height: number;
+  /** pane 左上角在 window 内的列偏移（tmux #{pane_left}） */
+  left?: number;
+  /** pane 左上角在 window 内的行偏移（tmux #{pane_top}） */
+  top?: number;
 }
 
 export interface TmuxSession {

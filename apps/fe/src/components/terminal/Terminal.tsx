@@ -5,7 +5,7 @@ import {
   registerCursorRectGetter,
   unregisterCursorRectGetter,
 } from '@/utils/keyboard-cursor-bridge';
-import { type SelectCallbacks, getSelectStateMachine } from '@/ws-borsh';
+import { type PaneSink, registerPaneSink } from '@/ws-borsh/pane-sink-registry';
 import {
   type CompatibleTerminalLike,
   FitAddon,
@@ -167,6 +167,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       inputMode,
       deviceConnected,
       isSelectionInvalid,
+      sizingMode = 'report',
+      autoFocus = true,
       onResize,
       onSync,
       children,
@@ -262,6 +264,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         paneId,
         deviceConnected,
         isSelectionInvalid,
+        sizingMode,
         onResize,
         onSync,
         getContainerRect: () => {
@@ -301,7 +304,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         if (mountRef.current) {
           terminal.open(mountRef.current);
         }
-        setE2eTerminalProbe(terminal);
         setInstance(terminal);
       })();
 
@@ -313,6 +315,14 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       };
       // 字体设置变更（无 post-init 改字体 API）时重建控制器：重新测度量 + 重排。
     }, [terminalFontId, terminalFontSize, terminalLineHeight]);
+
+    // e2e 桥指向焦点实例（分屏多实例下 autoFocus 即焦点性；单 pane 恒 true）
+    useEffect(() => {
+      if (!instance || !autoFocus) {
+        return;
+      }
+      setE2eTerminalProbe(instance);
+    }, [instance, autoFocus]);
 
     useEffect(() => {
       if (!instance || !('setTheme' in instance)) {
@@ -344,7 +354,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     // direct 模式下终端就绪（刷新、切换 pane 导致的重新挂载）或从 editor 切回时，
     // 焦点应回到终端；移动端跳过，避免自动弹出软键盘
     useEffect(() => {
-      if (!instance || inputMode !== 'direct') {
+      if (!instance || inputMode !== 'direct' || !autoFocus) {
         return;
       }
       const isMobileLike = window.innerWidth < 768 || 'ontouchstart' in window;
@@ -352,24 +362,22 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         return;
       }
       instance.focus();
-    }, [instance, inputMode]);
+    }, [instance, inputMode, autoFocus]);
 
-    const callbacks: SelectCallbacks = useMemo(() => {
+    const paneSink: PaneSink | null = useMemo(() => {
       if (!instance) {
-        return {};
+        return null;
       }
 
       return {
-        onResetTerminal: (targetDeviceId) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
+        onReset: () => {
           persistTerminalModes(instance, attachedDeviceIdRef.current, attachedPaneIdRef.current);
           skipNextDetachPersistRef.current = true;
           instance.reset();
           liveOutputEndedWithCR.current = false;
           runPostSelectResize();
         },
-        onApplyHistory: (targetDeviceId, data, alternateScreen) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
+        onApplyHistory: (data, alternateScreen) => {
           const recoveredModes = reconcileRecoveredModes(
             readTerminalModeCache(currentDeviceIdRef.current, currentPaneIdRef.current),
             alternateScreen
@@ -387,26 +395,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           attachedPaneIdRef.current = currentPaneIdRef.current;
           persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
         },
-        onFlushBuffer: (targetDeviceId, buffer) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
-          for (const chunk of buffer) {
-            const normalized = normalizeLiveOutputForTerminal(chunk, liveOutputEndedWithCR.current);
-            liveOutputEndedWithCR.current = normalized.endedWithCR;
-            instance.write(normalized.normalized);
-          }
-          if (keepShortHistoryVisibleRef.current) {
-            if (instance.buffer.active.baseY <= 1) {
-              instance.scrollToTop();
-            }
-            keepShortHistoryVisibleRef.current = false;
-          }
-          attachedDeviceIdRef.current = currentDeviceIdRef.current;
-          attachedPaneIdRef.current = currentPaneIdRef.current;
-          persistTerminalModes(instance, currentDeviceIdRef.current, currentPaneIdRef.current);
-        },
-        onOutput: (targetDeviceId, targetPaneId, data) => {
-          if (currentDeviceIdRef.current !== targetDeviceId) return;
-          if (currentPaneIdRef.current !== targetPaneId) return;
+        onOutput: (data) => {
           const normalized = normalizeLiveOutputForTerminal(data, liveOutputEndedWithCR.current);
           liveOutputEndedWithCR.current = normalized.endedWithCR;
           instance.write(normalized.normalized);
@@ -449,14 +438,11 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     }, [deviceId, instance, paneId, persistTerminalModes]);
 
     useEffect(() => {
-      getSelectStateMachine(callbacks);
-    }, [callbacks]);
-
-    useEffect(() => {
-      return () => {
-        getSelectStateMachine({});
-      };
-    }, []);
+      if (!paneSink || !deviceId || !paneId) {
+        return;
+      }
+      return registerPaneSink(deviceId, paneId, paneSink);
+    }, [paneSink, deviceId, paneId]);
 
     useEffect(() => {
       if (!instance) {
@@ -662,6 +648,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           return { cols, rows };
         },
         getPendingLocalSize: () => pendingLocalSize.current,
+        getCellSize: () => {
+          const core = instance?._core;
+          const cell = core?._renderService?.dimensions?.css?.cell;
+          if (!cell?.width || !cell?.height) return null;
+          return { width: cell.width, height: cell.height };
+        },
       }),
       [instance, pendingLocalSize, runPostSelectResize, scheduleResize]
     );

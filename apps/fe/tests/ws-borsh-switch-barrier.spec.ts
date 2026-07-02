@@ -7,14 +7,16 @@ import {
   decodeTermHistory,
   decodeTmuxSelect,
 } from './helpers/ws-borsh';
-import { createTwoPaneSession, ensureCleanSession } from './helpers/tmux';
+import { createTwoWindowSession, ensureCleanSession } from './helpers/tmux';
 
+// 桌面分屏时代，同窗切 pane 走轻量 FOCUS_PANE（无 barrier）；
+// 完整 select（barrier/history）语义由跨 window 切换保留，故用两个 window 场景。
 test('ws-borsh: TMUX_SELECT carries cols/rows and barrier order is ACK->HISTORY->RESUME', async ({
   page,
   request,
 }) => {
   const sessionName = `tmex-e2e-barrier-${Date.now()}`;
-  const { paneIds } = createTwoPaneSession(sessionName);
+  const { paneIds, windowIds } = createTwoWindowSession(sessionName);
   expect(paneIds.length >= 2).toBeTruthy();
 
   const name = `e2e-borsh-barrier-${Date.now()}`;
@@ -90,10 +92,11 @@ test('ws-borsh: TMUX_SELECT carries cols/rows and barrier order is ACK->HISTORY-
     await expect(page.getByTestId('device-page')).toBeVisible();
 
     const targetPane = paneIds[1];
+    const targetWindow = windowIds[1];
     targetPaneId = targetPane;
 
-    await expect(page.getByTestId(`pane-item-${targetPane}`)).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId(`pane-item-${targetPane}`).click();
+    await expect(page.getByTestId(`window-item-${targetWindow}`)).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId(`window-item-${targetWindow}`).click();
 
     await expect.poll(() => targetTokenHex, { timeout: 20_000 }).toBeTruthy();
 
@@ -133,7 +136,7 @@ test('ws-borsh: rapid select cancels previous transaction (no LIVE_RESUME for ol
   request,
 }) => {
   const sessionName = `tmex-e2e-rapid-${Date.now()}`;
-  const { paneIds } = createTwoPaneSession(sessionName);
+  const { paneIds, windowIds } = createTwoWindowSession(sessionName);
   expect(paneIds.length >= 2).toBeTruthy();
 
   const name = `e2e-borsh-rapid-${Date.now()}`;
@@ -168,6 +171,8 @@ test('ws-borsh: rapid select cancels previous transaction (no LIVE_RESUME for ol
 
   const firstPane = paneIds[0];
   const secondPane = paneIds[1];
+  const firstWindow = windowIds[0];
+  const secondWindow = windowIds[1];
 
   let tokenA: string | null = null;
   let tokenB: string | null = null;
@@ -176,16 +181,16 @@ test('ws-borsh: rapid select cancels previous transaction (no LIVE_RESUME for ol
     await page.goto(`/devices/${deviceId}`);
     await expect(page.getByTestId('device-page')).toBeVisible();
 
-    await expect(page.getByTestId(`pane-item-${firstPane}`)).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId(`pane-item-${secondPane}`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId(`window-item-${firstWindow}`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId(`window-item-${secondWindow}`)).toBeVisible({ timeout: 20_000 });
 
     // 页面可能会在初始加载时自动 select 当前 active pane；
     // 本用例只关心这两次点击触发的 token，因此需要等待 token 发生变化。
     const initialTokenFirst = selectTokenByPane.get(firstPane) ?? null;
     const initialTokenSecond = selectTokenByPane.get(secondPane) ?? null;
 
-    await page.getByTestId(`pane-item-${secondPane}`).click();
-    await page.getByTestId(`pane-item-${firstPane}`).click();
+    await page.getByTestId(`window-item-${secondWindow}`).click();
+    await page.getByTestId(`window-item-${firstWindow}`).click();
 
     await expect
       .poll(() => {

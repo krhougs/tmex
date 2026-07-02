@@ -6,7 +6,10 @@ import {
   terminalShortcutsQueryKey,
 } from '@/components/settings/terminal-shortcuts-api';
 import { Terminal as TerminalComponent, type TerminalRef } from '@/components/terminal';
+import { PaneSwitcherMenu } from '@/components/terminal/PaneSwitcherMenu';
+import { SplitTerminalArea } from '@/components/terminal/SplitTerminalArea';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@/components/terminal/theme';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +36,8 @@ import {
   Send,
   Settings2,
   Smartphone,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
   Trash2,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -101,6 +106,7 @@ export default function DevicePage() {
   const userInitiatedSelectionRef = useRef<TimedPaneSelection | null>(null);
 
   const selectPane = useTmuxStore((state) => state.selectPane);
+  const focusPane = useTmuxStore((state) => state.focusPane);
 
   const snapshot = useTmuxStore((state) => (deviceId ? state.snapshots[deviceId] : undefined));
   const deviceError = useTmuxStore((state) =>
@@ -193,14 +199,26 @@ export default function DevicePage() {
   const isSelectionInvalid = Boolean(invalidSelectionMessage);
   const canInteractWithPane = Boolean(deviceConnected && resolvedPaneId && !isSelectionInvalid);
 
+  // PC 分屏：≥768px 且当前 window 多 pane 且 layout 可用
+  const isSplitView = Boolean(
+    !isMobile &&
+      selectedWindow &&
+      selectedWindow.panes.length > 1 &&
+      selectedWindow.layout &&
+      !isSelectionInvalid
+  );
+  const isSplitViewRef = useRef(isSplitView);
+  useEffect(() => {
+    isSplitViewRef.current = isSplitView;
+  }, [isSplitView]);
+
   const terminalTopbarLabel = useMemo(() => {
     if (!selectedWindow || !selectedPane) {
       return null;
     }
     const deviceName = currentDevice?.name ?? deviceId;
     return buildTerminalLabel({
-      paneIdx: selectedPane.index,
-      windowIdx: selectedWindow.index,
+      paneCustomName: selectedPane.customName,
       paneTitle: selectedPane.title,
       windowName: selectedWindow.name,
       windowCustomName: selectedWindow.customName,
@@ -220,10 +238,25 @@ export default function DevicePage() {
     return { windowId: activeWindow.id, paneId: activePane.id };
   }, [windows]);
 
+  // 移动端多 pane window：终端上报的尺寸即「单屏适配尺寸」，改道拼接布局
+  // （window 宽 = N*cols+(N-1)、even-horizontal，每 pane 恰好一屏），
+  // 不得发普通 TERM_RESIZE，否则整窗被压成单 pane 尺寸破坏拼接
+  const stackedLayoutTarget =
+    isMobile && selectedWindow && selectedWindow.panes.length > 1 ? selectedWindow.id : null;
+  const stackedLayoutTargetRef = useRef(stackedLayoutTarget);
+  useEffect(() => {
+    stackedLayoutTargetRef.current = stackedLayoutTarget;
+  }, [stackedLayoutTarget]);
+
   // Handle resize from terminal - use store directly to avoid unstable callback deps
   const handleResize = useCallback(
     (cols: number, rows: number) => {
       if (!deviceId || !resolvedPaneId) return;
+      const stackedWindowId = stackedLayoutTargetRef.current;
+      if (stackedWindowId) {
+        useTmuxStore.getState().applyStackedLayout(deviceId, stackedWindowId, cols, rows);
+        return;
+      }
       useTmuxStore.getState().resizePane(deviceId, resolvedPaneId, cols, rows);
     },
     [deviceId, resolvedPaneId]
@@ -233,6 +266,11 @@ export default function DevicePage() {
   const handleSync = useCallback(
     (cols: number, rows: number) => {
       if (!deviceId || !resolvedPaneId) return;
+      const stackedWindowId = stackedLayoutTargetRef.current;
+      if (stackedWindowId) {
+        useTmuxStore.getState().applyStackedLayout(deviceId, stackedWindowId, cols, rows);
+        return;
+      }
       useTmuxStore.getState().syncPaneSize(deviceId, resolvedPaneId, cols, rows);
     },
     [deviceId, resolvedPaneId]
@@ -241,6 +279,30 @@ export default function DevicePage() {
   const getSelectSize = useCallback(
     (targetWindowId?: string, targetPaneId?: string) => {
       const terminal = terminalRef.current;
+
+      // 分屏模式下焦点 Terminal 的容器只是它自己的 pane 区域，
+      // select 携带的尺寸应是整个终端区域换算出的 window 尺寸
+      if (isSplitViewRef.current) {
+        const rect = terminalContainerRef.current?.getBoundingClientRect();
+        const cell = terminal?.getCellSize();
+        if (rect && cell && rect.width > 0 && rect.height > 0) {
+          return {
+            cols: Math.max(2, Math.floor(rect.width / cell.width)),
+            rows: Math.max(2, Math.floor(rect.height / cell.height)),
+          };
+        }
+        return undefined;
+      }
+
+      // 移动端多 pane window：select 不带尺寸（否则整窗被 resize 成单 pane 尺寸），
+      // 尺寸由随后的 sync 经 applyStackedLayout 处理
+      if (targetWindowId && windows) {
+        const targetWindow = windows.find((window) => window.id === targetWindowId);
+        if (isMobile && targetWindow && targetWindow.panes.length > 1) {
+          return undefined;
+        }
+      }
+
       const terminalSize =
         terminal?.calculateSizeFromContainer() ?? terminal?.getSize() ?? undefined;
       if (terminalSize) {
@@ -262,8 +324,30 @@ export default function DevicePage() {
         rows: targetPane.height,
       };
     },
-    [windows]
+    [isMobile, windows]
   );
+
+  // 分屏：点击非焦点 pane 切焦点（URL 为真相源，select effect 走轻量 FOCUS_PANE）
+  const handleUserSelectPane = useCallback(
+    (targetWindowId: string, targetPaneId: string) => {
+      if (!deviceId) return;
+      userInitiatedSelectionRef.current = {
+        windowId: targetWindowId,
+        paneId: targetPaneId,
+        at: Date.now(),
+      };
+      navigate(
+        `/devices/${deviceId}/windows/${targetWindowId}/panes/${encodePaneIdForUrl(targetPaneId)}`,
+        { replace: true }
+      );
+    },
+    [deviceId, navigate]
+  );
+
+  // 分屏中把焦点 pane 的 TerminalRef 转接到 DevicePage 的 terminalRef（快捷键/editor 等共用）
+  const bindFocusedTerminalRef = useCallback((ref: TerminalRef | null) => {
+    terminalRef.current = ref;
+  }, []);
 
   // Mobile detection
   useEffect(() => {
@@ -357,6 +441,18 @@ export default function DevicePage() {
     // Check if current pane exists in the window
     const currentPane = targetWindow.panes.find((p) => p.id === resolvedPaneId);
     if (!currentPane) {
+      // pane 不在本窗口时先查它是否被 move/break 到了其他窗口——是则跟随过去
+      // （否则这里抢先导航回本窗口会与 pane-active 事件竞争，把 tmux 焦点拉回来）
+      const relocatedWindow = windows.find((w) =>
+        w.panes.some((p) => p.id === resolvedPaneId)
+      );
+      if (relocatedWindow) {
+        navigate(
+          `/devices/${deviceId}/windows/${relocatedWindow.id}/panes/${encodePaneIdForUrl(resolvedPaneId)}`,
+          { replace: true }
+        );
+        return;
+      }
       // Pane was closed, navigate to active pane in same window
       const activePane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
       if (activePane) {
@@ -391,12 +487,38 @@ export default function DevicePage() {
     );
   }, [deviceConnected, deviceId, navigate, resolvedPaneId, windowId, windows]);
 
+  const recentSelectRequestsRef = useRef<Array<{ windowId: string; paneId: string; at: number }>>(
+    []
+  );
+  const recordSelectRequest = useCallback((windowId: string, paneId: string) => {
+    const now = Date.now();
+    const next = [
+      ...recentSelectRequestsRef.current.filter((r) => now - r.at < 2000),
+      { windowId, paneId, at: now },
+    ];
+    recentSelectRequestsRef.current = next.slice(-8);
+  }, []);
+
   // 跟踪当前 Terminal 实例已下发过的 SELECT_START：device/pane 变化时 Terminal 重挂载，
   // 需要让下面的 select 效果重新派发（否则切到其他 device 再切回会命中短路、终端空白）
   const lastDispatchedSelectRef = useRef<string | null>(null);
   useEffect(() => {
     lastDispatchedSelectRef.current = null;
   }, [deviceId, resolvedPaneId]);
+
+  // 最近一次完整 select（走 barrier/history）落在哪个 window：
+  // 分屏内同 window 切焦点时改走轻量 FOCUS_PANE，避免已渲染 pane 被 reset 重放
+  const lastFullSelectWindowRef = useRef<string | null>(null);
+
+  // isSplitView 翻转会重建 Terminal 实例（单 Terminal ↔ SplitTerminalArea），
+  // 焦点 pane 的新实例需要完整 select 重新拉 history，否则空白
+  const prevSplitViewRef = useRef(isSplitView);
+  useEffect(() => {
+    if (prevSplitViewRef.current === isSplitView) return;
+    prevSplitViewRef.current = isSplitView;
+    lastDispatchedSelectRef.current = null;
+    lastFullSelectWindowRef.current = null;
+  }, [isSplitView]);
 
   // Select pane when ready
   useEffect(() => {
@@ -412,10 +534,33 @@ export default function DevicePage() {
     }
     lastDispatchedSelectRef.current = dispatchKey;
 
-    const size = getSelectSize(windowId, resolvedPaneId);
+    const canUseLightFocus =
+      isSplitView &&
+      lastFullSelectWindowRef.current === `${deviceId}:${windowId}` &&
+      Boolean(selectedWindow?.panes.some((pane) => pane.id === resolvedPaneId));
+
     recordSelectRequest(windowId, resolvedPaneId);
+    if (canUseLightFocus) {
+      focusPane(deviceId, windowId, resolvedPaneId);
+      return;
+    }
+
+    const size = getSelectSize(windowId, resolvedPaneId);
     selectPane(deviceId, windowId, resolvedPaneId, size);
-  }, [deviceConnected, deviceId, getSelectSize, isLoading, resolvedPaneId, selectPane, windowId]);
+    lastFullSelectWindowRef.current = `${deviceId}:${windowId}`;
+  }, [
+    deviceConnected,
+    deviceId,
+    focusPane,
+    getSelectSize,
+    isLoading,
+    isSplitView,
+    recordSelectRequest,
+    resolvedPaneId,
+    selectPane,
+    selectedWindow,
+    windowId,
+  ]);
 
   // Treat explicit route selection as authoritative until snapshot/runtime catches up.
   useEffect(() => {
@@ -440,18 +585,6 @@ export default function DevicePage() {
       at: Date.now(),
     };
   }, [deviceConnected, deviceId, resolvedPaneId, snapshotActiveSelection, windowId]);
-
-  const recentSelectRequestsRef = useRef<Array<{ windowId: string; paneId: string; at: number }>>(
-    []
-  );
-  const recordSelectRequest = useCallback((windowId: string, paneId: string) => {
-    const now = Date.now();
-    const next = [
-      ...recentSelectRequestsRef.current.filter((r) => now - r.at < 2000),
-      { windowId, paneId, at: now },
-    ];
-    recentSelectRequestsRef.current = next.slice(-8);
-  }, []);
 
   // Subscribe to activePaneFromEvent for this device
   const activePaneFromEvent = useTmuxStore((state) =>
@@ -495,10 +628,14 @@ export default function DevicePage() {
       userInitiatedSelectionRef.current = null;
     }
 
-    // Send selectPane to gateway first
-    const size = getSelectSize(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
-    recordSelectRequest(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
-    selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId, size);
+    // 分屏内同 window 的焦点变化：只更新 URL，select effect 会走轻量 FOCUS_PANE
+    const splitSameWindow = isSplitViewRef.current && activePaneFromEvent.windowId === windowId;
+    if (!splitSameWindow) {
+      // Send selectPane to gateway first
+      const size = getSelectSize(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
+      recordSelectRequest(activePaneFromEvent.windowId, activePaneFromEvent.paneId);
+      selectPane(deviceId, activePaneFromEvent.windowId, activePaneFromEvent.paneId, size);
+    }
 
     // Navigate to new URL
     navigate(
@@ -575,10 +712,14 @@ export default function DevicePage() {
       return;
     }
 
-    // Send selectPane and navigate
-    const size = getSelectSize(currentActive.windowId, currentActive.paneId);
-    recordSelectRequest(currentActive.windowId, currentActive.paneId);
-    selectPane(deviceId, currentActive.windowId, currentActive.paneId, size);
+    // 分屏内同 window 的焦点变化：只更新 URL，select effect 会走轻量 FOCUS_PANE
+    const splitSameWindow = isSplitViewRef.current && currentActive.windowId === windowId;
+    if (!splitSameWindow) {
+      // Send selectPane and navigate
+      const size = getSelectSize(currentActive.windowId, currentActive.paneId);
+      recordSelectRequest(currentActive.windowId, currentActive.paneId);
+      selectPane(deviceId, currentActive.windowId, currentActive.paneId, size);
+    }
     navigate(
       `/devices/${deviceId}/windows/${currentActive.windowId}/panes/${encodePaneIdForUrl(currentActive.paneId)}`,
       { replace: true }
@@ -656,6 +797,8 @@ export default function DevicePage() {
 
   // Sync pane size from remote
   useEffect(() => {
+    // 分屏模式：pane 尺寸完全由 layout 驱动（SplitTerminalArea 内部 resize），不走回灌
+    if (isSplitView) return;
     if (!canInteractWithPane || !selectedPane || isLoading) return;
 
     const terminal = terminalRef.current;
@@ -684,7 +827,7 @@ export default function DevicePage() {
     }
 
     term.resize(remoteCols, remoteRows);
-  }, [canInteractWithPane, isLoading, selectedPane]);
+  }, [canInteractWithPane, isLoading, isSplitView, selectedPane]);
 
   // Scroll to bottom on input mode change
   useEffect(() => {
@@ -944,26 +1087,25 @@ export default function DevicePage() {
               </div>
             </div>
           ) : showTerminal && resolvedPaneId ? (
-            <div
-              ref={terminalContainerRef}
-              className="flex-1 h-full min-h-0 w-full"
-              data-virtual-keyboard-avoid
-            >
-              <TerminalComponent
-                key={`${deviceId}:${resolvedPaneId}`}
-                ref={terminalRef}
-                deviceId={deviceId}
-                paneId={resolvedPaneId}
-                theme={uiTheme}
-                inputMode={inputMode}
-                deviceConnected={deviceConnected}
-                isSelectionInvalid={isSelectionInvalid}
-                onResize={handleResize}
-                onSync={handleSync}
+            isSplitView && selectedWindow ? (
+              <div
+                className="flex h-full min-h-0 w-full flex-1 flex-col"
+                data-virtual-keyboard-avoid
               >
-                {/* direct 模式：快捷键栏拼在终端可视区域下方，与终端共用 seoul256 配色。
-                    follow 键盘模式弹起时，外层 .kb-floating-shortcuts 按 --tmex-kb-shortcut-lift
-                    把这排快捷键 translateY 浮到键盘正上方（不脱流，故不触发终端 resize）。 */}
+                <div ref={terminalContainerRef} className="relative min-h-0 flex-1">
+                  <SplitTerminalArea
+                    key={`${deviceId}:${selectedWindow.id}`}
+                    deviceId={deviceId}
+                    window={selectedWindow}
+                    focusedPaneId={resolvedPaneId}
+                    theme={uiTheme}
+                    inputMode={inputMode}
+                    deviceConnected={deviceConnected}
+                    focusedTerminalRef={bindFocusedTerminalRef}
+                    onUserSelectPane={handleUserSelectPane}
+                    onWindowResize={handleResize}
+                  />
+                </div>
                 {inputMode === 'direct' && (
                   <div
                     className="kb-floating-shortcuts"
@@ -975,8 +1117,42 @@ export default function DevicePage() {
                     />
                   </div>
                 )}
-              </TerminalComponent>
-            </div>
+              </div>
+            ) : (
+              <div
+                ref={terminalContainerRef}
+                className="flex-1 h-full min-h-0 w-full"
+                data-virtual-keyboard-avoid
+              >
+                <TerminalComponent
+                  key={`${deviceId}:${resolvedPaneId}`}
+                  ref={terminalRef}
+                  deviceId={deviceId}
+                  paneId={resolvedPaneId}
+                  theme={uiTheme}
+                  inputMode={inputMode}
+                  deviceConnected={deviceConnected}
+                  isSelectionInvalid={isSelectionInvalid}
+                  onResize={handleResize}
+                  onSync={handleSync}
+                >
+                  {/* direct 模式：快捷键栏拼在终端可视区域下方，与终端共用 seoul256 配色。
+                      follow 键盘模式弹起时，外层 .kb-floating-shortcuts 按 --tmex-kb-shortcut-lift
+                      把这排快捷键 translateY 浮到键盘正上方（不脱流，故不触发终端 resize）。 */}
+                  {inputMode === 'direct' && (
+                    <div
+                      className="kb-floating-shortcuts"
+                      style={{ backgroundColor: terminalTheme.background }}
+                    >
+                      <ShortcutsBar
+                        onActivate={handleActivateShortcut}
+                        disabled={!canInteractWithPane}
+                      />
+                    </div>
+                  )}
+                </TerminalComponent>
+              </div>
+            )
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="max-w-sm space-y-4">
@@ -1180,8 +1356,7 @@ export function PageTitle() {
   const title = useMemo(() => {
     if (selectedWindow && selectedPane) {
       return buildTerminalLabel({
-        paneIdx: selectedPane.index,
-        windowIdx: selectedWindow.index,
+        paneCustomName: selectedPane.customName,
         paneTitle: selectedPane.title,
         windowName: selectedWindow.name,
         windowCustomName: selectedWindow.customName,
@@ -1197,12 +1372,43 @@ export function PageTitle() {
 // Page actions component - shows input mode toggle, jump to latest and refresh page
 export function PageActions() {
   const { t } = useTranslation();
-  const { deviceId, paneId } = useParams();
+  const { deviceId, windowId, paneId } = useParams();
+  const navigate = useNavigate();
+  const isMobileViewport = useIsMobile();
   const resolvedPaneId = paneId ? decodePaneIdFromUrlParam(paneId) : undefined;
   const inputMode = useUIStore((state) => state.inputMode);
   const setInputMode = useUIStore((state) => state.setInputMode);
   const deviceConnected = useTmuxStore((state) =>
     deviceId ? (state.deviceConnected?.[deviceId] ?? false) : false
+  );
+  const snapshot = useTmuxStore((state) => (deviceId ? state.snapshots[deviceId] : undefined));
+  const selectedWindow = useMemo(() => {
+    if (!windowId || !snapshot?.session?.windows) return undefined;
+    return snapshot.session.windows.find((w) => w.id === windowId);
+  }, [windowId, snapshot]);
+
+  const handleSwitchPane = useCallback(
+    (targetPaneId: string) => {
+      if (!deviceId || !windowId) return;
+      navigate(
+        `/devices/${deviceId}/windows/${windowId}/panes/${encodePaneIdForUrl(targetPaneId)}`,
+        { replace: true }
+      );
+    },
+    [deviceId, windowId, navigate]
+  );
+
+  const currentPane = useMemo(() => {
+    if (!resolvedPaneId || !selectedWindow) return undefined;
+    return selectedWindow.panes.find((p) => p.id === resolvedPaneId);
+  }, [resolvedPaneId, selectedWindow]);
+
+  const handleSplitPane = useCallback(
+    (direction: 'right' | 'down') => {
+      if (!deviceId || !resolvedPaneId) return;
+      useTmuxStore.getState().splitPane(deviceId, resolvedPaneId, direction, currentPane?.currentPath);
+    },
+    [deviceId, resolvedPaneId, currentPane?.currentPath]
   );
 
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
@@ -1238,6 +1444,41 @@ export function PageActions() {
 
   return (
     <>
+      {/* 移动端单 pane 展示：多 pane window 时提供切换入口（标题栏样式不变） */}
+      {isMobileViewport && resolvedPaneId && selectedWindow && selectedWindow.panes.length > 1 && (
+        <PaneSwitcherMenu
+          window={selectedWindow}
+          currentPaneId={resolvedPaneId}
+          onSelectPane={handleSwitchPane}
+        />
+      )}
+      {/* 桌面端：对当前焦点 pane 分屏 */}
+      {!isMobileViewport && (
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => handleSplitPane('right')}
+            disabled={!canInteract}
+            data-testid="split-right-button"
+            aria-label={t('window.splitRight')}
+            title={t('window.splitRight')}
+          >
+            <SquareSplitHorizontal className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => handleSplitPane('down')}
+            disabled={!canInteract}
+            data-testid="split-down-button"
+            aria-label={t('window.splitDown')}
+            title={t('window.splitDown')}
+          >
+            <SquareSplitVertical className="h-4 w-4" />
+          </Button>
+        </>
+      )}
       <Button
         variant="ghost"
         size="icon-sm"

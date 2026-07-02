@@ -136,6 +136,74 @@ export const TmuxEventSchema = b.struct({
   eventData: b.bytes(),
 });
 
+// ========== 分屏（split screen） ==========
+
+// 幂等全量声明：除焦点 pane（selectedPanes）外还要接收输出的 pane 集合
+export const TmuxSubscribePanesSchema = b.struct({
+  deviceId: b.string(),
+  paneIds: b.vec(b.string()),
+});
+
+// 拉取非焦点 pane 的首屏历史；回包复用 KIND_TERM_HISTORY，selectToken = requestToken
+export const TmuxFetchPaneHistorySchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  requestToken: b.bytes(16),
+});
+
+// splitter 拖拽提交：resize-pane 绝对值（cols/rows 至少一个）
+export const TmuxResizePaneSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  cols: OptionU16Schema,
+  rows: OptionU16Schema,
+});
+
+// 移动端拼接布局：resize-window 到 N*cols+(N-1) x rows + select-layout even-horizontal
+export const TmuxApplyStackedLayoutSchema = b.struct({
+  deviceId: b.string(),
+  windowId: b.string(),
+  cols: b.u16(),
+  rows: b.u16(),
+});
+
+// direction: 1=right(-h) 2=down(-v)
+export const TmuxSplitPaneSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  direction: b.u8(),
+  cwd: OptionStringSchema,
+});
+
+// 分屏内轻量焦点切换：select-window/select-pane，无 barrier/history/reset
+export const TmuxFocusPaneSchema = b.struct({
+  deviceId: b.string(),
+  windowId: b.string(),
+  paneId: b.string(),
+});
+
+// pane 自定义名（gateway 内存 overlay，空串 = 恢复自动名）
+export const TmuxRenamePaneSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  name: b.string(),
+});
+
+// 拖拽重排：把 srcPane 移到 dstPane 的某一侧（tmux move-pane）
+// position: 1=left 2=right 3=top 4=bottom
+export const TmuxMovePaneSchema = b.struct({
+  deviceId: b.string(),
+  srcPaneId: b.string(),
+  dstPaneId: b.string(),
+  position: b.u8(),
+});
+
+// 把 pane 拆出为独立窗口（tmux break-pane，焦点跟随新窗口）
+export const TmuxBreakPaneSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+});
+
 // ========== 终端数据 ==========
 
 export const TermInputSchema = b.struct({
@@ -220,10 +288,14 @@ export const PaneWireSchema = b.struct({
   windowId: b.string(),
   index: b.u16(),
   title: OptionStringSchema,
+  customName: OptionStringSchema,
   active: b.bool(),
   width: b.u16(),
   height: b.u16(),
   currentPath: OptionStringSchema,
+  currentCommand: OptionStringSchema,
+  left: OptionU16Schema,
+  top: OptionU16Schema,
 });
 
 export const WindowWireSchema = b.struct({
@@ -232,6 +304,7 @@ export const WindowWireSchema = b.struct({
   customName: OptionStringSchema,
   index: b.u16(),
   active: b.bool(),
+  layout: OptionStringSchema,
   panes: b.vec(PaneWireSchema),
 });
 

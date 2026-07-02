@@ -57,9 +57,19 @@ export function shouldIgnoreActivePaneEvent(params: {
   const now = params.now ?? Date.now();
   const latestRecentSelectRequest = getLatestRecentSelectRequest(params.recentSelectRequests, now);
 
+  // 同 paneId 但 windowId 变了 = 该 pane 刚被 move/break 到别的窗口，
+  // 是真实变更而非旧选择的回声，不适用下面的抑制规则、必须跟随
+  const samePaneMovedAcrossWindows = (candidate: PaneSelection | null | undefined): boolean =>
+    Boolean(
+      candidate &&
+        candidate.paneId === params.activePaneFromEvent.paneId &&
+        candidate.windowId !== params.activePaneFromEvent.windowId
+    );
+
   if (
     latestRecentSelectRequest &&
-    !matchesPaneSelection(latestRecentSelectRequest, params.activePaneFromEvent)
+    !matchesPaneSelection(latestRecentSelectRequest, params.activePaneFromEvent) &&
+    !samePaneMovedAcrossWindows(latestRecentSelectRequest)
   ) {
     return true;
   }
@@ -75,7 +85,8 @@ export function shouldIgnoreActivePaneEvent(params: {
   const pendingUserSelection = resolvePendingUserSelection(params.pendingUserSelection, now);
   if (
     pendingUserSelection &&
-    !matchesPaneSelection(pendingUserSelection, params.activePaneFromEvent)
+    !matchesPaneSelection(pendingUserSelection, params.activePaneFromEvent) &&
+    !samePaneMovedAcrossWindows(pendingUserSelection)
   ) {
     return true;
   }
