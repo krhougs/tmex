@@ -76,6 +76,21 @@ function isBlockElement(codepoint: number): boolean {
   return codepoint >= 0x2580 && codepoint <= 0x259f;
 }
 
+// 图形元素（box drawing/block/legacy computing/powerline）参与拼接，不作为
+// 「相邻符号」触发宽度收紧（对齐 ghostty isGraphicsElement）。
+function isGraphicsElement(codepoint: number): boolean {
+  return (
+    (codepoint >= 0x2500 && codepoint <= 0x259f) ||
+    (codepoint >= 0x1fb00 && codepoint <= 0x1fbff) ||
+    (codepoint >= 0x1cc00 && codepoint <= 0x1cebf) ||
+    (codepoint >= 0xe0b0 && codepoint <= 0xe0d7)
+  );
+}
+
+function isConstrainedSymbolCell(cell: GhosttyRenderRow['cells'][number]): boolean {
+  return cell.widthKind === 'narrow' && cell.codepoints.length === 1 && cell.codepoints[0] > 0x7f;
+}
+
 function ensureContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const context = canvas.getContext('2d');
   if (!context) {
@@ -436,7 +451,12 @@ export class CanvasRenderer {
     // 连字：同样式连续 ASCII 符号合并为段、整段一次 fillText，浏览器 shaping
     // 才能拿到上下文触发 calt（=> -> != 等）。段首绘制全文，段内其余 cell 只画
     // 装饰线。段起点按网格定位，段内亚像素漂移由段长上限压住。
-    const segments = this.ligatures ? scanLigatureSegments(row.cells) : [];
+    const segments = this.ligatures
+      ? scanLigatureSegments(row.cells, {
+          foreground: colors.foreground,
+          background: colors.background,
+        })
+      : [];
     const segmentStarts = new Map<number, LigatureSegment>();
     const segmentTails = new Set<number>();
     for (const segment of segments) {
@@ -522,7 +542,9 @@ export class CanvasRenderer {
 
   // 非 ASCII 窄符号做宽度约束（对齐 ghostty .fit）：Iosevka Term 系字体的宽墨迹
   // 符号（→ ⇒ — ※ 等）advance 1 格墨迹近 2 格，右邻有字时等比缩进本格避免重合；
-  // 右邻为空 cell 时放行溢出（保留字体设计的双格宽符号效果）。
+  // 右邻为空 cell 时放行溢出（保留字体设计的双格宽符号效果）。放行的两个例外
+  // （对齐 ghostty constraintWidth 规则）：行末溢出会被 canvas 边界裁切，强制本格；
+  // 前一格也是受约束符号（非图形元素）时同样收紧，避免相邻符号一缩一放尺寸不齐。
   private drawCellText(
     cell: GhosttyRenderRow['cells'][number],
     cells: GhosttyRenderRow['cells'],
@@ -536,15 +558,20 @@ export class CanvasRenderer {
     context.font = font;
     const baselineY = y + this.textBaselineY;
 
-    if (cell.widthKind === 'narrow' && cell.codepoints.length === 1 && cell.codepoints[0] > 0x7f) {
+    if (isConstrainedSymbolCell(cell)) {
       const ink = this.measureGlyphInk(font, cell.text);
       if (ink) {
         const next = cells[index + 1];
-        const nextEmpty = !next || !next.text || next.text === ' ';
+        const prev = index > 0 ? cells[index - 1] : undefined;
+        const atLineEnd = cell.x + 1 >= this.cols;
+        // 行尾空白列可能被裁剪出 cells，next 缺失但未到行末仍视为空。
+        const nextEmpty = !atLineEnd && (!next || !next.text || next.text === ' ');
+        const prevIsSymbol =
+          !!prev && isConstrainedSymbolCell(prev) && !isGraphicsElement(prev.codepoints[0]);
         const decision = resolveGlyphConstraint({
           ink,
           cellWidth,
-          maxInkWidth: nextEmpty ? cellWidth * 2 : cellWidth,
+          maxInkWidth: nextEmpty && !prevIsSymbol ? cellWidth * 2 : cellWidth,
         });
         if (decision.mode === 'scale') {
           context.save();

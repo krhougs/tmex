@@ -1,4 +1,4 @@
-import type { GhosttyRenderCell } from './types';
+import type { GhosttyColorRgb, GhosttyRenderCell } from './types';
 
 /**
  * 编程连字候选段扫描。
@@ -37,9 +37,16 @@ function isSegmentCell(cell: GhosttyRenderCell): boolean {
   );
 }
 
-function styleKey(cell: GhosttyRenderCell): string {
+type SegmentColors = {
+  foreground: GhosttyColorRgb;
+  background: GhosttyColorRgb;
+};
+
+// 前景色按「绘制时实际使用的解析值」比较（默认色落到主题色），显式 RGB 与
+// 默认色恰好相同时不再误断段。
+function styleKey(cell: GhosttyRenderCell, colors: SegmentColors): string {
   const s = cell.style;
-  const fg = cell.style.inverse ? cell.bgColor : cell.fgColor;
+  const fg = s.inverse ? (cell.bgColor ?? colors.background) : (cell.fgColor ?? colors.foreground);
   return [
     s.bold,
     s.italic,
@@ -48,12 +55,15 @@ function styleKey(cell: GhosttyRenderCell): string {
     s.strikethrough,
     s.overline,
     s.underline,
-    fg ? `${fg.r},${fg.g},${fg.b}` : 'default',
+    `${fg.r},${fg.g},${fg.b}`,
   ].join('|');
 }
 
 /** 扫描一行内可整段绘制的连字候选段（长度 ≥2，同可比样式；bg 不参与比较）。 */
-function scanLigatureSegments(cells: GhosttyRenderCell[]): LigatureSegment[] {
+function scanLigatureSegments(
+  cells: GhosttyRenderCell[],
+  colors: SegmentColors
+): LigatureSegment[] {
   const segments: LigatureSegment[] = [];
   let i = 0;
 
@@ -63,13 +73,13 @@ function scanLigatureSegments(cells: GhosttyRenderCell[]): LigatureSegment[] {
       continue;
     }
 
-    const key = styleKey(cells[i]);
+    const key = styleKey(cells[i], colors);
     let j = i + 1;
     while (
       j < cells.length &&
       j - i < MAX_SEGMENT_LENGTH &&
       isSegmentCell(cells[j]) &&
-      styleKey(cells[j]) === key
+      styleKey(cells[j], colors) === key
     ) {
       j += 1;
     }
@@ -87,5 +97,5 @@ function scanLigatureSegments(cells: GhosttyRenderCell[]): LigatureSegment[] {
   return segments;
 }
 
-export type { LigatureSegment };
+export type { LigatureSegment, SegmentColors };
 export { LIGATURE_CHARS, MAX_SEGMENT_LENGTH, scanLigatureSegments };

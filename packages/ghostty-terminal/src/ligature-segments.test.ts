@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import { MAX_SEGMENT_LENGTH, scanLigatureSegments } from './ligature-segments';
+import { MAX_SEGMENT_LENGTH, scanLigatureSegments as scan } from './ligature-segments';
 import type { GhosttyRenderCell, GhosttyRenderCellStyle } from './types';
+
+const COLORS = {
+  foreground: { r: 232, g: 232, b: 240 },
+  background: { r: 16, g: 16, b: 24 },
+};
+
+function scanLigatureSegments(cells: GhosttyRenderCell[]) {
+  return scan(cells, COLORS);
+}
 
 const BASE_STYLE: GhosttyRenderCellStyle = {
   bold: false,
@@ -88,6 +97,12 @@ describe('scanLigatureSegments', () => {
     const cells = makeCells('==');
     cells[1].widthKind = 'wide';
     expect(scanLigatureSegments(cells)).toEqual([]);
+  });
+
+  test('显式 RGB 与默认前景色相同时不断段', () => {
+    const cells = makeCells('=>');
+    cells[1].fgColor = { ...COLORS.foreground };
+    expect(scanLigatureSegments(cells).map((s) => s.text)).toEqual(['=>']);
   });
 
   test('超长符号串按上限切窗', () => {
