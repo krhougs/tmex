@@ -1,4 +1,5 @@
 import { type GlyphInk, resolveGlyphConstraint } from './glyph-constraint';
+import { type LigatureSegment, scanLigatureSegments } from './ligature-segments';
 import type {
   GhosttyCellDimensions,
   GhosttyColorRgb,
@@ -13,6 +14,7 @@ type CanvasRendererOptions = {
   theme: GhosttyTheme;
   fontFamily: string;
   fontSize: number;
+  ligatures?: boolean;
 };
 
 type CanvasRendererFrame = {
@@ -97,6 +99,7 @@ export class CanvasRenderer {
   private theme: GhosttyTheme;
   private readonly fontFamily: string;
   private readonly fontSize: number;
+  private readonly ligatures: boolean;
   private cellDimensions: GhosttyCellDimensions = { width: 9, height: 17 };
   // 设备像素整数 cell。所有绘制坐标必须落在整数物理像素上：相邻 fillRect 在
   // 小数边界各自抗锯齿半覆盖，叠加后边界像素覆盖不满，会在大面积色块中透出
@@ -127,6 +130,7 @@ export class CanvasRenderer {
     this.theme = options.theme;
     this.fontFamily = options.fontFamily;
     this.fontSize = options.fontSize;
+    this.ligatures = options.ligatures ?? false;
 
     options.screenElement.style.position = 'relative';
     options.screenElement.style.overflow = 'hidden';
@@ -429,6 +433,19 @@ export class CanvasRenderer {
     const y = row.y * this.deviceCellHeight;
     const lineThickness = Math.max(1, Math.round(this.dpr));
 
+    // 连字：同样式连续 ASCII 符号合并为段、整段一次 fillText，浏览器 shaping
+    // 才能拿到上下文触发 calt（=> -> != 等）。段首绘制全文，段内其余 cell 只画
+    // 装饰线。段起点按网格定位，段内亚像素漂移由段长上限压住。
+    const segments = this.ligatures ? scanLigatureSegments(row.cells) : [];
+    const segmentStarts = new Map<number, LigatureSegment>();
+    const segmentTails = new Set<number>();
+    for (const segment of segments) {
+      segmentStarts.set(segment.startIndex, segment);
+      for (let k = segment.startIndex + 1; k < segment.endIndex; k += 1) {
+        segmentTails.add(k);
+      }
+    }
+
     for (const [index, cell] of row.cells.entries()) {
       if (cell.widthKind === 'spacer-tail' || cell.widthKind === 'spacer-head') {
         continue;
@@ -451,7 +468,17 @@ export class CanvasRenderer {
         cell.codepoints.length === 1 && isBlockElement(cell.codepoints[0])
           ? cell.codepoints[0]
           : null;
-      if (blockCodepoint !== null) {
+      const segment = segmentStarts.get(index);
+      if (segment) {
+        this.mainContext.font = this.resolveFont(cell.style);
+        this.mainContext.fillText(
+          segment.text,
+          segment.startX * this.deviceCellWidth,
+          y + this.textBaselineY
+        );
+      } else if (segmentTails.has(index)) {
+        // 段内后续 cell：文本已随段首画出
+      } else if (blockCodepoint !== null) {
         this.drawBlockElement(blockCodepoint, x, y, cellWidth, this.deviceCellHeight);
       } else {
         this.drawCellText(cell, row.cells, index, x, y, cellWidth);

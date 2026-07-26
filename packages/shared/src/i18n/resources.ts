@@ -204,6 +204,8 @@ export const I18N_RESOURCES = {
         "fontSize": "Font Size",
         "lineHeight": "Line Height",
         "fontFamily": "Font",
+        "ligatures": "Ligatures",
+        "ligaturesDesc": "Render symbol sequences like => -> != as ligature glyphs (requires font support). When off, characters render individually.",
         "preview": "Preview",
         "savedInBrowser": "These settings are saved in this browser only.",
         "shortcuts": {
@@ -1214,6 +1216,8 @@ export const I18N_RESOURCES = {
         "fontSize": "字号",
         "lineHeight": "行高",
         "fontFamily": "字体",
+        "ligatures": "连字",
+        "ligaturesDesc": "将 => -> != 等符号序列渲染为连字字形（需字体支持）。关闭后逐字符渲染。",
         "preview": "预览",
         "savedInBrowser": "这些设置仅保存在当前浏览器中。",
         "shortcuts": {
@@ -2224,6 +2228,8 @@ export const I18N_RESOURCES = {
         "fontSize": "フォントサイズ",
         "lineHeight": "行の高さ",
         "fontFamily": "フォント",
+        "ligatures": "リガチャ",
+        "ligaturesDesc": "=> -> != などの記号列をリガチャとして描画します（フォントの対応が必要）。オフにすると 1 文字ずつ描画します。",
         "preview": "プレビュー",
         "savedInBrowser": "これらの設定はこのブラウザにのみ保存されます。",
         "shortcuts": {

@@ -79,6 +79,7 @@ export interface UIState {
   terminalFontSize: number;
   terminalLineHeight: number;
   terminalFontId: string;
+  terminalLigatures: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarSectionOpen: (section: SidebarSection, open: boolean) => void;
   expandSidebarSection: (section: SidebarSection) => void;
@@ -94,6 +95,7 @@ export interface UIState {
   setTerminalFontSize: (size: number) => void;
   setTerminalLineHeight: (height: number) => void;
   setTerminalFontId: (fontId: string) => void;
+  setTerminalLigatures: (enabled: boolean) => void;
 }
 
 export function createUIStore(core: Pick<RuntimeCore, 'storagePrefix'>) {
@@ -113,6 +115,7 @@ export function createUIStore(core: Pick<RuntimeCore, 'storagePrefix'>) {
         terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
         terminalLineHeight: DEFAULT_TERMINAL_LINE_HEIGHT,
         terminalFontId: DEFAULT_FONT_ID,
+        terminalLigatures: true,
 
         setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
         setSidebarSectionOpen: (section, open) =>
@@ -135,6 +138,7 @@ export function createUIStore(core: Pick<RuntimeCore, 'storagePrefix'>) {
         setTerminalFontSize: (size) => set({ terminalFontSize: size }),
         setTerminalLineHeight: (height) => set({ terminalLineHeight: height }),
         setTerminalFontId: (fontId) => set({ terminalFontId: fontId }),
+        setTerminalLigatures: (enabled) => set({ terminalLigatures: enabled }),
 
         addEditorHistory: (text) =>
           set((state) => ({
@@ -175,6 +179,7 @@ export function createUIStore(core: Pick<RuntimeCore, 'storagePrefix'>) {
           terminalFontSize: state.terminalFontSize,
           terminalLineHeight: state.terminalLineHeight,
           terminalFontId: state.terminalFontId,
+          terminalLigatures: state.terminalLigatures,
         }),
         merge: (persisted, current) => {
           const {

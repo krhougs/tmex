@@ -110,6 +110,15 @@
   --font-mono: GeistMonoTmex, NotoSansSymbols2Tmex, monospace;
 }
 
+/* DOM 侧等宽文本的连字随终端「连字」设置（useAppMonoFont 写入变量，默认开）。 */
+.font-mono,
+code,
+pre,
+kbd,
+samp {
+  font-variant-ligatures: var(--font-mono-ligatures, normal);
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;

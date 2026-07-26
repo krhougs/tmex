@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 export function useAppMonoFont(): void {
   const fontId = useUIStore((state) => state.terminalFontId);
   const fontSize = useUIStore((state) => state.terminalFontSize);
+  const ligatures = useUIStore((state) => state.terminalLigatures);
 
   useEffect(() => {
     // loadTerminalFonts 在首个 await 前已同步完成 @font-face 注入，
@@ -15,5 +16,7 @@ export function useAppMonoFont(): void {
     void loadTerminalFonts(fontId, fontSize);
     const doc = (globalThis as { document?: Document }).document;
     doc?.documentElement.style.setProperty('--font-mono', resolveFontStack(fontId));
-  }, [fontId, fontSize]);
+    // DOM 侧等宽文本（markdown 代码块、code-viewer 等）的连字随终端开关统一。
+    doc?.documentElement.style.setProperty('--font-mono-ligatures', ligatures ? 'normal' : 'none');
+  }, [fontId, fontSize, ligatures]);
 }

@@ -198,6 +198,8 @@
         "fontSize": "字号",
         "lineHeight": "行高",
         "fontFamily": "字体",
+        "ligatures": "连字",
+        "ligaturesDesc": "将 => -> != 等符号序列渲染为连字字形（需字体支持）。关闭后逐字符渲染。",
         "preview": "预览",
         "savedInBrowser": "这些设置仅保存在当前浏览器中。",
         "shortcuts": {

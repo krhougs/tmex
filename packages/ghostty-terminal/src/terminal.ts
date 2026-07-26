@@ -399,6 +399,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     textarea.style.boxShadow = 'none';
     textarea.style.fontFamily = this.options.fontFamily;
     textarea.style.fontSize = `${this.options.fontSize}px`;
+    // IME 组字预编辑文本走浏览器排版，连字开关需同步作用到这一层。
+    textarea.style.fontVariantLigatures = this.options.ligatures ? 'normal' : 'none';
     textarea.style.userSelect = 'text';
     textarea.style.webkitUserSelect = 'text';
 
@@ -442,6 +444,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       theme: this.options.theme,
       fontFamily: this.options.fontFamily,
       fontSize: this.options.fontSize,
+      ligatures: this.options.ligatures,
     });
 
     this.syncInputState();

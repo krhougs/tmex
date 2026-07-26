@@ -27,6 +27,8 @@ export interface GhosttyTerminalInitOptions {
   fontSize: number;
   /** 行高倍率（cell 高 = fontSize × lineHeight）。缺省走内置默认 1.2。 */
   lineHeight?: number;
+  /** 编程连字（=> -> != 等符号段整形）。缺省关闭。 */
+  ligatures?: boolean;
   scrollback: number;
   disableStdin?: boolean;
 }

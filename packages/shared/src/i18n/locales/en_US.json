@@ -198,6 +198,8 @@
         "fontSize": "Font Size",
         "lineHeight": "Line Height",
         "fontFamily": "Font",
+        "ligatures": "Ligatures",
+        "ligaturesDesc": "Render symbol sequences like => -> != as ligature glyphs (requires font support). When off, characters render individually.",
         "preview": "Preview",
         "savedInBrowser": "These settings are saved in this browser only.",
         "shortcuts": {

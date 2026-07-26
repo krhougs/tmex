@@ -3,12 +3,12 @@ import { loadTerminalFonts, resolveFontStack } from '@tmex/theme';
 import { cn } from '@tmex/ui';
 import { FitAddon, createTerminalController } from 'ghostty-terminal';
 import { useEffect, useRef } from 'react';
-import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
 import {
   reportTerminalDiagnostic,
   scheduleTerminalDiagnosticSamples,
   useTerminalDiagnosticsReporter,
 } from './terminal-diagnostics';
+import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from './theme';
 
 // 写死的预览内容：~10 行带 ANSI 颜色、含中文/符号/Nerd 图标的代码块，
 // 用于整体预览字号、字体、行高效果。\r\n 为终端换行。
@@ -33,6 +33,7 @@ export function TerminalPreview({ className }: { className?: string }) {
   const fontId = useUIStore((state) => state.terminalFontId);
   const fontSize = useUIStore((state) => state.terminalFontSize);
   const lineHeight = useUIStore((state) => state.terminalLineHeight);
+  const ligatures = useUIStore((state) => state.terminalLigatures);
   const theme = useUIStore((state) => state.theme);
   const terminalDiagnosticsReporter = useTerminalDiagnosticsReporter();
 
@@ -65,10 +66,7 @@ export function TerminalPreview({ className }: { className?: string }) {
       fontSize,
     });
 
-    reportTerminalDiagnostic(
-      terminalDiagnosticsReporter,
-      diagnosticArgs('mount', null)
-    );
+    reportTerminalDiagnostic(terminalDiagnosticsReporter, diagnosticArgs('mount', null));
 
     void (async () => {
       try {
@@ -84,15 +82,13 @@ export function TerminalPreview({ className }: { className?: string }) {
       if (cancelled || !mount) {
         return;
       }
-      reportTerminalDiagnostic(
-        terminalDiagnosticsReporter,
-        diagnosticArgs('fonts_ready', null)
-      );
+      reportTerminalDiagnostic(terminalDiagnosticsReporter, diagnosticArgs('fonts_ready', null));
       try {
         term = await createTerminalController({
           fontFamily,
           fontSize,
           lineHeight,
+          ligatures,
           scrollback: 100,
           theme: theme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK,
           disableStdin: true,
@@ -115,18 +111,12 @@ export function TerminalPreview({ className }: { className?: string }) {
       try {
         term.open(mount);
       } catch {
-        reportTerminalDiagnostic(
-          terminalDiagnosticsReporter,
-          diagnosticArgs('open_failed', term)
-        );
+        reportTerminalDiagnostic(terminalDiagnosticsReporter, diagnosticArgs('open_failed', term));
         term.dispose();
         term = null;
         return;
       }
-      reportTerminalDiagnostic(
-        terminalDiagnosticsReporter,
-        diagnosticArgs('opened', term)
-      );
+      reportTerminalDiagnostic(terminalDiagnosticsReporter, diagnosticArgs('opened', term));
       const fit = new FitAddon();
       term.loadAddon(fit);
       fitRef.current = fit;
@@ -144,16 +134,13 @@ export function TerminalPreview({ className }: { className?: string }) {
         terminalDiagnosticsReporter,
         diagnosticArgs('content_written', term)
       );
-      stopDiagnosticSamples = scheduleTerminalDiagnosticSamples(
-        terminalDiagnosticsReporter,
-        {
-          surface: 'preview',
-          terminal: term,
-          mount,
-          fontFamily,
-          fontSize,
-        }
-      );
+      stopDiagnosticSamples = scheduleTerminalDiagnosticSamples(terminalDiagnosticsReporter, {
+        surface: 'preview',
+        terminal: term,
+        mount,
+        fontFamily,
+        fontSize,
+      });
     })();
 
     return () => {
@@ -162,13 +149,7 @@ export function TerminalPreview({ className }: { className?: string }) {
       fitRef.current = null;
       term?.dispose();
     };
-  }, [
-    fontId,
-    fontSize,
-    lineHeight,
-    terminalDiagnosticsReporter,
-    theme,
-  ]);
+  }, [fontId, fontSize, ligatures, lineHeight, terminalDiagnosticsReporter, theme]);
 
   // 容器宽度变化时重新 fit（不重建控制器）
   useEffect(() => {

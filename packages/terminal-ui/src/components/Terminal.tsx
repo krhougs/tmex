@@ -189,6 +189,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const terminalFontId = useUIStore((state) => state.terminalFontId);
     const terminalFontSize = useUIStore((state) => state.terminalFontSize);
     const terminalLineHeight = useUIStore((state) => state.terminalLineHeight);
+    const terminalLigatures = useUIStore((state) => state.terminalLigatures);
     const { t } = useTranslation();
     const runtime = useRuntime();
     const terminalDiagnosticsReporter = useTerminalDiagnosticsReporter();
@@ -363,6 +364,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
               fontFamily,
               fontSize: terminalFontSize,
               lineHeight: terminalLineHeight,
+              ligatures: terminalLigatures,
               scrollback: TERMINAL_SCROLLBACK,
               theme: currentTerminalThemeRef.current,
               disableStdin: currentInputModeRef.current === 'editor',
@@ -530,6 +532,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       terminalDiagnosticsReporter,
       terminalFontId,
       terminalFontSize,
+      terminalLigatures,
       terminalLineHeight,
     ]);
 

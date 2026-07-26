@@ -207,6 +207,8 @@ export type TranslationKey =
   | 'settings.terminal.fontSize'
   | 'settings.terminal.lineHeight'
   | 'settings.terminal.fontFamily'
+  | 'settings.terminal.ligatures'
+  | 'settings.terminal.ligaturesDesc'
   | 'settings.terminal.preview'
   | 'settings.terminal.savedInBrowser'
   | 'settings.terminal.shortcuts'

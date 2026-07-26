@@ -5,6 +5,7 @@ import { FONT_MANIFEST, getFontEntry } from '@tmex/theme';
 import { cn } from '@tmex/ui';
 import { Input } from '@tmex/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@tmex/ui/select';
+import { Switch } from '@tmex/ui/switch';
 import { Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -58,6 +59,8 @@ export function TerminalSettingsPanel({
   const setTerminalLineHeight = useUIStore((state) => state.setTerminalLineHeight);
   const terminalFontId = useUIStore((state) => state.terminalFontId);
   const setTerminalFontId = useUIStore((state) => state.setTerminalFontId);
+  const terminalLigatures = useUIStore((state) => state.terminalLigatures);
+  const setTerminalLigatures = useUIStore((state) => state.setTerminalLigatures);
   const keyboardMode = useUIStore((state) => state.keyboardBehaviorMode);
   const setKeyboardMode = useUIStore((state) => state.setKeyboardBehaviorMode);
 
@@ -158,6 +161,20 @@ export function TerminalSettingsPanel({
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-sm font-medium">{t('settings.terminal.ligatures')}</span>
+          <span className="text-muted-foreground text-xs leading-snug">
+            {t('settings.terminal.ligaturesDesc')}
+          </span>
+        </span>
+        <Switch
+          checked={terminalLigatures}
+          data-testid="terminal-ligatures"
+          onCheckedChange={(checked) => setTerminalLigatures(Boolean(checked))}
+        />
       </div>
 
       <div className="space-y-2">
