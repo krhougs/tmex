@@ -7,7 +7,7 @@ PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/vendor/ghostty"
 TOOLS_DIR="$REPO_ROOT/.cache/tools"
-ZIG_VERSION="0.15.2"
+ZIG_VERSION="0.16.0"
 
 read_locked_ghostty_commit() {
   git -C "$REPO_ROOT" ls-tree HEAD vendor/ghostty | awk '{print $3}'
