@@ -1,3 +1,4 @@
+import { type GlyphInk, resolveGlyphConstraint } from './glyph-constraint';
 import type {
   GhosttyCellDimensions,
   GhosttyColorRgb,
@@ -118,6 +119,7 @@ export class CanvasRenderer {
   private lastDrawnRows: number[] = [];
   private readonly colorCache = new Map<string, string>();
   private readonly fontCache = new Map<string, string>();
+  private readonly glyphInkCache = new Map<string, GlyphInk | null>();
   private cursorBlinkVisible = true;
   private cursorBlinkTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -230,6 +232,7 @@ export class CanvasRenderer {
     this.cursorCanvas.remove();
     this.colorCache.clear();
     this.fontCache.clear();
+    this.glyphInkCache.clear();
     this.lastCursor = null;
     this.stopCursorBlink();
   }
@@ -426,7 +429,7 @@ export class CanvasRenderer {
     const y = row.y * this.deviceCellHeight;
     const lineThickness = Math.max(1, Math.round(this.dpr));
 
-    for (const cell of row.cells) {
+    for (const [index, cell] of row.cells.entries()) {
       if (cell.widthKind === 'spacer-tail' || cell.widthKind === 'spacer-head') {
         continue;
       }
@@ -451,8 +454,7 @@ export class CanvasRenderer {
       if (blockCodepoint !== null) {
         this.drawBlockElement(blockCodepoint, x, y, cellWidth, this.deviceCellHeight);
       } else {
-        this.mainContext.font = this.resolveFont(cell.style);
-        this.mainContext.fillText(cell.text, x, y + this.textBaselineY);
+        this.drawCellText(cell, row.cells, index, x, y, cellWidth);
       }
 
       // 装饰线随真实字形盒走，而非 cell 边缘：下划线贴字底、上划线贴字顶、
@@ -489,6 +491,61 @@ export class CanvasRenderer {
         );
       }
     }
+  }
+
+  // 非 ASCII 窄符号做宽度约束（对齐 ghostty .fit）：Iosevka Term 系字体的宽墨迹
+  // 符号（→ ⇒ — ※ 等）advance 1 格墨迹近 2 格，右邻有字时等比缩进本格避免重合；
+  // 右邻为空 cell 时放行溢出（保留字体设计的双格宽符号效果）。
+  private drawCellText(
+    cell: GhosttyRenderRow['cells'][number],
+    cells: GhosttyRenderRow['cells'],
+    index: number,
+    x: number,
+    y: number,
+    cellWidth: number
+  ): void {
+    const context = this.mainContext;
+    const font = this.resolveFont(cell.style);
+    context.font = font;
+    const baselineY = y + this.textBaselineY;
+
+    if (cell.widthKind === 'narrow' && cell.codepoints.length === 1 && cell.codepoints[0] > 0x7f) {
+      const ink = this.measureGlyphInk(font, cell.text);
+      if (ink) {
+        const next = cells[index + 1];
+        const nextEmpty = !next || !next.text || next.text === ' ';
+        const decision = resolveGlyphConstraint({
+          ink,
+          cellWidth,
+          maxInkWidth: nextEmpty ? cellWidth * 2 : cellWidth,
+        });
+        if (decision.mode === 'scale') {
+          context.save();
+          context.translate(x + decision.dx, baselineY);
+          context.scale(decision.scale, decision.scale);
+          context.fillText(cell.text, 0, 0);
+          context.restore();
+          return;
+        }
+      }
+    }
+
+    context.fillText(cell.text, x, baselineY);
+  }
+
+  private measureGlyphInk(font: string, text: string): GlyphInk | null {
+    const key = `${font}|${text}`;
+    const cached = this.glyphInkCache.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const metrics = this.mainContext.measureText(text);
+    const left = metrics.actualBoundingBoxLeft;
+    const right = metrics.actualBoundingBoxRight;
+    const ink = Number.isFinite(left) && Number.isFinite(right) ? { left, right } : null;
+    this.glyphInkCache.set(key, ink);
+    return ink;
   }
 
   // fillStyle 由调用方设好。分割点统一 round 到整数物理像素，相邻块元素的
