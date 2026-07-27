@@ -53,3 +53,21 @@
   3. 低：连字段样式比较未解析默认前景色，显式 RGB 与主题前景相同时误断段。
 - 三项全部采纳，整改于 tmex commit `2e3bb4e`（行末强制本格 + prevIsSymbol 收紧（isGraphicsElement 排除拼接类图形元素）+ styleKey 用解析后前景色）；渲染器视觉复验通过（连续箭头尺寸一致、行末箭头不裁切）；ghostty-terminal 129 tests 全绿。
 - 整改复验（codex 三点专项）：**PASS 零问题**——行末强制 1 格、spacer 物理列语义不误判、styleKey 解析色含 inverse/default 回落、行尾空白裁剪场景正确。
+
+## 后续缺陷修复（2026-07-27）：切换连字后终端清屏
+
+### 现象与根因
+
+用户实测切换连字开关后终端被清屏（只剩闪烁光标），刷新恢复。根因：设置变更（连字/字体/字号/行高）触发 Terminal.tsx 主 effect 分代重建（dispose + 新建 wasm 实例），新实例需要初始屏幕内容；atomic 协议（atomicScreen=true）有 requestPaneScreen 自愈路径，但 legacy 协议（atomicScreen=false，dev/当前生产 gateway 均为此）下原代码在初始内容 effect 里直接 return——初始内容依赖 gateway 在订阅/select/resize 时推送，重建不触发任何推送 → 新终端永远空白。字号切换被 resize→SIGWINCH→shell 重绘掩盖（但滚动历史其实一直会丢，为原有行为）。
+
+### 修复（tmex commit `2bc2bfe`，三端共享组件天然多端生效）
+
+初始屏 effect 扩成双协议：非首代（分代重建）时 legacy 也调用 `requestPaneScreen`。依据：legacy WebSocket transport 将 `request-pane-screen` 与 `request-pane-history` 均映射到 `buildTmuxFetchPaneHistory`（transport.ts:275-278），store 层已配好 history gate（缓冲 live→token 命中→reset+apply+flush）；首代仍跳过（首屏由挂载/选择流程负责，避免重复 capture）。新增 `hasBootedGenerationRef` 一个 ref 追踪首代。
+
+### 验证
+
+- Playwright（dev server legacy 协议实测）：连字 OFF→ON 双向切换，echo marker 内容两次均完整恢复（修复前空白）；字号 13→15 修复后多数情况历史保留。
+- 对照实验（临时禁用修复）：字号切换后历史全丢（只剩 SIGWINCH 重绘的 prompt）——证实字号路径丢历史为修复前原有行为，修复为改进而非回归。
+- terminal-ui 91 / stores 57 tests 全绿，tsc 无错。
+- **codex review：PASS**，两条低风险备注：① 无 Terminal 挂载级请求矩阵测试（挂载需完整 runtime+wasm mock，按仓库“不为覆盖率加测试”约定不补）；② retryNonce 首次失败边界（codex 自评不阻塞，runtime 与 Provider 同生命周期）。
+- 期间发现的另一问题：宿主仓双 React 实例白屏已由 tmex commit `17cd56a`（vite resolve.dedupe）修复。
