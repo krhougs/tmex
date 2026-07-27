@@ -41,7 +41,7 @@
 
 - 光标处不断连字段（tmex 光标为独立层底条不反色；ghostty `font-shaping-break=cursor` 语义不适用，实测有异议再补）。
 - 字母连字（www、fi/fl）不支持（与 ghostty 坏连字断点方向一致）。
-- WebKit 的 canvas calt 触发性未实测（Chromium 已证）；若 WebKit 不触发则连字自动降级为无连字，P2 修复不受影响。
+- ~~WebKit 的 canvas calt 触发性未实测~~ → **已实测通过（2026-07-27，Playwright WebKit）**：连字、约束缩放、行末/相邻符号规则与 Chromium 完全一致；量化确认 `'=>'` 整串墨迹满贯两格（partial ligature），calt 在 WebKit canvas 确实触发（见 `acceptance-webkit.png`）。Safari / iOS WebView 同内核。
 - 段长上限 8：亚像素漂移封顶（Zed/Fira 零漂移、Geist 0.1px/字符），超长符号串按窗口切分。
 
 ## codex review 记录
