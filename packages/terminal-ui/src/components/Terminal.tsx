@@ -220,6 +220,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const currentInputModeRef = useRef(inputMode);
     const currentTerminalThemeRef = useRef(terminalTheme);
     const initialScreenRequestedRef = useRef(false);
+    const hasBootedGenerationRef = useRef(false);
     const historyRequestInFlightRef = useRef(false);
     const historyRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -645,14 +646,18 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     }, [deviceId, mountPane, paneId]);
 
     useEffect(() => {
-      if (
-        !instance ||
-        !runtime.transport.capabilities.atomicScreen ||
-        initialScreenRequestedRef.current
-      ) {
+      if (!instance || initialScreenRequestedRef.current) {
         return;
       }
       initialScreenRequestedRef.current = true;
+      const isFirstGeneration = !hasBootedGenerationRef.current;
+      hasBootedGenerationRef.current = true;
+      // legacy 协议的首屏由挂载/选择流程推送（见 SplitTerminalArea），首代跳过以免重复拉取；
+      // 字体、连字等设置变更触发的分代重建拿不到任何推送，必须主动重拉当前屏幕
+      // （legacy transport 将 request-pane-screen 映射为 fetch-pane-history + reset gate）。
+      if (isFirstGeneration && !runtime.transport.capabilities.atomicScreen) {
+        return;
+      }
       requestPaneScreen(deviceId, paneId);
     }, [deviceId, instance, paneId, requestPaneScreen, runtime]);
 
