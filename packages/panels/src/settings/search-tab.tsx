@@ -9,7 +9,7 @@ import { useRuntime } from '@tmex/stores/react';
 import { Loader2, Save, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import {
   AlertDialog,

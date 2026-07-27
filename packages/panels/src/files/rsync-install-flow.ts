@@ -1,7 +1,7 @@
 import i18next from 'i18next';
 import type { AppRuntime } from '@tmex/stores';
 import { encodePaneIdForUrl, hostAppPath } from '@tmex/stores';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 const CONNECT_TIMEOUT_MS = 12_000;
 const WINDOW_TIMEOUT_MS = 12_000;

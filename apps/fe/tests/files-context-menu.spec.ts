@@ -187,16 +187,16 @@ test('files: 上传进行中的 toast 不自动消失、不可手动关闭、可
 
   const toast = page.getByTestId('transfer-toast');
   await expect(toast).toBeVisible();
-  // 工作态：用 sonner action 按钮做取消（右侧区域），且无 sonner 关闭按钮（closeButton:false）
+  // 工作态：用 toast action 按钮做取消（右侧区域），且无关闭按钮（closeButton:false）
   const cancelBtn = page.getByRole('button', { name: 'Cancel' });
   await expect(cancelBtn).toBeVisible();
-  await expect(page.locator('[data-sonner-toast] [data-close-button]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="app-toast"] button[aria-label="Close"]')).toHaveCount(0);
   // 不自动消失：等待后仍在；按 Escape 也不关闭
   await page.waitForTimeout(1500);
   await expect(toast).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(toast).toBeVisible();
-  // 取消按钮可用：点击后 toast 关闭（sonner action 触发 abort + deleteToast）
+  // 取消按钮可用：点击后 toast 关闭（action 触发 abort + dismiss）
   // 注：对 local 设备 + 极小文件，rsync 推送是瞬时原子操作，"取消能否阻止落盘"取决于
   // 取消时机与 Playwright 路由拦截语义，非本用例要断言的契约；这里只验证 UI 取消接线。
   await cancelBtn.click();

@@ -28,7 +28,7 @@ import { Card, CardContent } from '@tmex/ui/card';
 import { Monitor, Plus, Trash2 } from 'lucide-react';
 import { type Ref, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 import { DeviceCard } from './device-card';
 import { DeviceDialog } from './device-dialog';
 import { OPEN_ADD_DEVICE_EVENT } from './events';

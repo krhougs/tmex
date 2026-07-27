@@ -265,7 +265,7 @@ const defaultHost: HostServices = {
 // navigateToAppUrl 定义在 app-navigation.ts；直接 import 会与 runtime 无环（app-navigation 不依赖 runtime）
 import { navigateToAppUrl as navigateViaAppNavigation } from './app-navigation';
 
-// 默认通知出口：可变引用代理，宿主启动时注入实现（fe 注入 sonner 适配器）。
+// 默认通知出口：可变引用代理，宿主启动时注入实现（fe 注入统一 toast 适配器）。
 // 代理形态保证「先建默认 runtime、后注入实现」的顺序也能生效。
 const defaultSinkRef: { current: NotificationSink } = { current: noopNotificationSink };
 

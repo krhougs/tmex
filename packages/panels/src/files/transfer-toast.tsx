@@ -1,4 +1,4 @@
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import i18next from 'i18next';
 import type { LegProgress } from '@tmex/api-client';
@@ -36,8 +36,8 @@ function LegRow({ label, leg }: { label: string; leg: LegProgress }) {
   );
 }
 
-// 工作态内容：渲染在 sonner 默认卡片内，同时显示两段进度（leg1 / leg2）。
-// 取消按钮用 sonner 的 action（右侧区域），不在此自绘。
+// 工作态内容：渲染在统一 toast 卡片内，同时显示两段进度（leg1 / leg2）。
+// 取消按钮用 toast 的 action（右侧区域），不在此自绘。
 function WorkingBody({ m }: { m: ToastModel }) {
   return (
     <div className="flex w-full flex-col gap-2" data-testid="transfer-toast">
@@ -55,7 +55,7 @@ export interface TransferToast {
   cancel: () => void;
 }
 
-// 启动传输进度 Toast，复用 app 统一的 sonner 卡片样式，并同时展示两段进度条。
+// 启动传输进度 Toast，复用 app 统一的 toast 卡片样式，并同时展示两段进度条。
 // 工作态：duration:Infinity + dismissible:false + closeButton:false（不自动消失/不可手动关闭，
 // 仅取消按钮可终止）。完成 success 卡片（短暂后消失）；失败/取消 error 卡片（保留可关闭）。
 export function startTransferToast(
@@ -81,11 +81,8 @@ export function startTransferToast(
       duration: Number.POSITIVE_INFINITY,
       dismissible: false,
       closeButton: false,
-      // 取消用 sonner 的 action 按钮（位于卡片右侧区域）。注意：sonner 的 cancel 按钮在
-      // dismissible:false 时会被禁用（源码 `if (!dismissible) return`），故必须用 action。
+      // 取消用 toast 的 action 按钮（位于卡片右侧区域），dismissible:false 下仍可用。
       action: { label: i18next.t('files.transfer.cancel'), onClick: () => onCancel() },
-      // sonner 的 content 默认按内容宽度收缩 → 进度条不满；flex-1 让内容占满可用区域（取消按钮之外）
-      classNames: { content: 'flex-1' },
     });
   };
   renderWorking();

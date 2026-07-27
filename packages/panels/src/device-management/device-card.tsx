@@ -16,7 +16,7 @@ import {
 } from '@tmex/ui/dropdown-menu';
 import { Globe, Monitor, MoreHorizontal, Pencil, Trash2, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 import { DeviceStatusBadge } from '../device-status-badge';
 
 export interface DeviceCardProps {

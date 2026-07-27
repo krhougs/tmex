@@ -40,10 +40,6 @@ mock.module('i18next', () => {
   return { default: { changeLanguage, t: (k: string) => k } };
 });
 
-mock.module('sonner', () => ({
-  toast: mock(() => {}),
-}));
-
 const notificationsActual = await import('@tmex/notifications');
 mock.module('@tmex/notifications', () => ({
   ...notificationsActual,

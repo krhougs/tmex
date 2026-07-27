@@ -80,7 +80,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { matchPath, useLocation, useNavigate } from 'react-router';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 import { DeviceStatusBadge } from '../device-status-badge';
 import { WatchDialog } from '../watch/watch-dialog';
 import type { DeviceTreeNavigation, SidebarAgentAdapter } from './agent-adapter';

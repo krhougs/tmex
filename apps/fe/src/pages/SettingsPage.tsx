@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 import i18n from '../i18n';
 
 import { useSiteStore } from '@tmex/stores';

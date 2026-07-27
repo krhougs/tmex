@@ -3,7 +3,7 @@ import type { LlmProviderDto } from '@tmex/shared';
 import { Boxes, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import {
   AlertDialog,

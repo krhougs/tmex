@@ -20,7 +20,7 @@ import { Textarea } from '@tmex/ui/textarea';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 const TRIGGER_TYPES: WatchTriggerType[] = ['match', 'unchanged', 'llm'];
 const FOLLOW_DEFAULT_VALUE = '__default__';

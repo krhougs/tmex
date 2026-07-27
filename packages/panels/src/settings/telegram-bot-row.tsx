@@ -4,7 +4,7 @@ import { useRuntime } from '@tmex/stores/react';
 import { Pencil, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import { Button } from '@tmex/ui/button';
 import { Switch } from '@tmex/ui/switch';

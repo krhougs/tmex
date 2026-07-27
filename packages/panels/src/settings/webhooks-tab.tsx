@@ -4,7 +4,7 @@ import { toBCP47 } from '@tmex/shared';
 import { Loader2, Save, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import { useRuntime, useSiteStore } from '@tmex/stores/react';
 import { Button } from '@tmex/ui/button';

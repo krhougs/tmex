@@ -53,7 +53,7 @@ import {
 } from 'lucide-react';
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 const ACTION_META: { action: TerminalShortcutAction; icon: LucideIcon }[] = [
   { action: 'paste', icon: ClipboardPaste },

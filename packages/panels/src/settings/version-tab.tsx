@@ -4,7 +4,7 @@ import { toBCP47 } from '@tmex/shared';
 import { AlertTriangle, Download, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import { MarkdownPreview } from '../markdown/markdown-preview';
 import { useRuntime, useSiteStore } from '@tmex/stores/react';

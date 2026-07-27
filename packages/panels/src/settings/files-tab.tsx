@@ -9,7 +9,7 @@ import type {
 import { Globe, Loader2, Monitor, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 
 import {
   type ApiClient,

@@ -145,7 +145,7 @@ test.describe.serial('watch rules', () => {
     // 让 token 出现在屏幕上，等待 watch service 下一次采样命中并广播
     tmux(`send-keys -t ${paneId} "echo ${token}" Enter`);
 
-    const toast = page.locator('[data-sonner-toast]').filter({ hasText: ruleName });
+    const toast = page.locator('[data-testid="app-toast"]').filter({ hasText: ruleName });
     await expect(toast).toBeVisible({ timeout: 30_000 });
   });
 });

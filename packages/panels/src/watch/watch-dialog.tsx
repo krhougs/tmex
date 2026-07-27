@@ -32,7 +32,7 @@ import { Switch } from '@tmex/ui/switch';
 import { Activity, ArrowLeft, Bell, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 import { WatchRuleForm } from './watch-rule-form';
 
 type DialogView =
