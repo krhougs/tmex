@@ -71,3 +71,9 @@
 - terminal-ui 91 / stores 57 tests 全绿，tsc 无错。
 - **codex review：PASS**，两条低风险备注：① 无 Terminal 挂载级请求矩阵测试（挂载需完整 runtime+wasm mock，按仓库“不为覆盖率加测试”约定不补）；② retryNonce 首次失败边界（codex 自评不阻塞，runtime 与 Provider 同生命周期）。
 - 期间发现的另一问题：宿主仓双 React 实例白屏已由 tmex commit `17cd56a`（vite resolve.dedupe）修复。
+
+### 多端实测（2026-07-27，canonical 协议面）
+
+- **vibex webapp**（本 worktree vite dev :8793 → `.180` 权威 test relay，`VIBEX_DEV_AUTH` session/exchange 注入 `vibex:session`，临时 reassign `vibex-dev-3` 给 dev user、测毕已归还原 owner）：Playwright 实测 echo marker → 终端设置 sheet 切连字 OFF→ON 双向，buffer 内容三次采样全部保留，零 pageerror。
+- **iOS 模拟器 App**（`build-ios-simulator-dev.sh` 注入 .180/.171 test host、worktree vendor/tmex 含修复；vibex-test-ios26 / iOS 26.5，保留登录态覆盖安装；idb 驱动 UI）：`vibex-dev-1@tmex` 终端 marker 内容在切连字 OFF→ON 双向后完整保留，光标正常。
+- 两端均走 relay canonical（atomicScreen）路径，验证 atomic 自愈重拉在设置重建后正常；legacy 路径已在 tmex dev server 实测（本文上节）。三端（tmex fe legacy / vibex webapp canonical / vibex iOS App canonical）全部通过。
