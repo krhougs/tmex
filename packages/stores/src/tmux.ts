@@ -43,7 +43,10 @@ export interface TmuxState {
   deviceReconnecting: Record<string, DeviceReconnecting | undefined>;
   selectedPanes: Record<string, { windowId: string; paneId: string } | undefined>;
   activePaneFromEvent: Record<string, { windowId: string; paneId: string } | undefined>;
-  pendingCreateWindowAt: Record<string, number | undefined>;
+  pendingCreateWindow: Record<
+    string,
+    { at: number; knownWindowIds: string[] | null } | undefined
+  >;
 
   ensureSocketConnected: () => void;
   connectDevice: (deviceId: string) => void;
@@ -564,7 +567,7 @@ export function createTmuxStore(
     deviceReconnecting: {},
     selectedPanes: {},
     activePaneFromEvent: {},
-    pendingCreateWindowAt: {},
+    pendingCreateWindow: {},
 
     ensureSocketConnected() {
       setupTransportHandlers(set, get);
@@ -699,18 +702,30 @@ export function createTmuxStore(
     createWindow(deviceId, name, cwd) {
       if (!deviceId) return;
       core.transport.send({ type: 'create-window', deviceId, name, cwd });
-      set((prev) => ({
-        pendingCreateWindowAt: { ...prev.pendingCreateWindowAt, [deviceId]: Date.now() },
-      }));
+      set((prev) => {
+        // 记录创建时刻已存在的 window id，后续只跟随「新出现」的窗口，
+        // 避免陈旧快照的 active 把跳转带到无关窗口。
+        // 快照尚未就绪时记 null（基线未知），跟随方退回 active 兜底。
+        const windows = prev.snapshots[deviceId]?.session?.windows;
+        return {
+          pendingCreateWindow: {
+            ...prev.pendingCreateWindow,
+            [deviceId]: {
+              at: Date.now(),
+              knownWindowIds: windows ? windows.map((win) => win.id) : null,
+            },
+          },
+        };
+      });
     },
 
     clearPendingCreateWindow(deviceId) {
       if (!deviceId) return;
       set((prev) => {
-        if (prev.pendingCreateWindowAt[deviceId] === undefined) return prev;
-        const next = { ...prev.pendingCreateWindowAt };
+        if (prev.pendingCreateWindow[deviceId] === undefined) return prev;
+        const next = { ...prev.pendingCreateWindow };
         delete next[deviceId];
-        return { pendingCreateWindowAt: next };
+        return { pendingCreateWindow: next };
       });
     },
 

@@ -38,7 +38,7 @@ import { Loader2, SearchX, Send, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import { toast } from 'sonner';
+import { toast } from '@tmex/ui/toast';
 import { DeviceStatusBadge } from '../device-status-badge';
 import { ShortcutButtonRow } from '../settings/ShortcutButtonRow';
 import {
@@ -49,6 +49,7 @@ import {
 // URL 目标未出现在快照时的失效判定/回落宽限：覆盖 select 状态机 ackTimeoutMs(1500ms) + 快照传播。
 const SELECT_SETTLE_GRACE_MS = 2500;
 const REMOTE_PANE_SIZE_GUARD_TTL_MS = 2000;
+const CREATE_WINDOW_FOLLOW_TTL_MS = 5000;
 
 // 终端快捷键栏：从服务器配置渲染（send 类发送控制序列，action 类触发特殊动作）。
 const ShortcutsBar = memo(function ShortcutsBar({
@@ -556,6 +557,9 @@ export function DeviceConsole({
   ]);
 
   // Auto-select pane on initial load only
+  const pendingCreateWindow = useTmuxStore((state) =>
+    deviceId ? state.pendingCreateWindow[deviceId] : undefined
+  );
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceConnected) return;
@@ -564,6 +568,11 @@ export function DeviceConsole({
     if (windowId) return;
     // If autoSelect already done, skip
     if (autoSelected.current) return;
+    // A user-initiated createWindow is in flight: hold off the default
+    // selection so the create-follow effect can target the new window first.
+    if (pendingCreateWindow && Date.now() - pendingCreateWindow.at <= CREATE_WINDOW_FOLLOW_TTL_MS) {
+      return;
+    }
 
     const target = resolveDeviceDefaultSelection({ windows });
     if (!target) return;
@@ -576,7 +585,16 @@ export function DeviceConsole({
       ),
       { replace: true }
     );
-  }, [deviceConnected, deviceId, navigate, resolvedPaneId, runtime.host, windowId, windows]);
+  }, [
+    deviceConnected,
+    deviceId,
+    navigate,
+    pendingCreateWindow,
+    resolvedPaneId,
+    runtime.host,
+    windowId,
+    windows,
+  ]);
 
   const recentSelectRequestsRef = useRef<Array<{ windowId: string; paneId: string; at: number }>>(
     []
@@ -843,37 +861,44 @@ export function DeviceConsole({
     serverSelection,
   ]);
 
-  // Force-follow snapshot active after a user-initiated createWindow.
-  // Wait for a snapshot whose active differs from the URL (proving the new
-  // window is reflected), then navigate there.
-  const pendingCreateWindowAt = useTmuxStore((state) =>
-    deviceId ? state.pendingCreateWindowAt[deviceId] : undefined
-  );
+  // Follow the newly created window after a user-initiated createWindow.
+  // Only a window that was NOT present when createWindow was issued counts —
+  // a stale snapshot's active window must never consume the pending marker.
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceConnected) return;
-    if (!pendingCreateWindowAt) return;
+    if (!pendingCreateWindow) return;
 
-    const ttlMs = 5000;
-    const elapsed = Date.now() - pendingCreateWindowAt;
-    if (elapsed > ttlMs) {
+    const elapsed = Date.now() - pendingCreateWindow.at;
+    if (elapsed > CREATE_WINDOW_FOLLOW_TTL_MS) {
       runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
       return;
     }
 
-    if (!snapshotActiveSelection) {
+    // Baseline unknown (no snapshot when createWindow was issued): fall back to
+    // following the snapshot's active window — tmux makes the created window
+    // active, and without a baseline there is nothing to diff against.
+    const knownIds =
+      pendingCreateWindow.knownWindowIds === null
+        ? null
+        : new Set(pendingCreateWindow.knownWindowIds);
+    const createdWindow = knownIds
+      ? windows?.find((win) => !knownIds.has(win.id) && win.panes.length > 0)
+      : windows?.find((win) => win.active && win.panes.length > 0);
+    if (!createdWindow) {
+      // New window not reflected in the snapshot yet; keep waiting until TTL.
       const timer = window.setTimeout(() => {
         runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
-      }, ttlMs - elapsed);
+      }, CREATE_WINDOW_FOLLOW_TTL_MS - elapsed);
       return () => window.clearTimeout(timer);
     }
 
-    const target = snapshotActiveSelection;
+    const targetPane =
+      createdWindow.panes.find((pane) => pane.active) ?? createdWindow.panes[0];
+    const target = { windowId: createdWindow.id, paneId: targetPane.id };
+    runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
     if (windowId === target.windowId && resolvedPaneId === target.paneId) {
-      const timer = window.setTimeout(() => {
-        runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
-      }, ttlMs - elapsed);
-      return () => window.clearTimeout(timer);
+      return;
     }
 
     userInitiatedSelectionRef.current = {
@@ -891,12 +916,11 @@ export function DeviceConsole({
       ),
       { replace: true }
     );
-    runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
   }, [
     deviceId,
     deviceConnected,
-    pendingCreateWindowAt,
-    snapshotActiveSelection,
+    pendingCreateWindow,
+    windows,
     windowId,
     resolvedPaneId,
     recordSelectRequest,
