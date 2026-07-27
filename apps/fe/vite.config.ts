@@ -48,6 +48,9 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
+      // 宿主仓（如 vibex）把本仓挂为 workspace 成员时，宿主根与本仓各有一套
+      // react 安装，混合解析会触发 Invalid hook call 白屏；强制去重到单实例。
+      dedupe: ['react', 'react-dom'],
     },
     server: {
       port: fePort,
