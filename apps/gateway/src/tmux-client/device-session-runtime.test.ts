@@ -70,6 +70,7 @@ function createStubConnectionRecorder() {
     },
     createWindow(name) {
       state.createWindowCalls.push([name]);
+      return Promise.resolve('@2');
     },
     closeWindow(windowId) {
       state.closeWindowCalls.push(windowId);

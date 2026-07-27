@@ -91,6 +91,7 @@ export type GatewayTransportEvent =
   | { type: 'latency'; latencyMs: number }
   | { type: 'terminal-progress'; deviceId?: string }
   | { type: 'device-connected'; deviceId: string }
+  | { type: 'window-created'; deviceId: string; windowId: string }
   | { type: 'device-disconnected'; deviceId: string }
   | { type: 'device-event'; event: EventDevicePayload }
   | { type: 'metadata-snapshot'; snapshot: StateSnapshotPayload }
@@ -396,6 +397,15 @@ export class WebSocketGatewayTransport implements GatewayTransport {
       case wsBorsh.KIND_DEVICE_CONNECTED: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.DeviceConnectedSchema, payload);
         this.emit({ type: 'device-connected', deviceId: decoded.deviceId });
+        return;
+      }
+      case wsBorsh.KIND_TMUX_WINDOW_CREATED: {
+        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxWindowCreatedSchema, payload);
+        this.emit({
+          type: 'window-created',
+          deviceId: decoded.deviceId,
+          windowId: decoded.windowId,
+        });
         return;
       }
       case wsBorsh.KIND_DEVICE_DISCONNECTED: {

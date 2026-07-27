@@ -49,7 +49,7 @@ import {
 // URL 目标未出现在快照时的失效判定/回落宽限：覆盖 select 状态机 ackTimeoutMs(1500ms) + 快照传播。
 const SELECT_SETTLE_GRACE_MS = 2500;
 const REMOTE_PANE_SIZE_GUARD_TTL_MS = 2000;
-const CREATE_WINDOW_FOLLOW_TTL_MS = 5000;
+const CREATE_WINDOW_FOLLOW_TTL_MS = 15000;
 
 // 终端快捷键栏：从服务器配置渲染（send 类发送控制序列，action 类触发特殊动作）。
 const ShortcutsBar = memo(function ShortcutsBar({
@@ -875,16 +875,20 @@ export function DeviceConsole({
       return;
     }
 
-    // Baseline unknown (no snapshot when createWindow was issued): fall back to
-    // following the snapshot's active window — tmux makes the created window
-    // active, and without a baseline there is nothing to diff against.
+    // Preferred: the gateway acked the exact created window id — follow it as
+    // soon as it shows up in the snapshot. Fallback (older gateways without the
+    // ack frame): diff against the known-window baseline; with no baseline,
+    // follow the snapshot's active window.
     const knownIds =
       pendingCreateWindow.knownWindowIds === null
         ? null
         : new Set(pendingCreateWindow.knownWindowIds);
-    const createdWindow = knownIds
-      ? windows?.find((win) => !knownIds.has(win.id) && win.panes.length > 0)
-      : windows?.find((win) => win.active && win.panes.length > 0);
+    const ackedWindowId = pendingCreateWindow.createdWindowId;
+    const createdWindow = ackedWindowId
+      ? windows?.find((win) => win.id === ackedWindowId && win.panes.length > 0)
+      : knownIds
+        ? windows?.find((win) => !knownIds.has(win.id) && win.panes.length > 0)
+        : windows?.find((win) => win.active && win.panes.length > 0);
     if (!createdWindow) {
       // New window not reflected in the snapshot yet; keep waiting until TTL.
       const timer = window.setTimeout(() => {

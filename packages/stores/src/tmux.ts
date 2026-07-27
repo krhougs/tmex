@@ -45,7 +45,13 @@ export interface TmuxState {
   activePaneFromEvent: Record<string, { windowId: string; paneId: string } | undefined>;
   pendingCreateWindow: Record<
     string,
-    { at: number; knownWindowIds: string[] | null } | undefined
+    | {
+        at: number;
+        knownWindowIds: string[] | null;
+        queued?: { name?: string; cwd?: string };
+        createdWindowId?: string;
+      }
+    | undefined
   >;
 
   ensureSocketConnected: () => void;
@@ -264,6 +270,22 @@ export function createTmuxStore(
         case 'terminal-progress':
           core.selectMachine().reportTerminalProgress(event.deviceId);
           return;
+        case 'window-created':
+          setState((prev) => {
+            const pendingCreate = prev.pendingCreateWindow[event.deviceId];
+            if (!pendingCreate) return {};
+            return {
+              pendingCreateWindow: {
+                ...prev.pendingCreateWindow,
+                [event.deviceId]: {
+                  ...pendingCreate,
+                  queued: undefined,
+                  createdWindowId: event.windowId,
+                },
+              },
+            };
+          });
+          return;
         case 'device-connected':
           setState((prev) => ({
             deviceConnected: { ...prev.deviceConnected, [event.deviceId]: true },
@@ -289,14 +311,37 @@ export function createTmuxStore(
             }
           }
           return;
-        case 'metadata-snapshot':
+        case 'metadata-snapshot': {
           setState((prev) => ({
             snapshots: {
               ...prev.snapshots,
               [event.snapshot.deviceId]: event.snapshot,
             },
           }));
+          const snapshotDeviceId = event.snapshot.deviceId;
+          const pendingCreate = getState().pendingCreateWindow[snapshotDeviceId];
+          if (pendingCreate?.queued) {
+            // 排队的 create-window：设备首份快照 = 连接就绪，此刻补发，
+            // 并用该快照重置基线（此前基线未知）。
+            core.transport.send({
+              type: 'create-window',
+              deviceId: snapshotDeviceId,
+              name: pendingCreate.queued.name,
+              cwd: pendingCreate.queued.cwd,
+            });
+            setState((prev) => ({
+              pendingCreateWindow: {
+                ...prev.pendingCreateWindow,
+                [snapshotDeviceId]: {
+                  at: Date.now(),
+                  knownWindowIds:
+                    event.snapshot.session?.windows?.map((win) => win.id) ?? [],
+                },
+              },
+            }));
+          }
           return;
+        }
         case 'metadata-patch':
           setState((prev) => {
             const current = prev.snapshots[event.deviceId];
@@ -701,7 +746,16 @@ export function createTmuxStore(
 
     createWindow(deviceId, name, cwd) {
       if (!deviceId) return;
-      core.transport.send({ type: 'create-window', deviceId, name, cwd });
+      // 设备通道未就绪（WS 未连或该设备尚无快照）时不能直接发：gateway 侧
+      // 无连接 entry 会静默丢弃。先 connectDevice 并入队，待该设备首份快照
+      // 到达后补发（见 metadata-snapshot 分支）。
+      const canSendNow =
+        core.transport.isReady() && get().snapshots[deviceId]?.session !== undefined;
+      if (canSendNow) {
+        core.transport.send({ type: 'create-window', deviceId, name, cwd });
+      } else {
+        get().connectDevice(deviceId);
+      }
       set((prev) => {
         // 记录创建时刻已存在的 window id，后续只跟随「新出现」的窗口，
         // 避免陈旧快照的 active 把跳转带到无关窗口。
@@ -713,6 +767,7 @@ export function createTmuxStore(
             [deviceId]: {
               at: Date.now(),
               knownWindowIds: windows ? windows.map((win) => win.id) : null,
+              queued: canSendNow ? undefined : { name, cwd },
             },
           },
         };

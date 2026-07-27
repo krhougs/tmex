@@ -82,6 +82,9 @@ function respondToPayload(
   ) {
     return { stdout: '', exitCode: 0 };
   }
+  if (payload.includes(`'new-window' '-P' '-F' '#{window_id}' '-t' '${session}' '-c'`)) {
+    return { stdout: '@2\n', exitCode: 0 };
+  }
   if (
     payload.includes(`'last-window' '-t' '${session}'`) ||
     payload.includes("'kill-window' '-t' '@99'")
@@ -881,7 +884,7 @@ describe('SshExternalTmuxConnection', () => {
 
     expect(
       writes.some((payload) =>
-        payload.includes(`'new-window' '-t' '${session}' '-c' '/home/alice'`)
+        payload.includes(`'new-window' '-P' '-F' '#{window_id}' '-t' '${session}' '-c' '/home/alice'`)
       )
     ).toBe(true);
 
@@ -912,7 +915,7 @@ describe('SshExternalTmuxConnection', () => {
     expect(
       writes.some(
         (payload) =>
-          payload.includes(`'new-window' '-t' '${session}' '-c' '/custom/remote/path'`) &&
+          payload.includes(`'new-window' '-P' '-F' '#{window_id}' '-t' '${session}' '-c' '/custom/remote/path'`) &&
           payload.includes("'-n' 'test-win'")
       )
     ).toBe(true);

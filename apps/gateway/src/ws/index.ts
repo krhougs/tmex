@@ -478,6 +478,7 @@ export class WebSocketServer {
       case wsBorsh.KIND_TMUX_CREATE_WINDOW: {
         const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
         this.handleCreateWindow(
+          ws,
           decoded.deviceId,
           decoded.name ?? undefined,
           decoded.cwd ?? undefined
@@ -996,10 +997,27 @@ export class WebSocketServer {
     }
   }
 
-  private handleCreateWindow(deviceId: string, name?: string, cwd?: string): void {
+  // 创建成功后向发起方回执新 window id（KIND_TMUX_WINDOW_CREATED），
+  // 客户端无需通过快照 diff 推断新窗口。
+  private handleCreateWindow(
+    ws: ServerWebSocket<ClientState>,
+    deviceId: string,
+    name?: string,
+    cwd?: string
+  ): void {
     const entry = this.connections.get(deviceId);
     if (!entry) return;
-    entry.runtime.createWindow(name, cwd);
+    void entry.runtime
+      .createWindow(name, cwd)
+      .then((windowId) => {
+        if (!windowId) return;
+        this.sendEnvelope(
+          ws,
+          wsBorsh.KIND_TMUX_WINDOW_CREATED,
+          wsBorsh.encodePayload(wsBorsh.schema.TmuxWindowCreatedSchema, { deviceId, windowId })
+        );
+      })
+      .catch(() => undefined);
   }
 
   private handleCloseWindow(deviceId: string, windowId: string): void {

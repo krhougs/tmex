@@ -85,6 +85,9 @@ function createRunStub(
     ) {
       return ok();
     }
+    if (command.startsWith(`new-window -P -F #{window_id} -t ${session} -c `)) {
+      return ok('@2\n');
+    }
     if (command === `last-window -t ${session}` || command === 'kill-window -t @99') {
       return ok();
     }

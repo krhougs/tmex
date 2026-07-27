@@ -337,13 +337,16 @@ export class SshExternalTmuxConnection {
     });
   }
 
-  createWindow(name?: string, cwd?: string): void {
+  async createWindow(name?: string, cwd?: string): Promise<string | null> {
     if (!this.connected) {
-      return;
+      return null;
     }
 
     const argv = [
       'new-window',
+      '-P',
+      '-F',
+      '#{window_id}',
       '-t',
       this.sessionName,
       '-c',
@@ -352,9 +355,14 @@ export class SshExternalTmuxConnection {
     if (name) {
       argv.push('-n', name);
     }
-    void this.runAndRefresh(argv).catch((error) => {
-      this.callbacks.onError(error);
-    });
+    try {
+      const windowId = (await this.runTmux(argv)).stdout.trim();
+      await this.requestSnapshotInternal();
+      return /^@\d+$/.test(windowId) ? windowId : null;
+    } catch (error) {
+      this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      return null;
+    }
   }
 
   closeWindow(windowId: string): void {
