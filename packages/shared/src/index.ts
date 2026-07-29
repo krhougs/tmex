@@ -489,6 +489,7 @@ export interface TmuxBellEventData {
   paneUrl?: string;
   paneTitle?: string;
   paneCurrentCommand?: string;
+  paneCurrentPath?: string;
 }
 
 export type NotificationSource = 'osc9' | 'osc99' | 'osc777' | 'osc1337';
@@ -504,6 +505,7 @@ export interface TmuxNotificationEventData {
   paneUrl?: string;
   paneTitle?: string;
   paneCurrentCommand?: string;
+  paneCurrentPath?: string;
 }
 
 export type TmuxEventType =
@@ -585,6 +587,7 @@ export interface WebhookEvent {
     paneUrl?: string;
     paneTitle?: string;
     paneCurrentCommand?: string;
+    paneCurrentPath?: string;
   };
   payload?: Record<string, unknown>;
 }

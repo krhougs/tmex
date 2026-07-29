@@ -632,6 +632,7 @@ export type TranslationKey =
   | 'notification.message'
   | 'notification.paneTitle'
   | 'notification.process'
+  | 'notification.currentPath'
   | 'notification.telegramBell'
   | 'notification.telegramBell.title'
   | 'notification.telegramBell.viewLink'

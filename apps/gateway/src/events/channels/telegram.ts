@@ -75,6 +75,11 @@ export class TelegramChannel implements NotificationChannel {
         `${escapeTelegramHtmlText(t('notification.process'))}：${escapeTelegramHtmlText(event.tmux.paneCurrentCommand)}`
       );
     }
+    if (event.tmux?.paneCurrentPath) {
+      lines.push(
+        `${escapeTelegramHtmlText(t('notification.currentPath'))}：${escapeTelegramHtmlText(event.tmux.paneCurrentPath)}`
+      );
+    }
     return lines;
   }
 

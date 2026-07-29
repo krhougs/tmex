@@ -642,6 +642,7 @@
       "message": "Message",
       "paneTitle": "Title",
       "process": "Process",
+      "currentPath": "Directory",
       "telegramBell": {
         "title": "🔔 Bell from {{siteName}}: {{terminalTopbarLabel}}",
         "viewLink": "Click to view",

@@ -16,6 +16,7 @@ export type PaneLocationContext = Pick<
   | 'paneUrl'
   | 'paneTitle'
   | 'paneCurrentCommand'
+  | 'paneCurrentPath'
 >;
 
 function pickPaneById(
@@ -85,8 +86,10 @@ export function resolvePaneContext(options: ResolvePaneContextOptions): PaneLoca
     windowIndex: targetWindow?.index,
     paneIndex: targetPane?.index,
     paneUrl,
-    // 标题/进程跟随实际解析到的 pane（与 paneIndex/paneUrl 同源），快照缺失则留空
-    paneTitle: targetPane?.title,
+    // 标题/进程/路径跟随实际解析到的 pane（与 paneIndex/paneUrl 同源），快照缺失则留空；
+    // 标题与前端展示一致：用户改名（customName）优先于 OSC 标题
+    paneTitle: targetPane?.customName ?? targetPane?.title,
     paneCurrentCommand: targetPane?.currentCommand,
+    paneCurrentPath: targetPane?.currentPath,
   };
 }

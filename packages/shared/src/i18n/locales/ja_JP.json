@@ -642,6 +642,7 @@
       "message": "メッセージ",
       "paneTitle": "タイトル",
       "process": "プロセス",
+      "currentPath": "ディレクトリ",
       "telegramBell": {
         "title": "🔔 {{siteName}} からのベル：{{terminalTopbarLabel}}",
         "viewLink": "表示",

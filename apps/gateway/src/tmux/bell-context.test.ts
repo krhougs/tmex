@@ -29,7 +29,9 @@ function createSnapshot(): StateSnapshotPayload {
               windowId: '@1',
               index: 1,
               title: 'second',
+              customName: 'renamed',
               currentCommand: 'vim',
+              currentPath: '/home/dev/project',
               active: true,
               width: 80,
               height: 24,
@@ -76,8 +78,9 @@ describe('resolvePaneContext', () => {
       windowIndex: 0,
       paneIndex: 1,
       paneUrl: 'https://tmex.example.com/devices/device-1/windows/%401/panes/%2512',
-      paneTitle: 'second',
+      paneTitle: 'renamed',
       paneCurrentCommand: 'vim',
+      paneCurrentPath: '/home/dev/project',
     });
   });
 

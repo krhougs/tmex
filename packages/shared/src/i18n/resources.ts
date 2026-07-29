@@ -648,6 +648,7 @@ export const I18N_RESOURCES = {
       "message": "Message",
       "paneTitle": "Title",
       "process": "Process",
+      "currentPath": "Directory",
       "telegramBell": {
         "title": "🔔 Bell from {{siteName}}: {{terminalTopbarLabel}}",
         "viewLink": "Click to view",
@@ -1661,6 +1662,7 @@ export const I18N_RESOURCES = {
       "message": "信息",
       "paneTitle": "标题",
       "process": "进程",
+      "currentPath": "目录",
       "telegramBell": {
         "title": "🔔 来自 {{siteName}} 的 Bell：{{terminalTopbarLabel}}",
         "viewLink": "点击查看",
@@ -2674,6 +2676,7 @@ export const I18N_RESOURCES = {
       "message": "メッセージ",
       "paneTitle": "タイトル",
       "process": "プロセス",
+      "currentPath": "ディレクトリ",
       "telegramBell": {
         "title": "🔔 {{siteName}} からのベル：{{terminalTopbarLabel}}",
         "viewLink": "表示",

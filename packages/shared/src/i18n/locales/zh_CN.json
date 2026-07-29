@@ -642,6 +642,7 @@
       "message": "信息",
       "paneTitle": "标题",
       "process": "进程",
+      "currentPath": "目录",
       "telegramBell": {
         "title": "🔔 来自 {{siteName}} 的 Bell：{{terminalTopbarLabel}}",
         "viewLink": "点击查看",
