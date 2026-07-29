@@ -165,6 +165,7 @@ export type TranslationKey =
   | 'terminal.copy'
   | 'terminal.paste'
   | 'terminal.copied'
+  | 'terminal.copiedPreview'
   | 'terminal.copyFailed'
   | 'terminal.pasteFailed'
   | 'terminal.clearSelection'

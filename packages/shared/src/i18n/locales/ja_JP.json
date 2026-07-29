@@ -154,6 +154,7 @@
       "copy": "コピー",
       "paste": "貼り付け",
       "copied": "クリップボードにコピーしました",
+      "copiedPreview": "コピーしました:{{preview}}",
       "copyFailed": "コピーに失敗しました",
       "pasteFailed": "クリップボードを読み取れません。ブラウザの権限を確認してください",
       "clearSelection": "選択を解除",

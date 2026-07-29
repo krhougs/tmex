@@ -515,6 +515,24 @@ describe('pane stream parser - OSC 52 clipboard', () => {
     expect(writes).toEqual(['hello']);
   });
 
+  test('dedupes bare + passthrough duplicate of the same copy', () => {
+    const { parser, writes } = collectClipboard();
+    // 同一次复制的两份形态背靠背（如 Claude Code）：只透传一次
+    parser.push(bytes(0x1b, ']', '52;c;aGVsbG8=', 0x07));
+    parser.push(
+      bytes(0x1b, 'Ptmux;', 0x1b, 0x1b, ']52;c;aGVsbG8=', 0x07, 0x1b, 0x5c)
+    );
+    expect(writes).toEqual(['hello']);
+  });
+
+  test('different contents in quick succession are not suppressed', () => {
+    const { parser, writes } = collectClipboard();
+    parser.push(bytes(0x1b, ']', '52;c;aGVsbG8=', 0x07));
+    parser.push(bytes(0x1b, ']', '52;c;d29ybGQ=', 0x07));
+    parser.push(bytes(0x1b, ']', '52;c;aGVsbG8=', 0x07));
+    expect(writes).toEqual(['hello', 'world', 'hello']);
+  });
+
   test('cross-push split OSC 52 sequence', () => {
     const { parser, writes } = collectClipboard();
     const out1 = parser.push(bytes(0x1b, ']', '52;c;aGVs'));

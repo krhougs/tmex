@@ -154,6 +154,7 @@
       "copy": "Copy",
       "paste": "Paste",
       "copied": "Copied to clipboard",
+      "copiedPreview": "Copied: {{preview}}",
       "copyFailed": "Copy failed",
       "pasteFailed": "Could not read clipboard, check browser permissions",
       "clearSelection": "Dismiss selection",

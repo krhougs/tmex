@@ -108,6 +108,17 @@ export interface TmuxState {
 const CONNECT_DEDUP_WINDOW_MS = 500;
 const SCREEN_BYTE_LIMIT = 512 * 1024;
 const HISTORY_PAGE_BYTE_LIMIT = 256 * 1024;
+const CLIPBOARD_TOAST_PREVIEW_MAX_CHARS = 40;
+
+/** 复制成功 toast 的内容预览：折叠空白为单个空格，按 code point 截断。 */
+export function clipboardToastPreview(text: string): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  const chars = Array.from(collapsed);
+  if (chars.length <= CLIPBOARD_TOAST_PREVIEW_MAX_CHARS) {
+    return collapsed;
+  }
+  return `${chars.slice(0, CLIPBOARD_TOAST_PREVIEW_MAX_CHARS).join('')}…`;
+}
 
 export interface TmuxStoreDeps {
   getUI: () => UIStore;
@@ -439,7 +450,11 @@ export function createTmuxStore(
           }
           void core.host.writeClipboardText(event.text).then(
             () => {
-              core.notifications.success(core.t('terminal.copied'));
+              core.notifications.success(
+                core.t('terminal.copiedPreview', {
+                  preview: clipboardToastPreview(event.text),
+                })
+              );
             },
             (err) => {
               console.warn('[tmux] clipboard write failed:', err);

@@ -56,6 +56,7 @@ const MAX_DCS_PASSTHROUGH_BYTES = 64 * 1024;
 const MAX_KITTY_PENDING_IDS = 16;
 const MAX_CSI_BYTES = 64;
 const TMUX_PASSTHROUGH_PREFIX = 'tmux;';
+const CLIPBOARD_DEDUP_WINDOW_MS = 500;
 const THEME_UPDATES_MODE = '2031';
 
 export function createPaneStreamParser(options: PaneStreamParserOptions): PaneStreamParser {
@@ -71,6 +72,21 @@ export function createPaneStreamParser(options: PaneStreamParserOptions): PaneSt
   let csiBytes: number[] = [];
   let inTmuxPassthrough = false;
   const kittyPending = new Map<string, { title: string; body: string }>();
+  // 部分 CLI 一次复制会把同一内容以「裸 OSC52 + tmux passthrough 包裹版」两份
+  // 背靠背写入输出流;相同文本在短窗内只透传一次,避免下游重复写剪贴板。
+  let lastClipboardText: string | null = null;
+  let lastClipboardAt = 0;
+
+  function emitClipboardWrite(text: string): void {
+    const now = Date.now();
+    if (text === lastClipboardText && now - lastClipboardAt < CLIPBOARD_DEDUP_WINDOW_MS) {
+      lastClipboardAt = now;
+      return;
+    }
+    lastClipboardText = text;
+    lastClipboardAt = now;
+    options.onClipboardWrite?.(text);
+  }
 
   function resetOscState(): void {
     oscKind = '';
@@ -203,7 +219,7 @@ export function createPaneStreamParser(options: PaneStreamParserOptions): PaneSt
           }
           const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
           if (text) {
-            options.onClipboardWrite?.(text);
+            emitClipboardWrite(text);
           }
         } catch {
           // invalid base64 — silently discard
