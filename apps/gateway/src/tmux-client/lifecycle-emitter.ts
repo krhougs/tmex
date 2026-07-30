@@ -77,11 +77,13 @@ export class ConnectionLifecycleEmitter {
     }
     const sessionName = this.ctx.getSessionName();
     const { closedWindows, closedPanes } = diffSnapshotClosures(prev, next);
+    const windowDisplayName = (window: TmuxWindow) =>
+      this.ctx.resolveCustomName?.('window', window.id) ?? window.name;
     for (const window of closedWindows) {
       this.emit(
         'tmux_window_close',
         { sessionName, windowId: window.id, windowIndex: window.index },
-        { windowName: window.name }
+        { windowName: windowDisplayName(window) }
       );
     }
     for (const { pane, window } of closedPanes) {
@@ -98,7 +100,7 @@ export class ConnectionLifecycleEmitter {
           paneCurrentCommand: pane.currentCommand,
           paneCurrentPath: pane.currentPath,
         },
-        { windowName: window.name }
+        { windowName: windowDisplayName(window) }
       );
     }
   }

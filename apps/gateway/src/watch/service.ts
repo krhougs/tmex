@@ -51,6 +51,7 @@ export interface WatchRuntimeLike {
     onClose?: () => void;
   }): () => void;
   requestSnapshot(): void;
+  getCustomName?(kind: 'window' | 'pane', nativeId: string): string | undefined;
 }
 
 export interface WatchServiceDeps {
@@ -787,12 +788,20 @@ export class WatchService {
   private buildPaneContext(rule: WatchRuleRecord): PaneLocationContext {
     const settings = this.deps.getSettings();
     const device = this.devices.get(rule.deviceId);
-    return resolvePaneContext({
+    const context = resolvePaneContext({
       deviceId: rule.deviceId,
       siteUrl: settings.siteUrl,
       snapshot: device?.lastSnapshot ?? null,
       rawData: { paneId: rule.paneId },
     });
+    // 快照不含改名 overlay，从 runtime metadata projection 补查（用户改名优先）
+    const customName =
+      (context.paneId ? device?.runtime?.getCustomName?.('pane', context.paneId) : undefined) ??
+      (context.windowId ? device?.runtime?.getCustomName?.('window', context.windowId) : undefined);
+    if (customName) {
+      context.paneTitle = customName;
+    }
+    return context;
   }
 
   private async safeNotify(
