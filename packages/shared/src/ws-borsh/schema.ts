@@ -408,6 +408,7 @@ export const BellEventSchema = b.struct({
   paneUrl: OptionStringSchema,
   paneTitle: OptionStringSchema,
   paneCurrentCommand: OptionStringSchema,
+  paneCurrentPath: OptionStringSchema,
 });
 
 export const NotificationEventSchema = b.struct({
@@ -421,6 +422,7 @@ export const NotificationEventSchema = b.struct({
   paneUrl: OptionStringSchema,
   paneTitle: OptionStringSchema,
   paneCurrentCommand: OptionStringSchema,
+  paneCurrentPath: OptionStringSchema,
 });
 
 // ========== 站点设置 ==========

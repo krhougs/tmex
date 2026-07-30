@@ -411,6 +411,14 @@ export class PushSupervisor {
       snapshot: entry.lastSnapshot,
       rawData: event.data,
     });
+    // 快照缓存的是原始 payload，不含改名 overlay——从 runtime 的 metadata
+    // projection 补查，让通知标题与前端展示一致（用户改名优先）。
+    const customName =
+      (paneContext.paneId ? runtime.getCustomName?.('pane', paneContext.paneId) : undefined) ??
+      (paneContext.windowId ? runtime.getCustomName?.('window', paneContext.windowId) : undefined);
+    if (customName) {
+      paneContext.paneTitle = customName;
+    }
 
     if (event.type === 'bell') {
       await this.deps.notifyBell({

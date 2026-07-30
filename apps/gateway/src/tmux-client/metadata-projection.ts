@@ -461,6 +461,11 @@ export class MetadataProjection {
     this.finishMutation();
   }
 
+  customNameOf(kind: 'window' | 'pane', nativeId: string): string | undefined {
+    const names = kind === 'window' ? this.windowCustomNames : this.paneCustomNames;
+    return names.get(nativeId);
+  }
+
   setCustomName(kind: 'window' | 'pane', nativeId: string, name: string | null): void {
     const names = kind === 'window' ? this.windowCustomNames : this.paneCustomNames;
     if (name) names.set(nativeId, name);

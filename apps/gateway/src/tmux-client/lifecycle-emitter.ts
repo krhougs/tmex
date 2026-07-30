@@ -92,8 +92,9 @@ export class ConnectionLifecycleEmitter {
           windowIndex: window.index,
           paneId: pane.id,
           paneIndex: pane.index,
-          paneTitle: pane.title,
+          paneTitle: pane.customName ?? pane.title,
           paneCurrentCommand: pane.currentCommand,
+          paneCurrentPath: pane.currentPath,
         },
         { windowName: window.name }
       );

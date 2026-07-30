@@ -824,6 +824,7 @@ export class WatchService {
           paneUrl: paneContext.paneUrl,
           paneTitle: paneContext.paneTitle,
           paneCurrentCommand: paneContext.paneCurrentCommand,
+          paneCurrentPath: paneContext.paneCurrentPath,
         },
         payload,
       });

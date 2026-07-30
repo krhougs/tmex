@@ -131,6 +131,7 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         paneUrl?: string;
         paneTitle?: string;
         paneCurrentCommand?: string;
+        paneCurrentPath?: string;
       };
       return schema.BellEventSchema.serialize({
         windowId: d.windowId ?? null,
@@ -140,6 +141,7 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         paneUrl: d.paneUrl ?? null,
         paneTitle: d.paneTitle ?? null,
         paneCurrentCommand: d.paneCurrentCommand ?? null,
+        paneCurrentPath: d.paneCurrentPath ?? null,
       });
     }
     case 'output':
@@ -156,6 +158,7 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         paneUrl?: string;
         paneTitle?: string;
         paneCurrentCommand?: string;
+        paneCurrentPath?: string;
       };
       return schema.NotificationEventSchema.serialize({
         source: notificationSourceToU8[d.source],
@@ -168,6 +171,7 @@ function encodeEventData(type: TmuxEventType, data: unknown): Uint8Array {
         paneUrl: d.paneUrl ?? null,
         paneTitle: d.paneTitle ?? null,
         paneCurrentCommand: d.paneCurrentCommand ?? null,
+        paneCurrentPath: d.paneCurrentPath ?? null,
       });
     }
     default:
@@ -300,6 +304,7 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
           paneUrl: bell.paneUrl ?? undefined,
           paneTitle: bell.paneTitle ?? undefined,
           paneCurrentCommand: bell.paneCurrentCommand ?? undefined,
+          paneCurrentPath: bell.paneCurrentPath ?? undefined,
         };
       }
       case 'notification': {
@@ -315,6 +320,7 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
           paneUrl: notification.paneUrl ?? undefined,
           paneTitle: notification.paneTitle ?? undefined,
           paneCurrentCommand: notification.paneCurrentCommand ?? undefined,
+          paneCurrentPath: notification.paneCurrentPath ?? undefined,
         };
       }
       default:

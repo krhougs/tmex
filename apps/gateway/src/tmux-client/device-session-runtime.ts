@@ -348,6 +348,10 @@ export class DeviceSessionRuntime {
     return capture;
   }
 
+  getCustomName(kind: 'window' | 'pane', nativeId: string): string | undefined {
+    return this.metadataProjection.customNameOf(kind, nativeId);
+  }
+
   setCustomName(kind: 'window' | 'pane', nativeId: string, name: string | null): void {
     this.metadataProjection.setCustomName(kind, nativeId, name);
   }
