@@ -48,6 +48,17 @@
 验证:shared/tmux-client/ws/push 共 555 测试全绿;gateway tsc 报错经 stash 对比
 确认全部为基线既有(agent 模块与既有测试文件)。
 
+## Review 三 + 自查(收敛记录)
+
+- 自查补全(282f14e):window_close/pane_close 的 `windowName`、watch 通知的 `paneTitle`
+  接改名 overlay——与前两轮被抓的同类缺口,主动扫尾。
+- 第三轮 review 仅剩 1 条 P2:**runtime 重建(如 SSH 断线重连)后 metadata projection
+  的 overlay 副本从空开始**,通知路径改名退回原名(前端 ws 广播面不受影响,再次改名即恢复)。
+  **有意不在本轮修**:根因是改名 overlay 双所有权(ws server map 为事实真源、projection
+  为 per-runtime 副本),同根的既有 bug 还包括 canonical metadata 面重连后同样丢改名
+  (非本次引入)。完整修复 = overlay 单一真源化,牵动 ws 广播与 canonical revision
+  机制,应独立立项;在通知改造循环里顺手重构属于过度扩面。
+
 ## 备注
 
 - webhook 通道 payload 全量透传,自动带上新字段,无需改动。
