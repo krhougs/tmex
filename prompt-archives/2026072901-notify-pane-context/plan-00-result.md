@@ -32,6 +32,22 @@
 验证:push/tmux/tmux-client/watch/ws/shared 共 618 测试全绿(supervisor mock 无
 `getCustomName` 用可选调用兼容);gateway tsc 仅 agent 模块基线既有报错。
 
+## Review 修复二(次日,第二轮 codex review 三发现全修)
+
+1. **borsh 向后兼容**:新客户端解旧 gateway 的 bell/notification payload(尾部无新
+   Option 字节)会越界 → 整个事件被 catch 丢弃。实测 zorsh:旧解新天然忽略尾部,
+   新解旧必炸。修复:schema 抽公共字段导出 `*SchemaV1`,decode 先按新 schema、失败
+   按 V1 回退;round-trip 测试补 V1 用例。
+2. **pane_close 改名标题真实生效**:上一轮的 `pane.customName ?? title` 是死代码
+   (快照不含 overlay)。修复:`TmuxConnectionOptions.resolveCustomName` 由 runtime
+   注入 projection 查询,穿 local/ssh connection 到 lifecycle emitter。
+3. **无 WS 连接时 REST 改名写穿**:`wsServer.renamePane/renameWindow` 原只写自身
+   overlay,`connections` 为空时常驻 push runtime 的 projection 收不到。修复:
+   registry 加只读 `peek`(不建连、不计数),rename 时回退写穿。
+
+验证:shared/tmux-client/ws/push 共 555 测试全绿;gateway tsc 报错经 stash 对比
+确认全部为基线既有(agent 模块与既有测试文件)。
+
 ## 备注
 
 - webhook 通道 payload 全量透传,自动带上新字段,无需改动。

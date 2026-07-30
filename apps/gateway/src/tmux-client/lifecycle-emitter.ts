@@ -10,6 +10,7 @@ export interface LifecycleEmitterContext {
   getSnapshotWindows: () => ReadonlyMap<string, TmuxWindow>;
   notifyEvent?: LifecycleEventEmitter;
   settingsProvider?: () => SiteSettings;
+  resolveCustomName?: (kind: 'window' | 'pane', nativeId: string) => string | undefined;
 }
 
 // local/ssh 两连接类共享的生命周期事件发射器。发射是旁路观测，任何一步失败
@@ -92,7 +93,8 @@ export class ConnectionLifecycleEmitter {
           windowIndex: window.index,
           paneId: pane.id,
           paneIndex: pane.index,
-          paneTitle: pane.customName ?? pane.title,
+          // 快照不含改名 overlay，从 ctx 注入的 projection 查询取（用户改名优先）
+          paneTitle: this.ctx.resolveCustomName?.('pane', pane.id) ?? pane.title,
           paneCurrentCommand: pane.currentCommand,
           paneCurrentPath: pane.currentPath,
         },

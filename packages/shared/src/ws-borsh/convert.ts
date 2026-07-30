@@ -273,6 +273,23 @@ export function decodeTmuxEventPayload(data: Uint8Array): EventTmuxPayload {
   };
 }
 
+// 旧 gateway 的 bell/notification payload 无 paneCurrentPath 尾部字节,按 V1 回退解码。
+function deserializeBellEvent(data: Uint8Array) {
+  try {
+    return schema.BellEventSchema.deserialize(data);
+  } catch {
+    return { ...schema.BellEventSchemaV1.deserialize(data), paneCurrentPath: null };
+  }
+}
+
+function deserializeNotificationEvent(data: Uint8Array) {
+  try {
+    return schema.NotificationEventSchema.deserialize(data);
+  } catch {
+    return { ...schema.NotificationEventSchemaV1.deserialize(data), paneCurrentPath: null };
+  }
+}
+
 function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
   if (data.length === 0) return {};
 
@@ -295,7 +312,7 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
       case 'layout-change':
         return schema.LayoutChangeEventSchema.deserialize(data);
       case 'bell': {
-        const bell = schema.BellEventSchema.deserialize(data);
+        const bell = deserializeBellEvent(data);
         return {
           windowId: bell.windowId ?? undefined,
           paneId: bell.paneId ?? undefined,
@@ -308,7 +325,7 @@ function decodeEventData(type: TmuxEventType, data: Uint8Array): unknown {
         };
       }
       case 'notification': {
-        const notification = schema.NotificationEventSchema.deserialize(data);
+        const notification = deserializeNotificationEvent(data);
         return {
           source: notificationSourceFromU8[notification.source] ?? 'osc9',
           title: notification.title ?? undefined,

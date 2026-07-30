@@ -157,6 +157,7 @@ export class DeviceSessionRuntime {
     this.connection = createConnection({
       deviceId: this.deviceId,
       notifyEvent: options.notifyEvent,
+      resolveCustomName: (kind, nativeId) => this.metadataProjection.customNameOf(kind, nativeId),
       onEvent: (event) => {
         this.broadcast((listener) => listener.onEvent?.(event));
       },

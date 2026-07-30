@@ -400,7 +400,9 @@ export const LayoutChangeEventSchema = b.struct({
   layout: b.string(),
 });
 
-export const BellEventSchema = b.struct({
+// V1 = paneCurrentPath 之前的线格；旧 gateway 的 payload 缺尾部 Option 字节,
+// 新 schema 直接反序列化会越界,decode 侧按 V1 回退（旧客户端解新 payload 天然忽略尾部）。
+const bellEventFieldsV1 = {
   windowId: OptionStringSchema,
   paneId: OptionStringSchema,
   windowIndex: OptionU16Schema,
@@ -408,10 +410,16 @@ export const BellEventSchema = b.struct({
   paneUrl: OptionStringSchema,
   paneTitle: OptionStringSchema,
   paneCurrentCommand: OptionStringSchema,
+};
+
+export const BellEventSchemaV1 = b.struct(bellEventFieldsV1);
+
+export const BellEventSchema = b.struct({
+  ...bellEventFieldsV1,
   paneCurrentPath: OptionStringSchema,
 });
 
-export const NotificationEventSchema = b.struct({
+const notificationEventFieldsV1 = {
   source: b.u8(),
   title: OptionStringSchema,
   body: b.string(),
@@ -422,6 +430,12 @@ export const NotificationEventSchema = b.struct({
   paneUrl: OptionStringSchema,
   paneTitle: OptionStringSchema,
   paneCurrentCommand: OptionStringSchema,
+};
+
+export const NotificationEventSchemaV1 = b.struct(notificationEventFieldsV1);
+
+export const NotificationEventSchema = b.struct({
+  ...notificationEventFieldsV1,
   paneCurrentPath: OptionStringSchema,
 });
 

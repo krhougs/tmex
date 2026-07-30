@@ -12,6 +12,8 @@ export type LifecycleEventEmitter = (
 export interface TmuxConnectionOptions {
   deviceId: string;
   notifyEvent?: LifecycleEventEmitter;
+  /** 改名 overlay 查询（runtime metadata projection 注入）；快照不含 customName，通知面据此对齐前端展示。 */
+  resolveCustomName?: (kind: 'window' | 'pane', nativeId: string) => string | undefined;
   onEvent: (event: TmuxEvent) => void;
   onTerminalOutput: (paneId: string, data: Uint8Array) => void;
   onTerminalHistory: (

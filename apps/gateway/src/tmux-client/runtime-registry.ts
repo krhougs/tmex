@@ -13,6 +13,12 @@ export class TmuxRuntimeRegistry<TRuntime extends TmuxRuntime> {
 
   constructor(private readonly options: TmuxRuntimeRegistryOptions<TRuntime>) {}
 
+  /** 只读取已存在的活跃 runtime，不建连接、不增引用计数（改名 overlay 写穿等旁路用）。 */
+  peek(deviceId: string): TRuntime | null {
+    const runtime = this.entries.get(deviceId)?.runtime;
+    return runtime && !runtime.isTerminated ? runtime : null;
+  }
+
   acquire(deviceId: string): Promise<TRuntime> {
     const existing = this.entries.get(deviceId);
     if (existing) {

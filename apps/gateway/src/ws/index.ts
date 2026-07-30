@@ -64,6 +64,8 @@ interface DeviceConnectionEntry {
 interface WebSocketServerDeps {
   acquireRuntime: (deviceId: string) => Promise<DeviceSessionRuntime>;
   releaseRuntime: (deviceId: string, runtime: DeviceSessionRuntime) => Promise<void> | void;
+  /** 只读取常驻活跃 runtime（push supervisor 持有），无 ws 连接时改名 overlay 写穿用。 */
+  peekRuntime?: (deviceId: string) => DeviceSessionRuntime | null;
   loadDeviceTreeOrder: (deviceId: string) => DeviceTreeOrderRecord;
   saveWindowOrder: (deviceId: string, windowIds: string[]) => void;
   savePaneOrder: (deviceId: string, windowId: string, paneIds: string[]) => void;
@@ -74,6 +76,7 @@ const defaultDeps: WebSocketServerDeps = {
   releaseRuntime: async (deviceId, runtime) => {
     await tmuxRuntimeRegistry.release(deviceId, runtime);
   },
+  peekRuntime: (deviceId) => tmuxRuntimeRegistry.peek(deviceId),
   loadDeviceTreeOrder: getDeviceTreeOrder,
   saveWindowOrder: setWindowOrder,
   savePaneOrder: setPaneOrder,
@@ -1047,7 +1050,8 @@ export class WebSocketServer {
       this.paneCustomNames.set(deviceId, new Map([[paneId, trimmed]]));
     }
 
-    this.connections.get(deviceId)?.runtime.setCustomName?.('pane', paneId, trimmed || null);
+    const paneRuntime = this.connections.get(deviceId)?.runtime ?? this.deps.peekRuntime?.(deviceId);
+    paneRuntime?.setCustomName?.('pane', paneId, trimmed || null);
 
     this.broadcastSettingsUpdate('tree-order');
     const entry = this.connections.get(deviceId);
@@ -1095,7 +1099,9 @@ export class WebSocketServer {
       this.windowCustomNames.set(deviceId, new Map([[windowId, trimmed]]));
     }
 
-    this.connections.get(deviceId)?.runtime.setCustomName?.('window', windowId, trimmed || null);
+    const windowRuntime =
+      this.connections.get(deviceId)?.runtime ?? this.deps.peekRuntime?.(deviceId);
+    windowRuntime?.setCustomName?.('window', windowId, trimmed || null);
 
     this.broadcastSettingsUpdate('tree-order');
     const entry = this.connections.get(deviceId);

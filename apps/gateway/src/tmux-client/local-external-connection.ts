@@ -264,6 +264,7 @@ export class LocalExternalTmuxConnection {
       isEmittable: () => this.connected && !this.manualDisconnect,
       getSnapshotWindows: () => this.snapshotWindows,
       notifyEvent: options.notifyEvent,
+      resolveCustomName: options.resolveCustomName,
     });
   }
 
