@@ -5,9 +5,13 @@ import * as React from "react"
 
 import { CheckIcon, ChevronRightIcon } from "lucide-react"
 import { cn } from "../utils"
+import { useDismissLayerRoot } from "./dismiss-layer"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
-  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+  const dismissLayerProps = useDismissLayerRoot(props)
+  return (
+    <MenuPrimitive.Root data-slot="dropdown-menu" {...props} {...dismissLayerProps} />
+  )
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
@@ -100,7 +104,14 @@ function DropdownMenuItem({
 }
 
 function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props) {
-  return <MenuPrimitive.SubmenuRoot data-slot="dropdown-menu-sub" {...props} />
+  const dismissLayerProps = useDismissLayerRoot(props)
+  return (
+    <MenuPrimitive.SubmenuRoot
+      data-slot="dropdown-menu-sub"
+      {...props}
+      {...dismissLayerProps}
+    />
+  )
 }
 
 function DropdownMenuSubTrigger({

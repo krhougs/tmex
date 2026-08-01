@@ -3,9 +3,11 @@
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu';
 
 import { cn } from '../utils';
+import { useDismissLayerRoot } from './dismiss-layer';
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
+  const dismissLayerProps = useDismissLayerRoot(props);
+  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} {...dismissLayerProps} />;
 }
 
 // Trigger 透传 render：用 render={<button .../>} 把右键/长按手势合并进现有元素，

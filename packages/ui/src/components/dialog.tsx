@@ -6,9 +6,11 @@ import * as React from "react"
 import { XIcon } from "lucide-react"
 import { cn } from "../utils"
 import { Button } from "./button"
+import { useDismissLayerRoot } from "./dismiss-layer"
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  const dismissLayerProps = useDismissLayerRoot(props)
+  return <DialogPrimitive.Root data-slot="dialog" {...props} {...dismissLayerProps} />
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
