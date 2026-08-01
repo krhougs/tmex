@@ -36,10 +36,11 @@ const DEFAULT_SETTINGS: SiteSettings = {
 };
 
 export function createSiteStore(
-  core: Pick<RuntimeCore, 'client' | 'apiClient' | 'storagePrefix'>,
+  core: Pick<RuntimeCore, 'client' | 'apiClient' | 'storagePrefix' | 'features'>,
   getUIStore: () => UIStore
 ) {
   function syncThemeToUIStore(theme: ThemeMode): void {
+    if (core.features.hostManagedTheme) return;
     const uiStore = getUIStore();
     if (uiStore.getState().theme !== theme) {
       uiStore.setState({ theme });
@@ -50,6 +51,7 @@ export function createSiteStore(
   }
 
   function writeThemeToLocalStorage(theme: ThemeMode): void {
+    if (core.features.hostManagedTheme) return;
     try {
       const key = `${core.storagePrefix}tmex-ui`;
       const raw = localStorage.getItem(key);

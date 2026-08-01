@@ -73,6 +73,7 @@ describe('runtime features resolution', () => {
       watchUi: true,
       filesUi: true,
       hostManagedNotifications: false,
+      hostManagedTheme: false,
     });
   });
 
