@@ -1,6 +1,6 @@
 body {
   @apply overscroll-none bg-sidebar antialiased;
-  --text-family: var(--font-outfit, Outfit), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --text-family: var(--font-outfit, Outfit), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 /* Theme presets */
@@ -78,9 +78,9 @@ body {
   --sidebar-border: var(--base-200);
   --sidebar-ring: var(--primary-700);
 
-  --display-family: var(--font-hedvig-letters-serif, "Hedvig Letters Serif"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --display-family: var(--font-hedvig-letters-serif, "Hedvig Letters Serif"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
   --display-weight: 800;
-  --text-family: var(--font-kumbh-sans, "Kumbh Sans"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --text-family: var(--font-kumbh-sans, "Kumbh Sans"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   @variant dark {
     --background: var(--base-950);
@@ -177,7 +177,7 @@ body {
   --sidebar-border: var(--base-200);
   --sidebar-ring: var(--primary-600);
 
-  --text-family: var(--font-poppins, Poppins), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --text-family: var(--font-poppins, Poppins), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
   --display-weight: 600;
 
   @variant dark {
@@ -289,7 +289,7 @@ body {
   --sidebar-ring: var(--primary-400);
 
   --display-weight: 800;
-  --text-family: var(--font-pt-sans, "PT Sans"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --text-family: var(--font-pt-sans, "PT Sans"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   @variant dark {
     --background: var(--base-950);
@@ -615,7 +615,7 @@ body {
   --sidebar-border: var(--base-200);
   --sidebar-ring: var(--primary-600);
 
-  --text-family: var(--font-plus-jakarta-sans, "Plus Jakarta Sans"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --text-family: var(--font-plus-jakarta-sans, "Plus Jakarta Sans"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
   --display-weight: 800;
 
   @variant dark {
@@ -725,7 +725,7 @@ body {
   --sidebar-accent-foreground: var(--color-white);
   --sidebar-border: var(--base-200);
   --sidebar-ring: var(--primary-600);
-  --display-family: var(--font-hedvig-letters-serif, "Hedvig Letters Serif"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --display-family: var(--font-hedvig-letters-serif, "Hedvig Letters Serif"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   @variant dark {
     --background: var(--base-950);
@@ -850,27 +850,27 @@ body {
 
 /* Font */
 [data-theme-font="inter"] {
-  --font-sans: var(--font-inter, Inter), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-inter, Inter), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 [data-theme-font="roboto"] {
-  --font-sans: var(--font-roboto, Roboto), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-roboto, Roboto), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 [data-theme-font="poppins"] {
-  --font-sans: var(--font-poppins, Poppins), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-poppins, Poppins), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 [data-theme-font="montserrat"] {
-  --font-sans: var(--font-montserrat, Montserrat), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-montserrat, Montserrat), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 [data-theme-font="pt-sans"] {
-  --font-sans: var(--font-pt-sans, "PT Sans"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-pt-sans, "PT Sans"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 [data-theme-font="overpass-mono"] {
-  --font-sans: var(--font-overpass-mono, "Overpass Mono"), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-overpass-mono, "Overpass Mono"), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
   letter-spacing: -0.05em;
 }
 /* Font */
