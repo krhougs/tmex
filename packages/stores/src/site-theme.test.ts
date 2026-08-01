@@ -1,5 +1,5 @@
-import { FeatureSet } from '@tmex/api-client';
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { ApiClient, FeatureSet } from '@tmex/api-client';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 // localStorage polyfill（bun test node 环境无 localStorage，zustand persist 默认读 window.localStorage）
 class MemStorage {
@@ -38,9 +38,9 @@ if (typeof globalThis.window === 'undefined') {
     memStorage as unknown as Storage;
 }
 
+const changeLanguageMock = mock(() => Promise.resolve());
 mock.module('i18next', () => {
-  const changeLanguage = mock(() => Promise.resolve());
-  return { default: { changeLanguage, t: (k: string) => k } };
+  return { default: { changeLanguage: changeLanguageMock, t: (k: string) => k } };
 });
 
 const sendMock = mock(() => true);
@@ -57,7 +57,7 @@ mock.module('@tmex/ws-client', () => {
   };
 });
 
-const { useSiteStore, useUIStore } = await import('./index');
+const { createSiteStore, createUIStore, useSiteStore, useUIStore } = await import('./index');
 
 const TMEX_UI_KEY = 'tmex-ui';
 
@@ -339,5 +339,227 @@ describe('useSiteStore capabilities', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('hostManagedTheme runtime feature', () => {
+  const originalDocument = globalThis.document;
+  const darkToggle = mock(() => {});
+
+  function makeSettings(theme: 'dark' | 'light') {
+    return {
+      siteName: 'tmex',
+      siteUrl: 'http://localhost',
+      bellThrottleSeconds: 6,
+      notificationThrottleSeconds: 3,
+      enableBrowserNotificationToast: true,
+      enableNotificationPush: true,
+      enableBellPush: true,
+      enableBellSound: true,
+      sshReconnectMaxRetries: 2,
+      sshReconnectDelaySeconds: 10,
+      language: 'en_US',
+      disabledNotificationChannels: [],
+      theme,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  function makeThemedSiteStore(hostManagedTheme: boolean, prefix: string) {
+    const transport = async (url: string) => {
+      if (url.includes('/api/settings/site')) {
+        return new Response(JSON.stringify({ settings: makeSettings('light') }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('Not Found', { status: 404 });
+    };
+    const ui = createUIStore({ storagePrefix: prefix });
+    ui.setState({ theme: 'dark' });
+    const site = createSiteStore(
+      {
+        client: { send: sendMock, isReady: isReadyMock } as unknown as Parameters<
+          typeof createSiteStore
+        >[0]['client'],
+        apiClient: new ApiClient('', transport),
+        storagePrefix: prefix,
+        features: {
+          agentUi: true,
+          watchUi: true,
+          filesUi: true,
+          hostManagedNotifications: false,
+          hostManagedTheme,
+          hostManagedLocale: false,
+        },
+      },
+      () => ui
+    );
+    return { ui, site };
+  }
+
+  function readPrefixedTheme(prefix: string): 'dark' | 'light' | undefined {
+    const raw = localStorage.getItem(`${prefix}tmex-ui`);
+    if (!raw) return undefined;
+    try {
+      const parsed = JSON.parse(raw) as { state?: { theme?: unknown } };
+      const theme = parsed?.state?.theme;
+      return theme === 'light' || theme === 'dark' ? theme : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    sendMock.mockClear();
+    isReadyMock.mockClear();
+    isReadyMock.mockImplementation(() => true);
+    darkToggle.mockClear();
+    Object.defineProperty(globalThis, 'document', {
+      value: { documentElement: { classList: { toggle: darkToggle } } },
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'document', {
+      value: originalDocument,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  test('对照：默认（false）时 setThemeFromS2C 写 uiStore + localStorage + dark class', () => {
+    const prefix = 'hmt-off:';
+    const { ui, site } = makeThemedSiteStore(false, prefix);
+
+    site.getState().setThemeFromS2C('light');
+
+    expect(site.getState().settings?.theme).toBe('light');
+    expect(ui.getState().theme).toBe('light');
+    expect(readPrefixedTheme(prefix)).toBe('light');
+    expect(darkToggle).toHaveBeenCalledWith('dark', false);
+  });
+
+  test('fetchSettings 不写 uiStore/localStorage/dark class，settings 状态照常更新', async () => {
+    const prefix = 'hmt-fetch:';
+    const { ui, site } = makeThemedSiteStore(true, prefix);
+
+    const settings = await site.getState().fetchSettings();
+
+    expect(settings.theme).toBe('light');
+    expect(site.getState().settings?.theme).toBe('light');
+    expect(ui.getState().theme).toBe('dark');
+    expect(readPrefixedTheme(prefix)).not.toBe('light');
+    expect(darkToggle).not.toHaveBeenCalled();
+  });
+
+  test('refreshSettings 不写 uiStore/localStorage/dark class，settings 状态照常更新', async () => {
+    const prefix = 'hmt-refresh:';
+    const { ui, site } = makeThemedSiteStore(true, prefix);
+
+    const settings = await site.getState().refreshSettings();
+
+    expect(settings.theme).toBe('light');
+    expect(site.getState().settings?.theme).toBe('light');
+    expect(ui.getState().theme).toBe('dark');
+    expect(readPrefixedTheme(prefix)).not.toBe('light');
+    expect(darkToggle).not.toHaveBeenCalled();
+  });
+
+  test('setThemeFromS2C 不写 uiStore/localStorage/dark class，settings 状态照常更新', () => {
+    const prefix = 'hmt-s2c:';
+    const { ui, site } = makeThemedSiteStore(true, prefix);
+
+    site.getState().setThemeFromS2C('light');
+
+    expect(site.getState().settings?.theme).toBe('light');
+    expect(ui.getState().theme).toBe('dark');
+    expect(readPrefixedTheme(prefix)).not.toBe('light');
+    expect(darkToggle).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  test('updateTheme 仍发 C2S 并更新 settings，但不写 uiStore/localStorage/dark class', () => {
+    const prefix = 'hmt-update:';
+    const { ui, site } = makeThemedSiteStore(true, prefix);
+
+    site.getState().updateTheme('light');
+
+    expect(site.getState().settings?.theme).toBe('light');
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(ui.getState().theme).toBe('dark');
+    expect(readPrefixedTheme(prefix)).not.toBe('light');
+    expect(darkToggle).not.toHaveBeenCalled();
+  });
+});
+
+describe('hostManagedLocale runtime feature', () => {
+  function makeLocaleSiteStore(hostManagedLocale: boolean, prefix: string) {
+    const transport = async (url: string) => {
+      if (url.includes('/api/settings/site')) {
+        return new Response(
+          JSON.stringify({
+            settings: {
+              siteName: 'tmex',
+              siteUrl: 'http://localhost',
+              bellThrottleSeconds: 6,
+              notificationThrottleSeconds: 3,
+              enableBrowserNotificationToast: true,
+              enableNotificationPush: true,
+              enableBellPush: true,
+              enableBellSound: true,
+              sshReconnectMaxRetries: 2,
+              sshReconnectDelaySeconds: 10,
+              language: 'en_US',
+              disabledNotificationChannels: [],
+              theme: 'light',
+              updatedAt: new Date().toISOString(),
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    };
+    const ui = createUIStore({ storagePrefix: prefix });
+    return createSiteStore(
+      {
+        client: { send: sendMock, isReady: isReadyMock } as unknown as Parameters<
+          typeof createSiteStore
+        >[0]['client'],
+        apiClient: new ApiClient('', transport),
+        storagePrefix: prefix,
+        features: {
+          agentUi: true,
+          watchUi: true,
+          filesUi: true,
+          hostManagedNotifications: false,
+          hostManagedTheme: false,
+          hostManagedLocale,
+        },
+      },
+      () => ui
+    );
+  }
+
+  beforeEach(() => {
+    changeLanguageMock.mockClear();
+  });
+
+  test('关断时 site settings 仍驱动 i18next（默认行为不变）', async () => {
+    const site = makeLocaleSiteStore(false, 'locale-off:');
+    await site.getState().fetchSettings();
+    await site.getState().refreshSettings();
+    expect(changeLanguageMock).toHaveBeenCalled();
+  });
+
+  test('开启时 fetch/refresh 都不改宿主语言', async () => {
+    const site = makeLocaleSiteStore(true, 'locale-on:');
+    await site.getState().fetchSettings();
+    await site.getState().refreshSettings();
+    expect(changeLanguageMock).not.toHaveBeenCalled();
   });
 });

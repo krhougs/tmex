@@ -7,8 +7,8 @@ interface TerminalSettingsSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// 终端页右上角入口：底部 Sheet 展示完整终端设置（字号/行高/字体/键盘行为），
-// 与设置页「终端」Tab 复用 TerminalSettingsPanel。即改即生效，仅存浏览器。
+// 终端页右上角入口：底部 Sheet 展示完整终端设置（字号/行高/字体/键盘行为/快捷键），
+// 与设置页「终端」Tab 复用 TerminalSettingsPanel。显示类设置即改即生效、仅存浏览器；快捷键存服务器。
 // 大屏（触屏 PC / iPad）居中限宽；内容较高，超出时内部滚动。
 export function TerminalSettingsSheet({ open, onOpenChange }: TerminalSettingsSheetProps) {
   const { t } = useTranslation();
@@ -22,7 +22,7 @@ export function TerminalSettingsSheet({ open, onOpenChange }: TerminalSettingsSh
       >
         <SheetHeader>
           <SheetTitle>{t('settings.terminal.title')}</SheetTitle>
-          <SheetDescription>{t('settings.terminal.savedInBrowser')}</SheetDescription>
+          <SheetDescription>{t('settings.terminal.sheetDescription')}</SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-4">
           <TerminalSettingsPanel />

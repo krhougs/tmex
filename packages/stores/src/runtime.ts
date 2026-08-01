@@ -138,6 +138,8 @@ export interface AppRuntimeOptions {
     watchUi?: boolean;
     filesUi?: boolean;
     hostManagedNotifications?: boolean;
+    hostManagedTheme?: boolean;
+    hostManagedLocale?: boolean;
   };
   /** 终端文件链接面；缺省走 gateway 文件 API 与 /file/:ref 路由 */
   terminalFileLinks?: TerminalFileLinksProvider;
@@ -152,6 +154,10 @@ export interface RuntimeFeatures {
   filesUi: boolean;
   /** 宿主接管通知呈现：终端 notification 不再由包内弹 toast（bell 声与高亮不受影响） */
   hostManagedNotifications: boolean;
+  /** 宿主接管主题呈现：site theme 不写 UI store、不改 document dark class、不写 localStorage 兜底 */
+  hostManagedTheme: boolean;
+  /** 宿主接管界面语言：site settings 的 language 不再驱动 i18next，宿主自行决定 */
+  hostManagedLocale: boolean;
 }
 
 /** store 工厂消费的已解析服务面 */
@@ -343,6 +349,8 @@ export function resolveRuntimeCore(options: AppRuntimeOptions = {}): RuntimeCore
       watchUi: options.features?.watchUi ?? true,
       filesUi: options.features?.filesUi ?? true,
       hostManagedNotifications: options.features?.hostManagedNotifications ?? false,
+      hostManagedTheme: options.features?.hostManagedTheme ?? false,
+      hostManagedLocale: options.features?.hostManagedLocale ?? false,
     },
     terminalFileLinks: options.terminalFileLinks,
   };

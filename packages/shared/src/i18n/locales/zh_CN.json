@@ -203,6 +203,7 @@
         "ligaturesDesc": "将 => -> != 等符号序列渲染为连字字形（需字体支持）。关闭后逐字符渲染。",
         "preview": "预览",
         "savedInBrowser": "这些设置仅保存在当前浏览器中。",
+        "sheetDescription": "终端显示、键盘行为与快捷键按钮。",
         "shortcuts": {
           "title": "自定义快捷键",
           "savedOnServer": "保存在服务器、多端共享——修改后需点「保存」才生效。",

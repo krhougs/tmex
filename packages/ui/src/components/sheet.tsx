@@ -6,9 +6,11 @@ import * as React from "react"
 import { XIcon } from "lucide-react"
 import { cn } from "../utils"
 import { Button } from "./button"
+import { useDismissLayerRoot } from "./dismiss-layer"
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
-  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+  const dismissLayerProps = useDismissLayerRoot(props)
+  return <SheetPrimitive.Root data-slot="sheet" {...props} {...dismissLayerProps} />
 }
 
 function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
@@ -41,18 +43,40 @@ function SheetContent({
   side = "right",
   showCloseButton = true,
   animation = "slide",
+  initialFocus,
+  ref,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
   animation?: "slide" | "fade" | "bottom-up" | "top-down"
 }) {
+  const popupRef = React.useRef<HTMLDivElement | null>(null)
+  const setPopupRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      popupRef.current = node
+      if (typeof ref === "function") {
+        ref(node)
+      } else if (ref) {
+        ref.current = node
+      }
+    },
+    [ref]
+  )
+
   return (
     <SheetPortal>
       <SheetOverlay />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
+        ref={setPopupRef}
+        // 非键盘打开一律把焦点落在浮层本体上，避免首个输入框自动聚焦拉起虚拟键盘；
+        // 键盘用户仍走默认的首个可聚焦元素，不降级可访问性。
+        initialFocus={
+          initialFocus ??
+          ((openType) => (openType === "keyboard" ? true : popupRef.current))
+        }
         className={cn("bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm", animation === "slide" && slideClasses, animation === "bottom-up" && "data-open:slide-in-from-bottom-16 data-closed:slide-out-to-bottom-16", animation === "top-down" && "data-open:slide-in-from-top-16 data-closed:slide-out-to-top-16", className)}
         {...props}
       >

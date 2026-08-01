@@ -3,8 +3,36 @@ import * as React from "react"
 
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { cn } from "../utils"
+import { useDismissLayer } from "./dismiss-layer"
 
-const Select = SelectPrimitive.Root
+// Select 的 `actionsRef` 只暴露 `unmount`（且传入会关掉 Base UI 自己的卸载时序），
+// 所以这里不走 actionsRef，而是在调用方未受控时由 wrapper 托管 `open`，
+// 关闭栈直接改这份状态；调用方受控时完全透传，不接入关闭栈。
+function Select<Value, Multiple extends boolean | undefined = false>({
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  const [mirrorOpen, setMirrorOpen] = React.useState(defaultOpen)
+  const isControlled = open !== undefined
+  const resolvedOpen = isControlled ? open : mirrorOpen
+
+  useDismissLayer(!isControlled && resolvedOpen, () => setMirrorOpen(false))
+
+  return (
+    <SelectPrimitive.Root
+      open={resolvedOpen}
+      onOpenChange={(next, details) => {
+        onOpenChange?.(next, details)
+        if (!details.isCanceled) {
+          setMirrorOpen(next)
+        }
+      }}
+      {...props}
+    />
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (

@@ -5,9 +5,17 @@ import * as React from "react"
 
 import { cn } from "../utils"
 import { Button } from "./button"
+import { useDismissLayerRoot } from "./dismiss-layer"
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const dismissLayerProps = useDismissLayerRoot(props)
+  return (
+    <AlertDialogPrimitive.Root
+      data-slot="alert-dialog"
+      {...props}
+      {...dismissLayerProps}
+    />
+  )
 }
 
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
