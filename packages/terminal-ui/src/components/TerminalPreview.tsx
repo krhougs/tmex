@@ -89,6 +89,7 @@ export function TerminalPreview({ className }: { className?: string }) {
           fontSize,
           lineHeight,
           ligatures,
+          minimumContrast: true,
           scrollback: 100,
           theme: theme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK,
           disableStdin: true,

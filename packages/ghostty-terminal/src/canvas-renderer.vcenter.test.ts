@@ -107,6 +107,8 @@ function makeCell(overrides: Partial<GhosttyRenderCellStyle>): GhosttyRenderCell
     style: { ...DEFAULT_STYLE, ...overrides },
     fgColor: null,
     bgColor: null,
+    fgPaletteIndex: null,
+    bgPaletteIndex: null,
   };
 }
 

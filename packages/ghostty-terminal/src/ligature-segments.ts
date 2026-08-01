@@ -1,3 +1,4 @@
+import { ensureMinimumContrast, isFallbackEligible } from './minimum-contrast';
 import type { GhosttyColorRgb, GhosttyRenderCell } from './types';
 
 /**
@@ -40,6 +41,8 @@ function isSegmentCell(cell: GhosttyRenderCell): boolean {
 type SegmentColors = {
   foreground: GhosttyColorRgb;
   background: GhosttyColorRgb;
+  /** 与渲染器同一个开关：关闭时按原色比较，否则分段依据会和实际绘制色对不上。 */
+  minimumContrast?: boolean;
 };
 
 // 前景色按「绘制时实际使用的解析值」比较（默认色落到主题色），显式 RGB 与
@@ -47,6 +50,17 @@ type SegmentColors = {
 function styleKey(cell: GhosttyRenderCell, colors: SegmentColors): string {
   const s = cell.style;
   const fg = s.inverse ? (cell.bgColor ?? colors.background) : (cell.fgColor ?? colors.foreground);
+  const bg = s.inverse ? (cell.fgColor ?? colors.foreground) : (cell.bgColor ?? colors.background);
+  // 段首的颜色决定整段，所以比较的必须是「最终画上去的颜色」而不是原始色：同一个
+  // RGB，来自调色板时会被可读性兜底、来自 SGR 真彩色时原样保留，两者不能并进一段。
+  const drawn =
+    colors.minimumContrast &&
+    isFallbackEligible(
+      s.inverse ? cell.bgColor : cell.fgColor,
+      s.inverse ? cell.bgPaletteIndex : cell.fgPaletteIndex
+    )
+      ? ensureMinimumContrast(fg, bg)
+      : fg;
   return [
     s.bold,
     s.italic,
@@ -55,7 +69,7 @@ function styleKey(cell: GhosttyRenderCell, colors: SegmentColors): string {
     s.strikethrough,
     s.overline,
     s.underline,
-    `${fg.r},${fg.g},${fg.b}`,
+    `${drawn.r},${drawn.g},${drawn.b}`,
   ].join('|');
 }
 

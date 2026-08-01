@@ -1,5 +1,6 @@
 import { type GlyphInk, resolveGlyphConstraint } from './glyph-constraint';
 import { type LigatureSegment, scanLigatureSegments } from './ligature-segments';
+import { ensureMinimumContrast, isFallbackEligible } from './minimum-contrast';
 import type {
   GhosttyCellDimensions,
   GhosttyColorRgb,
@@ -15,6 +16,7 @@ type CanvasRendererOptions = {
   fontFamily: string;
   fontSize: number;
   ligatures?: boolean;
+  minimumContrast?: boolean;
 };
 
 type CanvasRendererFrame = {
@@ -115,6 +117,7 @@ export class CanvasRenderer {
   private readonly fontFamily: string;
   private readonly fontSize: number;
   private readonly ligatures: boolean;
+  private readonly minimumContrast: boolean;
   private cellDimensions: GhosttyCellDimensions = { width: 9, height: 17 };
   // 设备像素整数 cell。所有绘制坐标必须落在整数物理像素上：相邻 fillRect 在
   // 小数边界各自抗锯齿半覆盖，叠加后边界像素覆盖不满，会在大面积色块中透出
@@ -136,6 +139,8 @@ export class CanvasRenderer {
   private frameCount = 0;
   private lastDrawnRows: number[] = [];
   private readonly colorCache = new Map<string, string>();
+  // (fg,bg) 组合数远少于 cell 数，缓存后每帧只算少量新组合。
+  private readonly contrastCache = new Map<string, GhosttyColorRgb>();
   private readonly fontCache = new Map<string, string>();
   private readonly glyphInkCache = new Map<string, GlyphInk | null>();
   private cursorBlinkVisible = true;
@@ -146,6 +151,7 @@ export class CanvasRenderer {
     this.fontFamily = options.fontFamily;
     this.fontSize = options.fontSize;
     this.ligatures = options.ligatures ?? false;
+    this.minimumContrast = options.minimumContrast ?? false;
 
     options.screenElement.style.position = 'relative';
     options.screenElement.style.overflow = 'hidden';
@@ -179,6 +185,7 @@ export class CanvasRenderer {
   setTheme(theme: GhosttyTheme): void {
     this.theme = theme;
     this.colorCache.clear();
+    this.contrastCache.clear();
   }
 
   render(frame: CanvasRendererFrame): void {
@@ -250,6 +257,7 @@ export class CanvasRenderer {
     this.selectionCanvas.remove();
     this.cursorCanvas.remove();
     this.colorCache.clear();
+    this.contrastCache.clear();
     this.fontCache.clear();
     this.glyphInkCache.clear();
     this.lastCursor = null;
@@ -455,6 +463,7 @@ export class CanvasRenderer {
       ? scanLigatureSegments(row.cells, {
           foreground: colors.foreground,
           background: colors.background,
+          minimumContrast: this.minimumContrast,
         })
       : [];
     const segmentStarts = new Map<number, LigatureSegment>();
@@ -476,9 +485,20 @@ export class CanvasRenderer {
       }
 
       const x = cell.x * this.deviceCellWidth;
-      const fg = cell.style.inverse
+      const rawFg = cell.style.inverse
         ? (cell.bgColor ?? colors.background)
         : (cell.fgColor ?? colors.foreground);
+      // 该 cell 实际铺的背景（drawRowBackground 用同一套判定），据此保底可读性。
+      const effectiveBg = cell.style.inverse
+        ? (cell.fgColor ?? colors.foreground)
+        : (cell.bgColor ?? colors.background);
+      // 反显时前景取自 bg 槽位，来源判定要跟着换。
+      const fgSourceIndex = cell.style.inverse ? cell.bgPaletteIndex : cell.fgPaletteIndex;
+      const fgSourceColor = cell.style.inverse ? cell.bgColor : cell.fgColor;
+      const fg =
+        this.minimumContrast && isFallbackEligible(fgSourceColor, fgSourceIndex)
+          ? this.withMinimumContrast(rawFg, effectiveBg)
+          : rawFg;
       const cellWidth = cell.widthKind === 'wide' ? this.deviceCellWidth * 2 : this.deviceCellWidth;
 
       this.mainContext.fillStyle = this.toCss(fg);
@@ -731,6 +751,17 @@ export class CanvasRenderer {
     const font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${deviceFontSize}px ${this.fontFamily}`;
     this.fontCache.set(key, font);
     return font;
+  }
+
+  private withMinimumContrast(fg: GhosttyColorRgb, bg: GhosttyColorRgb): GhosttyColorRgb {
+    const key = `${fg.r},${fg.g},${fg.b}/${bg.r},${bg.g},${bg.b}`;
+    const cached = this.contrastCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const adjusted = ensureMinimumContrast(fg, bg);
+    this.contrastCache.set(key, adjusted);
+    return adjusted;
   }
 
   private toCss(color: GhosttyColorRgb): string {

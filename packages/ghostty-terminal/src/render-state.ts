@@ -38,6 +38,10 @@ const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR = 6;
 const GHOSTTY_ROW_DATA_WRAP = 1;
 const GHOSTTY_ROW_DATA_WRAP_CONTINUATION = 2;
 
+// GhosttyStyleColor.tag：0=none（未指定，用默认前景/背景）1=palette 2=rgb（SGR 真彩色）。
+// 实测自 ghostty-vt.wasm：\e[31m→1、\e[38;5;196m→1、\e[38;2;255;0;0m→2、无 SGR→0。
+const GHOSTTY_STYLE_COLOR_PALETTE = 1;
+
 const GHOSTTY_CELL_DATA_WIDE = 3;
 const GHOSTTY_CELL_DATA_HAS_TEXT = 4;
 
@@ -214,7 +218,11 @@ function readU64(
   }
 }
 
-function readStyle(resources: GhosttyRenderStateResources): GhosttyRenderCellStyle {
+function readStyle(resources: GhosttyRenderStateResources): {
+  style: GhosttyRenderCellStyle;
+  fgPaletteIndex: number | null;
+  bgPaletteIndex: number | null;
+} {
   const style = resources.bindings.allocStruct('GhosttyStyle');
 
   try {
@@ -231,16 +239,32 @@ function readStyle(resources: GhosttyRenderStateResources): GhosttyRenderCellSty
     );
 
     const field = (name: string) => resources.bindings.field('GhosttyStyle', name).offset;
+    const colorField = (name: string) => resources.bindings.field('GhosttyStyleColor', name).offset;
+
+    // GhosttyStyleColor 是 tagged union：tag 区分 none/palette/rgb，palette 变体的
+    // value 首字节是调色板索引。渲染层据此区分「调色板色」与「SGR 真彩色」。
+    const paletteIndexAt = (base: number): number | null => {
+      const tag = style.view.getInt32(base + colorField('tag'), true);
+      if (tag !== GHOSTTY_STYLE_COLOR_PALETTE) {
+        return null;
+      }
+      return style.view.getUint8(base + colorField('value'));
+    };
+
     return {
-      bold: style.view.getUint8(field('bold')) !== 0,
-      italic: style.view.getUint8(field('italic')) !== 0,
-      faint: style.view.getUint8(field('faint')) !== 0,
-      blink: style.view.getUint8(field('blink')) !== 0,
-      inverse: style.view.getUint8(field('inverse')) !== 0,
-      invisible: style.view.getUint8(field('invisible')) !== 0,
-      strikethrough: style.view.getUint8(field('strikethrough')) !== 0,
-      overline: style.view.getUint8(field('overline')) !== 0,
-      underline: style.view.getInt32(field('underline'), true),
+      style: {
+        bold: style.view.getUint8(field('bold')) !== 0,
+        italic: style.view.getUint8(field('italic')) !== 0,
+        faint: style.view.getUint8(field('faint')) !== 0,
+        blink: style.view.getUint8(field('blink')) !== 0,
+        inverse: style.view.getUint8(field('inverse')) !== 0,
+        invisible: style.view.getUint8(field('invisible')) !== 0,
+        strikethrough: style.view.getUint8(field('strikethrough')) !== 0,
+        overline: style.view.getUint8(field('overline')) !== 0,
+        underline: style.view.getInt32(field('underline'), true),
+      },
+      fgPaletteIndex: paletteIndexAt(field('fg_color')),
+      bgPaletteIndex: paletteIndexAt(field('bg_color')),
     };
   } finally {
     style.free();
@@ -477,6 +501,7 @@ function readRow(resources: GhosttyRenderStateResources, rowIndex: number): Ghos
         resources.bindings.getRawCellValueResult(rawCell, GHOSTTY_CELL_DATA_WIDE, ptr)
       )
     );
+    const { style, fgPaletteIndex, bgPaletteIndex } = readStyle(resources);
     const cell: GhosttyRenderCell = {
       x,
       text: codepointsToText(codepoints),
@@ -485,7 +510,9 @@ function readRow(resources: GhosttyRenderStateResources, rowIndex: number): Ghos
       hasText: readBool(resources, (ptr) =>
         resources.bindings.getRawCellValueResult(rawCell, GHOSTTY_CELL_DATA_HAS_TEXT, ptr)
       ),
-      style: readStyle(resources),
+      style,
+      fgPaletteIndex,
+      bgPaletteIndex,
       fgColor: readOptionalColor(resources, (ptr) =>
         resources.bindings.getRenderStateRowCellValueResult(
           resources.rowCellsHandle,

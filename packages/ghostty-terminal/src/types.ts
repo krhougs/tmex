@@ -29,6 +29,12 @@ export interface GhosttyTerminalInitOptions {
   lineHeight?: number;
   /** 编程连字（=> -> != 等符号段整形）。缺省关闭。 */
   ligatures?: boolean;
+  /**
+   * 可读性兜底：调色板色与所在 cell 背景的对比度低于阈值时，把前景沿明度方向推到刚好
+   * 达标。只作用于主题调色板的 16 个基础色和默认前景，256 色与 SGR 真彩色原样呈现。
+   * 缺省关闭——它会改变程序指定的颜色，是否可接受由宿主决定。
+   */
+  minimumContrast?: boolean;
   scrollback: number;
   disableStdin?: boolean;
 }
@@ -124,6 +130,11 @@ export interface GhosttyRenderCell {
   style: GhosttyRenderCellStyle;
   fgColor: GhosttyColorRgb | null;
   bgColor: GhosttyColorRgb | null;
+  // 颜色来源：调色板色给出索引（0–255），SGR 真彩色与「未指定」都是 null。
+  // fgColor/bgColor 只有解析后的 RGB，palette 196 与 38;2;255;0;0 完全同值，
+  // 靠 RGB 无法区分，可读性兜底要据此把真彩色排除在外。
+  fgPaletteIndex: number | null;
+  bgPaletteIndex: number | null;
 }
 
 export interface GhosttyRenderRow {

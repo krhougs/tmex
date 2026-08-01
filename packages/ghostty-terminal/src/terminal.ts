@@ -445,6 +445,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       fontFamily: this.options.fontFamily,
       fontSize: this.options.fontSize,
       ligatures: this.options.ligatures,
+      minimumContrast: this.options.minimumContrast,
     });
 
     this.syncInputState();

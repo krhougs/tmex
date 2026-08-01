@@ -35,6 +35,8 @@ function cell(
     },
     fgColor: null,
     bgColor: null,
+    fgPaletteIndex: null,
+    bgPaletteIndex: null,
   };
 }
 

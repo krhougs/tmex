@@ -36,6 +36,8 @@ function makeCells(
     style: { ...BASE_STYLE },
     fgColor: null,
     bgColor: null,
+    fgPaletteIndex: null,
+    bgPaletteIndex: null,
     ...(overrides[x] ?? {}),
   }));
 }

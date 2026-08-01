@@ -366,6 +366,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
               fontSize: terminalFontSize,
               lineHeight: terminalLineHeight,
               ligatures: terminalLigatures,
+              minimumContrast: true,
               scrollback: TERMINAL_SCROLLBACK,
               theme: currentTerminalThemeRef.current,
               disableStdin: currentInputModeRef.current === 'editor',
