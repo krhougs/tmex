@@ -212,6 +212,7 @@ export type TranslationKey =
   | 'settings.terminal.ligaturesDesc'
   | 'settings.terminal.preview'
   | 'settings.terminal.savedInBrowser'
+  | 'settings.terminal.sheetDescription'
   | 'settings.terminal.shortcuts'
   | 'settings.terminal.shortcuts.title'
   | 'settings.terminal.shortcuts.savedOnServer'

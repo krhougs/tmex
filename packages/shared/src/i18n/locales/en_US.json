@@ -203,6 +203,7 @@
         "ligaturesDesc": "Render symbol sequences like => -> != as ligature glyphs (requires font support). When off, characters render individually.",
         "preview": "Preview",
         "savedInBrowser": "These settings are saved in this browser only.",
+        "sheetDescription": "Terminal display, keyboard behavior, and shortcut buttons.",
         "shortcuts": {
           "title": "Custom Shortcuts",
           "savedOnServer": "Saved on the server and shared across all your browsers — changes take effect after you click Save.",

@@ -209,6 +209,7 @@ export const I18N_RESOURCES = {
         "ligaturesDesc": "Render symbol sequences like => -> != as ligature glyphs (requires font support). When off, characters render individually.",
         "preview": "Preview",
         "savedInBrowser": "These settings are saved in this browser only.",
+        "sheetDescription": "Terminal display, keyboard behavior, and shortcut buttons.",
         "shortcuts": {
           "title": "Custom Shortcuts",
           "savedOnServer": "Saved on the server and shared across all your browsers — changes take effect after you click Save.",
@@ -1223,6 +1224,7 @@ export const I18N_RESOURCES = {
         "ligaturesDesc": "将 => -> != 等符号序列渲染为连字字形（需字体支持）。关闭后逐字符渲染。",
         "preview": "预览",
         "savedInBrowser": "这些设置仅保存在当前浏览器中。",
+        "sheetDescription": "终端显示、键盘行为与快捷键按钮。",
         "shortcuts": {
           "title": "自定义快捷键",
           "savedOnServer": "保存在服务器、多端共享——修改后需点「保存」才生效。",
@@ -2237,6 +2239,7 @@ export const I18N_RESOURCES = {
         "ligaturesDesc": "=> -> != などの記号列をリガチャとして描画します（フォントの対応が必要）。オフにすると 1 文字ずつ描画します。",
         "preview": "プレビュー",
         "savedInBrowser": "これらの設定はこのブラウザにのみ保存されます。",
+        "sheetDescription": "ターミナルの表示・キーボードの動作・ショートカットボタンの設定。",
         "shortcuts": {
           "title": "カスタムショートカット",
           "savedOnServer": "サーバーに保存され、すべてのブラウザで共有されます。変更は「保存」後に反映されます。",
