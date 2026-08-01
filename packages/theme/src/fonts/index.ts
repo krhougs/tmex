@@ -7,8 +7,12 @@ import type { FontManifestEntry } from './types';
 export { DEFAULT_FONT_ID, FONT_MANIFEST };
 export type { FontManifestEntry };
 
-// 符号兜底字体（媒体控制/Braille/勾选等），恒定挂在主字体之后，CJK 落系统 monospace。
+// 符号兜底字体（媒体控制/Braille/勾选等），恒定挂在主字体之后。
 const SYMBOL_FALLBACK = 'NotoSansSymbols2Tmex';
+// CJK 显式兜底：Windows 的 monospace 泛型对简中解析为宋体（SimSun），必须在
+// monospace 前显式给出 CJK 字体名。canvas 渲染按 widthKind 定格宽，CJK 字形
+// 双格绘制，兜底字体非等宽不破坏网格。
+const CJK_FALLBACK = '"PingFang SC", "Microsoft YaHei"';
 
 export function getFontEntry(fontId: string): FontManifestEntry {
   return (
@@ -18,9 +22,9 @@ export function getFontEntry(fontId: string): FontManifestEntry {
   );
 }
 
-/** 由 fontId 派生完整 CSS font-family 栈：主字体 → 符号兜底 → 系统等宽。 */
+/** 由 fontId 派生完整 CSS font-family 栈：主字体 → 符号兜底 → CJK 兜底 → 系统等宽。 */
 export function resolveFontStack(fontId: string): string {
-  return `${getFontEntry(fontId).cssFamily}, ${SYMBOL_FALLBACK}, monospace`;
+  return `${getFontEntry(fontId).cssFamily}, ${SYMBOL_FALLBACK}, ${CJK_FALLBACK}, monospace`;
 }
 
 const injectedFamilies = new Set<string>();

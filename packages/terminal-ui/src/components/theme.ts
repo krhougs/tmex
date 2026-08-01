@@ -19,10 +19,11 @@ import { TERMINAL_THEME_DARK, TERMINAL_THEME_LIGHT } from '@tmex/shared';
 export const XTERM_THEME_MIDNIGHT_AMETHYST = TERMINAL_THEME_DARK;
 export const XTERM_THEME_DAWN_AMETHYST = TERMINAL_THEME_LIGHT;
 
-// 内嵌字体逐字形兜底：等宽打底字体在前，符号字体其后，CJK 落到末尾 monospace 走系统。
-// 没有任何单一等宽字体能覆盖全部 TUI 符号，故拆成两层。family 名刻意不带空格，免去加引号。
+// 内嵌字体逐字形兜底：等宽打底字体在前，符号字体其后，CJK 显式兜底在 monospace 前
+// （Windows 的 monospace 泛型对简中解析为宋体）。没有任何单一等宽字体能覆盖全部 TUI
+// 符号，故拆层；CJK 字形按 widthKind 双格绘制，兜底字体非等宽不破坏网格。
 export const TERMINAL_EMBEDDED_FONT_FAMILIES = ['GeistMonoTmex', 'NotoSansSymbols2Tmex'];
-export const XTERM_FONT_FAMILY = `${TERMINAL_EMBEDDED_FONT_FAMILIES.join(', ')}, monospace`;
+export const XTERM_FONT_FAMILY = `${TERMINAL_EMBEDDED_FONT_FAMILIES.join(', ')}, "PingFang SC", "Microsoft YaHei", monospace`;
 
 // canvas/DOM 测量 cell 尺寸前必须确保内嵌字体已加载：否则首屏按 monospace 回退
 // 测宽，font-display swap 生效后字形按内嵌字体度量渲染，与已定网格逐格错位。
