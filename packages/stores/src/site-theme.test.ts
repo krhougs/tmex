@@ -38,9 +38,9 @@ if (typeof globalThis.window === 'undefined') {
     memStorage as unknown as Storage;
 }
 
+const changeLanguageMock = mock(() => Promise.resolve());
 mock.module('i18next', () => {
-  const changeLanguage = mock(() => Promise.resolve());
-  return { default: { changeLanguage, t: (k: string) => k } };
+  return { default: { changeLanguage: changeLanguageMock, t: (k: string) => k } };
 });
 
 const sendMock = mock(() => true);
@@ -390,6 +390,7 @@ describe('hostManagedTheme runtime feature', () => {
           filesUi: true,
           hostManagedNotifications: false,
           hostManagedTheme,
+          hostManagedLocale: false,
         },
       },
       () => ui
@@ -492,5 +493,73 @@ describe('hostManagedTheme runtime feature', () => {
     expect(ui.getState().theme).toBe('dark');
     expect(readPrefixedTheme(prefix)).not.toBe('light');
     expect(darkToggle).not.toHaveBeenCalled();
+  });
+});
+
+describe('hostManagedLocale runtime feature', () => {
+  function makeLocaleSiteStore(hostManagedLocale: boolean, prefix: string) {
+    const transport = async (url: string) => {
+      if (url.includes('/api/settings/site')) {
+        return new Response(
+          JSON.stringify({
+            settings: {
+              siteName: 'tmex',
+              siteUrl: 'http://localhost',
+              bellThrottleSeconds: 6,
+              notificationThrottleSeconds: 3,
+              enableBrowserNotificationToast: true,
+              enableNotificationPush: true,
+              enableBellPush: true,
+              enableBellSound: true,
+              sshReconnectMaxRetries: 2,
+              sshReconnectDelaySeconds: 10,
+              language: 'en_US',
+              disabledNotificationChannels: [],
+              theme: 'light',
+              updatedAt: new Date().toISOString(),
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    };
+    const ui = createUIStore({ storagePrefix: prefix });
+    return createSiteStore(
+      {
+        client: { send: sendMock, isReady: isReadyMock } as unknown as Parameters<
+          typeof createSiteStore
+        >[0]['client'],
+        apiClient: new ApiClient('', transport),
+        storagePrefix: prefix,
+        features: {
+          agentUi: true,
+          watchUi: true,
+          filesUi: true,
+          hostManagedNotifications: false,
+          hostManagedTheme: false,
+          hostManagedLocale,
+        },
+      },
+      () => ui
+    );
+  }
+
+  beforeEach(() => {
+    changeLanguageMock.mockClear();
+  });
+
+  test('关断时 site settings 仍驱动 i18next（默认行为不变）', async () => {
+    const site = makeLocaleSiteStore(false, 'locale-off:');
+    await site.getState().fetchSettings();
+    await site.getState().refreshSettings();
+    expect(changeLanguageMock).toHaveBeenCalled();
+  });
+
+  test('开启时 fetch/refresh 都不改宿主语言', async () => {
+    const site = makeLocaleSiteStore(true, 'locale-on:');
+    await site.getState().fetchSettings();
+    await site.getState().refreshSettings();
+    expect(changeLanguageMock).not.toHaveBeenCalled();
   });
 });

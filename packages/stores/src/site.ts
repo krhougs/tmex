@@ -39,6 +39,11 @@ export function createSiteStore(
   core: Pick<RuntimeCore, 'client' | 'apiClient' | 'storagePrefix' | 'features'>,
   getUIStore: () => UIStore
 ) {
+  function applySiteLanguage(language: string): void {
+    if (core.features.hostManagedLocale) return;
+    void i18next.changeLanguage(language);
+  }
+
   function syncThemeToUIStore(theme: ThemeMode): void {
     if (core.features.hostManagedTheme) return;
     const uiStore = getUIStore();
@@ -78,13 +83,13 @@ export function createSiteStore(
       try {
         const settings = await fetchSiteSettings(core.apiClient);
         set({ settings, loading: false });
-        void i18next.changeLanguage(settings.language);
+        applySiteLanguage(settings.language);
         syncThemeToUIStore(settings.theme);
         return settings;
       } catch (err) {
         console.error('[site] failed to fetch settings:', err);
         set({ settings: DEFAULT_SETTINGS, loading: false });
-        void i18next.changeLanguage(DEFAULT_SETTINGS.language);
+        applySiteLanguage(DEFAULT_SETTINGS.language);
         syncThemeToUIStore(DEFAULT_SETTINGS.theme);
         return DEFAULT_SETTINGS;
       }
@@ -95,7 +100,7 @@ export function createSiteStore(
       try {
         const settings = await fetchSiteSettings(core.apiClient);
         set({ settings, loading: false });
-        void i18next.changeLanguage(settings.language);
+        applySiteLanguage(settings.language);
         syncThemeToUIStore(settings.theme);
         return settings;
       } catch (err) {

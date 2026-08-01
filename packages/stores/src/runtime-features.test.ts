@@ -74,6 +74,7 @@ describe('runtime features resolution', () => {
       filesUi: true,
       hostManagedNotifications: false,
       hostManagedTheme: false,
+      hostManagedLocale: false,
     });
   });
 
