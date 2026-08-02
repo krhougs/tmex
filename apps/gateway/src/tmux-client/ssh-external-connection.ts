@@ -118,7 +118,6 @@ export class SshExternalTmuxConnection {
   private controlStderrTail = '';
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatPending = false;
-  private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private themeSubscriptions = createThemeSubscriptionTracker();
   private themeSubscriptionsRestored = false;
   private sshClient: Client | null = null;
@@ -1107,9 +1106,6 @@ export class SshExternalTmuxConnection {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-    }
     this.heartbeatPending = false;
     this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
   }
@@ -1118,10 +1114,6 @@ export class SshExternalTmuxConnection {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
-    }
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-      this.heartbeatTimeoutTimer = null;
     }
     this.heartbeatPending = false;
   }
@@ -1132,6 +1124,7 @@ export class SshExternalTmuxConnection {
     }
     this.heartbeatPending = true;
     const control = this.controlChannel;
+    const settle = () => this.onHeartbeatResponse(control);
     void this.controlCommands
       .execute((value) => control.write(value), 'display-message -p "tmex-hb"', {
         timeoutMs: HEARTBEAT_TIMEOUT_MS,
@@ -1141,24 +1134,12 @@ export class SshExternalTmuxConnection {
           }
         },
       })
-      .then(() => this.onHeartbeatResponse())
-      .catch(() => {});
-    this.heartbeatTimeoutTimer = setTimeout(() => {
-      if (this.heartbeatPending && this.connected && !this.manualDisconnect) {
-        console.warn(
-          `[ssh] tmux control client heartbeat timeout on ${this.deviceId}, killing stalled channel`
-        );
-        this.controlChannel?.stop();
-      }
-    }, HEARTBEAT_TIMEOUT_MS);
+      .then(settle, settle);
   }
 
-  private onHeartbeatResponse(): void {
+  private onHeartbeatResponse(control: ControlChannelHandle): void {
+    if (this.controlChannel !== control) return;
     this.heartbeatPending = false;
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-      this.heartbeatTimeoutTimer = null;
-    }
   }
 
   private handleControlChannelClose(handle: ControlChannelHandle): void {

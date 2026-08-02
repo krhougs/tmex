@@ -3,6 +3,7 @@ import type { Device, StateSnapshotPayload } from '@tmex/shared';
 
 import { createDevice as createDeviceRow, getDeviceById, getDeviceRuntimeStatus } from '../db';
 import { runMigrations } from '../db/migrate';
+import type { ControlModeCommandQueue } from './control-mode-capture';
 import type { TmuxEvent } from './events';
 import {
   type ControlClientProcess,
@@ -1531,13 +1532,56 @@ describe('LocalExternalTmuxConnection', () => {
     await waitFor(() => (!(connection as any).heartbeatPending ? true : null));
 
     expect((connection as any).heartbeatPending).toBe(false);
-    expect((connection as any).heartbeatTimeoutTimer).toBeNull();
     expect(fake.killed()).toBe(false);
 
     connection.disconnect();
   });
 
-  test('heartbeat timeout kills process', async () => {
+  test('heartbeat %error clears pending state and keeps the control process reusable', async () => {
+    const fake = createFakeControlProcess();
+    const connection = new LocalExternalTmuxConnection(
+      {
+        deviceId: 'device-local',
+        onEvent: () => {},
+        onTerminalOutput: () => {},
+        onTerminalHistory: () => {},
+        onSnapshot: () => {},
+        onError: () => {},
+        onClose: () => {},
+      },
+      {
+        enableSubscription: true,
+        ensureGhosttyTerminfo: async () => false,
+        getDevice: () => createDevice('tmex-hb-error'),
+        run: createRunStub('tmex-hb-error'),
+        spawnControlClient: () => {
+          fake.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-hb-error\n');
+          return fake.proc;
+        },
+      }
+    );
+
+    await connection.connect();
+
+    (connection as any).sendHeartbeat();
+    fake.pushStdout('%begin 2 2 0\nheartbeat rejected\n%error 2 2 0\n');
+    await waitFor(() => (!(connection as any).heartbeatPending ? true : null));
+
+    expect((connection as any).heartbeatPending).toBe(false);
+    expect(fake.killed()).toBe(false);
+
+    (connection as any).sendHeartbeat();
+    expect(
+      fake.writtenData.filter((command) => command === 'display-message -p "tmex-hb"\n')
+    ).toHaveLength(2);
+    fake.pushStdout('%begin 3 3 0\ntmex-hb\n%end 3 3 0\n');
+    await waitFor(() => (!(connection as any).heartbeatPending ? true : null));
+
+    expect(fake.killed()).toBe(false);
+    connection.disconnect();
+  });
+
+  test('control queue timeout kills the stalled process', async () => {
     const fakes: FakeControlProcess[] = [];
     const connection = new LocalExternalTmuxConnection(
       {
@@ -1567,19 +1611,13 @@ describe('LocalExternalTmuxConnection', () => {
     const target = fakes[0];
     if (!target) throw new Error('control process was not created');
 
-    (connection as any).sendHeartbeat();
-    expect(target.writtenData).toContain('display-message -p "tmex-hb"\n');
-
-    // Replace the 10s timeout with a short one to avoid slow test.
-    // The replacement replicates the same guard logic from sendHeartbeat.
-    clearTimeout((connection as any).heartbeatTimeoutTimer);
-    (connection as any).heartbeatTimeoutTimer = setTimeout(() => {
-      const c = connection as any;
-      if (!c.heartbeatPending || !c.connected || c.manualDisconnect) {
-        return;
-      }
-      c.controlProcess?.kill();
-    }, 50);
+    const queue = (connection as any).controlCommands as ControlModeCommandQueue;
+    void queue
+      .execute((command) => target.proc.write(command), 'stalled watchdog command', {
+        timeoutMs: 50,
+        transform: () => undefined,
+      })
+      .catch(() => {});
 
     await waitFor(() => (target.killed() ? true : null), 2000);
     expect(target.killed()).toBe(true);
@@ -1689,12 +1727,11 @@ describe('LocalExternalTmuxConnection', () => {
     expect((connection as any).heartbeatTimer).not.toBeNull();
 
     (connection as any).sendHeartbeat();
-    expect((connection as any).heartbeatTimeoutTimer).not.toBeNull();
+    expect((connection as any).heartbeatPending).toBe(true);
 
     connection.disconnect();
 
     expect((connection as any).heartbeatTimer).toBeNull();
-    expect((connection as any).heartbeatTimeoutTimer).toBeNull();
     expect((connection as any).heartbeatPending).toBe(false);
   });
 

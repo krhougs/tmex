@@ -964,10 +964,41 @@ describe('SshExternalTmuxConnection', () => {
     connection.disconnect();
   });
 
-  test('heartbeat timeout stops control channel', async () => {
+  test('heartbeat %error clears pending state and keeps the control channel reusable', async () => {
+    const fakeClient = new FakeClient();
+    setupCommandChannel(fakeClient, 'tmex-ssh-hb-error', {});
+
+    const connection = new SshExternalTmuxConnection(createCallbacks({}), {
+      getDevice: () => createDevice('tmex-ssh-hb-error'),
+      decrypt: async () => 'secret',
+      createClient: () => fakeClient as unknown as Client,
+    });
+
+    await connection.connect();
+    const controlChannel = fakeClient.controlChannels[0];
+    if (!controlChannel) throw new Error('control channel was not created');
+
+    (connection as any).sendHeartbeat();
+    controlChannel.emit('data', Buffer.from('%begin 2 2 0\nheartbeat rejected\n%error 2 2 0\n'));
+    await waitFor(() => (!(connection as any).heartbeatPending ? true : null));
+
+    expect((connection as any).heartbeatPending).toBe(false);
+    expect(controlChannel.ended).toBe(false);
+
+    (connection as any).sendHeartbeat();
+    expect(
+      controlChannel.writes.filter((command) => command === 'display-message -p "tmex-hb"\n')
+    ).toHaveLength(2);
+    controlChannel.emit('data', Buffer.from('%begin 3 3 0\ntmex-hb\n%end 3 3 0\n'));
+    await waitFor(() => (!(connection as any).heartbeatPending ? true : null));
+
+    expect(controlChannel.ended).toBe(false);
+    connection.disconnect();
+  });
+
+  test('control queue timeout stops the stalled control channel', async () => {
     const session = 'tmex-ssh-hb-timeout';
     const fakeClient = new FakeClient();
-    const warn = spyOn(console, 'warn').mockImplementation(() => {});
     setupCommandChannel(fakeClient, session, {});
 
     const connection = new SshExternalTmuxConnection(
@@ -979,29 +1010,31 @@ describe('SshExternalTmuxConnection', () => {
       }
     );
 
-    try {
-      await connection.connect();
-      const controlChannel = fakeClient.controlChannels[0];
-      if (!controlChannel) throw new Error('control channel was not created');
+    await connection.connect();
+    const controlChannel = fakeClient.controlChannels[0];
+    if (!controlChannel) throw new Error('control channel was not created');
 
-      (connection as any).sendHeartbeat();
+    const queue = (connection as any).controlCommands as {
+      execute: <T>(
+        write: (command: string) => void,
+        command: string,
+        options: { timeoutMs: number; transform: () => T }
+      ) => Promise<T>;
+    };
+    void queue
+      .execute((command) => controlChannel.write(command), 'stalled watchdog command', {
+        timeoutMs: 50,
+        transform: () => undefined,
+      })
+      .catch(() => {});
 
-      await waitFor(() => (controlChannel.ended ? true : null), 12000);
+    await waitFor(() => (controlChannel.ended ? true : null));
 
-      expect(controlChannel.ended).toBe(true);
-      expect(controlChannel.closed).toBe(true);
-      expect(controlChannel.destroyed).toBe(true);
-
-      expect(
-        warn.mock.calls.some((call) =>
-          call.some((arg: unknown) => String(arg).includes('heartbeat timeout'))
-        )
-      ).toBe(true);
-    } finally {
-      warn.mockRestore();
-      connection.disconnect();
-    }
-  }, 20000);
+    expect(controlChannel.ended).toBe(true);
+    expect(controlChannel.closed).toBe(true);
+    expect(controlChannel.destroyed).toBe(true);
+    connection.disconnect();
+  });
 
   test('%pause triggers continue command on control channel', async () => {
     const fakeClient = new FakeClient();

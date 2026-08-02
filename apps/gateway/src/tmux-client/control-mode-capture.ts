@@ -21,11 +21,13 @@ export interface AtomicPaneCapture {
 }
 
 interface PendingControlCommand<T = unknown> {
+  command: string;
   literal: boolean;
+  timeoutMs: number;
   transform: (block: ControlModeBlock) => T;
   resolve: (value: T) => void;
   reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 export class ControlModeCommandQueue {
@@ -46,15 +48,16 @@ export class ControlModeCommandQueue {
     if (this.poisoned) return Promise.reject(new Error('tmux control command queue is closed'));
     return new Promise<T>((resolve, reject) => {
       const pending: PendingControlCommand<T> = {
+        command,
         literal: options.literal ?? false,
+        timeoutMs: options.timeoutMs ?? 10_000,
         transform: options.transform,
         resolve,
         reject,
-        timer: setTimeout(() => {
-          this.poison(new Error(`tmux control command timed out: ${command.slice(0, 80)}`));
-        }, options.timeoutMs ?? 10_000),
+        timer: null,
       };
       this.pending.push(pending as PendingControlCommand);
+      this.armHeadTimeout();
       try {
         write(command.endsWith('\n') ? command : `${command}\n`);
       } catch (error) {
@@ -70,7 +73,8 @@ export class ControlModeCommandQueue {
   handleBlock(block: ControlModeBlock): boolean {
     const pending = this.pending.shift();
     if (!pending) return false;
-    clearTimeout(pending.timer);
+    if (pending.timer !== null) clearTimeout(pending.timer);
+    this.armHeadTimeout();
     if (block.isError) {
       pending.reject(new Error(block.lines.join('\n') || 'tmux control command failed'));
       return true;
@@ -88,16 +92,25 @@ export class ControlModeCommandQueue {
     this.poisoned = true;
     const error = new Error(reason);
     for (const pending of this.pending.splice(0)) {
-      clearTimeout(pending.timer);
+      if (pending.timer !== null) clearTimeout(pending.timer);
       pending.reject(error);
     }
+  }
+
+  private armHeadTimeout(): void {
+    const pending = this.pending[0];
+    if (this.poisoned || !pending || pending.timer !== null) return;
+    pending.timer = setTimeout(() => {
+      if (this.pending[0] !== pending) return;
+      this.poison(new Error(`tmux control command timed out: ${pending.command.slice(0, 80)}`));
+    }, pending.timeoutMs);
   }
 
   private poison(error: Error): void {
     if (this.poisoned) return;
     this.poisoned = true;
     for (const pending of this.pending.splice(0)) {
-      clearTimeout(pending.timer);
+      if (pending.timer !== null) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.onPoison?.();

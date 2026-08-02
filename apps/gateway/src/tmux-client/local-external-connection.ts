@@ -230,7 +230,6 @@ export class LocalExternalTmuxConnection {
   private spawnUnavailableNotified = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatPending = false;
-  private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private themeSubscriptions = createThemeSubscriptionTracker();
   private themeSubscriptionsRestored = false;
 
@@ -1208,10 +1207,6 @@ export class LocalExternalTmuxConnection {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-      this.heartbeatTimeoutTimer = null;
-    }
     this.heartbeatPending = false;
   }
 
@@ -1221,6 +1216,7 @@ export class LocalExternalTmuxConnection {
     }
     this.heartbeatPending = true;
     const control = this.controlProcess;
+    const settle = () => this.onHeartbeatResponse(control);
     void this.controlCommands
       .execute((value) => control.write(value), 'display-message -p "tmex-hb"', {
         timeoutMs: HEARTBEAT_TIMEOUT_MS,
@@ -1230,28 +1226,14 @@ export class LocalExternalTmuxConnection {
           }
         },
       })
-      .then(() => this.onHeartbeatResponse())
-      .catch(() => {});
-    this.heartbeatTimeoutTimer = setTimeout(() => {
-      if (!this.heartbeatPending || !this.connected || this.manualDisconnect) {
-        return;
-      }
-      console.warn(
-        `[local] tmux control client heartbeat timeout on ${this.deviceId}, killing stalled process`
-      );
-      this.controlProcess?.kill();
-    }, HEARTBEAT_TIMEOUT_MS);
+      .then(settle, settle);
   }
 
-  private onHeartbeatResponse(): void {
-    if (!this.heartbeatPending) {
+  private onHeartbeatResponse(control: ControlClientProcess): void {
+    if (this.controlProcess !== control || !this.heartbeatPending) {
       return;
     }
     this.heartbeatPending = false;
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-      this.heartbeatTimeoutTimer = null;
-    }
   }
 
   private handleControlClientExit(proc: ControlClientProcess, exitCode: number): void {

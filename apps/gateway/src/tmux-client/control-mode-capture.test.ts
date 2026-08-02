@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-  ControlModeCommandQueue,
-  capturePaneFrameAtControlBarrier,
-} from './control-mode-capture';
+import { ControlModeCommandQueue, capturePaneFrameAtControlBarrier } from './control-mode-capture';
 import { createControlModeParser } from './control-mode-parser';
 
 const encoder = new TextEncoder();
@@ -24,6 +21,108 @@ function createHarness() {
   });
   return { writes, events, queue, parser };
 }
+
+function block(lines: string[], isError = false) {
+  return { args: '1 1 0', isError, lines };
+}
+
+describe('control-mode command queue', () => {
+  test('does not spend timeout while waiting behind the queue head', async () => {
+    const writes: string[] = [];
+    const queue = new ControlModeCommandQueue();
+    let secondSettled = false;
+    const first = queue
+      .execute((command) => writes.push(command), 'first', {
+        timeoutMs: 5_000,
+        transform: (response) => response.lines[0],
+      })
+      .then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (error) => ({ status: 'rejected' as const, error })
+      );
+    const second = queue
+      .execute((command) => writes.push(command), 'second', {
+        timeoutMs: 10,
+        transform: (response) => response.lines[0],
+      })
+      .then(
+        (value) => {
+          secondSettled = true;
+          return { status: 'fulfilled' as const, value };
+        },
+        (error) => {
+          secondSettled = true;
+          return { status: 'rejected' as const, error };
+        }
+      );
+
+    expect(writes).toEqual(['first\n', 'second\n']);
+    await Bun.sleep(40);
+    expect(secondSettled).toBe(false);
+
+    queue.handleBlock(block(['first-response']));
+    queue.handleBlock(block(['second-response']));
+
+    expect(await first).toEqual({ status: 'fulfilled', value: 'first-response' });
+    expect(await second).toEqual({ status: 'fulfilled', value: 'second-response' });
+    queue.dispose();
+  });
+
+  test('%error rejects only the current command and the next command still resolves', async () => {
+    const queue = new ControlModeCommandQueue();
+    const first = queue
+      .execute(() => {}, 'first', {
+        timeoutMs: 100,
+        transform: () => undefined,
+      })
+      .then(
+        () => ({ status: 'fulfilled' as const }),
+        (error) => ({ status: 'rejected' as const, message: String(error) })
+      );
+    const second = queue
+      .execute(() => {}, 'second', {
+        timeoutMs: 100,
+        transform: (response) => response.lines[0],
+      })
+      .then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (error) => ({ status: 'rejected' as const, message: String(error) })
+      );
+
+    queue.handleBlock(block(['first failed'], true));
+    queue.handleBlock(block(['second-response']));
+
+    expect(await first).toEqual({ status: 'rejected', message: 'Error: first failed' });
+    expect(await second).toEqual({ status: 'fulfilled', value: 'second-response' });
+    queue.dispose();
+  });
+
+  test('a stalled queue head poisons the queue and invokes the watchdog once', async () => {
+    let poisonCount = 0;
+    const queue = new ControlModeCommandQueue(() => {
+      poisonCount += 1;
+    });
+    const result = queue
+      .execute(() => {}, 'stalled', {
+        timeoutMs: 10,
+        transform: () => undefined,
+      })
+      .then(
+        () => ({ status: 'fulfilled' as const }),
+        (error) => ({ status: 'rejected' as const, message: String(error) })
+      );
+
+    await Bun.sleep(40);
+
+    expect(await result).toEqual({
+      status: 'rejected',
+      message: 'Error: tmux control command timed out: stalled',
+    });
+    expect(poisonCount).toBe(1);
+    queue.dispose();
+    expect(poisonCount).toBe(1);
+  });
+});
 
 describe('control-mode atomic capture', () => {
   test('aligns command blocks and keeps notification-looking screen lines literal', async () => {
