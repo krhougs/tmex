@@ -504,7 +504,10 @@ export class MetadataProjection {
           field,
           value: cloneValue(value),
         })).sort((left, right) => left.field - right.field),
-      })),
+      })).sort(
+        // 父实体先于子实体，老版本消费者按单遍顺序应用依赖此排序
+        (left, right) => left.key.entityKind - right.key.entityKind
+      ),
       removals: Array.from(this.dirtyRemovals.values(), cloneKey),
     };
     this.clearPending();
