@@ -479,7 +479,13 @@ export class WebSocketServer {
       }
 
       case wsBorsh.KIND_TMUX_CREATE_WINDOW: {
-        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
+        let decoded: wsBorsh.b.infer<typeof wsBorsh.schema.TmuxCreateWindowSchema>;
+        try {
+          decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
+        } catch (error) {
+          console.warn('[ws] create-window payload decode failed:', error);
+          return;
+        }
         this.handleCreateWindow(
           ws,
           decoded.deviceId,
@@ -1009,18 +1015,29 @@ export class WebSocketServer {
     cwd?: string
   ): void {
     const entry = this.connections.get(deviceId);
-    if (!entry) return;
+    if (!entry) {
+      const connected = Array.from(this.connections.keys()).join(',') || '(none)';
+      console.warn(
+        `[ws] create-window dropped: no connection entry for device ${deviceId} (connected devices: ${connected})`
+      );
+      return;
+    }
     void entry.runtime
       .createWindow(name, cwd)
       .then((windowId) => {
-        if (!windowId) return;
+        if (!windowId) {
+          console.warn(`[ws] create-window dropped on ${deviceId}: runtime returned no window id`);
+          return;
+        }
         this.sendEnvelope(
           ws,
           wsBorsh.KIND_TMUX_WINDOW_CREATED,
           wsBorsh.encodePayload(wsBorsh.schema.TmuxWindowCreatedSchema, { deviceId, windowId })
         );
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        console.warn(`[ws] create-window failed on ${deviceId}:`, error);
+      });
   }
 
   private handleCloseWindow(deviceId: string, windowId: string): void {

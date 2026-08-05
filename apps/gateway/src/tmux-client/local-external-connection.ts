@@ -419,6 +419,7 @@ export class LocalExternalTmuxConnection {
 
   async createWindow(name?: string, cwd?: string): Promise<string | null> {
     if (!this.connected) {
+      console.warn(`[local] createWindow skipped on ${this.deviceId}: not connected`);
       return null;
     }
 
@@ -438,7 +439,13 @@ export class LocalExternalTmuxConnection {
     try {
       const windowId = (await this.runTmux(argv)).stdout.trim();
       await this.requestSnapshotInternal();
-      return /^@\d+$/.test(windowId) ? windowId : null;
+      if (!/^@\d+$/.test(windowId)) {
+        console.warn(
+          `[local] createWindow on ${this.deviceId} returned unexpected output: ${JSON.stringify(windowId)}`
+        );
+        return null;
+      }
+      return windowId;
     } catch (error) {
       this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
       return null;
