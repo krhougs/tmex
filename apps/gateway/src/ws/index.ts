@@ -1374,23 +1374,30 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry || !isTmuxPaneId(paneId)) return;
 
+    const respond = (captured: { data: string; alternateScreen: boolean; modes: number } | null) => {
+      const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.TermHistorySchema, {
+        deviceId,
+        paneId,
+        selectToken: requestToken,
+        encoding: 1,
+        alternateScreen: captured?.alternateScreen ?? false,
+        modes: captured?.modes ?? 0,
+        data: new TextEncoder().encode(captured?.data ?? ''),
+      });
+      this.sendChunked(ws, wsBorsh.KIND_TERM_HISTORY, payloadBytes);
+    };
     void entry.runtime
       .fetchPaneHistory(paneId)
-      .then((captured) => {
-        if (!captured) return;
-        const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.TermHistorySchema, {
-          deviceId,
-          paneId,
-          selectToken: requestToken,
-          encoding: 1,
-          alternateScreen: captured.alternateScreen,
-          modes: captured.modes,
-          data: new TextEncoder().encode(captured.data),
-        });
-        this.sendChunked(ws, wsBorsh.KIND_TERM_HISTORY, payloadBytes);
-      })
+      .then(respond)
       .catch((error) => {
         console.warn(`[ws] fetch pane history failed on ${deviceId}/${paneId}:`, error);
+        // 失败也回空响应:客户端据此结束首屏等待进入实时流,而不是卡在
+        // history gate 直到超时(采不到历史是暂态,实时流会重建画面)。
+        try {
+          respond(null);
+        } catch {
+          /* 连接已关等发送失败无需处理 */
+        }
       });
   }
 
