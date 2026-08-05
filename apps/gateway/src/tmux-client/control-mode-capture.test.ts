@@ -97,11 +97,49 @@ describe('control-mode command queue', () => {
     queue.dispose();
   });
 
-  test('a stalled queue head poisons the queue and invokes the watchdog once', async () => {
+  test('a timed-out head fails alone; its late block is dropped and alignment survives', async () => {
     let poisonCount = 0;
     const queue = new ControlModeCommandQueue(() => {
       poisonCount += 1;
     });
+    const first = queue
+      .execute(() => {}, 'slow', {
+        timeoutMs: 10,
+        transform: () => undefined,
+      })
+      .then(
+        () => ({ status: 'fulfilled' as const }),
+        (error) => ({ status: 'rejected' as const, message: String(error) })
+      );
+    const second = queue
+      .execute(() => {}, 'next', {
+        timeoutMs: 5_000,
+        transform: (response) => response.lines[0],
+      })
+      .then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (error) => ({ status: 'rejected' as const, message: String(error) })
+      );
+
+    await Bun.sleep(40);
+    expect(await first).toEqual({
+      status: 'rejected',
+      message: 'Error: tmux control command timed out: slow',
+    });
+    expect(poisonCount).toBe(0);
+
+    queue.handleBlock(block(['late-response']));
+    queue.handleBlock(block(['next-response']));
+    expect(await second).toEqual({ status: 'fulfilled', value: 'next-response' });
+    expect(poisonCount).toBe(0);
+    queue.dispose();
+  });
+
+  test('a stream that never delivers the late block poisons after the stall grace', async () => {
+    let poisonCount = 0;
+    const queue = new ControlModeCommandQueue(() => {
+      poisonCount += 1;
+    }, 30);
     const result = queue
       .execute(() => {}, 'stalled', {
         timeoutMs: 10,
@@ -112,7 +150,7 @@ describe('control-mode command queue', () => {
         (error) => ({ status: 'rejected' as const, message: String(error) })
       );
 
-    await Bun.sleep(40);
+    await Bun.sleep(80);
 
     expect(await result).toEqual({
       status: 'rejected',
@@ -134,14 +172,19 @@ describe('control-mode atomic capture', () => {
       50,
       () => events.push('barrier')
     );
-    expect(writes).toHaveLength(3);
+    // 历史段在 info 返回后条件入队(alt 屏/零历史时跳过),此时只有前两条。
+    expect(writes).toHaveLength(2);
     parser.push(
       encoder.encode(
         '%begin 1 2 0\n80|24|0|3|4|200|1|0|0|1|0\n%end 1 2 0\n' +
           '%begin 1 3 0\n%output this is terminal text\n%window-add also terminal text\n' +
-          '%end 1 3 0\n' +
-          '%begin 1 4 0\nold history line\n%end 1 4 0\n%output %1 live\n'
+          '%end 1 3 0\n'
       )
+    );
+    await Bun.sleep(0);
+    expect(writes).toHaveLength(3);
+    parser.push(
+      encoder.encode('%begin 1 4 0\nold history line\n%end 1 4 0\n%output %1 live\n')
     );
 
     const capture = await capturePromise;
