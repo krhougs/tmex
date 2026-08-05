@@ -125,6 +125,17 @@ export function shouldIgnoreReaderAbortError(error: unknown): boolean {
 const TRANSIENT_SPAWN_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 const TMUX_SPAWN_UNAVAILABLE_EXIT = -2;
 
+// psmux 客户端侧注册表竞态会间歇性误报「no server running」：服务端其实健在，注册表
+// 约 5s 内自愈。这类错误短暂重试即可覆盖大部分窗口，绝不据此立即判定 server gone；
+// 真实死亡（进程退出、重复失败）不在重试范围，仍走既有快速判定路径。
+const NO_SERVER_RUNNING_RETRY_DELAY_MS = 300;
+const NO_SERVER_RUNNING_MAX_RETRIES = 2;
+
+function isNoServerRunningMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('no server running on') || normalized.includes('connection refused');
+}
+
 function isTransientSpawnError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
     return false;
@@ -1866,7 +1877,23 @@ export class LocalExternalTmuxConnection {
     this.spawnUnavailableNotified = false;
   }
 
+  // psmux 注册表竞态误报的「no server running」会随注册表自愈而消失：首次失败后短暂
+  // 重试（至多 NO_SERVER_RUNNING_MAX_RETRIES 次），重试仍失败才把结果交给上层判定
+  // server gone。其余错误（含真实 server 死亡）原样返回，保证死亡路径仍然快速。
   private async runTmuxAllowFailure(argv: string[]): Promise<CommandResult> {
+    let result = await this.runTmuxOnceAllowFailure(argv);
+    for (
+      let attempt = 0;
+      attempt < NO_SERVER_RUNNING_MAX_RETRIES && isNoServerRunningMessage(result.stderr);
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, NO_SERVER_RUNNING_RETRY_DELAY_MS));
+      result = await this.runTmuxOnceAllowFailure(argv);
+    }
+    return result;
+  }
+
+  private async runTmuxOnceAllowFailure(argv: string[]): Promise<CommandResult> {
     try {
       return await this.deps.run(buildLocalTmuxArgv(argv));
     } catch (error) {

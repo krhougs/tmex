@@ -95,6 +95,17 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 const PARKING_WINDOW_NAME = 'tmex-park';
 
+// 同 local 版本：psmux/远端 CLI 注册表竞态会间歇性误报「no server running」，服务端
+// 其实健在、注册表约 5s 内自愈。这类错误短暂重试即可，不据此立即判定 server gone；
+// 真实死亡不在重试范围，仍走既有快速判定路径。
+const NO_SERVER_RUNNING_RETRY_DELAY_MS = 300;
+const NO_SERVER_RUNNING_MAX_RETRIES = 2;
+
+function isNoServerRunningMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('no server running on') || normalized.includes('connection refused');
+}
+
 export class SshExternalTmuxConnection {
   private readonly deviceId: string;
   private readonly callbacks: TmuxConnectionOptions;
@@ -1797,8 +1808,20 @@ export class SshExternalTmuxConnection {
     });
   }
 
+  // 同 local 版本：注册表竞态误报的「no server running」短暂重试后再交上层判定，
+  // 其余错误（含真实 server 死亡）原样返回。
   private async runTmuxAllowFailure(argv: string[], timeoutMs = 10000): Promise<CommandResult> {
-    return this.runShell(`${quoteShellArg(this.tmuxBin)} ${joinShellArgs(argv)}`, timeoutMs);
+    const command = `${quoteShellArg(this.tmuxBin)} ${joinShellArgs(argv)}`;
+    let result = await this.runShell(command, timeoutMs);
+    for (
+      let attempt = 0;
+      attempt < NO_SERVER_RUNNING_MAX_RETRIES && isNoServerRunningMessage(result.stderr);
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, NO_SERVER_RUNNING_RETRY_DELAY_MS));
+      result = await this.runShell(command, timeoutMs);
+    }
+    return result;
   }
 
   private async runShell(command: string, timeoutMs = 10000): Promise<CommandResult> {
