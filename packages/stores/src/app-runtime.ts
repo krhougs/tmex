@@ -26,7 +26,15 @@ export function createAppRuntime(options: AppRuntimeOptions = {}): AppRuntime {
 
   const ui = options.uiStore ?? createUIStore(core);
   const site = createSiteStore(core, () => ui);
-  const tmux = createTmuxStore(core, { getUI: () => ui, getSite: () => site }, disposers);
+  const tmux = createTmuxStore(
+    core,
+    {
+      getUI: () => ui,
+      getSite: () => site,
+      createWindowTimeoutMs: options.createWindowTimeoutMs,
+    },
+    disposers
+  );
   const agent = createAgentStore(core, disposers);
   const fileTree = createFileTreeStore(core);
 
