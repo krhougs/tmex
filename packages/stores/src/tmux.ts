@@ -53,6 +53,9 @@ export interface TmuxState {
       }
     | undefined
   >;
+  // 本地发起的关闭记账（key: `pane:${deviceId}:${paneId}` / `window:${deviceId}:${windowId}`）：
+  // 让消费方把「快照里找不到目标」区分为确定的本地关闭 vs 快照未追上，前者无需 settle 宽限
+  recentlyClosedTargets: Record<string, number>;
 
   ensureSocketConnected: () => void;
   connectDevice: (deviceId: string) => void;
@@ -106,6 +109,20 @@ export interface TmuxState {
 }
 
 const CONNECT_DEDUP_WINDOW_MS = 500;
+const RECENTLY_CLOSED_TTL_MS = 30_000;
+
+function markRecentlyClosed(
+  prev: Record<string, number>,
+  key: string
+): Record<string, number> {
+  const now = Date.now();
+  const next: Record<string, number> = {};
+  for (const [k, ts] of Object.entries(prev)) {
+    if (now - ts < RECENTLY_CLOSED_TTL_MS) next[k] = ts;
+  }
+  next[key] = now;
+  return next;
+}
 const SCREEN_BYTE_LIMIT = 512 * 1024;
 const HISTORY_PAGE_BYTE_LIMIT = 256 * 1024;
 const CLIPBOARD_TOAST_PREVIEW_MAX_CHARS = 40;
@@ -628,6 +645,7 @@ export function createTmuxStore(
     selectedPanes: {},
     activePaneFromEvent: {},
     pendingCreateWindow: {},
+    recentlyClosedTargets: {},
 
     ensureSocketConnected() {
       setupTransportHandlers(set, get);
@@ -801,11 +819,23 @@ export function createTmuxStore(
 
     closeWindow(deviceId, windowId) {
       if (!deviceId || !windowId) return;
+      set((prev) => ({
+        recentlyClosedTargets: markRecentlyClosed(
+          prev.recentlyClosedTargets,
+          `window:${deviceId}:${windowId}`
+        ),
+      }));
       core.transport.send({ type: 'close-window', deviceId, windowId });
     },
 
     closePane(deviceId, paneId) {
       if (!deviceId || !paneId) return;
+      set((prev) => ({
+        recentlyClosedTargets: markRecentlyClosed(
+          prev.recentlyClosedTargets,
+          `pane:${deviceId}:${paneId}`
+        ),
+      }));
       core.transport.send({ type: 'close-pane', deviceId, paneId });
     },
 

@@ -557,7 +557,10 @@ export function SplitTerminalArea({
               width: pct(pane.rect.width, rootCols),
               height: pct(pane.rect.height, rootRows),
             }}
-            onPointerDownCapture={() => {
+            onPointerDownCapture={(event) => {
+              // 点关闭按钮不算选择该 pane：否则 URL/焦点先切到即将被杀的
+              // pane，关闭后必然踩「目标从快照消失」的回落路径
+              if ((event.target as Element).closest?.('[data-pane-close]')) return;
               if (!isFocused) {
                 onUserSelectPane(tmuxWindow.id, pane.paneId);
               }
@@ -594,6 +597,7 @@ export function SplitTerminalArea({
                 )}
                 <button
                   type="button"
+                  data-pane-close
                   data-testid={`split-pane-close-${pane.paneId}`}
                   aria-label={t('window.closePane')}
                   title={t('window.closePane')}

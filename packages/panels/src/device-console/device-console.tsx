@@ -214,6 +214,19 @@ export function DeviceConsole({
     Boolean(selectedWindow) &&
     !selectedPane;
 
+  // 本地发起的关闭是确定事件：目标从快照消失时无需 settle 宽限，立即回落导航，
+  // 也不该亮「连接中」遮罩或触发 isSelectionInvalid（后者会翻转 isSplitView，
+  // 把存活 pane 整体 remount）
+  const recentlyClosedTargets = useTmuxStore((state) => state.recentlyClosedTargets);
+  const isKnownClosedPane = Boolean(
+    isPaneMissing &&
+      resolvedPaneId &&
+      recentlyClosedTargets[`pane:${deviceId}:${resolvedPaneId}`] !== undefined
+  );
+  const isKnownClosedWindow = Boolean(
+    isWindowMissing && windowId && recentlyClosedTargets[`window:${deviceId}:${windowId}`] !== undefined
+  );
+
   // URL 点名的 window/pane 不在当前快照 ≠ 目标失效：select 不等快照校验就已下发，
   // 深链目标可能尚未出现在最新快照里（快照传播中、重连中）。若立即按失效处理/回落，
   // 会把刚下发的合法深链 replace 掉。因此给「URL 点名了 window」的场景一个 settle
@@ -483,7 +496,7 @@ export function DeviceConsole({
       const fallback = resolveSettledMissingWindowFallback({
         windows,
         routeWindowId: windowId,
-        settled: isSelectionSettledMissing,
+        settled: isSelectionSettledMissing || isKnownClosedWindow,
       });
       if (fallback) {
         navigate(
@@ -529,8 +542,9 @@ export function DeviceConsole({
         return;
       }
       // 快照里没有 ≠ 已关闭：settle 宽限内等快照追上（见 missingSelectionKey），
-      // 宽限后仍未出现才按已关闭回落到本窗口的活动 pane
-      if (!isSelectionSettledMissing) {
+      // 宽限后仍未出现才按已关闭回落到本窗口的活动 pane；
+      // 本地刚关闭的 pane 是确定事件，跳过宽限立即回落
+      if (!isSelectionSettledMissing && !isKnownClosedPane) {
         return;
       }
       const activePane = targetWindow.panes.find((p) => p.active) ?? targetWindow.panes[0];
@@ -549,6 +563,8 @@ export function DeviceConsole({
     deviceId,
     deviceConnected,
     isSelectionSettledMissing,
+    isKnownClosedPane,
+    isKnownClosedWindow,
     windows,
     windowId,
     resolvedPaneId,
@@ -1216,8 +1232,14 @@ export function DeviceConsole({
   const showTerminal =
     Boolean(resolvedPaneId) && !isSelectionInvalid && (deviceConnected || isReconnecting);
   // 已连接、URL 指定了 pane，但 snapshot 尚未解析出它（且不是 not-found）→ 仍在加载，内容本就空白。
+  // 本地刚关闭的目标除外：导航 effect 马上回落，不亮遮罩
   const isResolvingSnapshot =
-    deviceConnected && Boolean(resolvedPaneId) && !isSelectionInvalid && !selectedPane;
+    deviceConnected &&
+    Boolean(resolvedPaneId) &&
+    !isSelectionInvalid &&
+    !selectedPane &&
+    !isKnownClosedPane &&
+    !isKnownClosedWindow;
 
   const loadingPlaceholder = (
     <>
