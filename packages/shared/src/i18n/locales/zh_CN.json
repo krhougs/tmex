@@ -812,7 +812,14 @@
       "paneCount": "{{count}} 个 pane",
       "pane": "Pane",
       "moveToWindow": "移入此窗口",
-      "breakToWindow": "拆为独立窗口"
+      "breakToWindow": "拆为独立窗口",
+      "noWindowSelected": "未选择窗口",
+      "selectWindowToStart": "选择一个窗口开始使用",
+      "creating": "正在创建窗口",
+      "creatingDesc": "窗口创建中，请稍候…",
+      "createFailed": "创建窗口失败",
+      "createFailedDesc": "窗口未在预期时间内出现，请重试。",
+      "retry": "重试"
     },
     "watch": {
       "title": "监控规则",
