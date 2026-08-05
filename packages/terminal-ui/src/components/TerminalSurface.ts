@@ -34,6 +34,8 @@ export interface TerminalSurfaceOptions<Target extends TerminalSurfaceTarget> {
     snapshot: GatewayPaneScreenSnapshot,
     historyPages: readonly GatewayPaneHistoryPage[]
   ): void;
+  /** 历史页前插：离屏解析后拼接展示，不重建终端（replace 是终端重建的唯一入口）。 */
+  prependHistory(target: Target, page: GatewayPaneHistoryPage): void;
   writeLive(target: Target, data: Uint8Array): void;
   activate(target: Target): void;
   onRecoveryRequired(reason: GatewayRebaseReason): void;
@@ -205,7 +207,7 @@ export class TerminalSurface<Target extends TerminalSurfaceTarget> {
     this.historyPages.sort((left, right) => left.lineStart - right.lineStart);
     this.historyBytes += owned.data.byteLength;
     this.nextHistoryCursor = copyHistoryCursor(owned.nextCursor);
-    this.options.writeSnapshot(this.target, this.latestSnapshot, this.historyPages);
+    this.options.prependHistory(this.target, owned);
     this.options.onSnapshotApplied?.(this.target, this.latestSnapshot);
     return true;
   }
