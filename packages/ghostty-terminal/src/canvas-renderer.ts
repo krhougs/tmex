@@ -260,7 +260,8 @@ export class CanvasRenderer {
   }
 
   // 测试专用:关闭字形位图缓存走直绘,供像素等价回归对比缓存启用/禁用两条路径。
-  private setGlyphRunCacheEnabled(enabled: boolean): void {
+  // 保持非 private:唯一调用方是测试,private 会在 noUnusedLocals 构建里报 TS6133。
+  setGlyphRunCacheEnabled(enabled: boolean): void {
     if (enabled) {
       this.glyphRunCache.clear();
     }
