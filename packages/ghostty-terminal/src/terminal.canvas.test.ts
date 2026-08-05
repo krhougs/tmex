@@ -656,6 +656,7 @@ async function loadControllerModule(bindings: FakeBindings, version: number) {
       updateRenderState: (state: { snapshotVersion: number }) => {
         state.snapshotVersion += 1;
       },
+      readRenderDirtyState: () => 'full' as const,
       readRenderSnapshotMeta: () => ({
         cols: 80,
         rows: 24,
@@ -2704,6 +2705,8 @@ describe('GhosttyTerminalController clipboard and selection API', () => {
     expect(terminal.startTouchSelection(4, 4, 'word')).toBeTrue();
     terminal.updateTouchSelection(40, 4);
     terminal.endTouchSelection();
+    // 选区渲染已改 rAF 调度：probe/通知在下一帧落地
+    await dom?.flushAnimationFrames();
 
     expect(terminal.hasSelection()).toBeTrue();
     expect(terminal.getSelection()).toBe('mock-canvas-line');

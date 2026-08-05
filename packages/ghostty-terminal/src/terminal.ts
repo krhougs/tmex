@@ -12,6 +12,7 @@ import {
   createRenderState,
   disposeRenderStateResources,
   iterateRows,
+  readRenderDirtyState,
   readRenderSnapshotMeta,
   updateRenderState,
 } from './render-state';
@@ -64,6 +65,8 @@ const TERMINAL_ENGINE = 'ghostty-official';
 // 链接下划线重算节流：只扫可见区，且相邻两次重算至少间隔此值（trailing 保证终态正确）。
 const LINK_OVERLAY_THROTTLE_MS = 150;
 const LINK_MATCH_CACHE_LIMIT = 300;
+// 逻辑行模型缓存上限：行号超过此数逐出最旧（LRU）。
+const LINE_CACHE_LIMIT = 4096;
 
 const GHOSTTY_MODE_X10_MOUSE = 9;
 const GHOSTTY_MODE_NORMAL_MOUSE = 1000;
@@ -261,8 +264,22 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private selectionState: SelectionState = createEmptySelectionState();
   private readonly lineCache = new Map<number, SelectionLineModel>();
   private lastViewportOffset = 0;
+  // 上帧渲染时的 viewport offset（与 lastRenderedRows 对齐）。滚动类操作会同步
+  // 更新 lastViewportOffset 供 hitTest 使用，但渲染帧之间的行模型索引必须用本值，
+  // 否则 rAF 未落地前 getLineModel 会对旧行数组取新偏移（错位）。
+  private lastRenderedOffset = 0;
   private lastViewportRows = DEFAULT_ROWS;
   private lastRenderedRows: GhosttyRenderRow[] = [];
+  // 自上次渲染以来是否有输入活动（write/reset/resize/setTheme）。早退帧据此判定
+  // 内容是否可能变化——ghostty-vt.wasm 实测 render-state dirty 恒为 'full'（latch，
+  // 生产代码无重置路径），行级 dirty 恒为 true，增量判定只能由 JS 侧输入信号驱动。
+  private contentDirty = false;
+  private lastScrollbar: { total: number; offset: number; len: number } | null = null;
+  // render 帧缓存：选区状态引用与上帧一致且无输入活动时，选区文本直接复用。
+  private lastSelectionStateRef: SelectionState | null = null;
+  private cachedSelectionText: string | null = null;
+  // write() 无 ESC 分支的 synchronized-output 缓存（无控制序列时状态不变）。
+  private cachedSyncOutput: boolean | null = null;
   private pointerDrag: PointerDragState = {
     active: false,
     moved: false,
@@ -560,11 +577,37 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     this.stopAutoScroll();
     this.pointerDrag.active = false;
-    this.render();
+    this.scheduleRender();
   }
 
   write(data: string | Uint8Array): void {
     if (this.disposed) {
+      return;
+    }
+
+    this.contentDirty = true;
+    const hasEsc = typeof data === 'string' ? data.includes('\x1b') : data.includes(0x1b);
+
+    // 无 ESC：alt-screen 与 synchronized-output 状态不可能因本次写入改变，直接用
+    // 上次缓存值，省掉 2~3 次 WASM mode 查询（代价仅一次 contains 扫描）。
+    if (!hasEsc) {
+      this.bindings.writeVt(this.terminalHandle, data);
+      const syncActive = this.cachedSyncOutput ?? this.isSynchronizedOutputActive();
+      this.cachedSyncOutput = syncActive;
+      if (syncActive) {
+        if (this.syncOutputFallbackTimer === null) {
+          this.syncOutputFallbackTimer = setTimeout(() => {
+            this.syncOutputFallbackTimer = null;
+            this.scheduleRender();
+          }, SYNCHRONIZED_OUTPUT_FALLBACK_MS);
+        }
+        return;
+      }
+      if (this.syncOutputFallbackTimer !== null) {
+        clearTimeout(this.syncOutputFallbackTimer);
+        this.syncOutputFallbackTimer = null;
+      }
+      this.scheduleRender();
       return;
     }
 
@@ -577,7 +620,9 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     // BSU（DECSET 2026）激活期间挂起写触发的渲染：一次原子重绘的字节可能分多个
     // write 到达，rAF 到点就画会把中间态刷上屏（no-flicker TUI 表现为逐行扫描）。
     // ESU 到达的那次 write 会走正常 scheduleRender；只留低频兜底防应用悬挂。
-    if (this.isSynchronizedOutputActive()) {
+    const syncActive = this.isSynchronizedOutputActive();
+    this.cachedSyncOutput = syncActive;
+    if (syncActive) {
       if (this.syncOutputFallbackTimer === null) {
         this.syncOutputFallbackTimer = setTimeout(() => {
           this.syncOutputFallbackTimer = null;
@@ -635,6 +680,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.lineCache.clear();
     this.clearSelectionState(false);
     this.bindings.resetTerminal(this.terminalHandle);
+    this.contentDirty = true;
     this.scheduleRender();
   }
 
@@ -643,6 +689,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    // 显式刷新语义：绕过早退强制重绘（内容可能被外部修改）。
+    this.contentDirty = true;
     this.render();
   }
 
@@ -678,6 +726,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.clearSelectionState(false);
     this.bindings.resizeTerminal(this.terminalHandle, nextCols, nextRows, this.cellDimensions());
     this.bindings.resetMouseEncoder(this.mouseEncoderHandle);
+    // cols-only resize 时 scrollbar 三值可能不变，显式置脏防早退漏画。
+    this.contentDirty = true;
     this.scheduleRender();
   }
 
@@ -687,7 +737,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.bindings.scrollViewportDelta(this.terminalHandle, amount);
-    this.render();
+    this.syncViewportState();
+    this.scheduleRender();
   }
 
   scrollToTop(): void {
@@ -696,7 +747,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.bindings.scrollViewportTop(this.terminalHandle);
-    this.render();
+    this.syncViewportState();
+    this.scheduleRender();
   }
 
   scrollToBottom(): void {
@@ -705,7 +757,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.bindings.scrollViewportBottom(this.terminalHandle);
-    this.render();
+    this.syncViewportState();
+    this.scheduleRender();
   }
 
   exportModeSnapshot(): GhosttyTerminalModeSnapshot {
@@ -905,6 +958,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.renderer?.setTheme(theme);
+    // 主题切换不触发 WASM 内容变化，显式置脏防早退跳过重画。
+    this.contentDirty = true;
     this.scheduleRender();
   }
 
@@ -1684,6 +1739,15 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     textarea.style.fontSize = `${this.options.fontSize}px`;
   }
 
+  // 滚动类操作改变 WASM viewport 后立即同步视口元数据：只读 scrollbar，不读行、不绘制，
+  // 保证随后的 hitTest/翻页触发判定用到新 offset。不更新 lastScrollbar——render 帧的
+  // 早退判定要靠 scrollbar 三值差异感知滚动。
+  private syncViewportState(): void {
+    const scrollbar = this.bindings.readScrollbar(this.terminalHandle);
+    this.lastViewportOffset = scrollbar.offset;
+    this.lastViewportRows = Math.max(1, scrollbar.len || this.rows);
+  }
+
   private scheduleRender(): void {
     if (this.renderRaf !== null) {
       return;
@@ -1709,18 +1773,63 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const viewportRows = Math.max(1, scrollbar.len || this.rows);
 
     updateRenderState(this.renderState, this.terminalHandle);
+
+    // 整帧早退：内容无变化、视口未动、选区未动时，跳过调色板/行读取与绘制。
+    // ghostty-vt.wasm 实测 render-state dirty 恒为 'full'（latch），增量判定以
+    // contentDirty（JS 侧输入信号）为主；dirty==='clean' 分支为未来 wasm 恢复
+    // 增量语义保留。cursor 移动必然伴随输入帧（contentDirty=true），不早退。
+    const dirty = readRenderDirtyState(this.renderState);
+    if (
+      !forceFull &&
+      (dirty === 'clean' || !this.contentDirty) &&
+      this.lastScrollbar !== null &&
+      scrollbar.offset === this.lastScrollbar.offset &&
+      scrollbar.len === this.lastScrollbar.len &&
+      scrollbar.total === this.lastScrollbar.total &&
+      this.selectionState === this.lastSelectionStateRef
+    ) {
+      return;
+    }
+
     const meta = readRenderSnapshotMeta(this.renderState);
-    const rows = Array.from(iterateRows(this.renderState));
+    const previousRenderedRows = this.lastRenderedRows;
+    const rows = Array.from(
+      iterateRows(this.renderState, (rowIndex, rowDirty) => {
+        // 行级惰性读取：行未脏且视口/行数未变时复用上帧同 y 行对象。
+        // （当前 wasm 行级 dirty 恒 true，此路径不触发；为增量语义预留。）
+        if (rowDirty || meta.dirty === 'full') {
+          return null;
+        }
+        if (scrollbar.offset !== this.lastRenderedOffset) {
+          return null;
+        }
+        if (meta.rows !== previousRenderedRows.length) {
+          return null;
+        }
+        const reused = previousRenderedRows[rowIndex];
+        if (!reused) {
+          return null;
+        }
+        reused.dirty = false;
+        return reused;
+      })
+    );
 
     this.lastCursor = meta.cursor;
     this.cols = Math.max(2, meta.cols);
     this.rows = Math.max(2, meta.rows || viewportRows);
     this.lastViewportOffset = scrollbar.offset;
+    this.lastRenderedOffset = scrollbar.offset;
     this.lastViewportRows = this.rows;
+    this.lastScrollbar = scrollbar;
     this.lastRenderedRows = rows;
 
     for (const row of rows) {
-      this.lineCache.set(scrollbar.offset + row.y, buildLineModel(row.cells, row.wrap));
+      // 复用行内容未变，lineCache 中已有对应模型，跳过重建。
+      if (previousRenderedRows[row.y] === row) {
+        continue;
+      }
+      this.setLineCache(scrollbar.offset + row.y, buildLineModel(row.cells, row.wrap));
     }
 
     const selectionRects = projectSelectionRects(
@@ -1729,7 +1838,15 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       this.lastViewportRows,
       (line) => this.getLineModel(line)
     );
-    const selectionText = this.getSelectionText();
+
+    // 选区文本缓存：选区引用或内容（输入活动）变化时才重算；复制路径（getSelection/
+    // 快捷键/copy 事件）始终即时计算，不受影响。
+    if (this.selectionState !== this.lastSelectionStateRef || this.contentDirty) {
+      this.lastSelectionStateRef = this.selectionState;
+      this.cachedSelectionText = this.getSelectionText();
+    }
+    const selectionText = this.cachedSelectionText;
+    this.contentDirty = false;
 
     this.renderer.render({
       meta,
@@ -1774,7 +1891,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
-    const offset = this.lastViewportOffset;
+    // 与 lastRenderedRows 对齐的视口：滚动后 rAF 未落地前不基于旧行数组算新 offset。
+    const offset = this.lastRenderedOffset;
     const end = offset + this.lastViewportRows;
     const segments: { row: number; startCol: number; endCol: number }[] = [];
 
@@ -1974,7 +2092,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       (line) => this.getLineModel(line)
     );
     this.updateAutoScroll();
-    this.render();
+    this.scheduleRender();
     return true;
   }
 
@@ -1992,7 +2110,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
         this.getLineModel(line)
       );
-      this.render();
+      this.scheduleRender();
     }
 
     this.updateAutoScroll();
@@ -2071,14 +2189,27 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private getLineModel(line: number): SelectionLineModel {
     const cached = this.lineCache.get(line);
     if (cached) {
+      // LRU：命中后重插到末尾
+      this.lineCache.delete(line);
+      this.lineCache.set(line, cached);
       return cached;
     }
 
-    const visibleIndex = line - this.lastViewportOffset;
+    const visibleIndex = line - this.lastRenderedOffset;
     const visibleRow = this.lastRenderedRows[visibleIndex];
     return visibleRow
       ? buildLineModel(visibleRow.cells, visibleRow.wrap)
       : EMPTY_SELECTION_LINE_MODEL;
+  }
+
+  private setLineCache(line: number, model: SelectionLineModel): void {
+    this.lineCache.set(line, model);
+    if (this.lineCache.size > LINE_CACHE_LIMIT) {
+      const oldest = this.lineCache.keys().next().value;
+      if (oldest !== undefined) {
+        this.lineCache.delete(oldest);
+      }
+    }
   }
 
   private emitLinkActivated(url: string): void {
@@ -2233,18 +2364,16 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     this.bindings.scrollViewportDelta(this.terminalHandle, delta);
-    this.render();
+    this.syncViewportState();
 
     const point = this.hitTest(this.pointerDrag.lastClientX, this.pointerDrag.lastClientY);
-    if (!point) {
-      return;
+    if (point) {
+      this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
+        this.getLineModel(line)
+      );
+      this.pointerDrag.moved = true;
     }
-
-    this.selectionState = updateSelectionFocus(this.selectionState, point, (line) =>
-      this.getLineModel(line)
-    );
-    this.pointerDrag.moved = true;
-    this.render();
+    this.scheduleRender();
   }
 
   private stopAutoScroll(): void {

@@ -415,6 +415,7 @@ async function loadControllerModule(
       state.snapshotVersion += 1;
       calls.push({ state, terminal });
     },
+    readRenderDirtyState: () => 'full' as const,
     readRenderSnapshotMeta: () => ({
       cols: 80,
       rows: 24,

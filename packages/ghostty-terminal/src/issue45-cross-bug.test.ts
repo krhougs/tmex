@@ -469,6 +469,7 @@ async function loadControllerModule(
       s.snapshotVersion += 1;
       updateCalls.push({ snapshotVersion: s.snapshotVersion });
     },
+    readRenderDirtyState: () => state.dirty,
     readRenderSnapshotMeta: () => ({
       cols: 80,
       rows: 24,

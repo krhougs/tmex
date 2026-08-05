@@ -334,22 +334,44 @@ export class GhosttyBindings {
 
   private readonly decoder = new TextDecoder();
   private readonly encoder = new TextEncoder();
+  // exports.memory.buffer 按身份缓存：buffer grow 会替换为新 ArrayBuffer，
+  // 身份比较即可发现并重建视图。热路径（无参 view()/bytes()）零分配。
+  private memoryCache: { buffer: ArrayBuffer; bytes: Uint8Array; view: DataView } | null = null;
 
   constructor(exports: GhosttyExports, layout: LayoutMap) {
     this.exports = exports;
     this.layout = layout;
   }
 
+  private memory(): { buffer: ArrayBuffer; bytes: Uint8Array; view: DataView } {
+    const buffer = this.exports.memory.buffer;
+    const cached = this.memoryCache;
+    if (cached !== null && cached.buffer === buffer) {
+      return cached;
+    }
+    const fresh = { buffer, bytes: new Uint8Array(buffer), view: new DataView(buffer) };
+    this.memoryCache = fresh;
+    return fresh;
+  }
+
   buffer(): ArrayBuffer {
-    return this.exports.memory.buffer;
+    return this.memory().buffer;
   }
 
   bytes(ptr = 0, len = this.buffer().byteLength - ptr): Uint8Array {
-    return new Uint8Array(this.buffer(), ptr, len);
+    const { bytes } = this.memory();
+    if (ptr === 0 && len === bytes.byteLength) {
+      return bytes;
+    }
+    return bytes.subarray(ptr, ptr + len);
   }
 
   view(ptr = 0, len = this.buffer().byteLength - ptr): DataView {
-    return new DataView(this.buffer(), ptr, len);
+    const { buffer, view } = this.memory();
+    if (ptr === 0 && len === view.byteLength) {
+      return view;
+    }
+    return new DataView(buffer, ptr, len);
   }
 
   typeSize(typeName: string): number {
