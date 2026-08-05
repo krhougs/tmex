@@ -28,7 +28,8 @@ export interface ToastOptions {
   className?: string
 }
 
-const DEFAULT_DURATION_MS = 6000
+const DEFAULT_DURATION_MS = 5000
+const MAX_VISIBLE_TOASTS = 3
 
 const LEVEL_DOT_CLASS: Record<Exclude<ToastLevel, "default">, string> = {
   success: "bg-emerald-500",
@@ -143,7 +144,23 @@ export const toast: ToastFn = Object.assign(
  * 应用级 Toaster：安全区与桌面标题栏补偿统一走 --tmex-toast-top-inset
  * （宿主 CSS 可按平台覆写），默认回退到 --tmex-safe-area-top / env()。
  */
+/**
+ * react-hot-toast 没有公开的可见数量上限配置（内部 toastLimit 无 setter），
+ * 官方文档推荐用 useToasterStore 手动 dismiss 超限项：toasts 新前旧后，
+ * 超过上限时最旧的走正常退场动画消失。
+ */
+function useToastLimit(limit: number) {
+  const { toasts } = useToasterStore()
+  React.useEffect(() => {
+    toasts
+      .filter((t) => t.visible)
+      .filter((_, index) => index >= limit)
+      .forEach((t) => hotToast.dismiss(t.id))
+  }, [toasts, limit])
+}
+
 export function AppToaster({ position = "top-right" }: { position?: "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right" }) {
+  useToastLimit(MAX_VISIBLE_TOASTS)
   return (
     <HotToaster
       position={position}
