@@ -12,6 +12,8 @@ import {
   type GhosttyTerminalModeSnapshot,
   TERMINAL_ENGINE,
   createTerminalController,
+  getGhosttyBindings,
+  parseHistoryRows,
 } from 'ghostty-terminal';
 import { Loader2 } from 'lucide-react';
 import {
@@ -48,6 +50,9 @@ import { useTerminalResize } from './useTerminalResize';
 
 const TERMINAL_SCROLLBACK = 10000;
 const NORMAL_SCREEN_PREFIX = new TextEncoder().encode('\x1b[2J\x1b[H');
+// history 页字节解码/编码复用同一实例（writeCanonicalSnapshot 与 prependHistory 共用）。
+const HISTORY_DECODER = new TextDecoder();
+const HISTORY_ENCODER = new TextEncoder();
 type TerminalController = Awaited<ReturnType<typeof createTerminalController>>;
 
 interface TerminalRenderTarget extends TerminalSurfaceTarget {
@@ -97,7 +102,7 @@ function writeCanonicalSnapshot(
   } else {
     target.terminal.write(NORMAL_SCREEN_PREFIX);
     for (const page of historyPages) {
-      target.terminal.write(normalizeHistoryForTerminal(new TextDecoder().decode(page.data)));
+      target.terminal.write(normalizeHistoryForTerminal(HISTORY_DECODER.decode(page.data)));
       // normalizeHistoryForTerminal 会吃掉页尾换行；不补回的话页与页、
       // 最后一页与快照正文会粘在同一行，整屏随之错一行。
       target.terminal.write('\r\n');
@@ -424,9 +429,39 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           };
         };
 
+        // 历史页离屏解析链：applyHistoryPage 同步调用 prependHistory，但解析是异步的；
+        // 串行化保证页到达顺序 = 前插顺序（新页在前插区底部，更旧的页在其上）。
+        let historyParseChain: Promise<void> = Promise.resolve();
         const manager = new TerminalSurface<TerminalRenderTarget>({
           createTarget,
           writeSnapshot: writeCanonicalSnapshot,
+          prependHistory(target, page) {
+            // 离屏解析 → 行模型前插：不进 VT 状态机、不重建终端（翻页 O(页行数)）。
+            historyParseChain = historyParseChain
+              .then(() => getGhosttyBindings())
+              .then((bindings) =>
+                parseHistoryRows(
+                  bindings,
+                  HISTORY_ENCODER.encode(
+                    normalizeHistoryForTerminal(HISTORY_DECODER.decode(page.data))
+                  ),
+                  // 与快照 cols 一致：resize 会清空前插历史，此后到达的旧页按新列宽
+                  // 解析无意义（epoch 校验也会挡掉），此处取终端当前 cols。
+                  target.terminal.cols
+                )
+              )
+              .then((rows) => {
+                if (cancelled) return;
+                // 解析期间可能发生 replace/reset（分代重建）：目标已失效则丢弃，
+                // 避免旧页前插到新终端。
+                if (generationRef.current?.getVisibleTarget() !== target) return;
+                target.terminal.prependHistoryRows(rows);
+              })
+              .catch(() => {
+                // 单页解析失败不影响后续页（wasm 确定性解析，失败属异常，由渲染
+                // 层其它诊断兜底）。
+              });
+          },
           writeLive(target, data) {
             const normalized = normalizeLiveOutputForTerminal(data, target.liveOutputEndedWithCR);
             target.liveOutputEndedWithCR = normalized.endedWithCR;

@@ -5,7 +5,8 @@ import * as realRenderState from './render-state';
 // realGhosttyWasm.* 会跟着变成 fake，还原必须用 mock 前拷出的值。
 const realGhosttyWasmSnapshot = { ...realGhosttyWasm };
 const realRenderStateSnapshot = { ...realRenderState };
-import type { GhosttyTheme } from './types';
+import type { GhosttyRenderCursor, GhosttyRenderRow, GhosttyTheme } from './types';
+import type { SelectionLineModel } from './selection-model';
 
 type FakeEvent = {
   type: string;
@@ -656,6 +657,7 @@ async function loadControllerModule(bindings: FakeBindings, version: number) {
       updateRenderState: (state: { snapshotVersion: number }) => {
         state.snapshotVersion += 1;
       },
+      readRenderDirtyState: () => 'full' as const,
       readRenderSnapshotMeta: () => ({
         cols: 80,
         rows: 24,
@@ -2704,6 +2706,8 @@ describe('GhosttyTerminalController clipboard and selection API', () => {
     expect(terminal.startTouchSelection(4, 4, 'word')).toBeTrue();
     terminal.updateTouchSelection(40, 4);
     terminal.endTouchSelection();
+    // 选区渲染已改 rAF 调度：probe/通知在下一帧落地
+    await dom?.flushAnimationFrames();
 
     expect(terminal.hasSelection()).toBeTrue();
     expect(terminal.getSelection()).toBe('mock-canvas-line');
@@ -2749,5 +2753,317 @@ describe('GhosttyTerminalController clipboard and selection API', () => {
     terminal.resize(colsBefore + 10, rowsBefore + 5);
 
     expect(terminal.hasSelection()).toBeFalse();
+  });
+});
+
+describe('GhosttyTerminalController virtual history prepend', () => {
+  let dom: ReturnType<typeof installFakeDom> | null = null;
+  let importVersion = 3000;
+
+  type ControllerInternals = {
+    historyRows: GhosttyRenderRow[];
+    virtualScroll: number;
+    lastCursor: GhosttyRenderCursor;
+    getLineModel(line: number): SelectionLineModel;
+  };
+
+  // 测试观察私有状态：结构已知、运行时检查无意义（unchecked cast）
+  function internals(terminal: unknown): ControllerInternals {
+    return terminal as ControllerInternals;
+  }
+
+  function makeHistoryRow(text: string, index: number): GhosttyRenderRow {
+    return {
+      y: index,
+      dirty: true,
+      wrap: false,
+      wrapContinuation: false,
+      text,
+      cells: Array.from(text).map((char, x) => ({
+        x,
+        text: char,
+        codepoints: [char.codePointAt(0) ?? 32],
+        widthKind: 'narrow' as const,
+        hasText: true,
+        style: {
+          bold: false,
+          italic: false,
+          faint: false,
+          blink: false,
+          inverse: false,
+          invisible: false,
+          strikethrough: false,
+          overline: false,
+          underline: 0,
+        },
+        fgColor: null,
+        bgColor: null,
+        fgPaletteIndex: null,
+        bgPaletteIndex: null,
+      })),
+    };
+  }
+
+  type ScrollCalls = {
+    scrollTop: number;
+    scrollBottom: number;
+    deltas: number[];
+    resets: number;
+  };
+
+  function createScrollableBindings(): {
+    bindings: FakeBindings;
+    scrollbar: { total: number; offset: number; len: number };
+    calls: ScrollCalls;
+  } {
+    const scrollbar = { total: 60, offset: 0, len: 24 };
+    const calls: ScrollCalls = { scrollTop: 0, scrollBottom: 0, deltas: [], resets: 0 };
+    const bindings = createFakeBindings();
+    bindings.readScrollbar = () => ({ ...scrollbar });
+    bindings.scrollViewportDelta = (_terminal: number, amount: number) => {
+      calls.deltas.push(amount);
+      scrollbar.offset = Math.max(
+        0,
+        Math.min(scrollbar.total - scrollbar.len, scrollbar.offset + amount)
+      );
+    };
+    bindings.scrollViewportTop = () => {
+      calls.scrollTop += 1;
+      scrollbar.offset = 0;
+    };
+    bindings.scrollViewportBottom = () => {
+      calls.scrollBottom += 1;
+      scrollbar.offset = Math.max(0, scrollbar.total - scrollbar.len);
+    };
+    bindings.resetTerminal = () => {
+      calls.resets += 1;
+      scrollbar.offset = 0;
+      scrollbar.total = 24;
+    };
+    return { bindings, scrollbar, calls };
+  }
+
+  async function loadVirtualModule(bindings: FakeBindings, cursorY: number | null) {
+    mock.restore();
+    mock.module('./ghostty-wasm', () => {
+      return {
+        ...realGhosttyWasmSnapshot,
+        keyboardEventToGhosttyMods: () => 0,
+        getGhosttyBindings: async () => bindings,
+      };
+    });
+    mock.module('./render-state', () => {
+      const rows = Array.from({ length: 24 }, (_, index) => ({
+        y: index,
+        dirty: true,
+        wrap: false,
+        wrapContinuation: false,
+        text: index === 0 ? 'mock-canvas-line' : '',
+        cells:
+          index === 0
+            ? [
+                {
+                  x: 0,
+                  text: 'mock-canvas-line',
+                  codepoints: Array.from('mock-canvas-line').map(
+                    (char) => char.codePointAt(0) ?? 32
+                  ),
+                  widthKind: 'narrow',
+                  hasText: true,
+                  style: {
+                    bold: false,
+                    italic: false,
+                    faint: false,
+                    blink: false,
+                    inverse: false,
+                    invisible: false,
+                    strikethrough: false,
+                    overline: false,
+                    underline: 0,
+                  },
+                  fgColor: null,
+                  bgColor: null,
+                },
+              ]
+            : [],
+      }));
+
+      return {
+        createRenderState: () => ({
+          snapshotVersion: 0,
+          disposed: false,
+        }),
+        updateRenderState: (state: { snapshotVersion: number }) => {
+          state.snapshotVersion += 1;
+        },
+        readRenderDirtyState: () => 'full' as const,
+        readRenderSnapshotMeta: () => ({
+          cols: 80,
+          rows: 24,
+          dirty: 'full',
+          colors: {
+            background: { r: 17, g: 17, b: 17 },
+            foreground: { r: 238, g: 238, b: 238 },
+            cursor: null,
+            palette: Array.from({ length: 256 }, () => ({ r: 0, g: 0, b: 0 })),
+          },
+          cursor: {
+            style: 'block',
+            visible: cursorY !== null,
+            blinking: false,
+            passwordInput: false,
+            x: cursorY === null ? null : 3,
+            y: cursorY,
+            wideTail: false,
+          },
+        }),
+        iterateRows: function* () {
+          yield* rows;
+        },
+        disposeRenderStateResources: (state: { disposed: boolean }) => {
+          state.disposed = true;
+        },
+      };
+    });
+
+    return import(`./terminal.ts?virtual=${importVersion}`);
+  }
+
+  async function setup(cursorY: number | null = null) {
+    dom = installFakeDom();
+    const { bindings, scrollbar, calls } = createScrollableBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadVirtualModule(bindings, cursorY);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+    terminal.open(container as unknown as HTMLElement);
+    await dom.flushAnimationFrames();
+    return { terminal, scrollbar, calls };
+  }
+
+  test('prepend 后合成 scrollbar 数值（total/offset 加 H），不触发重建', async () => {
+    const { terminal, calls } = await setup();
+    terminal.prependHistoryRows([makeHistoryRow('hist-A', 0), makeHistoryRow('hist-B', 1)]);
+    await dom?.flushAnimationFrames();
+
+    expect(terminal.buffer.active.viewportY).toBe(2); // offset' = H + wasmOffset
+    expect(terminal.buffer.active.length).toBe(62); // total' = total + H
+    expect(terminal.buffer.active.baseY).toBe(38); // total' - len'
+    expect(calls.resets).toBe(0);
+  });
+
+  test('向上滚跨界进入历史区：先 WASM 内滚动，到顶后增 virtualScroll，行号与视口拼接正确', async () => {
+    const { terminal, scrollbar, calls } = await setup();
+    terminal.prependHistoryRows([makeHistoryRow('hist-A', 0), makeHistoryRow('hist-B', 1)]);
+    await dom?.flushAnimationFrames();
+
+    scrollbar.offset = 36; // 最大 offset = total - len
+    terminal.scrollLines(-5);
+    await dom?.flushAnimationFrames();
+    expect(terminal.buffer.active.viewportY).toBe(2 + 31); // H + wasmOffset，未进历史区
+
+    terminal.scrollLines(-31); // offset 归零
+    await dom?.flushAnimationFrames();
+    terminal.scrollLines(-3); // 跨界：v = min(H=2, 3) = 2
+    await dom?.flushAnimationFrames();
+
+    expect(terminal.buffer.active.viewportY).toBe(0); // 合成顶
+    expect(terminal.buffer.active.length).toBe(62); // total' = 60 + H
+    // 视口拼接：前 v 行历史，其后 WASM 行
+    expect(terminal.buffer.active.getLine(0)?.translateToString(true)).toBe('hist-A');
+    expect(terminal.buffer.active.getLine(1)?.translateToString(true)).toBe('hist-B');
+    expect(terminal.buffer.active.getLine(2)?.translateToString(true)).toBe('mock-canvas-line');
+    // getLineModel 负行号取历史行；越界为 EMPTY
+    expect(internals(terminal).getLineModel(-1).colChars.join('')).toBe('hist-B');
+    expect(internals(terminal).getLineModel(-2).colChars.join('')).toBe('hist-A');
+    expect(internals(terminal).getLineModel(-3).colChars.length).toBe(0);
+    expect(calls.deltas.slice(0, 2)).toEqual([-5, -31]);
+    expect(calls.resets).toBe(0);
+  });
+
+  test('向下滚先消耗 virtualScroll，再进 WASM viewport；scrollToTop/scrollToBottom 复位', async () => {
+    const { terminal, scrollbar, calls } = await setup();
+    terminal.prependHistoryRows([makeHistoryRow('hist-A', 0), makeHistoryRow('hist-B', 1)]);
+    await dom?.flushAnimationFrames();
+
+    terminal.scrollToTop();
+    expect(internals(terminal).virtualScroll).toBe(2);
+    await dom?.flushAnimationFrames();
+
+    terminal.scrollLines(1); // 全部消耗在虚拟区
+    expect(internals(terminal).virtualScroll).toBe(1);
+    const deltasBefore = calls.deltas.length;
+    terminal.scrollLines(3); // 消耗 1 + WASM 滚 2
+    expect(internals(terminal).virtualScroll).toBe(0);
+    expect(calls.deltas.length).toBe(deltasBefore + 1);
+    expect(calls.deltas[deltasBefore]).toBe(2);
+    expect(scrollbar.offset).toBe(2);
+
+    terminal.scrollToBottom();
+    expect(internals(terminal).virtualScroll).toBe(0);
+    expect(calls.scrollBottom).toBe(1);
+    expect(scrollbar.offset).toBe(36); // total - len
+    await dom?.flushAnimationFrames();
+
+    terminal.scrollToTop();
+    expect(internals(terminal).virtualScroll).toBe(2);
+    expect(calls.scrollTop).toBe(2); // 本测试开头已调过一次
+    await dom?.flushAnimationFrames();
+    expect(terminal.buffer.active.viewportY).toBe(0);
+    expect(calls.resets).toBe(0);
+  });
+
+  test('reset 清空前插历史与 virtualScroll', async () => {
+    const { terminal, calls } = await setup();
+    terminal.prependHistoryRows([makeHistoryRow('hist-A', 0), makeHistoryRow('hist-B', 1)]);
+    terminal.scrollToTop();
+    await dom?.flushAnimationFrames();
+    expect(internals(terminal).historyRows.length).toBe(2);
+
+    terminal.reset();
+    expect(calls.resets).toBe(1);
+    await dom?.flushAnimationFrames();
+
+    expect(internals(terminal).historyRows.length).toBe(0);
+    expect(internals(terminal).virtualScroll).toBe(0);
+    expect(internals(terminal).getLineModel(-1).colChars.length).toBe(0);
+    expect(terminal.buffer.active.viewportY).toBe(0);
+    expect(terminal.buffer.active.length).toBe(24);
+  });
+
+  test('cols 变化 resize 清空前插历史并复位 virtualScroll', async () => {
+    const { terminal } = await setup();
+    terminal.prependHistoryRows([makeHistoryRow('hist-A', 0)]);
+    terminal.scrollToTop();
+    await dom?.flushAnimationFrames();
+    expect(internals(terminal).historyRows.length).toBe(1);
+
+    terminal.resize(90, 24); // cols 变化
+    await dom?.flushAnimationFrames();
+    expect(internals(terminal).historyRows.length).toBe(0);
+    expect(internals(terminal).virtualScroll).toBe(0);
+    expect(internals(terminal).getLineModel(-1).colChars.length).toBe(0);
+    expect(terminal.buffer.active.viewportY).toBe(0);
+  });
+
+  test('混合视口光标合成：y + v，超出视口隐藏', async () => {
+    const visible = await setup(0);
+    visible.terminal.prependHistoryRows([makeHistoryRow('hist-A', 0), makeHistoryRow('hist-B', 1)]);
+    visible.terminal.scrollToTop(); // v = 2
+    await dom?.flushAnimationFrames();
+    expect(internals(visible.terminal).lastCursor).toMatchObject({ visible: true, y: 2 });
+
+    const hidden = await setup(23);
+    hidden.terminal.prependHistoryRows([makeHistoryRow('hist-A', 0), makeHistoryRow('hist-B', 1)]);
+    hidden.terminal.scrollToTop(); // v = 2，cursorY = 23 + 2 >= 24
+    await dom?.flushAnimationFrames();
+    expect(internals(hidden.terminal).lastCursor).toMatchObject({ visible: false, y: null });
   });
 });
