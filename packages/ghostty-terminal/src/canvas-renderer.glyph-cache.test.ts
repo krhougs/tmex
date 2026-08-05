@@ -599,6 +599,30 @@ function renderFrame(
   renderer.render({ meta: makeMeta(), rows, cellDimensions });
 }
 
+function renderFrameWithMeta(
+  renderer: CanvasRenderer,
+  rows: GhosttyRenderRow[],
+  meta: GhosttyRenderSnapshotMeta,
+  cellDimensions: GhosttyCellDimensions
+): void {
+  renderer.render({ meta, rows, cellDimensions });
+}
+
+// 采样 cell 内字形墨迹区之外的点(行内 y+2,字形墨迹 y 范围 [cellTop+5, cellTop+11]),
+// 拿到纯背景像素,断言非默认背景 cell 没有被画成默认背景(「黑块/默认背景穿透」回归点)。
+function expectBgPixel(
+  canvas: SoftwareCanvas,
+  col: number,
+  row: number,
+  bg: GhosttyColorRgb
+): void {
+  const width = canvas.width;
+  const offset = ((row * CELL_HEIGHT + 2) * width + col * CELL_WIDTH + 4) * 4;
+  const pixels = canvas.getPixels();
+  const actual = [pixels[offset], pixels[offset + 1], pixels[offset + 2]];
+  expect(actual).toEqual([bg.r, bg.g, bg.b]);
+}
+
 function expectSamePixels(
   a: Uint8ClampedArray,
   b: Uint8ClampedArray,
@@ -698,6 +722,77 @@ describe('glyph run 位图缓存像素等价', () => {
 
     renderer.setTheme({ ...TEST_THEME, background: '#101010' });
     expect(cacheStats(renderer).entries).toBe(0);
+  });
+
+  test('非默认背景 cell:alt screen 进出/缓存命中/脏行重绘全程背景像素保持', () => {
+    // 全屏 TUI 应用(htop 类):每行铺 SGR 真彩色背景,行 3 用强调色,行 5 保持默认背景。
+    // 背景来自 drawRowBackground 的逐 cell 判定(与字形位图缓存无关),回归点在于
+    // 换屏/缓存命中/脏行重绘的任何路径都不能把非默认背景丢成默认背景。
+    const appBg: GhosttyColorRgb = { r: 20, g: 30, b: 80 };
+    const accentBg: GhosttyColorRgb = { r: 200, g: 180, b: 40 };
+    const ink: GhosttyColorRgb = { r: 255, g: 255, b: 255 };
+    const bgCell = (text: string, bg: GhosttyColorRgb | null): CellSeed => ({
+      text,
+      fgColor: ink,
+      fgPaletteIndex: null, // 真彩色:不参与 minimum-contrast 兜底,渲染路径确定
+      bgColor: bg,
+      bgPaletteIndex: null,
+    });
+    const bgScene = (fill: string, rowBg: (y: number) => GhosttyColorRgb | null): GhosttyRenderRow[] =>
+      Array.from({ length: ROWS }, (_, y) => ({
+        y,
+        dirty: true,
+        wrap: false,
+        wrapContinuation: false,
+        text: fill.repeat(COLS),
+        cells: rowCells(Array.from({ length: COLS }, () => bgCell(fill, rowBg(y)))),
+      }));
+
+    const altIn = bgScene('A', (y) => (y === 3 ? accentBg : y === 5 ? null : appBg));
+    const altOut = bgScene('B', () => null);
+
+    const { renderer: withCache, canvas: canvasA } = makeRenderer(true);
+    const { renderer: noCache, canvas: canvasB } = makeRenderer(false);
+
+    // 进入 alt screen:首帧(miss)铺全屏应用背景
+    renderFrame(withCache, altIn, CELL_DIMENSIONS);
+    const altInFirst = canvasA.getPixels();
+    renderFrame(noCache, altIn, CELL_DIMENSIONS);
+    expectSamePixels(altInFirst, canvasB.getPixels(), 'alt in 首帧 缓存 vs 直绘', canvasA.width);
+    expect(cacheStats(withCache).misses).toBeGreaterThan(0);
+    expectBgPixel(canvasA, 10, 1, appBg);
+    expectBgPixel(canvasA, 10, 3, accentBg);
+    expectBgPixel(canvasA, 10, 5, BACKGROUND);
+
+    // 缓存命中重画(同屏第二帧):背景与字形逐字节稳定
+    renderFrame(withCache, altIn, CELL_DIMENSIONS);
+    expect(cacheStats(withCache).hits).toBeGreaterThan(0);
+    expectSamePixels(canvasA.getPixels(), altInFirst, 'alt in 缓存命中帧 vs 首帧', canvasA.width);
+
+    // 退出 alt screen:切到默认背景屏,无残留、无穿透
+    renderFrame(withCache, altOut, CELL_DIMENSIONS);
+    renderFrame(noCache, altOut, CELL_DIMENSIONS);
+    expectSamePixels(canvasA.getPixels(), canvasB.getPixels(), 'alt out 缓存 vs 直绘', canvasA.width);
+    expectBgPixel(canvasA, 10, 1, BACKGROUND);
+
+    // 切回 alt screen(切走再切回):应用背景完整恢复,与最初帧逐字节一致
+    renderFrame(withCache, altIn, CELL_DIMENSIONS);
+    renderFrame(noCache, altIn, CELL_DIMENSIONS);
+    expectSamePixels(canvasA.getPixels(), canvasB.getPixels(), '切回 alt in 缓存 vs 直绘', canvasA.width);
+    expectSamePixels(canvasA.getPixels(), altInFirst, '切回 alt in vs 最初帧', canvasA.width);
+    expectBgPixel(canvasA, 10, 1, appBg);
+    expectBgPixel(canvasA, 10, 3, accentBg);
+
+    // 脏行重绘(程序退出瞬间的末批输出):仅 row 2 脏,±1 邻行重铺,其余行保留像素。
+    // 未脏行背景不得被默认背景覆盖,脏行背景必须来自数据而非丢失。
+    const partialRows = altIn.map((row) => ({ ...row, dirty: row.y === 2 }));
+    const partialMeta = { ...makeMeta(), dirty: 'partial' as const };
+    renderFrameWithMeta(withCache, partialRows, partialMeta, CELL_DIMENSIONS);
+    renderFrameWithMeta(noCache, partialRows, partialMeta, CELL_DIMENSIONS);
+    expectSamePixels(canvasA.getPixels(), canvasB.getPixels(), '脏行重绘 缓存 vs 直绘', canvasA.width);
+    expectBgPixel(canvasA, 10, 0, appBg); // 未脏行像素保持
+    expectBgPixel(canvasA, 10, 2, appBg); // 脏行背景重铺正确
+    expectBgPixel(canvasA, 10, 3, accentBg); // 邻行强调色保持
   });
 });
 

@@ -1766,6 +1766,66 @@ describe('ghostty render-state bindings', () => {
       restoreFetch();
     }
   });
+
+  test('SGR 背景色只在带色写路径进入 cell;文本快照(reset+无 SGR 纯文本)重建后背景属性在数据层即丢失', async () => {
+    const restoreFetch = installLocalFileFetch();
+
+    try {
+      // 带查询串的动态 import 绕过 mock.module 后的模块缓存,取真实 wasm 实现(本文件既有约定)
+      const { getGhosttyBindings } = await import(`./ghostty-wasm.ts?bgdata=${Date.now()}`);
+      const {
+        createRenderState,
+        disposeRenderStateResources,
+        iterateRows,
+        updateRenderState,
+      } = await import(`./render-state.ts?bgdata=${Date.now()}`);
+
+      const bindings = await getGhosttyBindings();
+      const terminal = bindings.createTerminal(80, 24, 1000);
+      bindings.setTerminalTheme(terminal, TEST_THEME);
+
+      try {
+        const renderState = createRenderState(bindings);
+        try {
+          // alt screen 应用:整屏 SGR 真彩色背景(SGR 48;2 是应用精确指定色,渲染层必须原样呈现)
+          bindings.writeVt(
+            terminal,
+            '\x1b[?1049h\x1b[48;2;20;30;80m' +
+              'A'.repeat(80) +
+              '\r\n' +
+              'B'.repeat(80) +
+              '\x1b[0m\r\nplain\r\n'
+          );
+
+          updateRenderState(renderState, terminal);
+          const rows = Array.from(iterateRows(renderState));
+          const bgCells = rows
+            .flatMap((row) => row.cells)
+            .filter((cell) => cell.bgColor !== null);
+          expect(bgCells.length).toBeGreaterThan(0);
+          expect(bgCells[0].bgColor).toEqual({ r: 20, g: 30, b: 80 });
+
+          // 快照/首屏恢复路径:reset() + 纯文本正文(capture-pane 文本不含 SGR 序列)。
+          // 背景属性在这一步就丢了——cell 的 bgColor 全部为 null,渲染器只能铺默认背景,
+          // 与渲染管线(字形缓存/脏区重绘)无关。
+          bindings.resetTerminal(terminal);
+          bindings.writeVt(terminal, 'restored plain line\r\n');
+          updateRenderState(renderState, terminal);
+          const restoredRows = Array.from(iterateRows(renderState));
+          const restoredBgCells = restoredRows
+            .flatMap((row) => row.cells)
+            .filter((cell) => cell.bgColor !== null);
+          expect(restoredBgCells).toHaveLength(0);
+        } finally {
+          disposeRenderStateResources(renderState);
+        }
+      } finally {
+        bindings.freeTerminal(terminal);
+      }
+    } finally {
+      restoreFetch();
+    }
+  });
 });
 
 describe('ghostty mouse protocol bindings', () => {
