@@ -1007,6 +1007,7 @@ describe('SshExternalTmuxConnection', () => {
         getDevice: () => createDevice(session),
         decrypt: async () => 'secret',
         createClient: () => fakeClient as unknown as Client,
+        controlStalledTimeoutMs: 100,
       }
     );
 

@@ -554,10 +554,10 @@ describe('LocalExternalTmuxConnection', () => {
     });
     fake.pushStdout(
       '%begin 2 20 0\n80|24|0|3|4|100\n%end 2 20 0\n' +
-        '%begin 2 21 0\n%output literal screen row\n%end 2 21 0\n' +
-        '%begin 2 22 0\nhistory row\n%end 2 22 0\n' +
-        '%output %1 live-after-capture\n'
+        '%begin 2 21 0\n%output literal screen row\n%end 2 21 0\n'
     );
+    await Bun.sleep(0);
+    fake.pushStdout('%begin 2 22 0\nhistory row\n%end 2 22 0\n%output %1 live-after-capture\n');
 
     await expect(capturePromise).resolves.toMatchObject({
       text: '%output literal screen row',
@@ -1598,6 +1598,7 @@ describe('LocalExternalTmuxConnection', () => {
         ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-hb-timeout'),
         run: createRunStub('tmex-hb-timeout'),
+        controlStalledTimeoutMs: 100,
         spawnControlClient: () => {
           const f = createFakeControlProcess();
           f.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-hb-timeout\n');

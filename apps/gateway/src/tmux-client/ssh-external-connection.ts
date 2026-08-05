@@ -72,6 +72,7 @@ interface SshExternalTmuxConnectionDeps {
   getDevice: (deviceId: string) => Device | null;
   decrypt: typeof decryptWithContext;
   createClient: () => Client;
+  controlStalledTimeoutMs?: number;
 }
 
 interface ControlChannelHandle {
@@ -142,6 +143,7 @@ export class SshExternalTmuxConnection {
       getDevice: inputDeps.getDevice ?? ((deviceId) => getDeviceById(deviceId)),
       decrypt: inputDeps.decrypt ?? decryptWithContext,
       createClient: inputDeps.createClient ?? (() => new Client()),
+      controlStalledTimeoutMs: inputDeps.controlStalledTimeoutMs,
     };
     this.lifecycle = new ConnectionLifecycleEmitter({
       getDevice: () => this.device ?? this.deps.getDevice(this.deviceId),
@@ -1011,7 +1013,10 @@ export class SshExternalTmuxConnection {
   private async openControlChannel(onAttachReady: () => void): Promise<ControlChannelHandle> {
     this.controlCommands.dispose('tmux control connection replaced');
     const handle: ControlChannelHandle = { stop: () => {}, write: () => {} };
-    const controlCommands = new ControlModeCommandQueue(() => handle.stop());
+    const controlCommands = new ControlModeCommandQueue(
+      () => handle.stop(),
+      this.deps.controlStalledTimeoutMs
+    );
     this.controlCommands = controlCommands;
     const subscription = createControlModeSubscription({
       onTerminalOutput: (paneId, data) => {

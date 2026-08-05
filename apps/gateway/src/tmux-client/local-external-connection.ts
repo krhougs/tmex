@@ -83,6 +83,7 @@ interface LocalExternalTmuxConnectionDeps {
   ensureGhosttyTerminfo: () => Promise<boolean>;
   parkingCommand: () => string;
   spawnControlClient: (argv: string[]) => ControlClientProcess;
+  controlStalledTimeoutMs?: number;
 }
 
 const CONTROL_MAX_RESTARTS = 3;
@@ -142,6 +143,10 @@ function isTransientSpawnError(error: unknown): boolean {
   );
 }
 
+// 单条 tmux CLI 调用的硬时限:CLI 卡死(如服务端主循环停滞)时 kill 子进程,
+// 让调用方拿到失败结果走既有错误路径,而不是永久挂起。
+const LOCAL_RUN_TIMEOUT_MS = 30_000;
+
 export function defaultRun(argv: string[]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const subprocess = Bun.spawn(argv, {
@@ -149,6 +154,9 @@ export function defaultRun(argv: string[]): Promise<CommandResult> {
       stdout: 'pipe',
       stderr: 'pipe',
     });
+    const killTimer = setTimeout(() => {
+      subprocess.kill();
+    }, LOCAL_RUN_TIMEOUT_MS);
 
     Promise.all([
       new Response(subprocess.stdout).text(),
@@ -156,9 +164,13 @@ export function defaultRun(argv: string[]): Promise<CommandResult> {
       subprocess.exited,
     ])
       .then(([stdout, stderr, exitCode]) => {
+        clearTimeout(killTimer);
         resolve({ stdout, stderr, exitCode });
       })
-      .catch(reject);
+      .catch((error) => {
+        clearTimeout(killTimer);
+        reject(error);
+      });
   });
 }
 
@@ -245,6 +257,7 @@ export class LocalExternalTmuxConnection {
       platform,
       getDevice: inputDeps.getDevice ?? ((deviceId) => getDeviceById(deviceId)),
       run: inputDeps.run ?? defaultRun,
+      controlStalledTimeoutMs: inputDeps.controlStalledTimeoutMs,
       ensureGhosttyTerminfo:
         inputDeps.ensureGhosttyTerminfo ??
         (async () => {
@@ -1047,7 +1060,10 @@ export class LocalExternalTmuxConnection {
   private spawnControlClientProcess(onAttachReady: () => void): ControlClientProcess {
     this.controlCommands.dispose('tmux control connection replaced');
     let proc: ControlClientProcess | null = null;
-    const controlCommands = new ControlModeCommandQueue(() => proc?.kill());
+    const controlCommands = new ControlModeCommandQueue(
+      () => proc?.kill(),
+      this.deps.controlStalledTimeoutMs
+    );
     this.controlCommands = controlCommands;
     const metricsOptions = isManagedExternally()
       ? {
