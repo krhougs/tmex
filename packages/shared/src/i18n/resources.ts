@@ -818,7 +818,14 @@ export const I18N_RESOURCES = {
       "paneCount": "{{count}} panes",
       "pane": "Pane",
       "moveToWindow": "Move into this window",
-      "breakToWindow": "Break into new window"
+      "breakToWindow": "Break into new window",
+      "noWindowSelected": "No window selected",
+      "selectWindowToStart": "Select a window to get started",
+      "creating": "Creating window",
+      "creatingDesc": "Your window is being created…",
+      "createFailed": "Failed to create window",
+      "createFailedDesc": "The window did not appear in time. Please retry.",
+      "retry": "Retry"
     },
     "watch": {
       "title": "Watch rules",
@@ -1833,7 +1840,14 @@ export const I18N_RESOURCES = {
       "paneCount": "{{count}} 个 pane",
       "pane": "Pane",
       "moveToWindow": "移入此窗口",
-      "breakToWindow": "拆为独立窗口"
+      "breakToWindow": "拆为独立窗口",
+      "noWindowSelected": "未选择窗口",
+      "selectWindowToStart": "选择一个窗口开始使用",
+      "creating": "正在创建窗口",
+      "creatingDesc": "窗口创建中，请稍候…",
+      "createFailed": "创建窗口失败",
+      "createFailedDesc": "窗口未在预期时间内出现，请重试。",
+      "retry": "重试"
     },
     "watch": {
       "title": "监控规则",
@@ -2848,7 +2862,14 @@ export const I18N_RESOURCES = {
       "paneCount": "{{count}} ペイン",
       "pane": "ペイン",
       "moveToWindow": "このウィンドウへ移動",
-      "breakToWindow": "新しいウィンドウに分離"
+      "breakToWindow": "新しいウィンドウに分離",
+      "noWindowSelected": "ウィンドウが選択されていません",
+      "selectWindowToStart": "ウィンドウを選択して開始してください",
+      "creating": "ウィンドウを作成中",
+      "creatingDesc": "ウィンドウを作成しています…",
+      "createFailed": "ウィンドウの作成に失敗しました",
+      "createFailedDesc": "ウィンドウが時間内に表示されませんでした。再試行してください。",
+      "retry": "再試行"
     },
     "watch": {
       "title": "監視ルール",

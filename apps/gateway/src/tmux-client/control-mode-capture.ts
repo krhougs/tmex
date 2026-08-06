@@ -28,13 +28,21 @@ interface PendingControlCommand<T = unknown> {
   resolve: (value: T) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
+  // 超时已单独 reject,但块尚未到达:占位保持 FIFO 对位,迟到块到达时丢弃。
+  settled: boolean;
 }
+
+// 队头超时 reject 后,再给迟到块的宽限;仍无块说明流已停滞,才毒化整条连接。
+const STALLED_STREAM_TIMEOUT_MS = 20_000;
 
 export class ControlModeCommandQueue {
   private readonly pending: PendingControlCommand[] = [];
   private poisoned = false;
 
-  constructor(private readonly onPoison?: () => void) {}
+  constructor(
+    private readonly onPoison?: () => void,
+    private readonly stalledTimeoutMs = STALLED_STREAM_TIMEOUT_MS
+  ) {}
 
   execute<T>(
     write: (command: string) => void,
@@ -55,6 +63,7 @@ export class ControlModeCommandQueue {
         resolve,
         reject,
         timer: null,
+        settled: false,
       };
       this.pending.push(pending as PendingControlCommand);
       this.armHeadTimeout();
@@ -75,6 +84,8 @@ export class ControlModeCommandQueue {
     if (!pending) return false;
     if (pending.timer !== null) clearTimeout(pending.timer);
     this.armHeadTimeout();
+    // 迟到块:命令已按超时 reject,这里只消耗块保持 FIFO 对位。
+    if (pending.settled) return true;
     if (block.isError) {
       pending.reject(new Error(block.lines.join('\n') || 'tmux control command failed'));
       return true;
@@ -102,7 +113,19 @@ export class ControlModeCommandQueue {
     if (this.poisoned || !pending || pending.timer !== null) return;
     pending.timer = setTimeout(() => {
       if (this.pending[0] !== pending) return;
-      this.poison(new Error(`tmux control command timed out: ${pending.command.slice(0, 80)}`));
+      // 单条超时只 fail 该命令,不杀连接:输出洪流(如 alt 屏 TUI 重绘)下响应
+      // 只是排队慢,毒化-重连反而形成风暴。占位保持 FIFO 对位,迟到块到达时
+      // 丢弃;宽限后仍无块才判定流停滞、毒化重连。
+      pending.settled = true;
+      pending.reject(
+        new Error(`tmux control command timed out: ${pending.command.slice(0, 80)}`)
+      );
+      pending.timer = setTimeout(() => {
+        if (this.pending[0] !== pending) return;
+        this.poison(
+          new Error(`tmux control stream stalled: ${pending.command.slice(0, 80)}`)
+        );
+      }, this.stalledTimeoutMs);
     }, pending.timeoutMs);
   }
 
@@ -172,16 +195,24 @@ export async function capturePaneFrameAtControlBarrier(
       return block.lines.join('\n');
     },
   });
+  // 历史段延迟到 info 返回后条件入队:alt 屏或零历史时 tmux 会退化返回可见区
+  // 首行(纯浪费,还在 TUI 重绘洪流下加重队列排队)。代价是历史段脱离了可见区
+  // 的屏障:间隙内新输出可能把可见区首行推进历史,join 端至多重复一行,消费方
+  // 本就按 history_size 门控。
   const historyPromise =
     boundedHistoryLines > 0
-      ? queue.execute(
-          write,
-          [...visibleArgs, '-S', `-${boundedHistoryLines}`, '-E', '-1'].join(' '),
-          {
-            literal: true,
-            timeoutMs,
-            transform: (block) => block.lines.join('\n'),
-          }
+      ? infoPromise.then((info) =>
+          info.alternateScreen || info.historySize === 0
+            ? null
+            : queue.execute(
+                write,
+                [...visibleArgs, '-S', `-${boundedHistoryLines}`, '-E', '-1'].join(' '),
+                {
+                  literal: true,
+                  timeoutMs,
+                  transform: (block) => block.lines.join('\n'),
+                }
+              )
         )
       : Promise.resolve(null);
   const [info, text, historyText] = await Promise.all([infoPromise, textPromise, historyPromise]);

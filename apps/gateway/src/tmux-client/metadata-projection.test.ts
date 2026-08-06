@@ -148,6 +148,20 @@ describe('runtime metadata projection', () => {
     ).toBe('early');
   });
 
+  test('emits window before pane when the pane was dirtied first', () => {
+    const { projection, patches } = createProjection();
+    projection.reconcile(snapshot());
+    projection.applySourceEvent({ type: 'pane-current-path', paneId: '%1', currentPath: '/src' });
+    projection.applySourceEvent({ type: 'window-renamed', windowId: '@1', name: 'renamed' });
+    projection.flushPending();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0]?.upserts.map((record) => record.key.entityKind)).toEqual([
+      wsBorsh.SOURCE_ENTITY_WINDOW,
+      wsBorsh.SOURCE_ENTITY_PANE,
+    ]);
+  });
+
   test('removes a window subtree atomically and cancels tombstones when it reappears', () => {
     const { projection, patches } = createProjection();
     projection.reconcile(snapshot());

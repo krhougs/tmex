@@ -3,7 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import type { StateSnapshotPayload } from '../index';
 import {
   SOURCE_ENTITY_PANE,
+  SOURCE_ENTITY_SESSION,
+  SOURCE_ENTITY_WINDOW,
   SOURCE_FIELD_CURRENT_PATH,
+  SOURCE_FIELD_NAME,
   SOURCE_FIELD_TITLE,
 } from './canonical-state';
 import {
@@ -77,6 +80,34 @@ describe('absolute legacy state snapshot diff', () => {
     const applied = applyLegacyStateSnapshotDiff(snapshot(), roundTrip);
     expect(applied.session?.windows[0]?.panes[0]?.title).toBe('new');
     expect(applied.session?.windows[0]?.panes[0]?.currentPath).toBe('/work');
+  });
+
+  test('applies a pane upsert that precedes its new parent window in the same diff', () => {
+    const applied = applyLegacyStateSnapshotDiff(snapshot(), {
+      upserts: [
+        {
+          entityKind: SOURCE_ENTITY_PANE,
+          nativeId: '%9',
+          parentKind: SOURCE_ENTITY_WINDOW,
+          parentId: '@9',
+          fields: [[SOURCE_FIELD_TITLE, 'late']],
+        },
+        {
+          entityKind: SOURCE_ENTITY_WINDOW,
+          nativeId: '@9',
+          parentKind: SOURCE_ENTITY_SESSION,
+          parentId: '$1',
+          fields: [[SOURCE_FIELD_NAME, 'late-window']],
+        },
+      ],
+      removals: [],
+    });
+    const window = applied.session?.windows.find((candidate) => candidate.id === '@9');
+    expect(window?.name).toBe('late-window');
+    expect(window?.panes).toHaveLength(1);
+    expect(window?.panes[0]?.id).toBe('%9');
+    expect(window?.panes[0]?.windowId).toBe('@9');
+    expect(window?.panes[0]?.title).toBe('late');
   });
 
   test('moves and removes panes by stable native id', () => {

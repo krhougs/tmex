@@ -72,6 +72,7 @@ interface SshExternalTmuxConnectionDeps {
   getDevice: (deviceId: string) => Device | null;
   decrypt: typeof decryptWithContext;
   createClient: () => Client;
+  controlStalledTimeoutMs?: number;
 }
 
 interface ControlChannelHandle {
@@ -93,6 +94,17 @@ const CONTROL_ATTACH_READY_TIMEOUT_MS = 3000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 const PARKING_WINDOW_NAME = 'tmex-park';
+
+// 同 local 版本：psmux/远端 CLI 注册表竞态会间歇性误报「no server running」，服务端
+// 其实健在、注册表约 5s 内自愈。这类错误短暂重试即可，不据此立即判定 server gone；
+// 真实死亡不在重试范围，仍走既有快速判定路径。
+const NO_SERVER_RUNNING_RETRY_DELAY_MS = 300;
+const NO_SERVER_RUNNING_MAX_RETRIES = 2;
+
+function isNoServerRunningMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('no server running on') || normalized.includes('connection refused');
+}
 
 export class SshExternalTmuxConnection {
   private readonly deviceId: string;
@@ -142,6 +154,7 @@ export class SshExternalTmuxConnection {
       getDevice: inputDeps.getDevice ?? ((deviceId) => getDeviceById(deviceId)),
       decrypt: inputDeps.decrypt ?? decryptWithContext,
       createClient: inputDeps.createClient ?? (() => new Client()),
+      controlStalledTimeoutMs: inputDeps.controlStalledTimeoutMs,
     };
     this.lifecycle = new ConnectionLifecycleEmitter({
       getDevice: () => this.device ?? this.deps.getDevice(this.deviceId),
@@ -339,6 +352,7 @@ export class SshExternalTmuxConnection {
 
   async createWindow(name?: string, cwd?: string): Promise<string | null> {
     if (!this.connected) {
+      console.warn(`[ssh] createWindow skipped on ${this.deviceId}: not connected`);
       return null;
     }
 
@@ -358,7 +372,13 @@ export class SshExternalTmuxConnection {
     try {
       const windowId = (await this.runTmux(argv)).stdout.trim();
       await this.requestSnapshotInternal();
-      return /^@\d+$/.test(windowId) ? windowId : null;
+      if (!/^@\d+$/.test(windowId)) {
+        console.warn(
+          `[ssh] createWindow on ${this.deviceId} returned unexpected output: ${JSON.stringify(windowId)}`
+        );
+        return null;
+      }
+      return windowId;
     } catch (error) {
       this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
       return null;
@@ -1011,7 +1031,10 @@ export class SshExternalTmuxConnection {
   private async openControlChannel(onAttachReady: () => void): Promise<ControlChannelHandle> {
     this.controlCommands.dispose('tmux control connection replaced');
     const handle: ControlChannelHandle = { stop: () => {}, write: () => {} };
-    const controlCommands = new ControlModeCommandQueue(() => handle.stop());
+    const controlCommands = new ControlModeCommandQueue(
+      () => handle.stop(),
+      this.deps.controlStalledTimeoutMs
+    );
     this.controlCommands = controlCommands;
     const subscription = createControlModeSubscription({
       onTerminalOutput: (paneId, data) => {
@@ -1785,8 +1808,20 @@ export class SshExternalTmuxConnection {
     });
   }
 
+  // 同 local 版本：注册表竞态误报的「no server running」短暂重试后再交上层判定，
+  // 其余错误（含真实 server 死亡）原样返回。
   private async runTmuxAllowFailure(argv: string[], timeoutMs = 10000): Promise<CommandResult> {
-    return this.runShell(`${quoteShellArg(this.tmuxBin)} ${joinShellArgs(argv)}`, timeoutMs);
+    const command = `${quoteShellArg(this.tmuxBin)} ${joinShellArgs(argv)}`;
+    let result = await this.runShell(command, timeoutMs);
+    for (
+      let attempt = 0;
+      attempt < NO_SERVER_RUNNING_MAX_RETRIES && isNoServerRunningMessage(result.stderr);
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, NO_SERVER_RUNNING_RETRY_DELAY_MS));
+      result = await this.runShell(command, timeoutMs);
+    }
+    return result;
   }
 
   private async runShell(command: string, timeoutMs = 10000): Promise<CommandResult> {

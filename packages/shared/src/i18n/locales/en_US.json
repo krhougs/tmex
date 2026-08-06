@@ -812,7 +812,14 @@
       "paneCount": "{{count}} panes",
       "pane": "Pane",
       "moveToWindow": "Move into this window",
-      "breakToWindow": "Break into new window"
+      "breakToWindow": "Break into new window",
+      "noWindowSelected": "No window selected",
+      "selectWindowToStart": "Select a window to get started",
+      "creating": "Creating window",
+      "creatingDesc": "Your window is being created…",
+      "createFailed": "Failed to create window",
+      "createFailedDesc": "The window did not appear in time. Please retry.",
+      "retry": "Retry"
     },
     "watch": {
       "title": "Watch rules",

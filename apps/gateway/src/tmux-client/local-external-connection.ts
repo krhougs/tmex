@@ -83,6 +83,7 @@ interface LocalExternalTmuxConnectionDeps {
   ensureGhosttyTerminfo: () => Promise<boolean>;
   parkingCommand: () => string;
   spawnControlClient: (argv: string[]) => ControlClientProcess;
+  controlStalledTimeoutMs?: number;
 }
 
 const CONTROL_MAX_RESTARTS = 3;
@@ -124,6 +125,17 @@ export function shouldIgnoreReaderAbortError(error: unknown): boolean {
 const TRANSIENT_SPAWN_ERROR_CODES = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);
 const TMUX_SPAWN_UNAVAILABLE_EXIT = -2;
 
+// psmux 客户端侧注册表竞态会间歇性误报「no server running」：服务端其实健在，注册表
+// 约 5s 内自愈。这类错误短暂重试即可覆盖大部分窗口，绝不据此立即判定 server gone；
+// 真实死亡（进程退出、重复失败）不在重试范围，仍走既有快速判定路径。
+const NO_SERVER_RUNNING_RETRY_DELAY_MS = 300;
+const NO_SERVER_RUNNING_MAX_RETRIES = 2;
+
+function isNoServerRunningMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('no server running on') || normalized.includes('connection refused');
+}
+
 function isTransientSpawnError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
     return false;
@@ -142,6 +154,10 @@ function isTransientSpawnError(error: unknown): boolean {
   );
 }
 
+// 单条 tmux CLI 调用的硬时限:CLI 卡死(如服务端主循环停滞)时 kill 子进程,
+// 让调用方拿到失败结果走既有错误路径,而不是永久挂起。
+const LOCAL_RUN_TIMEOUT_MS = 30_000;
+
 export function defaultRun(argv: string[]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const subprocess = Bun.spawn(argv, {
@@ -149,6 +165,9 @@ export function defaultRun(argv: string[]): Promise<CommandResult> {
       stdout: 'pipe',
       stderr: 'pipe',
     });
+    const killTimer = setTimeout(() => {
+      subprocess.kill();
+    }, LOCAL_RUN_TIMEOUT_MS);
 
     Promise.all([
       new Response(subprocess.stdout).text(),
@@ -156,9 +175,13 @@ export function defaultRun(argv: string[]): Promise<CommandResult> {
       subprocess.exited,
     ])
       .then(([stdout, stderr, exitCode]) => {
+        clearTimeout(killTimer);
         resolve({ stdout, stderr, exitCode });
       })
-      .catch(reject);
+      .catch((error) => {
+        clearTimeout(killTimer);
+        reject(error);
+      });
   });
 }
 
@@ -245,6 +268,7 @@ export class LocalExternalTmuxConnection {
       platform,
       getDevice: inputDeps.getDevice ?? ((deviceId) => getDeviceById(deviceId)),
       run: inputDeps.run ?? defaultRun,
+      controlStalledTimeoutMs: inputDeps.controlStalledTimeoutMs,
       ensureGhosttyTerminfo:
         inputDeps.ensureGhosttyTerminfo ??
         (async () => {
@@ -406,6 +430,7 @@ export class LocalExternalTmuxConnection {
 
   async createWindow(name?: string, cwd?: string): Promise<string | null> {
     if (!this.connected) {
+      console.warn(`[local] createWindow skipped on ${this.deviceId}: not connected`);
       return null;
     }
 
@@ -425,7 +450,13 @@ export class LocalExternalTmuxConnection {
     try {
       const windowId = (await this.runTmux(argv)).stdout.trim();
       await this.requestSnapshotInternal();
-      return /^@\d+$/.test(windowId) ? windowId : null;
+      if (!/^@\d+$/.test(windowId)) {
+        console.warn(
+          `[local] createWindow on ${this.deviceId} returned unexpected output: ${JSON.stringify(windowId)}`
+        );
+        return null;
+      }
+      return windowId;
     } catch (error) {
       this.callbacks.onError(error instanceof Error ? error : new Error(String(error)));
       return null;
@@ -1047,7 +1078,10 @@ export class LocalExternalTmuxConnection {
   private spawnControlClientProcess(onAttachReady: () => void): ControlClientProcess {
     this.controlCommands.dispose('tmux control connection replaced');
     let proc: ControlClientProcess | null = null;
-    const controlCommands = new ControlModeCommandQueue(() => proc?.kill());
+    const controlCommands = new ControlModeCommandQueue(
+      () => proc?.kill(),
+      this.deps.controlStalledTimeoutMs
+    );
     this.controlCommands = controlCommands;
     const metricsOptions = isManagedExternally()
       ? {
@@ -1843,7 +1877,23 @@ export class LocalExternalTmuxConnection {
     this.spawnUnavailableNotified = false;
   }
 
+  // psmux 注册表竞态误报的「no server running」会随注册表自愈而消失：首次失败后短暂
+  // 重试（至多 NO_SERVER_RUNNING_MAX_RETRIES 次），重试仍失败才把结果交给上层判定
+  // server gone。其余错误（含真实 server 死亡）原样返回，保证死亡路径仍然快速。
   private async runTmuxAllowFailure(argv: string[]): Promise<CommandResult> {
+    let result = await this.runTmuxOnceAllowFailure(argv);
+    for (
+      let attempt = 0;
+      attempt < NO_SERVER_RUNNING_MAX_RETRIES && isNoServerRunningMessage(result.stderr);
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, NO_SERVER_RUNNING_RETRY_DELAY_MS));
+      result = await this.runTmuxOnceAllowFailure(argv);
+    }
+    return result;
+  }
+
+  private async runTmuxOnceAllowFailure(argv: string[]): Promise<CommandResult> {
     try {
       return await this.deps.run(buildLocalTmuxArgv(argv));
     } catch (error) {

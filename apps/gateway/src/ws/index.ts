@@ -479,7 +479,13 @@ export class WebSocketServer {
       }
 
       case wsBorsh.KIND_TMUX_CREATE_WINDOW: {
-        const decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
+        let decoded: wsBorsh.b.infer<typeof wsBorsh.schema.TmuxCreateWindowSchema>;
+        try {
+          decoded = wsBorsh.decodePayload(wsBorsh.schema.TmuxCreateWindowSchema, payload);
+        } catch (error) {
+          console.warn('[ws] create-window payload decode failed:', error);
+          return;
+        }
         this.handleCreateWindow(
           ws,
           decoded.deviceId,
@@ -1009,18 +1015,29 @@ export class WebSocketServer {
     cwd?: string
   ): void {
     const entry = this.connections.get(deviceId);
-    if (!entry) return;
+    if (!entry) {
+      const connected = Array.from(this.connections.keys()).join(',') || '(none)';
+      console.warn(
+        `[ws] create-window dropped: no connection entry for device ${deviceId} (connected devices: ${connected})`
+      );
+      return;
+    }
     void entry.runtime
       .createWindow(name, cwd)
       .then((windowId) => {
-        if (!windowId) return;
+        if (!windowId) {
+          console.warn(`[ws] create-window dropped on ${deviceId}: runtime returned no window id`);
+          return;
+        }
         this.sendEnvelope(
           ws,
           wsBorsh.KIND_TMUX_WINDOW_CREATED,
           wsBorsh.encodePayload(wsBorsh.schema.TmuxWindowCreatedSchema, { deviceId, windowId })
         );
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        console.warn(`[ws] create-window failed on ${deviceId}:`, error);
+      });
   }
 
   private handleCloseWindow(deviceId: string, windowId: string): void {
@@ -1374,23 +1391,30 @@ export class WebSocketServer {
     const entry = this.connections.get(deviceId);
     if (!entry || !isTmuxPaneId(paneId)) return;
 
+    const respond = (captured: { data: string; alternateScreen: boolean; modes: number } | null) => {
+      const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.TermHistorySchema, {
+        deviceId,
+        paneId,
+        selectToken: requestToken,
+        encoding: 1,
+        alternateScreen: captured?.alternateScreen ?? false,
+        modes: captured?.modes ?? 0,
+        data: new TextEncoder().encode(captured?.data ?? ''),
+      });
+      this.sendChunked(ws, wsBorsh.KIND_TERM_HISTORY, payloadBytes);
+    };
     void entry.runtime
       .fetchPaneHistory(paneId)
-      .then((captured) => {
-        if (!captured) return;
-        const payloadBytes = wsBorsh.encodePayload(wsBorsh.schema.TermHistorySchema, {
-          deviceId,
-          paneId,
-          selectToken: requestToken,
-          encoding: 1,
-          alternateScreen: captured.alternateScreen,
-          modes: captured.modes,
-          data: new TextEncoder().encode(captured.data),
-        });
-        this.sendChunked(ws, wsBorsh.KIND_TERM_HISTORY, payloadBytes);
-      })
+      .then(respond)
       .catch((error) => {
         console.warn(`[ws] fetch pane history failed on ${deviceId}/${paneId}:`, error);
+        // 失败也回空响应:客户端据此结束首屏等待进入实时流,而不是卡在
+        // history gate 直到超时(采不到历史是暂态,实时流会重建画面)。
+        try {
+          respond(null);
+        } catch {
+          /* 连接已关等发送失败无需处理 */
+        }
       });
   }
 

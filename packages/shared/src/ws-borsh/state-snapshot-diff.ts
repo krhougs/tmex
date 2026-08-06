@@ -217,24 +217,25 @@ export function applyLegacyStateSnapshotDiff(
   }
 
   for (const upsert of diff.upserts) {
-    if (upsert.entityKind === SOURCE_ENTITY_SESSION) {
-      if (!session || session.id !== upsert.nativeId) {
-        session = { id: upsert.nativeId, name: '', windows: [] };
-      }
-      applySessionFields(session, upsert.fields);
-      continue;
+    if (upsert.entityKind !== SOURCE_ENTITY_SESSION) continue;
+    if (!session || session.id !== upsert.nativeId) {
+      session = { id: upsert.nativeId, name: '', windows: [] };
     }
-    if (!session) continue;
-    if (upsert.entityKind === SOURCE_ENTITY_WINDOW) {
-      let window = session.windows.find((candidate) => candidate.id === upsert.nativeId);
-      if (!window) {
-        window = { id: upsert.nativeId, name: '', index: 0, active: false, panes: [] };
-        session.windows.push(window);
-      }
-      applyWindowFields(window, upsert.fields);
-      continue;
+    applySessionFields(session, upsert.fields);
+  }
+
+  for (const upsert of diff.upserts) {
+    if (upsert.entityKind !== SOURCE_ENTITY_WINDOW || !session) continue;
+    let window = session.windows.find((candidate) => candidate.id === upsert.nativeId);
+    if (!window) {
+      window = { id: upsert.nativeId, name: '', index: 0, active: false, panes: [] };
+      session.windows.push(window);
     }
-    if (upsert.entityKind !== SOURCE_ENTITY_PANE || !upsert.parentId) continue;
+    applyWindowFields(window, upsert.fields);
+  }
+
+  for (const upsert of diff.upserts) {
+    if (upsert.entityKind !== SOURCE_ENTITY_PANE || !upsert.parentId || !session) continue;
     const destination = session.windows.find((window) => window.id === upsert.parentId);
     if (!destination) continue;
     let pane: TmuxPane | undefined;

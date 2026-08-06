@@ -143,6 +143,8 @@ export interface AppRuntimeOptions {
   };
   /** 终端文件链接面；缺省走 gateway 文件 API 与 /file/:ref 路由 */
   terminalFileLinks?: TerminalFileLinksProvider;
+  /** create-window 超时毫秒数（测试注入短值用）；缺省 15000 */
+  createWindowTimeoutMs?: number;
 }
 
 /** 已解析的 UI 能力开关 */

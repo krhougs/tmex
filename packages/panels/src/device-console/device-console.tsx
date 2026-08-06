@@ -34,11 +34,11 @@ import {
 import { isIOSMobileBrowser } from '@tmex/terminal-ui';
 import { Button } from '@tmex/ui/button';
 import { Switch } from '@tmex/ui/switch';
-import { Loader2, SearchX, Send, Trash2 } from 'lucide-react';
+import { toast } from '@tmex/ui/toast';
+import { AlertTriangle, Loader2, RotateCw, SearchX, Send, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import { toast } from '@tmex/ui/toast';
 import { DeviceStatusBadge } from '../device-status-badge';
 import { ShortcutButtonRow } from '../settings/ShortcutButtonRow';
 import {
@@ -49,7 +49,6 @@ import {
 // URL 目标未出现在快照时的失效判定/回落宽限：覆盖 select 状态机 ackTimeoutMs(1500ms) + 快照传播。
 const SELECT_SETTLE_GRACE_MS = 2500;
 const REMOTE_PANE_SIZE_GUARD_TTL_MS = 2000;
-const CREATE_WINDOW_FOLLOW_TTL_MS = 15000;
 
 // 终端快捷键栏：从服务器配置渲染（send 类发送控制序列，action 类触发特殊动作）。
 const ShortcutsBar = memo(function ShortcutsBar({
@@ -576,6 +575,14 @@ export function DeviceConsole({
   const pendingCreateWindow = useTmuxStore((state) =>
     deviceId ? state.pendingCreateWindow[deviceId] : undefined
   );
+  const windowCreateFailed = useTmuxStore((state) =>
+    deviceId ? state.windowCreateFailed[deviceId] : undefined
+  );
+  // 创建超时失败：即时 toast 提醒（用户可能正停留在其他窗口视图，空态提示不可见）
+  useEffect(() => {
+    if (!windowCreateFailed) return;
+    toast.error(t('window.createFailed'), { description: t('window.createFailedDesc') });
+  }, [windowCreateFailed, t]);
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceConnected) return;
@@ -586,7 +593,8 @@ export function DeviceConsole({
     if (autoSelected.current) return;
     // A user-initiated createWindow is in flight: hold off the default
     // selection so the create-follow effect can target the new window first.
-    if (pendingCreateWindow && Date.now() - pendingCreateWindow.at <= CREATE_WINDOW_FOLLOW_TTL_MS) {
+    // 超时后 store 会清除 pending 并置失败态，此处无需再按 TTL 判断。
+    if (pendingCreateWindow) {
       return;
     }
 
@@ -880,16 +888,13 @@ export function DeviceConsole({
   // Follow the newly created window after a user-initiated createWindow.
   // Only a window that was NOT present when createWindow was issued counts —
   // a stale snapshot's active window must never consume the pending marker.
+  // 超时判定由 store 层持有（createWindow 发起时启动 watcher，超时置失败态并
+  // 清除 pending），这里只负责窗口出现后的跟随；pending 被 store 清除后本
+  // effect 自然退出。
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceConnected) return;
     if (!pendingCreateWindow) return;
-
-    const elapsed = Date.now() - pendingCreateWindow.at;
-    if (elapsed > CREATE_WINDOW_FOLLOW_TTL_MS) {
-      runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
-      return;
-    }
 
     // Preferred: the gateway acked the exact created window id — follow it as
     // soon as it shows up in the snapshot. Fallback (older gateways without the
@@ -906,15 +911,12 @@ export function DeviceConsole({
         ? windows?.find((win) => !knownIds.has(win.id) && win.panes.length > 0)
         : windows?.find((win) => win.active && win.panes.length > 0);
     if (!createdWindow) {
-      // New window not reflected in the snapshot yet; keep waiting until TTL.
-      const timer = window.setTimeout(() => {
-        runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
-      }, CREATE_WINDOW_FOLLOW_TTL_MS - elapsed);
-      return () => window.clearTimeout(timer);
+      // New window not reflected in the snapshot yet; keep waiting until the
+      // store-level timeout converts the pending marker into a failure state.
+      return;
     }
 
-    const targetPane =
-      createdWindow.panes.find((pane) => pane.active) ?? createdWindow.panes[0];
+    const targetPane = createdWindow.panes.find((pane) => pane.active) ?? createdWindow.panes[0];
     const target = { windowId: createdWindow.id, paneId: targetPane.id };
     runtime.stores.tmux.getState().clearPendingCreateWindow(deviceId);
     if (windowId === target.windowId && resolvedPaneId === target.paneId) {
@@ -1349,7 +1351,41 @@ export function DeviceConsole({
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="max-w-sm space-y-4">
-                {!deviceConnected || isReconnecting ? (
+                {windowCreateFailed ? (
+                  <>
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                      <AlertTriangle className="h-6 w-6 text-destructive" />
+                    </div>
+                    <h3 className="text-lg font-medium" data-testid="window-create-failed">
+                      {t('window.createFailed')}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{t('window.createFailedDesc')}</p>
+                    <div className="flex justify-center">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="window-create-retry"
+                        onClick={() => {
+                          if (!deviceId) return;
+                          runtime.stores.tmux.getState().createWindow(deviceId);
+                        }}
+                      >
+                        <RotateCw className="h-3.5 w-3.5" />
+                        {t('window.retry')}
+                      </Button>
+                    </div>
+                  </>
+                ) : pendingCreateWindow ? (
+                  <>
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                    <h3 className="text-lg font-medium" data-testid="window-create-pending">
+                      {t('window.creating')}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{t('window.creatingDesc')}</p>
+                  </>
+                ) : !deviceConnected || isReconnecting ? (
                   loadingPlaceholder
                 ) : !windowId ? (
                   <>

@@ -812,7 +812,14 @@
       "paneCount": "{{count}} ペイン",
       "pane": "ペイン",
       "moveToWindow": "このウィンドウへ移動",
-      "breakToWindow": "新しいウィンドウに分離"
+      "breakToWindow": "新しいウィンドウに分離",
+      "noWindowSelected": "ウィンドウが選択されていません",
+      "selectWindowToStart": "ウィンドウを選択して開始してください",
+      "creating": "ウィンドウを作成中",
+      "creatingDesc": "ウィンドウを作成しています…",
+      "createFailed": "ウィンドウの作成に失敗しました",
+      "createFailedDesc": "ウィンドウが時間内に表示されませんでした。再試行してください。",
+      "retry": "再試行"
     },
     "watch": {
       "title": "監視ルール",

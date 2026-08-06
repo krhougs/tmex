@@ -554,10 +554,10 @@ describe('LocalExternalTmuxConnection', () => {
     });
     fake.pushStdout(
       '%begin 2 20 0\n80|24|0|3|4|100\n%end 2 20 0\n' +
-        '%begin 2 21 0\n%output literal screen row\n%end 2 21 0\n' +
-        '%begin 2 22 0\nhistory row\n%end 2 22 0\n' +
-        '%output %1 live-after-capture\n'
+        '%begin 2 21 0\n%output literal screen row\n%end 2 21 0\n'
     );
+    await Bun.sleep(0);
+    fake.pushStdout('%begin 2 22 0\nhistory row\n%end 2 22 0\n%output %1 live-after-capture\n');
 
     await expect(capturePromise).resolves.toMatchObject({
       text: '%output literal screen row',
@@ -1598,6 +1598,7 @@ describe('LocalExternalTmuxConnection', () => {
         ensureGhosttyTerminfo: async () => false,
         getDevice: () => createDevice('tmex-hb-timeout'),
         run: createRunStub('tmex-hb-timeout'),
+        controlStalledTimeoutMs: 100,
         spawnControlClient: () => {
           const f = createFakeControlProcess();
           f.pushStdout('%begin 1 1 0\n%end 1 1 0\n%session-changed $1 tmex-hb-timeout\n');
@@ -1805,6 +1806,7 @@ describe('LocalExternalTmuxConnection lifecycle events', () => {
   function makeLifecycleConnection(options: {
     session: string;
     overrides?: (command: string) => CommandResult | null;
+    snapshots?: StateSnapshotPayload[];
   }) {
     const events: EmittedEvent[] = [];
     const connection = new LocalExternalTmuxConnection(
@@ -1816,7 +1818,9 @@ describe('LocalExternalTmuxConnection lifecycle events', () => {
         onEvent: () => {},
         onTerminalOutput: () => {},
         onTerminalHistory: () => {},
-        onSnapshot: () => {},
+        onSnapshot: (snapshot) => {
+          options.snapshots?.push(snapshot);
+        },
         onError: () => {},
         onClose: () => {},
       },
@@ -2019,6 +2023,82 @@ describe('LocalExternalTmuxConnection lifecycle events', () => {
     const status = getDeviceRuntimeStatus('device-local');
     expect(status.tmuxAvailable).toBe(false);
     expect(status.lastError).toBe('no server running on /tmp/sock');
+  });
+
+  test('a single no-server-running flake during snapshot is retried without tearing down', async () => {
+    const session = 'tmex-lc-flake';
+    let flaked = false;
+    const snapshots: StateSnapshotPayload[] = [];
+    const { connection, events } = makeLifecycleConnection({
+      session,
+      snapshots,
+      overrides: (command) => {
+        if (!flaked && command.startsWith(`list-windows -t ${session} -F #{window_id}|`)) {
+          flaked = true;
+          return {
+            exitCode: 1,
+            stdout: '',
+            stderr: `psmux: no server running on session ${session}`,
+          };
+        }
+        return null;
+      },
+    });
+
+    await connection.connect();
+    expect(flaked).toBe(true);
+    expect(events.map((e) => e.eventType)).not.toContain('session_closed');
+    // 重试成功后快照照常产出非空 session
+    await waitFor(() => snapshots.at(-1)?.session ?? null);
+    expect(snapshots.at(-1)?.session).not.toBeNull();
+    connection.disconnect();
+  });
+
+  test('a single no-server-running flake on a command is retried without tearing down', async () => {
+    const session = 'tmex-lc-cmd-flake';
+    let flaked = false;
+    const { connection, events } = makeLifecycleConnection({
+      session,
+      overrides: (command) => {
+        if (!flaked && command.startsWith('send-keys -H -t %1')) {
+          flaked = true;
+          return {
+            exitCode: 1,
+            stdout: '',
+            stderr: `psmux: no server running on session ${session}`,
+          };
+        }
+        return null;
+      },
+    });
+
+    await connection.connect();
+    connection.sendInput('%1', 'x');
+    await waitFor(() => (flaked ? true : null));
+    expect(events.map((e) => e.eventType)).not.toContain('session_closed');
+    connection.disconnect();
+  });
+
+  test('non-registry server-gone errors are not retried and still tear down', async () => {
+    const session = 'tmex-lc-noretry';
+    let calls = 0;
+    const { connection, events } = makeLifecycleConnection({
+      session,
+      overrides: (command) => {
+        if (command.startsWith('send-keys -H -t %1')) {
+          calls += 1;
+          return { exitCode: 1, stdout: '', stderr: `can't find session: ${session}` };
+        }
+        return null;
+      },
+    });
+
+    await connection.connect();
+    connection.sendInput('%1', 'x');
+    await waitFor(() => (events.length > 0 ? true : null));
+    expect(calls).toBe(1);
+    expect(events.map((e) => e.eventType)).toContain('session_closed');
+    connection.disconnect();
   });
 
   test('concurrent snapshot demands run one batch plus one trailing refresh without overlap', async () => {

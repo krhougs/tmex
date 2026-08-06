@@ -4,6 +4,8 @@ export {
   GhosttyTerminalController,
   TERMINAL_ENGINE,
 } from './terminal';
+export { getGhosttyBindings } from './ghostty-wasm';
+export { parseHistoryRows } from './history-prepend';
 export { isMacPlatform, writeTextToClipboard } from './selection-clipboard';
 export {
   detectLinksInLine,

@@ -56,6 +56,8 @@ export interface TmuxState {
   // 本地发起的关闭记账（key: `pane:${deviceId}:${paneId}` / `window:${deviceId}:${windowId}`）：
   // 让消费方把「快照里找不到目标」区分为确定的本地关闭 vs 快照未追上，前者无需 settle 宽限
   recentlyClosedTargets: Record<string, number>;
+  /** create-window 超时未获回执/未在快照中出现时记录的失败态（UI 据此展示失败反馈与重试）。 */
+  windowCreateFailed: Record<string, { at: number } | undefined>;
 
   ensureSocketConnected: () => void;
   connectDevice: (deviceId: string) => void;
@@ -126,6 +128,8 @@ function markRecentlyClosed(
 const SCREEN_BYTE_LIMIT = 512 * 1024;
 const HISTORY_PAGE_BYTE_LIMIT = 256 * 1024;
 const CLIPBOARD_TOAST_PREVIEW_MAX_CHARS = 40;
+/** create-window 从发起（或 queued 补发）到仍无新窗口出现即判定失败的等待时长，与前端 follow TTL 一致。 */
+const CREATE_WINDOW_TIMEOUT_MS = 15000;
 
 /** 复制成功 toast 的内容预览：折叠空白为单个空格，按 code point 截断。 */
 export function clipboardToastPreview(text: string): string {
@@ -140,6 +144,8 @@ export function clipboardToastPreview(text: string): string {
 export interface TmuxStoreDeps {
   getUI: () => UIStore;
   getSite: () => SiteStore;
+  /** create-window 从发起（或 queued 补发）到视为失败的等待时长；仅测试注入，缺省用常量。 */
+  createWindowTimeoutMs?: number;
 }
 
 export function createTmuxStore(
@@ -154,6 +160,45 @@ export function createTmuxStore(
   const mountedPaneCounts = new Map<string, Map<string, number>>();
   const manualPaneSubscriptions = new Map<string, Set<string>>();
   const subscriptionGenerations = new Map<string, bigint>();
+  const createWindowTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function clearCreateWindowTimeout(deviceId: string): void {
+    const timer = createWindowTimeouts.get(deviceId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      createWindowTimeouts.delete(deviceId);
+    }
+  }
+
+  // 超时后 pending 仍在（未被 ack+跟随清除、未被手动清除）→ 显式置失败态，
+  // 防止 queued 补发永不发生或服务端丢命令时留下永久 pending / 静默回落空态。
+  function failPendingCreateWindow(
+    setState: (partial: Partial<TmuxState> | ((prev: TmuxState) => Partial<TmuxState>)) => void,
+    deviceId: string
+  ): void {
+    createWindowTimeouts.delete(deviceId);
+    setState((prev) => {
+      if (prev.pendingCreateWindow[deviceId] === undefined) return prev;
+      const nextPending = { ...prev.pendingCreateWindow };
+      delete nextPending[deviceId];
+      return {
+        pendingCreateWindow: nextPending,
+        windowCreateFailed: { ...prev.windowCreateFailed, [deviceId]: { at: Date.now() } },
+      };
+    });
+  }
+
+  function scheduleCreateWindowTimeout(
+    setState: (partial: Partial<TmuxState> | ((prev: TmuxState) => Partial<TmuxState>)) => void,
+    deviceId: string
+  ): void {
+    clearCreateWindowTimeout(deviceId);
+    const timer = setTimeout(
+      () => failPendingCreateWindow(setState, deviceId),
+      deps.createWindowTimeoutMs ?? CREATE_WINDOW_TIMEOUT_MS
+    );
+    createWindowTimeouts.set(deviceId, timer);
+  }
 
   function shouldSkipDuplicateConnect(deviceId: string): boolean {
     const now = Date.now();
@@ -264,6 +309,10 @@ export function createTmuxStore(
         clearTimeout(timer);
       }
       selectRetryTimers.clear();
+      for (const timer of createWindowTimeouts.values()) {
+        clearTimeout(timer);
+      }
+      createWindowTimeouts.clear();
     });
 
     const handleReady = (): void => {
@@ -362,11 +411,12 @@ export function createTmuxStore(
                 ...prev.pendingCreateWindow,
                 [snapshotDeviceId]: {
                   at: Date.now(),
-                  knownWindowIds:
-                    event.snapshot.session?.windows?.map((win) => win.id) ?? [],
+                  knownWindowIds: event.snapshot.session?.windows?.map((win) => win.id) ?? [],
                 },
               },
             }));
+            // 补发后等待窗口出现的期限重新起算
+            scheduleCreateWindowTimeout(setState, snapshotDeviceId);
           }
           return;
         }
@@ -646,6 +696,7 @@ export function createTmuxStore(
     activePaneFromEvent: {},
     pendingCreateWindow: {},
     recentlyClosedTargets: {},
+    windowCreateFailed: {},
 
     ensureSocketConnected() {
       setupTransportHandlers(set, get);
@@ -803,12 +854,16 @@ export function createTmuxStore(
               queued: canSendNow ? undefined : { name, cwd },
             },
           },
+          // 重试语义：新发起即清除上次失败态
+          windowCreateFailed: { ...prev.windowCreateFailed, [deviceId]: undefined },
         };
       });
+      scheduleCreateWindowTimeout(set, deviceId);
     },
 
     clearPendingCreateWindow(deviceId) {
       if (!deviceId) return;
+      clearCreateWindowTimeout(deviceId);
       set((prev) => {
         if (prev.pendingCreateWindow[deviceId] === undefined) return prev;
         const next = { ...prev.pendingCreateWindow };

@@ -1,4 +1,5 @@
 import { type GlyphInk, resolveGlyphConstraint } from './glyph-constraint';
+import { GlyphRunCache } from './glyph-run-cache';
 import { type LigatureSegment, scanLigatureSegments } from './ligature-segments';
 import { ensureMinimumContrast, isFallbackEligible } from './minimum-contrast';
 import type {
@@ -139,10 +140,15 @@ export class CanvasRenderer {
   private frameCount = 0;
   private lastDrawnRows: number[] = [];
   private readonly colorCache = new Map<string, string>();
-  // (fg,bg) 组合数远少于 cell 数，缓存后每帧只算少量新组合。
+  // (fg,bg) 组合数远少于 cell 数,缓存后每帧只算少量新组合。
   private readonly contrastCache = new Map<string, GhosttyColorRgb>();
   private readonly fontCache = new Map<string, string>();
   private readonly glyphInkCache = new Map<string, GlyphInk | null>();
+  // 字形 run 位图缓存:同 (font, text, color) 的 fillText 只在 atlas 上发生一次,
+  // 命中直接 drawImage,消除逐 cell shaping(见 glyph-run-cache.ts)。
+  private readonly glyphRunCache = new GlyphRunCache();
+  // 测试专用开关:关闭后走直绘,用于缓存启用/禁用的像素等价回归对比。
+  private glyphRunCacheEnabled = true;
   private cursorBlinkVisible = true;
   private cursorBlinkTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -186,6 +192,8 @@ export class CanvasRenderer {
     this.theme = theme;
     this.colorCache.clear();
     this.contrastCache.clear();
+    // 主题切换后 minimum-contrast 解析出的前景色全部可能变化,位图整体失效。
+    this.glyphRunCache.clear();
   }
 
   render(frame: CanvasRendererFrame): void {
@@ -251,6 +259,15 @@ export class CanvasRenderer {
     };
   }
 
+  // 测试专用:关闭字形位图缓存走直绘,供像素等价回归对比缓存启用/禁用两条路径。
+  // 保持非 private:唯一调用方是测试,private 会在 noUnusedLocals 构建里报 TS6133。
+  setGlyphRunCacheEnabled(enabled: boolean): void {
+    if (enabled) {
+      this.glyphRunCache.clear();
+    }
+    this.glyphRunCacheEnabled = enabled;
+  }
+
   dispose(): void {
     this.mainCanvas.remove();
     this.linkCanvas.remove();
@@ -260,6 +277,7 @@ export class CanvasRenderer {
     this.contrastCache.clear();
     this.fontCache.clear();
     this.glyphInkCache.clear();
+    this.glyphRunCache.clear();
     this.lastCursor = null;
     this.stopCursorBlink();
   }
@@ -323,6 +341,8 @@ export class CanvasRenderer {
     this.glyphBoxHeight = ascent + descent;
     this.textTopGap = Math.round((deviceCellHeight - this.glyphBoxHeight) / 2);
     this.textBaselineY = Math.round(this.textTopGap + ascent);
+    // 几何(dpr/cell 尺寸/基线)变化 → 位图尺寸与定位度量全部失效,整体清空。
+    this.glyphRunCache.setCellGeometry(deviceCellWidth, deviceCellHeight, this.textBaselineY);
 
     const width = nextCols * deviceCellWidth;
     const height = nextRows * deviceCellHeight;
@@ -501,27 +521,45 @@ export class CanvasRenderer {
           : rawFg;
       const cellWidth = cell.widthKind === 'wide' ? this.deviceCellWidth * 2 : this.deviceCellWidth;
 
-      this.mainContext.fillStyle = this.toCss(fg);
-      // 块元素（▀▄█▌▐░▒▓ 等）不能交给字体：字形最多覆盖 1em，而 cell 高为
-      // 1.2em，行列间会留缝（logo/色块图中的明显间隙），必须按 cell 精确自绘。
+      const colorCss = this.toCss(fg);
+      this.mainContext.fillStyle = colorCss;
+      // 块元素(▀▄█▌▐░▒▓ 等)不能交给字体:字形最多覆盖 1em,而 cell 高为
+      // 1.2em,行列间会留缝(logo/色块图中的明显间隙),必须按 cell 精确自绘。
       const blockCodepoint =
         cell.codepoints.length === 1 && isBlockElement(cell.codepoints[0])
           ? cell.codepoints[0]
           : null;
       const segment = segmentStarts.get(index);
       if (segment) {
-        this.mainContext.font = this.resolveFont(cell.style);
-        this.mainContext.fillText(
-          segment.text,
-          segment.startX * this.deviceCellWidth,
-          y + this.textBaselineY
-        );
+        const font = this.resolveFont(cell.style);
+        this.mainContext.font = font;
+        if (
+          !this.glyphRunCacheEnabled ||
+          !this.glyphRunCache.draw(
+            this.mainContext,
+            {
+              font,
+              text: segment.text,
+              color: colorCss,
+              spanCells: segment.endIndex - segment.startIndex,
+              cellX: segment.startX * this.deviceCellWidth,
+              cellY: y,
+            },
+            (text) => this.measureGlyphInk(font, text)
+          )
+        ) {
+          this.mainContext.fillText(
+            segment.text,
+            segment.startX * this.deviceCellWidth,
+            y + this.textBaselineY
+          );
+        }
       } else if (segmentTails.has(index)) {
-        // 段内后续 cell：文本已随段首画出
+        // 段内后续 cell:文本已随段首画出
       } else if (blockCodepoint !== null) {
         this.drawBlockElement(blockCodepoint, x, y, cellWidth, this.deviceCellHeight);
       } else {
-        this.drawCellText(cell, row.cells, index, x, y, cellWidth);
+        this.drawCellText(cell, row.cells, index, x, y, cellWidth, colorCss);
       }
 
       // 装饰线随真实字形盒走，而非 cell 边缘：下划线贴字底、上划线贴字顶、
@@ -571,7 +609,8 @@ export class CanvasRenderer {
     index: number,
     x: number,
     y: number,
-    cellWidth: number
+    cellWidth: number,
+    colorCss: string
   ): void {
     const context = this.mainContext;
     const font = this.resolveFont(cell.style);
@@ -584,7 +623,7 @@ export class CanvasRenderer {
         const next = cells[index + 1];
         const prev = index > 0 ? cells[index - 1] : undefined;
         const atLineEnd = cell.x + 1 >= this.cols;
-        // 行尾空白列可能被裁剪出 cells，next 缺失但未到行末仍视为空。
+        // 行尾空白列可能被裁剪出 cells,next 缺失但未到行末仍视为空。
         const nextEmpty = !atLineEnd && (!next || !next.text || next.text === ' ');
         const prevIsSymbol =
           !!prev && isConstrainedSymbolCell(prev) && !isGraphicsElement(prev.codepoints[0]);
@@ -594,6 +633,9 @@ export class CanvasRenderer {
           maxInkWidth: nextEmpty && !prevIsSymbol ? cellWidth * 2 : cellWidth,
         });
         if (decision.mode === 'scale') {
+          // 缩放路径绕过位图缓存直绘:scale/dx 由左右邻居连续决定、命中率低,位图内
+          // 再叠加变换徒增复杂度;直绘天然与缓存启用/禁用逐像素一致。受约束符号在
+          // 右邻为空时放行溢出(decision normal)仍走缓存,溢出墨迹由位图 padding 覆盖。
           context.save();
           context.translate(x + decision.dx, baselineY);
           context.scale(decision.scale, decision.scale);
@@ -604,6 +646,26 @@ export class CanvasRenderer {
       }
     }
 
+    if (
+      this.glyphRunCacheEnabled &&
+      this.glyphRunCache.draw(
+        context,
+        {
+          font,
+          text: cell.text,
+          color: colorCss,
+          spanCells: cellWidth / this.deviceCellWidth,
+          cellX: x,
+          cellY: y,
+        },
+        (text) => this.measureGlyphInk(font, text)
+      )
+    ) {
+      return;
+    }
+
+    // 缓存不可用/失败:降级直绘,语义与无缓存时完全一致。
+    context.fillStyle = colorCss;
     context.fillText(cell.text, x, baselineY);
   }
 
