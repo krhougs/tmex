@@ -38,6 +38,10 @@ export interface DeviceConsoleActionsProps {
   deviceId?: string;
   windowId?: string;
   paneId?: string;
+  /** 隐藏整页刷新按钮（嵌入式宿主的页面生命周期由宿主自管时使用）。 */
+  hideRefresh?: boolean;
+  /** 覆盖终端设置入口：提供时点击不再打开内置 Sheet，改由宿主接管（如跳转独立设置页）。 */
+  onOpenTerminalSettings?: () => void;
 }
 
 type TerminalSettingsSheetComponent = ComponentType<{
@@ -108,7 +112,13 @@ function DeferredTerminalSettingsSheet({
   );
 }
 
-export function DeviceConsoleActions({ deviceId, windowId, paneId }: DeviceConsoleActionsProps) {
+export function DeviceConsoleActions({
+  deviceId,
+  windowId,
+  paneId,
+  hideRefresh = false,
+  onOpenTerminalSettings,
+}: DeviceConsoleActionsProps) {
   const { t } = useTranslation();
   const runtime = useRuntime();
   const navigate = useNavigate();
@@ -223,15 +233,17 @@ export function DeviceConsoleActions({ deviceId, windowId, paneId }: DeviceConso
           </Button>
         </>
       )}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={handleRefreshClick}
-        aria-label={t('nav.refreshPage')}
-        title={t('nav.refreshPage')}
-      >
-        <RefreshCw className="h-4 w-4" />
-      </Button>
+      {!hideRefresh && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleRefreshClick}
+          aria-label={t('nav.refreshPage')}
+          title={t('nav.refreshPage')}
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="icon-sm"
@@ -280,7 +292,9 @@ export function DeviceConsoleActions({ deviceId, windowId, paneId }: DeviceConso
       <Button
         variant="ghost"
         size="icon-sm"
-        onClick={() => setShowTerminalSettings(true)}
+        onClick={() =>
+          onOpenTerminalSettings ? onOpenTerminalSettings() : setShowTerminalSettings(true)
+        }
         data-testid="keyboard-behavior-open-button"
         aria-label={t('settings.terminal.title')}
         title={t('settings.terminal.title')}
@@ -288,10 +302,12 @@ export function DeviceConsoleActions({ deviceId, windowId, paneId }: DeviceConso
         <Settings2 className="h-4 w-4" />
       </Button>
 
-      <DeferredTerminalSettingsSheet
-        open={showTerminalSettings}
-        onOpenChange={setShowTerminalSettings}
-      />
+      {!onOpenTerminalSettings && (
+        <DeferredTerminalSettingsSheet
+          open={showTerminalSettings}
+          onOpenChange={setShowTerminalSettings}
+        />
+      )}
 
       {watchUi && deviceId && resolvedPaneId && (
         <WatchDialog
