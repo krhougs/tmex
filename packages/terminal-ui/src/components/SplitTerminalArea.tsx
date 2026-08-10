@@ -78,8 +78,6 @@ interface PaneDragState {
 const WINDOW_RESIZE_DEBOUNCE_MS = 150;
 const CELL_SIZE_RETRY_MS = 200;
 const CELL_SIZE_MAX_RETRIES = 15;
-/** 夺回仲裁的「近期本地交互」窗口：native 终端盖层聚焦时 document.hasFocus() 为假，以最近交互补位 */
-const RECLAIM_INTERACTION_WINDOW_MS = 30_000;
 
 // 跨窗口/重挂缓存最近一次真实 cell 尺寸：再次进入分屏首帧即可用像素几何，
 // 避免 cellSize 未就绪的引导帧回落百分比排布（字体变更后由首个真实上报自愈）
@@ -310,7 +308,6 @@ export function SplitTerminalArea({
 
   // 多端仲裁夺回：tmux window 被其他客户端（移动 stacked/其他端）改成别的
   // 尺寸时，容器 RO 与堆叠深度均不变，本端会永久静默错位。收敛时零流量。
-  const lastInteractionAtRef = useRef(0);
   const reclaimWindowSize = useCallback(() => {
     if (!layout) return;
     const target = computeTargetWindowGrid();
@@ -374,28 +371,14 @@ export function SplitTerminalArea({
     return () => clearTimeout(timer);
   }, [titleBarStackDepth, horizontalStackDepth]);
 
-  // 夺回边缘一：外部改走 window 尺寸（layout 尺寸变化）时，本端近期有真实
-  // 交互（打开分屏视图本身算一次）才重报；前台闲置不抢，正在使用的另一端赢。
-  // 边缘触发：两端交替交互各夺回一次即稳定，不构成乒乓循环。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: root 尺寸是触发条件，比较经 ref 取最新值
+  // 夺回只由真实交互瞬间触发（容器内 pointerdown/wheel/keydown，含 native
+  // 盖层聚焦时合成回 DOM 的 pointerdown）：谁被触摸谁拥有窗口尺寸，本端
+  // 绝不在无人交互时自动反击（时间窗启发式会让刚离手的桌面压制正在手上的
+  // 移动端）。已收敛时校验即返回，零流量。
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const interactedRecently =
-        Date.now() - lastInteractionAtRef.current < RECLAIM_INTERACTION_WINDOW_MS;
-      if (!interactedRecently) return;
-      reclaimWindowSizeRef.current();
-    }, WINDOW_RESIZE_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [rootCols, rootRows]);
-
-  // 夺回边缘二：失配发生在本端沉寂期时上面的边缘已错过，恢复交互（容器内
-  // pointerdown/wheel，含 native 盖层聚焦时合成回 DOM 的 pointerdown）即校验夺回。
-  useEffect(() => {
-    lastInteractionAtRef.current = Date.now();
     const container = containerRef.current;
     if (!container) return;
     const onInteraction = () => {
-      lastInteractionAtRef.current = Date.now();
       reclaimWindowSizeRef.current();
     };
     container.addEventListener('pointerdown', onInteraction, true);
