@@ -184,11 +184,15 @@ export interface SplitLayoutPxInput {
   paneChrome: { width: number; height: number };
 }
 
-// 像素级分屏几何：恒等映射——1 cell 恒等于 1 cellPx，任何情况下不缩放、
-// 不按份额分摊。叶子盒子 = cells*cell + chrome，gutter 恒 = 1 cell（对应
-// tmux separator）。顺序排布，主轴越过容器边界时截断（诚实 clip，收敛后
-// 自然消失）；容器余量由每级最后一个子节点的盒子吸收（盒内留白，不改网格）。
-// 收敛态（整窗 grid 来自 computeSplitWindowGridSize）恰好铺满。
+// 像素级分屏几何。两个状态、一套公式：
+// - 收敛态（整窗 grid 来自 computeSplitWindowGridSize 且被 tmux 采纳）：
+//   每子树需求 = cells*cellPx + stack 深度*chrome，余量 extra≈0，盒子即
+//   恒等映射（1 cell ≡ 1 cellPx），逐 pane 恰好容纳内容（chrome 先行保底，
+//   多行分屏的下行不再被摊派挤压）。
+// - 败方态（tmux window 被其他客户端改成别的形状）：extra 按 cell 份额
+//   分布（正负同式），全部 pane 保持可见、内容各自裁切/留白——与网页
+//   终端对外来尺寸的显示语义一致；盒子下限为 chrome（标题栏永不消失）。
+// 尾节点吸收残差，容器恒被精确铺满。
 export function computeSplitLayoutPxGeometry(
   root: TmuxLayoutNode,
   input: SplitLayoutPxInput
@@ -216,14 +220,29 @@ export function computeSplitLayoutPxGeometry(
     const horizontal = node.type === 'row';
     const gutterSize = horizontal ? cell.width : cell.height;
     const end = horizontal ? box.left + box.width : box.top + box.height;
+    const totalCells = node.children.reduce(
+      (sum, child) => sum + (horizontal ? child.width : child.height),
+      0
+    );
+    const totalNeeded = node.children.reduce(
+      (sum, child) => sum + (horizontal ? neededWidth(child) : neededHeight(child)),
+      (node.children.length - 1) * gutterSize
+    );
+    const extra = (horizontal ? box.width : box.height) - totalNeeded;
 
     let cursor = horizontal ? box.left : box.top;
     for (let i = 0; i < node.children.length; i += 1) {
       const child = node.children[i] as TmuxLayoutNode;
       const last = i === node.children.length - 1;
+      const chromeFloor = horizontal
+        ? maxHorizontalStackDepth(child) * paneChrome.width
+        : maxVerticalStackDepth(child) * paneChrome.height;
+      const childCells = horizontal ? child.width : child.height;
       const need = horizontal ? neededWidth(child) : neededHeight(child);
-      const remaining = Math.max(0, end - cursor);
-      const size = last ? remaining : Math.min(need, remaining);
+      const share = need + (totalCells > 0 ? (extra * childCells) / totalCells : 0);
+      const size = last
+        ? Math.max(chromeFloor, end - cursor)
+        : Math.max(chromeFloor, Math.min(share, end - cursor));
       const childBox: PxRect = horizontal
         ? { left: cursor, top: box.top, width: size, height: box.height }
         : { left: box.left, top: cursor, width: box.width, height: size };
