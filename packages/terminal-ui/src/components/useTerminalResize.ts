@@ -151,8 +151,11 @@ export function useTerminalResize({
       // Debug: console.log('[resize] success:', { kind, cols, rows, force });
       const lastSize = lastReportedSize.current;
 
-      if (!force && lastSize && lastSize.cols === cols && lastSize.rows === rows) {
-        applyTerminalSize(cols, rows);
+      // 测量值与上次上报相同则不重复上行（force 也不例外）：快照恢复会高频
+      // 触发 force sync，重申相同尺寸会与其他客户端互相抢 tmux 尺寸形成
+      // resize 乒乓。此时也不把本地终端拉回容器测量值——本地尺寸可能已被
+      // remote 尺寸回灌接管（多客户端 last-writer-wins）。
+      if (lastSize && lastSize.cols === cols && lastSize.rows === rows) {
         return true;
       }
 
@@ -244,6 +247,14 @@ export function useTerminalResize({
         });
     }
   }, [clearPostSelectResizeTimers, scheduleResize]);
+
+  // 断连时清空上报基线：重连后 tmux 尺寸可能已被其他客户端改写，
+  // 首次上报必须真实发出（去重基线只在连接内有效）
+  useEffect(() => {
+    if (!deviceConnected) {
+      lastReportedSize.current = null;
+    }
+  }, [deviceConnected]);
 
   // 浏览器窗口 resize 处理 - 共享 scheduleResize 的防抖
   useEffect(() => {
