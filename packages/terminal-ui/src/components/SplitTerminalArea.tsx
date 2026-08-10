@@ -1,6 +1,7 @@
 // PC 分屏渲染区域：按 tmux window layout 同屏渲染 window 内全部 pane。
 //
-// - 布局真相源是 tmux layout：pane 容器按 layout 树的 cells 比例绝对定位，
+// - 布局拓扑真相源是 tmux layout；pane 盒子按恒等像素几何绝对定位
+//   （1 cell 恒等于 1 cellPx + 每 pane 固定 chrome，不做比例缩放），
 //   每个 pane 挂一个 sizingMode="follow" 的 Terminal 实例并 resize 到精确 cols/rows；
 // - 每个 pane 顶部有标题栏（名称 + 进程@路径），拖动标题栏到目标 pane 的
 //   上/下/左/右四分区可重排布局（tmux move-pane），拖拽中显示半区预览；
@@ -77,6 +78,12 @@ interface PaneDragState {
 const WINDOW_RESIZE_DEBOUNCE_MS = 150;
 const CELL_SIZE_RETRY_MS = 200;
 const CELL_SIZE_MAX_RETRIES = 15;
+/** 夺回仲裁的「近期本地交互」窗口：native 终端盖层聚焦时 document.hasFocus() 为假，以最近交互补位 */
+const RECLAIM_INTERACTION_WINDOW_MS = 30_000;
+
+// 跨窗口/重挂缓存最近一次真实 cell 尺寸：再次进入分屏首帧即可用像素几何，
+// 避免 cellSize 未就绪的引导帧回落百分比排布（字体变更后由首个真实上报自愈）
+let lastKnownCellSize: { width: number; height: number } | null = null;
 // 每个 pane 的垂直占位：上留白 6px + 浮起标题栏 24px + 下方视觉空间 8px + 底部留白 8px
 const PANE_V_OVERHEAD_PX = 46;
 // 标题栏区域高度（垂直占位的上半部分）
@@ -152,7 +159,9 @@ export function SplitTerminalArea({
   const terminalRefs = useRef(new Map<string, TerminalRef | null>());
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [paneDrag, setPaneDrag] = useState<PaneDragState | null>(null);
-  const [cellSize, setCellSize] = useState<{ width: number; height: number } | null>(null);
+  const [cellSize, setCellSize] = useState<{ width: number; height: number } | null>(
+    () => lastKnownCellSize
+  );
   const [containerPx, setContainerPx] = useState<{ width: number; height: number } | null>(null);
 
   const { t } = useTranslation();
@@ -176,7 +185,8 @@ export function SplitTerminalArea({
     [tmuxWindow.layout]
   );
 
-  // 几何单位先用 cells，渲染时换算为百分比（容器与 window 尺寸过渡期失配时仍铺满）
+  // cells 几何：pane cols/rows 权威值（resize effect / 拖拽基准），
+  // 兼作 cellSize 首次就绪前唯一一帧的引导排布（百分比占位，稳态不用）
   const geometry = useMemo(() => {
     if (!layout) return null;
     return computeSplitLayoutGeometry(layout.root, { width: 1, height: 1 });
@@ -185,9 +195,9 @@ export function SplitTerminalArea({
   const geometryRef = useRef(geometry);
   geometryRef.current = geometry;
 
-  // cell 尺寸与容器尺寸就绪后改用像素几何：纯比例分配会把每 pane 固定的
-  // 标题栏/留白 chrome 也按 cell 份额摊派，份额小的 pane（多行分屏的下行）
-  // 拿到的像素放不下 layout 分配的行数，内容溢出被裁。
+  // 恒等像素几何（稳态唯一渲染真源）：1 cell 恒等于 1 cellPx + 每 pane
+  // 固定 chrome，不缩放不分摊；与 computeSplitWindowGridSize 上报的整窗
+  // grid 收敛后恰好铺满，失配时确定性截尾（诚实 clip，收敛即消失）。
   const pxGeometry = useMemo(() => {
     if (!layout || !cellSize || !containerPx) return null;
     return computeSplitLayoutPxGeometry(layout.root, {
@@ -235,6 +245,7 @@ export function SplitTerminalArea({
     for (const paneId of [focusedPaneId, ...terminalRefs.current.keys()]) {
       const cell = terminalRefs.current.get(paneId)?.getCellSize();
       if (cell) {
+        lastKnownCellSize = cell;
         setCellSize((prev) =>
           prev && prev.width === cell.width && prev.height === cell.height ? prev : cell
         );
@@ -268,28 +279,49 @@ export function SplitTerminalArea({
     [layout]
   );
 
-  // window 级 resize：容器尺寸 / cell 尺寸 → 整窗 cols/rows（防抖 + cellSize 未就绪重试）
-  const reportWindowSize = useCallback(() => {
+  // 容器尺寸 / cell 尺寸 → 本端期望的整窗 cols/rows（未就绪时 null）
+  const computeTargetWindowGrid = useCallback((): { cols: number; rows: number } | null => {
     const container = containerRef.current;
-    if (!container || !layout) return false;
+    if (!container || !layout) return null;
     const rect = container.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return false;
+    if (rect.width < 1 || rect.height < 1) return null;
     const cell = getFocusedCellSize();
-    if (!cell) return false;
-    const { cols, rows } = computeSplitWindowGridSize(layout.root, {
+    if (!cell) return null;
+    return computeSplitWindowGridSize(layout.root, {
       viewport: { width: rect.width, height: rect.height },
       cell,
       paneChrome: { width: PANE_H_OVERHEAD_PX, height: PANE_V_OVERHEAD_PX },
     });
-    onWindowResize(cols, rows);
-    onWindowResizeSettled?.(cols, rows);
+  }, [getFocusedCellSize, layout]);
+
+  // window 级 resize：整窗 cols/rows 上报（防抖 + cellSize 未就绪重试）
+  const reportWindowSize = useCallback(() => {
+    const target = computeTargetWindowGrid();
+    if (!target) return false;
+    onWindowResize(target.cols, target.rows);
+    onWindowResizeSettled?.(target.cols, target.rows);
     return true;
-  }, [getFocusedCellSize, layout, onWindowResize, onWindowResizeSettled]);
+  }, [computeTargetWindowGrid, onWindowResize, onWindowResizeSettled]);
 
   const reportWindowSizeRef = useRef(reportWindowSize);
   useEffect(() => {
     reportWindowSizeRef.current = reportWindowSize;
   }, [reportWindowSize]);
+
+  // 多端仲裁夺回：tmux window 被其他客户端（移动 stacked/其他端）改成别的
+  // 尺寸时，容器 RO 与堆叠深度均不变，本端会永久静默错位。收敛时零流量。
+  const lastInteractionAtRef = useRef(0);
+  const reclaimWindowSize = useCallback(() => {
+    if (!layout) return;
+    const target = computeTargetWindowGrid();
+    if (!target) return;
+    if (target.cols === layout.root.width && target.rows === layout.root.height) return;
+    reportWindowSize();
+  }, [computeTargetWindowGrid, layout, reportWindowSize]);
+  const reclaimWindowSizeRef = useRef(reclaimWindowSize);
+  useEffect(() => {
+    reclaimWindowSizeRef.current = reclaimWindowSize;
+  }, [reclaimWindowSize]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -342,6 +374,42 @@ export function SplitTerminalArea({
     return () => clearTimeout(timer);
   }, [titleBarStackDepth, horizontalStackDepth]);
 
+  // 夺回边缘一：外部改走 window 尺寸（layout 尺寸变化）时，本端近期有真实
+  // 交互（打开分屏视图本身算一次）才重报；前台闲置不抢，正在使用的另一端赢。
+  // 边缘触发：两端交替交互各夺回一次即稳定，不构成乒乓循环。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: root 尺寸是触发条件，比较经 ref 取最新值
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const interactedRecently =
+        Date.now() - lastInteractionAtRef.current < RECLAIM_INTERACTION_WINDOW_MS;
+      if (!interactedRecently) return;
+      reclaimWindowSizeRef.current();
+    }, WINDOW_RESIZE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [rootCols, rootRows]);
+
+  // 夺回边缘二：失配发生在本端沉寂期时上面的边缘已错过，恢复交互（容器内
+  // pointerdown/wheel，含 native 盖层聚焦时合成回 DOM 的 pointerdown）即校验夺回。
+  useEffect(() => {
+    lastInteractionAtRef.current = Date.now();
+    const container = containerRef.current;
+    if (!container) return;
+    const onInteraction = () => {
+      lastInteractionAtRef.current = Date.now();
+      reclaimWindowSizeRef.current();
+    };
+    container.addEventListener('pointerdown', onInteraction, true);
+    container.addEventListener('wheel', onInteraction, { capture: true, passive: true });
+    container.addEventListener('keydown', onInteraction, true);
+    return () => {
+      container.removeEventListener('pointerdown', onInteraction, true);
+      container.removeEventListener('wheel', onInteraction, {
+        capture: true,
+      } as EventListenerOptions);
+      container.removeEventListener('keydown', onInteraction, true);
+    };
+  }, []);
+
   // splitter 拖拽：pointermove 只更新参考线，pointerup 提交 resize-pane 绝对值
   const handleGutterPointerDown = useCallback(
     (gutterIndex: number, gutter: SplitGutter, event: React.PointerEvent<HTMLDivElement>) => {
@@ -377,15 +445,11 @@ export function SplitTerminalArea({
         const deltaCells = Math.round(deltaPx / axisCell);
         if (deltaCells === 0) return;
 
-        const edgePaneEl = container.querySelector<HTMLElement>(
-          `[data-pane-id="${gutter.edgeLeafPaneId}"]`
-        );
-        if (!edgePaneEl) return;
-        const edgePaneRect = edgePaneEl.getBoundingClientRect();
-        const currentSize =
-          gutter.axis === 'x'
-            ? Math.floor(edgePaneRect.width / axisCell)
-            : Math.floor(edgePaneRect.height / axisCell);
+        // 当前尺寸从 layout cells 直取：pane 盒子含标题栏/留白 chrome，
+        // 反除 cell 会虚大 2~3 cell，导致每次拖拽单向漂移
+        const edgePane = geometryRef.current?.panes.find((p) => p.paneId === gutter.edgeLeafPaneId);
+        if (!edgePane) return;
+        const currentSize = gutter.axis === 'x' ? edgePane.cols : edgePane.rows;
         const targetSize = currentSize + deltaCells;
         if (targetSize < 2) return;
         reportWindowSizeRef.current();

@@ -184,10 +184,11 @@ export interface SplitLayoutPxInput {
   paneChrome: { width: number; height: number };
 }
 
-// 像素级分屏几何：按比例分配会把每 pane 固定的 chrome（标题栏/留白）也按
-// cell 份额摊派，份额小的 pane 拿到的像素 < cells*cell + chrome，终端内容
-// 被裁掉。这里按「子树最小需求 = cells*cell + stack 深度*chrome」先行保底，
-// 剩余像素再按 cell 份额分摊（负余量同比例收缩，容器与 layout 过渡期不炸）。
+// 像素级分屏几何：恒等映射——1 cell 恒等于 1 cellPx，任何情况下不缩放、
+// 不按份额分摊。叶子盒子 = cells*cell + chrome，gutter 恒 = 1 cell（对应
+// tmux separator）。顺序排布，主轴越过容器边界时截断（诚实 clip，收敛后
+// 自然消失）；容器余量由每级最后一个子节点的盒子吸收（盒内留白，不改网格）。
+// 收敛态（整窗 grid 来自 computeSplitWindowGridSize）恰好铺满。
 export function computeSplitLayoutPxGeometry(
   root: TmuxLayoutNode,
   input: SplitLayoutPxInput
@@ -214,45 +215,41 @@ export function computeSplitLayoutPxGeometry(
 
     const horizontal = node.type === 'row';
     const gutterSize = horizontal ? cell.width : cell.height;
-    const totalCells = node.children.reduce(
-      (sum, child) => sum + (horizontal ? child.width : child.height),
-      0
-    );
-    const totalNeeded = node.children.reduce(
-      (sum, child) => sum + (horizontal ? neededWidth(child) : neededHeight(child)),
-      (node.children.length - 1) * gutterSize
-    );
-    const extra = (horizontal ? box.width : box.height) - totalNeeded;
+    const end = horizontal ? box.left + box.width : box.top + box.height;
 
     let cursor = horizontal ? box.left : box.top;
     for (let i = 0; i < node.children.length; i += 1) {
       const child = node.children[i] as TmuxLayoutNode;
-      const childCells = horizontal ? child.width : child.height;
+      const last = i === node.children.length - 1;
       const need = horizontal ? neededWidth(child) : neededHeight(child);
-      const size = need + (totalCells > 0 ? (extra * childCells) / totalCells : 0);
+      const remaining = Math.max(0, end - cursor);
+      const size = last ? remaining : Math.min(need, remaining);
       const childBox: PxRect = horizontal
         ? { left: cursor, top: box.top, width: size, height: box.height }
         : { left: box.left, top: cursor, width: box.width, height: size };
       visit(child, childBox);
       cursor += size;
 
-      if (i === node.children.length - 1) {
+      if (last) {
         continue;
       }
-      if (horizontal) {
-        gutters.push({
-          axis: 'x',
-          rect: { left: cursor, top: box.top, width: gutterSize, height: box.height },
-          edgeLeafPaneId: layoutLeafPaneId(rightEdgeLeaf(child)),
-        });
-      } else {
-        gutters.push({
-          axis: 'y',
-          rect: { left: box.left, top: cursor, width: box.width, height: gutterSize },
-          edgeLeafPaneId: layoutLeafPaneId(bottomEdgeLeaf(child)),
-        });
+      const gutterActual = Math.min(gutterSize, Math.max(0, end - cursor));
+      if (gutterActual > 0) {
+        if (horizontal) {
+          gutters.push({
+            axis: 'x',
+            rect: { left: cursor, top: box.top, width: gutterActual, height: box.height },
+            edgeLeafPaneId: layoutLeafPaneId(rightEdgeLeaf(child)),
+          });
+        } else {
+          gutters.push({
+            axis: 'y',
+            rect: { left: box.left, top: cursor, width: box.width, height: gutterActual },
+            edgeLeafPaneId: layoutLeafPaneId(bottomEdgeLeaf(child)),
+          });
+        }
       }
-      cursor += gutterSize;
+      cursor += gutterActual;
     }
   };
 

@@ -78,8 +78,8 @@ describe('computeSplitLayoutGeometry', () => {
   });
 });
 
-// 比例分配会把固定 chrome 按 cell 份额摊派，份额小的 pane 放不下 layout 行数；
-// 像素几何保证每个 pane 至少拿到 cells*cell + 自身 chrome
+// 恒等映射：1 cell 恒等于 1 cellPx，不缩放、不按份额分摊；
+// 余量归每级最后一个子节点的盒子，主轴越界顺序截断
 describe('computeSplitLayoutPxGeometry', () => {
   const CHROME = { width: 12, height: 46 };
   const pxGeometryOf = (layout: string, viewport: { width: number; height: number }) => {
@@ -107,19 +107,29 @@ describe('computeSplitLayoutPxGeometry', () => {
     }
   });
 
-  test('surplus pixels distribute by cell share and conserve the viewport', () => {
+  test('surplus pixels go to the tail pane only, others keep exact needs', () => {
     const layout = 'aaaa,100x50,0,0[100x39,0,0,1,100x10,0,40,2]';
     const viewport = { width: 1012, height: 50 * 20 + 2 * 46 + 49 };
     const geo = pxGeometryOf(layout, viewport);
 
-    expect(geo.panes[0]?.rect.height).toBe(826 + 39);
-    expect(geo.panes[1]?.rect.height).toBe(246 + 10);
+    expect(geo.panes[0]?.rect.height).toBe(826);
+    expect(geo.panes[1]?.rect.height).toBe(246 + 49);
     const bottom = geo.panes[1];
     if (!bottom) throw new Error('missing bottom pane');
     expect(bottom.rect.top + bottom.rect.height).toBe(viewport.height);
     for (const pane of geo.panes) {
       expect(pane.rect.height - CHROME.height).toBeGreaterThanOrEqual(pane.rows * CELL.height);
     }
+  });
+
+  test('undersized viewport truncates tail panes, leading panes keep their needs', () => {
+    const layout = 'aaaa,100x50,0,0[100x39,0,0,1,100x10,0,40,2]';
+    const viewport = { width: 1012, height: 700 };
+    const geo = pxGeometryOf(layout, viewport);
+
+    expect(geo.panes[0]?.rect).toEqual({ left: 0, top: 0, width: 1012, height: 700 });
+    expect(geo.panes[1]?.rect.height).toBe(0);
+    expect(geo.gutters).toHaveLength(0);
   });
 
   test('row with nested column: every leaf meets its minimum, shallow branch keeps slack', () => {
