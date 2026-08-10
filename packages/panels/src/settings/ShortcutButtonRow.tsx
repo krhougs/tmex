@@ -71,6 +71,7 @@ export function ShortcutButtonRow({
             title={ariaLabel}
             aria-label={ariaLabel}
             data-testid={`${idPrefix}-${item.id}`}
+            onPointerDown={preventFocusSteal ? (e) => e.preventDefault() : undefined}
             onMouseDown={preventFocusSteal ? (e) => e.preventDefault() : undefined}
             onClick={onActivate ? () => onActivate(item) : undefined}
             disabled={disabled}
