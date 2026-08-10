@@ -21,6 +21,7 @@ import {
   type DropPosition,
   type SplitGutter,
   computeSplitLayoutGeometry,
+  computeSplitLayoutPxGeometry,
   computeSplitWindowGridSize,
   maxHorizontalStackDepth,
   maxVerticalStackDepth,
@@ -151,6 +152,8 @@ export function SplitTerminalArea({
   const terminalRefs = useRef(new Map<string, TerminalRef | null>());
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [paneDrag, setPaneDrag] = useState<PaneDragState | null>(null);
+  const [cellSize, setCellSize] = useState<{ width: number; height: number } | null>(null);
+  const [containerPx, setContainerPx] = useState<{ width: number; height: number } | null>(null);
 
   const { t } = useTranslation();
   const runtime = useRuntime();
@@ -181,6 +184,21 @@ export function SplitTerminalArea({
 
   const geometryRef = useRef(geometry);
   geometryRef.current = geometry;
+
+  // cell 尺寸与容器尺寸就绪后改用像素几何：纯比例分配会把每 pane 固定的
+  // 标题栏/留白 chrome 也按 cell 份额摊派，份额小的 pane（多行分屏的下行）
+  // 拿到的像素放不下 layout 分配的行数，内容溢出被裁。
+  const pxGeometry = useMemo(() => {
+    if (!layout || !cellSize || !containerPx) return null;
+    return computeSplitLayoutPxGeometry(layout.root, {
+      viewport: containerPx,
+      cell: cellSize,
+      paneChrome: { width: PANE_H_OVERHEAD_PX, height: PANE_V_OVERHEAD_PX },
+    });
+  }, [layout, cellSize, containerPx]);
+
+  const pxGeometryRef = useRef(pxGeometry);
+  pxGeometryRef.current = pxGeometry;
 
   const rootCols = layout?.root.width ?? 1;
   const rootRows = layout?.root.height ?? 1;
@@ -216,7 +234,12 @@ export function SplitTerminalArea({
   const getFocusedCellSize = useCallback((): { width: number; height: number } | null => {
     for (const paneId of [focusedPaneId, ...terminalRefs.current.keys()]) {
       const cell = terminalRefs.current.get(paneId)?.getCellSize();
-      if (cell) return cell;
+      if (cell) {
+        setCellSize((prev) =>
+          prev && prev.width === cell.width && prev.height === cell.height ? prev : cell
+        );
+        return cell;
+      }
     }
     return null;
   }, [focusedPaneId]);
@@ -289,6 +312,14 @@ export function SplitTerminalArea({
     };
 
     const observer = new ResizeObserver(() => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width >= 1 && rect.height >= 1) {
+        setContainerPx((prev) =>
+          prev && prev.width === rect.width && prev.height === rect.height
+            ? prev
+            : { width: rect.width, height: rect.height }
+        );
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(tryReport, WINDOW_RESIZE_DEBOUNCE_MS);
     });
@@ -396,17 +427,24 @@ export function SplitTerminalArea({
       ): { paneId: string; position: DropPosition } | null => {
         const rect = container.getBoundingClientRect();
         if (rect.width < 1 || rect.height < 1) return null;
-        const cellX = ((clientX - rect.left) / rect.width) * Math.max(1, rootCols);
-        const cellY = ((clientY - rect.top) / rect.height) * Math.max(1, rootRows);
-        for (const pane of currentGeometry.panes) {
+        // 与渲染同源：像素几何可用时按像素命中，否则按 cell 比例命中
+        const px = pxGeometryRef.current;
+        const hitGeometry = px ?? currentGeometry;
+        const hitX = px
+          ? clientX - rect.left
+          : ((clientX - rect.left) / rect.width) * Math.max(1, rootCols);
+        const hitY = px
+          ? clientY - rect.top
+          : ((clientY - rect.top) / rect.height) * Math.max(1, rootRows);
+        for (const pane of hitGeometry.panes) {
           if (
-            cellX >= pane.rect.left &&
-            cellX <= pane.rect.left + pane.rect.width &&
-            cellY >= pane.rect.top &&
-            cellY <= pane.rect.top + pane.rect.height
+            hitX >= pane.rect.left &&
+            hitX <= pane.rect.left + pane.rect.width &&
+            hitY >= pane.rect.top &&
+            hitY <= pane.rect.top + pane.rect.height
           ) {
-            const relX = (cellX - pane.rect.left) / Math.max(1e-6, pane.rect.width);
-            const relY = (cellY - pane.rect.top) / Math.max(1e-6, pane.rect.height);
+            const relX = (hitX - pane.rect.left) / Math.max(1e-6, pane.rect.width);
+            const relY = (hitY - pane.rect.top) / Math.max(1e-6, pane.rect.height);
             return { paneId: pane.paneId, position: resolveDropPosition(relX, relY) };
           }
         }
@@ -526,6 +564,8 @@ export function SplitTerminalArea({
   }
 
   const pct = (cells: number, total: number) => `${(cells / Math.max(1, total)) * 100}%`;
+  const renderGeometry = pxGeometry ?? geometry;
+  const usePx = pxGeometry !== null;
 
   return (
     <div
@@ -533,7 +573,7 @@ export function SplitTerminalArea({
       className="relative h-full w-full min-h-0 min-w-0"
       data-testid="split-terminal-area"
     >
-      {geometry.panes.map((pane) => {
+      {renderGeometry.panes.map((pane) => {
         const isFocused = pane.paneId === focusedPaneId;
         const info = paneInfoById.get(pane.paneId);
         const meta = paneMetaText(info);
@@ -551,12 +591,21 @@ export function SplitTerminalArea({
             data-testid="split-pane"
             data-pane-id={pane.paneId}
             data-focused={isFocused || undefined}
-            style={{
-              left: pct(pane.rect.left, rootCols),
-              top: pct(pane.rect.top, rootRows),
-              width: pct(pane.rect.width, rootCols),
-              height: pct(pane.rect.height, rootRows),
-            }}
+            style={
+              usePx
+                ? {
+                    left: pane.rect.left,
+                    top: pane.rect.top,
+                    width: pane.rect.width,
+                    height: pane.rect.height,
+                  }
+                : {
+                    left: pct(pane.rect.left, rootCols),
+                    top: pct(pane.rect.top, rootRows),
+                    width: pct(pane.rect.width, rootCols),
+                    height: pct(pane.rect.height, rootRows),
+                  }
+            }
             onPointerDownCapture={(event) => {
               // 点关闭按钮不算选择该 pane：否则 URL/焦点先切到即将被杀的
               // pane，关闭后必然踩「目标从快照消失」的回落路径
@@ -678,6 +727,7 @@ export function SplitTerminalArea({
       {/* 拖拽中的浮动标签：跟随指针提示正在移动的 pane 与动作 */}
       {paneDrag?.active && (
         <div
+          data-testid="split-pane-drag-label"
           className="pointer-events-none fixed z-50 rounded border border-primary/40 bg-popover/95 px-2 py-1 font-mono text-[10.5px] text-popover-foreground shadow-md"
           style={{ left: paneDrag.pointerX + 12, top: paneDrag.pointerY + 12 }}
         >
@@ -691,19 +741,28 @@ export function SplitTerminalArea({
         </div>
       )}
 
-      {geometry.gutters.map((gutter, index) => {
+      {renderGeometry.gutters.map((gutter, index) => {
         const isVertical = gutter.axis === 'x';
         const isDragging = dragState?.gutterIndex === index;
         return (
           <div
             key={`${tmuxWindow.layout ?? ''}:${index}`}
             className="absolute z-20"
-            style={{
-              left: pct(gutter.rect.left, rootCols),
-              top: pct(gutter.rect.top, rootRows),
-              width: isVertical ? pct(1, rootCols) : pct(gutter.rect.width, rootCols),
-              height: isVertical ? pct(gutter.rect.height, rootRows) : pct(1, rootRows),
-            }}
+            style={
+              usePx
+                ? {
+                    left: gutter.rect.left,
+                    top: gutter.rect.top,
+                    width: gutter.rect.width,
+                    height: gutter.rect.height,
+                  }
+                : {
+                    left: pct(gutter.rect.left, rootCols),
+                    top: pct(gutter.rect.top, rootRows),
+                    width: isVertical ? pct(1, rootCols) : pct(gutter.rect.width, rootCols),
+                    height: isVertical ? pct(gutter.rect.height, rootRows) : pct(1, rootRows),
+                  }
+            }
           >
             <div
               data-testid="split-gutter"
@@ -726,6 +785,7 @@ export function SplitTerminalArea({
             {/* 拖拽参考线 */}
             {isDragging && dragState && (
               <div
+                data-testid="split-gutter-guide"
                 className="pointer-events-none absolute bg-primary/45"
                 style={
                   isVertical

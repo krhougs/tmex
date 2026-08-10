@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseWindowLayout } from '@tmex/shared';
 import {
   computeSplitLayoutGeometry,
+  computeSplitLayoutPxGeometry,
   computeSplitWindowGridSize,
   maxHorizontalStackDepth,
   maxVerticalStackDepth,
@@ -74,6 +75,72 @@ describe('computeSplitLayoutGeometry', () => {
     expect(vertical?.edgeLeafPaneId).toBe('%0');
     const horizontal = geo.gutters.find((g) => g.axis === 'y');
     expect(horizontal?.edgeLeafPaneId).toBe('%0');
+  });
+});
+
+// 比例分配会把固定 chrome 按 cell 份额摊派，份额小的 pane 放不下 layout 行数；
+// 像素几何保证每个 pane 至少拿到 cells*cell + 自身 chrome
+describe('computeSplitLayoutPxGeometry', () => {
+  const CHROME = { width: 12, height: 46 };
+  const pxGeometryOf = (layout: string, viewport: { width: number; height: number }) => {
+    const parsed = parseWindowLayout(layout);
+    if (!parsed) throw new Error(`invalid layout: ${layout}`);
+    return computeSplitLayoutPxGeometry(parsed.root, {
+      viewport,
+      cell: CELL,
+      paneChrome: CHROME,
+    });
+  };
+
+  test('unequal vertical split: bottom pane still fits its rows plus chrome', () => {
+    // 39 行 + 1 gutter + 10 行 = 50；精确适配视口下逐 pane 恰好放下
+    const layout = 'aaaa,100x50,0,0[100x39,0,0,1,100x10,0,40,2]';
+    const viewport = { width: 100 * 10 + 12, height: 50 * 20 + 2 * 46 };
+    const geo = pxGeometryOf(layout, viewport);
+
+    expect(geo.panes.map((p) => p.paneId)).toEqual(['%1', '%2']);
+    expect(geo.panes[0]?.rect).toEqual({ left: 0, top: 0, width: 1012, height: 826 });
+    expect(geo.gutters[0]?.rect).toEqual({ left: 0, top: 826, width: 1012, height: 20 });
+    expect(geo.panes[1]?.rect).toEqual({ left: 0, top: 846, width: 1012, height: 246 });
+    for (const pane of geo.panes) {
+      expect(pane.rect.height - CHROME.height).toBeGreaterThanOrEqual(pane.rows * CELL.height);
+    }
+  });
+
+  test('surplus pixels distribute by cell share and conserve the viewport', () => {
+    const layout = 'aaaa,100x50,0,0[100x39,0,0,1,100x10,0,40,2]';
+    const viewport = { width: 1012, height: 50 * 20 + 2 * 46 + 49 };
+    const geo = pxGeometryOf(layout, viewport);
+
+    expect(geo.panes[0]?.rect.height).toBe(826 + 39);
+    expect(geo.panes[1]?.rect.height).toBe(246 + 10);
+    const bottom = geo.panes[1];
+    if (!bottom) throw new Error('missing bottom pane');
+    expect(bottom.rect.top + bottom.rect.height).toBe(viewport.height);
+    for (const pane of geo.panes) {
+      expect(pane.rect.height - CHROME.height).toBeGreaterThanOrEqual(pane.rows * CELL.height);
+    }
+  });
+
+  test('row with nested column: every leaf meets its minimum, shallow branch keeps slack', () => {
+    const layout = '5ee7,208x62,0,0{104x62,0,0,0,103x62,105,0[103x31,105,0,1,103x30,105,32,2]}';
+    const viewport = { width: 208 * 10 + 2 * 12, height: 62 * 20 + 2 * 46 };
+    const geo = pxGeometryOf(layout, viewport);
+
+    const left = geo.panes.find((p) => p.paneId === '%0');
+    expect(left?.rect).toEqual({ left: 0, top: 0, width: 1052, height: 1332 });
+
+    const vertical = geo.gutters.find((g) => g.axis === 'x');
+    expect(vertical?.rect).toEqual({ left: 1052, top: 0, width: 10, height: 1332 });
+
+    const topRight = geo.panes.find((p) => p.paneId === '%1');
+    const bottomRight = geo.panes.find((p) => p.paneId === '%2');
+    expect(topRight?.rect).toEqual({ left: 1062, top: 0, width: 1042, height: 666 });
+    expect(bottomRight?.rect).toEqual({ left: 1062, top: 686, width: 1042, height: 646 });
+    for (const pane of geo.panes) {
+      expect(pane.rect.width - CHROME.width).toBeGreaterThanOrEqual(pane.cols * CELL.width);
+      expect(pane.rect.height - CHROME.height).toBeGreaterThanOrEqual(pane.rows * CELL.height);
+    }
   });
 });
 

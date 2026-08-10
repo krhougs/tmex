@@ -178,6 +178,93 @@ export function computeSplitWindowGridSize(
   return { cols, rows };
 }
 
+export interface SplitLayoutPxInput {
+  viewport: { width: number; height: number };
+  cell: { width: number; height: number };
+  paneChrome: { width: number; height: number };
+}
+
+// 像素级分屏几何：按比例分配会把每 pane 固定的 chrome（标题栏/留白）也按
+// cell 份额摊派，份额小的 pane 拿到的像素 < cells*cell + chrome，终端内容
+// 被裁掉。这里按「子树最小需求 = cells*cell + stack 深度*chrome」先行保底，
+// 剩余像素再按 cell 份额分摊（负余量同比例收缩，容器与 layout 过渡期不炸）。
+export function computeSplitLayoutPxGeometry(
+  root: TmuxLayoutNode,
+  input: SplitLayoutPxInput
+): SplitLayoutGeometry {
+  const panes: SplitPaneRect[] = [];
+  const gutters: SplitGutter[] = [];
+  const { cell, paneChrome } = input;
+
+  const neededWidth = (node: TmuxLayoutNode): number =>
+    node.width * cell.width + maxHorizontalStackDepth(node) * paneChrome.width;
+  const neededHeight = (node: TmuxLayoutNode): number =>
+    node.height * cell.height + maxVerticalStackDepth(node) * paneChrome.height;
+
+  const visit = (node: TmuxLayoutNode, box: PxRect): void => {
+    if (node.type === 'leaf') {
+      panes.push({
+        paneId: layoutLeafPaneId(node),
+        cols: node.width,
+        rows: node.height,
+        rect: box,
+      });
+      return;
+    }
+
+    const horizontal = node.type === 'row';
+    const gutterSize = horizontal ? cell.width : cell.height;
+    const totalCells = node.children.reduce(
+      (sum, child) => sum + (horizontal ? child.width : child.height),
+      0
+    );
+    const totalNeeded = node.children.reduce(
+      (sum, child) => sum + (horizontal ? neededWidth(child) : neededHeight(child)),
+      (node.children.length - 1) * gutterSize
+    );
+    const extra = (horizontal ? box.width : box.height) - totalNeeded;
+
+    let cursor = horizontal ? box.left : box.top;
+    for (let i = 0; i < node.children.length; i += 1) {
+      const child = node.children[i] as TmuxLayoutNode;
+      const childCells = horizontal ? child.width : child.height;
+      const need = horizontal ? neededWidth(child) : neededHeight(child);
+      const size = need + (totalCells > 0 ? (extra * childCells) / totalCells : 0);
+      const childBox: PxRect = horizontal
+        ? { left: cursor, top: box.top, width: size, height: box.height }
+        : { left: box.left, top: cursor, width: box.width, height: size };
+      visit(child, childBox);
+      cursor += size;
+
+      if (i === node.children.length - 1) {
+        continue;
+      }
+      if (horizontal) {
+        gutters.push({
+          axis: 'x',
+          rect: { left: cursor, top: box.top, width: gutterSize, height: box.height },
+          edgeLeafPaneId: layoutLeafPaneId(rightEdgeLeaf(child)),
+        });
+      } else {
+        gutters.push({
+          axis: 'y',
+          rect: { left: box.left, top: cursor, width: box.width, height: gutterSize },
+          edgeLeafPaneId: layoutLeafPaneId(bottomEdgeLeaf(child)),
+        });
+      }
+      cursor += gutterSize;
+    }
+  };
+
+  visit(root, {
+    left: 0,
+    top: 0,
+    width: input.viewport.width,
+    height: input.viewport.height,
+  });
+  return { panes, gutters };
+}
+
 export type DropPosition = 'left' | 'right' | 'top' | 'bottom';
 
 // pane 尺寸签名：只在 pane 的 paneId/cols/rows 变化时才变化，
