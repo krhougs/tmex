@@ -193,6 +193,42 @@ export function SplitTerminalArea({
   const geometryRef = useRef(geometry);
   geometryRef.current = geometry;
 
+  // pane chrome（header + padding 占位）用 DOM 实测：pane 盒子与其内终端
+  // 根元素的 rect 差值。常量只作首帧兜底——样式或缩放使真实占位偏离常量时，
+  // 整窗上报与像素几何若各信一套会造成 cols/rows 恒溢出/恒不足
+  const [measuredChrome, setMeasuredChrome] = useState<{ width: number; height: number } | null>(
+    null
+  );
+  const paneChrome = useMemo(
+    () => measuredChrome ?? { width: PANE_H_OVERHEAD_PX, height: PANE_V_OVERHEAD_PX },
+    [measuredChrome]
+  );
+  const paneChromeRef = useRef(paneChrome);
+  paneChromeRef.current = paneChrome;
+
+  const measurePaneChrome = useCallback((): { width: number; height: number } | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const paneEl = container.querySelector<HTMLElement>('[data-pane-id]');
+    const termEl = paneEl?.querySelector<HTMLElement>('[data-pane-content-id]')
+      ?.firstElementChild as HTMLElement | null | undefined;
+    if (!paneEl || !termEl) return null;
+    const paneRect = paneEl.getBoundingClientRect();
+    const termRect = termEl.getBoundingClientRect();
+    if (paneRect.width < 1 || paneRect.height < 1 || termRect.width < 1 || termRect.height < 1) {
+      return null;
+    }
+    const width = paneRect.width - termRect.width;
+    const height = paneRect.height - termRect.height;
+    // 挤压极限或过渡帧下差值可能失真，超出合理带宽时弃测保留兜底
+    if (width < 0 || height < 0 || width > 100 || height > 150) return null;
+    const chrome = { width, height };
+    setMeasuredChrome((prev) =>
+      prev && prev.width === width && prev.height === height ? prev : chrome
+    );
+    return chrome;
+  }, []);
+
   // 恒等像素几何（稳态唯一渲染真源）：1 cell 恒等于 1 cellPx + 每 pane
   // 固定 chrome，不缩放不分摊；与 computeSplitWindowGridSize 上报的整窗
   // grid 收敛后恰好铺满，失配时确定性截尾（诚实 clip，收敛即消失）。
@@ -201,9 +237,9 @@ export function SplitTerminalArea({
     return computeSplitLayoutPxGeometry(layout.root, {
       viewport: containerPx,
       cell: cellSize,
-      paneChrome: { width: PANE_H_OVERHEAD_PX, height: PANE_V_OVERHEAD_PX },
+      paneChrome,
     });
-  }, [layout, cellSize, containerPx]);
+  }, [layout, cellSize, containerPx, paneChrome]);
 
   const pxGeometryRef = useRef(pxGeometry);
   pxGeometryRef.current = pxGeometry;
@@ -288,9 +324,9 @@ export function SplitTerminalArea({
     return computeSplitWindowGridSize(layout.root, {
       viewport: { width: rect.width, height: rect.height },
       cell,
-      paneChrome: { width: PANE_H_OVERHEAD_PX, height: PANE_V_OVERHEAD_PX },
+      paneChrome: measurePaneChrome() ?? paneChromeRef.current,
     });
-  }, [getFocusedCellSize, layout]);
+  }, [getFocusedCellSize, layout, measurePaneChrome]);
 
   // 上报后自校验：挂载/导航瞬间容器可能在头部/工具栏布局稳定前测得偏大，
   // 按错误值上报后 RO 不再触发就永久错位。每次上报 1.2s 后按当时实测复核，

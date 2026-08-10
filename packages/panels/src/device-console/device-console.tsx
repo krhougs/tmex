@@ -960,8 +960,11 @@ export function DeviceConsole({
     if (!canInteractWithPane || !selectedPane || isLoading) return;
 
     const terminal = terminalRef.current;
-    const term = terminal?.getTerminal();
-    if (!term) return;
+    // 走 ref 通用 API 而非 xterm 直查：canvas 的 getSize/resize 直达 xterm
+    // 实例；其他实现的 resize 自带内容重建，getSize 为视口网格（与 remote
+    // 不必相等，重复注入由 ref 内部去重兜底）。
+    const localSize = terminal?.getSize();
+    if (!localSize) return;
 
     const remoteCols = Math.max(2, Math.floor(selectedPane.width || 0));
     const remoteRows = Math.max(2, Math.floor(selectedPane.height || 0));
@@ -988,15 +991,16 @@ export function DeviceConsole({
 
     if (pendingLocalSize) terminal?.clearPendingLocalSize();
 
-    if (term.cols === remoteCols && term.rows === remoteRows) {
+    const term = terminal?.getTerminal();
+    if (term && term.cols === remoteCols && term.rows === remoteRows) {
       return;
     }
 
-    term.resize(remoteCols, remoteRows);
+    terminal?.resize(remoteCols, remoteRows);
     // 远端 resize 后本地 reflow 与 tmux reflow 不保证一致（差一行即让 TUI 的
     // 相对移动重绘永久错位），重拉 history 以 tmux 权威状态重建本地屏幕；
-    // fetch gate 会缓冲期间的 live 输出保序
-    if (deviceId && resolvedPaneId) {
+    // fetch gate 会缓冲期间的 live 输出保序（自带重建的实现不走本补拉）
+    if (term && deviceId && resolvedPaneId) {
       fetchPaneHistory(deviceId, resolvedPaneId);
     }
   }, [
