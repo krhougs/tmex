@@ -7,7 +7,7 @@ import { Input } from '@tmex/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@tmex/ui/select';
 import { Switch } from '@tmex/ui/switch';
 import { Check } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TerminalShortcutsEditor } from './TerminalShortcutsEditor';
 
@@ -46,10 +46,13 @@ const KEYBOARD_MODE_ITEMS = [
 export function TerminalSettingsPanel({
   showPreview = true,
   showShortcuts = true,
+  ligaturesNote,
 }: {
   showPreview?: boolean;
   /** 是否在面板内联快捷键编辑器（Sheet=true 单弹层；设置页 Tab=false 由独立卡片承载） */
   showShortcuts?: boolean;
+  /** 宿主附加在连字项描述下方的说明（如当前渲染实现不支持连字） */
+  ligaturesNote?: ReactNode;
 }) {
   const { t } = useTranslation();
 
@@ -169,6 +172,14 @@ export function TerminalSettingsPanel({
           <span className="text-muted-foreground text-xs leading-snug">
             {t('settings.terminal.ligaturesDesc')}
           </span>
+          {ligaturesNote != null && (
+            <span
+              className="text-muted-foreground text-xs leading-snug"
+              data-testid="terminal-ligatures-note"
+            >
+              {ligaturesNote}
+            </span>
+          )}
         </span>
         <Switch
           checked={terminalLigatures}

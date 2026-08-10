@@ -1,9 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@tmex/ui/card';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TerminalShortcutsEditor } from './TerminalShortcutsEditor';
 import { TerminalSettingsPanel } from './terminal-settings-panel';
 
-export function TerminalSettingsTab() {
+export function TerminalSettingsTab({ ligaturesNote }: { ligaturesNote?: ReactNode } = {}) {
   const { t } = useTranslation();
 
   return (
@@ -14,7 +15,7 @@ export function TerminalSettingsTab() {
           <CardTitle>{t('settings.terminal.title')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <TerminalSettingsPanel showShortcuts={false} />
+          <TerminalSettingsPanel showShortcuts={false} ligaturesNote={ligaturesNote} />
         </CardContent>
       </Card>
 
