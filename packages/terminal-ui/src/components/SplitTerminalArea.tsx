@@ -292,12 +292,37 @@ export function SplitTerminalArea({
     });
   }, [getFocusedCellSize, layout]);
 
+  // 上报后自校验：挂载/导航瞬间容器可能在头部/工具栏布局稳定前测得偏大，
+  // 按错误值上报后 RO 不再触发就永久错位。每次上报 1.2s 后按当时实测复核，
+  // 失配则按新实测重报一次。校验链只走一层（校验触发的重报不再挂校验），
+  // 只修正自己最近的写入，不与其他客户端形成周期对抗。
+  const REPORT_VERIFY_DELAY_MS = 1200;
+  const reportVerifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inReportVerifyRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      if (reportVerifyTimerRef.current) clearTimeout(reportVerifyTimerRef.current);
+    };
+  }, []);
+
   // window 级 resize：整窗 cols/rows 上报（防抖 + cellSize 未就绪重试）
   const reportWindowSize = useCallback(() => {
     const target = computeTargetWindowGrid();
     if (!target) return false;
     onWindowResize(target.cols, target.rows);
     onWindowResizeSettled?.(target.cols, target.rows);
+    if (!inReportVerifyRef.current) {
+      if (reportVerifyTimerRef.current) clearTimeout(reportVerifyTimerRef.current);
+      reportVerifyTimerRef.current = setTimeout(() => {
+        reportVerifyTimerRef.current = null;
+        inReportVerifyRef.current = true;
+        try {
+          reclaimWindowSizeRef.current();
+        } finally {
+          inReportVerifyRef.current = false;
+        }
+      }, REPORT_VERIFY_DELAY_MS);
+    }
     return true;
   }, [computeTargetWindowGrid, onWindowResize, onWindowResizeSettled]);
 
