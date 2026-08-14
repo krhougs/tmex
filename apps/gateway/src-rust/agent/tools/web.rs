@@ -464,7 +464,7 @@ fn extract_html_text(html: &str) -> Result<String, AgentPortError> {
         ("&quot;", "\""),
         ("&#39;", "'"),
     ] {
-        value = value.replace(entity, replacement);
+        value = replace_case_insensitive(&value, entity, replacement);
     }
     value = patterns
         .collapse_space
@@ -474,6 +474,19 @@ fn extract_html_text(html: &str) -> Result<String, AgentPortError> {
         .collapse_lines
         .replace_all(value.trim(), "\n\n")
         .into_owned())
+}
+
+fn replace_case_insensitive(value: &str, needle: &str, replacement: &str) -> String {
+    let lower_needle = needle.to_ascii_lowercase();
+    let mut output = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(index) = rest.to_ascii_lowercase().find(&lower_needle) {
+        output.push_str(&rest[..index]);
+        output.push_str(replacement);
+        rest = &rest[index + needle.len()..];
+    }
+    output.push_str(rest);
+    output
 }
 
 #[cfg(test)]

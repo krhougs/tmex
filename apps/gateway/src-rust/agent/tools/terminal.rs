@@ -115,6 +115,14 @@ impl TerminalAgentTools {
         }
     }
 
+    fn argument_error(message: impl AsRef<str>) -> AgentToolOutput {
+        AgentToolOutput {
+            value: json!({"error": message.as_ref()}),
+            is_error: true,
+            terminal_tool: true,
+            terminal_failed: false,
+        }
+    }
     fn success(value: Value) -> AgentToolOutput {
         AgentToolOutput {
             value,
@@ -156,7 +164,7 @@ impl TerminalAgentTools {
             .and_then(Value::as_u64)
             .unwrap_or(0);
         if history_lines > 2_000 {
-            return Self::failure("historyLines must be between 0 and 2000");
+            return Self::argument_error("historyLines must be between 0 and 2000");
         }
         self.with_lease(|lease| Box::pin(async move {
             let screen = lease.capture_pane_text(history_lines as usize).await?;
@@ -190,7 +198,7 @@ impl TerminalAgentTools {
         authorization: &ToolAuthorization,
     ) -> AgentToolOutput {
         if !self.write_authorized(authorization) {
-            return Self::failure("send_input requires explicit user approval");
+            return Self::argument_error("send_input requires explicit user approval");
         }
         let text = input
             .get("text")
@@ -201,21 +209,21 @@ impl TerminalAgentTools {
             .and_then(Value::as_str)
             .unwrap_or_default();
         if text.encode_utf16().count() > SEND_INPUT_TEXT_MAX_UTF16 {
-            return Self::failure("text exceeds the 16384-character limit");
+            return Self::argument_error("text exceeds the 16384-character limit");
         }
         if raw.encode_utf16().count() > RAW_CONTROL_CHARS_MAX_UTF16 {
-            return Self::failure("rawControlChars exceeds the 4096-character limit");
+            return Self::argument_error("rawControlChars exceeds the 4096-character limit");
         }
         let combos = match encode_combos(input.get("combos")) {
             Ok(value) => value,
-            Err(error) => return Self::failure(error),
+            Err(error) => return Self::argument_error(error),
         };
         let keys = match encode_legacy_keys(input.get("keys")) {
             Ok(value) => value,
-            Err(error) => return Self::failure(error),
+            Err(error) => return Self::argument_error(error),
         };
         if text.is_empty() && raw.is_empty() && combos.is_empty() && keys.is_empty() {
-            return Self::failure(
+            return Self::argument_error(
                 "Either text, combos, keys, or rawControlChars must be provided.",
             );
         }
@@ -283,19 +291,19 @@ impl TerminalAgentTools {
         authorization: &ToolAuthorization,
     ) -> AgentToolOutput {
         if !self.write_authorized(authorization) {
-            return Self::failure("run_command requires explicit user approval");
+            return Self::argument_error("run_command requires explicit user approval");
         }
         let Some(command) = input.get("command").and_then(Value::as_str) else {
-            return Self::failure("command is required");
+            return Self::argument_error("command is required");
         };
         if command.is_empty() {
-            return Self::failure("command must not be empty");
+            return Self::argument_error("command must not be empty");
         }
         let mode = match input.get("mode").and_then(Value::as_str).unwrap_or("auto") {
             "auto" => RunCommandMode::Auto,
             "posix" => RunCommandMode::Posix,
             "cli" => RunCommandMode::Cli,
-            _ => return Self::failure("mode must be auto, posix, or cli"),
+            _ => return Self::argument_error("mode must be auto, posix, or cli"),
         };
         let shell = match input.get("shell").and_then(Value::as_str) {
             None => None,
@@ -304,14 +312,14 @@ impl TerminalAgentTools {
             Some("sh") => Some(RunCommandShell::Sh),
             Some("fish") => Some(RunCommandShell::Fish),
             Some("powershell") => Some(RunCommandShell::PowerShell),
-            Some(_) => return Self::failure("unsupported shell"),
+            Some(_) => return Self::argument_error("unsupported shell"),
         };
         let timeout_ms = input
             .get("timeoutMs")
             .and_then(Value::as_u64)
             .unwrap_or(15_000);
         if !(500..=600_000).contains(&timeout_ms) {
-            return Self::failure("timeoutMs must be between 500 and 600000");
+            return Self::argument_error("timeoutMs must be between 500 and 600000");
         }
         let params = RunCommandParams {
             command: command.to_owned(),

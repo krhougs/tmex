@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::future::pending;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
@@ -42,14 +44,26 @@ impl Default for OpenAiTransportPolicy {
     }
 }
 
+#[derive(Debug)]
+struct ResolvedEndpointClient {
+    addresses: Vec<SocketAddr>,
+    client: reqwest::Client,
+}
+
+type ResolvedClientMap = HashMap<(String, u16), Arc<ResolvedEndpointClient>>;
+
 #[derive(Clone, Debug, Default)]
 pub struct OpenAiHttpTransport {
     policy: OpenAiTransportPolicy,
+    clients: Arc<Mutex<ResolvedClientMap>>,
 }
 
 impl OpenAiHttpTransport {
     pub fn new(policy: OpenAiTransportPolicy) -> Self {
-        Self { policy }
+        Self {
+            policy,
+            clients: Arc::default(),
+        }
     }
 
     pub fn policy(&self) -> &OpenAiTransportPolicy {
@@ -252,18 +266,46 @@ impl OpenAiHttpTransport {
             ));
         }
 
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .referer(false)
-            .no_proxy()
-            .connect_timeout(self.policy.connect_timeout)
-            .timeout(self.policy.request_timeout)
-            .resolve_to_addrs(resolution_host, &addresses)
-            .build()
-            .map_err(|_| OpenAiTransportError::fatal("failed to initialize HTTP transport"))?;
+        let key = (resolution_host.to_owned(), port);
+        let cached = {
+            let clients = self
+                .clients
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            clients
+                .get(&key)
+                .filter(|entry| entry.addresses == addresses)
+                .map(|entry| entry.client.clone())
+        };
+        let client = match cached {
+            Some(client) => client,
+            None => {
+                let client = reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .referer(false)
+                    .no_proxy()
+                    .connect_timeout(self.policy.connect_timeout)
+                    .resolve_to_addrs(resolution_host, &addresses)
+                    .build()
+                    .map_err(|_| {
+                        OpenAiTransportError::fatal("failed to initialize HTTP transport")
+                    })?;
+                let mut clients = self
+                    .clients
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                clients.insert(
+                    key,
+                    Arc::new(ResolvedEndpointClient {
+                        addresses,
+                        client: client.clone(),
+                    }),
+                );
+                client
+            }
+        };
         Ok((url, client))
     }
-
     pub(crate) async fn read_json(
         &self,
         response: reqwest::Response,

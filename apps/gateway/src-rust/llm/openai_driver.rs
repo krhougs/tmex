@@ -423,8 +423,23 @@ async fn process_step(
                 "language model returned a provider tool as a local function call",
             ));
         }
-        validate_schema(&parsed_call.call.input, &definition.input_schema)
-            .map_err(DriverFailure::fatal)?;
+        if let Err(message) = validate_schema(&parsed_call.call.input, &definition.input_schema) {
+            send_part(
+                sender,
+                AgentStreamPart::ToolError {
+                    call: parsed_call.call.clone(),
+                    message: message.clone(),
+                },
+            )
+            .await?;
+            tool_results.push(json!({
+                "type":"tool-result",
+                "toolCallId": parsed_call.call.tool_call_id,
+                "toolName": parsed_call.call.tool_name,
+                "output":{"type":"error-text","value": message},
+            }));
+            continue;
+        }
         if tools.requires_confirmation(&parsed_call.call.tool_name, &parsed_call.call.input) {
             let approval_id = uuid::Uuid::new_v4().to_string();
             approval_after_call.insert(
@@ -554,20 +569,36 @@ async fn resume_local_approvals(
             if let Some(definition) = definition
                 .filter(|_| tools.requires_confirmation(&action.call.tool_name, &action.call.input))
             {
-                validate_schema(&action.call.input, &definition.input_schema)
-                    .map_err(DriverFailure::fatal)?;
-                results.push(
-                    execute_local_tool(
-                        tools,
-                        action.call,
-                        ToolAuthorization::Approved {
-                            confirmation_id: action.approval_id,
-                        },
-                        &request.control,
+                if let Err(message) = validate_schema(&action.call.input, &definition.input_schema)
+                {
+                    send_part(
                         sender,
+                        AgentStreamPart::ToolError {
+                            call: action.call.clone(),
+                            message: message.clone(),
+                        },
                     )
-                    .await?,
-                );
+                    .await?;
+                    results.push(json!({
+                        "type":"tool-result",
+                        "toolCallId": action.call.tool_call_id,
+                        "toolName": action.call.tool_name,
+                        "output":{"type":"error-text","value": message},
+                    }));
+                } else {
+                    results.push(
+                        execute_local_tool(
+                            tools,
+                            action.call,
+                            ToolAuthorization::Approved {
+                                confirmation_id: action.approval_id,
+                            },
+                            &request.control,
+                            sender,
+                        )
+                        .await?,
+                    );
+                }
             } else {
                 let reason = action.reason.or_else(|| {
                     Some(format!(

@@ -57,8 +57,8 @@ pub struct AgentRunDependencies {
 
 #[derive(Clone, Default)]
 struct InProgressTurn {
-    text: String,
-    reasoning: String,
+    text: Arc<String>,
+    reasoning: Arc<String>,
 }
 
 pub struct AgentRunService {
@@ -93,8 +93,8 @@ impl AgentRunService {
             session_id,
             control,
             event_seq: 0,
-            text_buffer: String::new(),
-            reasoning_buffer: String::new(),
+            text_buffer: Arc::new(String::new()),
+            reasoning_buffer: Arc::new(String::new()),
             pending_text: EventDeltaBuffer::default(),
             pending_reasoning: EventDeltaBuffer::default(),
             terminal_failure_streak: 0,
@@ -166,8 +166,8 @@ struct RunWorker<'a> {
     session_id: String,
     control: AgentRunControl,
     event_seq: u64,
-    text_buffer: String,
-    reasoning_buffer: String,
+    text_buffer: Arc<String>,
+    reasoning_buffer: Arc<String>,
     pending_text: EventDeltaBuffer,
     pending_reasoning: EventDeltaBuffer,
     terminal_failure_streak: usize,
@@ -322,7 +322,7 @@ impl RunWorker<'_> {
                     };
                     match part {
                         AgentStreamPart::TextDelta { message_id, text } => {
-                            self.text_buffer.push_str(&text);
+                            Arc::make_mut(&mut self.text_buffer).push_str(&text);
                             let previous = self.pending_text.push(message_id, text);
                             if let Some((message_id, delta)) = previous {
                                 self.emit(AgentEvent::TextDelta { message_id, delta }).await;
@@ -335,7 +335,7 @@ impl RunWorker<'_> {
                             }
                         }
                         AgentStreamPart::ReasoningDelta { message_id, text } => {
-                            self.reasoning_buffer.push_str(&text);
+                            Arc::make_mut(&mut self.reasoning_buffer).push_str(&text);
                             let previous = self.pending_reasoning.push(message_id, text);
                             if let Some((message_id, delta)) = previous {
                                 self.emit(AgentEvent::ReasoningDelta { message_id, delta }).await;
@@ -374,7 +374,6 @@ impl RunWorker<'_> {
                                 tool_call_id: call.tool_call_id,
                                 tool_name: call.tool_name,
                                 output: redact_json_strings(&output.value),
-                                is_error: output.is_error,
                             }).await;
                             if self.terminal_fatal.is_some() {
                                 break;
@@ -382,32 +381,18 @@ impl RunWorker<'_> {
                         }
                         AgentStreamPart::ToolError { call, message } => {
                             self.flush_delta_events(false).await;
-                            if is_terminal_tool(&call.tool_name) {
-                                self.terminal_failure_streak += 1;
-                                if self.terminal_failure_streak >= TERMINAL_FAILURE_LIMIT {
-                                    self.terminal_fatal = Some(format!(
-                                        "terminal tool failed {} times in a row, aborting run",
-                                        self.terminal_failure_streak
-                                    ));
-                                }
-                            }
-                            self.emit(AgentEvent::ToolResult {
+                            self.emit(AgentEvent::ToolError {
                                 tool_call_id: call.tool_call_id,
                                 tool_name: call.tool_name,
                                 output: json!(redact_secrets(&message).text),
-                                is_error: true,
                             }).await;
-                            if self.terminal_fatal.is_some() {
-                                break;
-                            }
                         }
                         AgentStreamPart::ToolOutputDenied { call } => {
                             self.flush_delta_events(false).await;
-                            self.emit(AgentEvent::ToolResult {
+                            self.emit(AgentEvent::ToolError {
                                 tool_call_id: call.tool_call_id,
                                 tool_name: call.tool_name,
                                 output: json!("execution denied by user"),
-                                is_error: true,
                             }).await;
                         }
                         AgentStreamPart::ApprovalRequest { approval_id, call } => {
@@ -656,7 +641,7 @@ impl RunWorker<'_> {
 
     async fn persist_truncated_text(&mut self) {
         if self.text_buffer.is_empty() {
-            self.reasoning_buffer.clear();
+            Arc::make_mut(&mut self.reasoning_buffer).clear();
             self.publish_progress();
             return;
         }
@@ -823,8 +808,8 @@ impl RunWorker<'_> {
     }
 
     fn reset_progress(&mut self) {
-        self.text_buffer.clear();
-        self.reasoning_buffer.clear();
+        Arc::make_mut(&mut self.text_buffer).clear();
+        Arc::make_mut(&mut self.reasoning_buffer).clear();
         self.pending_text.clear();
         self.pending_reasoning.clear();
         self.publish_progress();
@@ -843,7 +828,6 @@ impl RunWorker<'_> {
                 },
             );
     }
-
     fn has_pending_deltas(&self) -> bool {
         !self.pending_text.is_empty() || !self.pending_reasoning.is_empty()
     }
@@ -929,9 +913,7 @@ impl EventDeltaBuffer {
             if self.text.len() <= EVENT_STREAM_HOLD_MAX_BYTES {
                 return None;
             }
-            let message_id = self.message_id.clone();
-            self.text.clear();
-            return Some((message_id, "[REDACTED:stream-content]".to_owned()));
+            cut = self.text.len();
         }
         let raw = self.text[..cut].to_owned();
         self.text.drain(..cut);
@@ -1017,13 +999,6 @@ fn truncate_utf16(value: &str, limit: usize) -> String {
             }
         })
         .collect()
-}
-
-fn is_terminal_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "read_screen" | "send_input" | "get_pane_info" | "run_command"
-    )
 }
 
 #[cfg(test)]

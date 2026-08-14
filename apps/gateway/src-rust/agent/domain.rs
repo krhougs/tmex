@@ -262,7 +262,11 @@ pub enum AgentEvent {
         tool_call_id: String,
         tool_name: String,
         output: Value,
-        is_error: bool,
+    },
+    ToolError {
+        tool_call_id: String,
+        tool_name: String,
+        output: Value,
     },
     ConfirmationRequest(PendingConfirmation),
     ConfirmationResolved {
@@ -295,10 +299,11 @@ impl fmt::Debug for AgentEvent {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
             Self::Status { .. } => "Status",
+            Self::ToolResult { .. } => "ToolResult",
+            Self::ToolError { .. } => "ToolError",
             Self::TextDelta { .. } => "TextDelta",
             Self::ReasoningDelta { .. } => "ReasoningDelta",
             Self::ToolCall { .. } => "ToolCall",
-            Self::ToolResult { .. } => "ToolResult",
             Self::ConfirmationRequest(_) => "ConfirmationRequest",
             Self::ConfirmationResolved { .. } => "ConfirmationResolved",
             Self::MessagePersisted { .. } => "MessagePersisted",
