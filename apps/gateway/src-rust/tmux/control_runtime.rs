@@ -252,6 +252,7 @@ async fn run_control_runtime(
     let mut exit_reason = None;
     loop {
         tokio::select! {
+            biased;
             request = requests.recv() => {
                 let Some(request) = request else { break; };
                 match request {
@@ -265,7 +266,7 @@ async fn run_control_runtime(
                                 &pane_id,
                                 history_lines,
                                 on_barrier,
-                                Duration::from_secs(30),
+                                Duration::from_secs(10),
                             )).catch_unwind().await;
                             let result = match result {
                                 Ok(result) => result.map_err(ControlRuntimeError::from),
@@ -330,7 +331,18 @@ async fn run_control_runtime(
                                 continue;
                             }
                             if let ControlModeSubscriptionEvent::Pause { pane_id } = &event {
-                                let _ = wire.try_send(format!("continue {pane_id}\n"));
+                                let queue = queue.clone();
+                                let wire = wire.clone();
+                                let pane_id = pane_id.clone();
+                                let command = queue.execute(
+                                    &mut |command| wire.try_send(command.to_owned()),
+                                    format!("refresh-client -A {pane_id}:continue"),
+                                    ControlCommandOptions::default(),
+                                    |_| Ok(()),
+                                );
+                                tokio::spawn(async move {
+                                    let _ = AssertUnwindSafe(command).catch_unwind().await;
+                                });
                             }
                             if events.send(event).await.is_err() { return; }
                         }
@@ -377,24 +389,19 @@ async fn drive_control_process(
     let mut stderr_tail = Vec::new();
     let mut stderr_open = true;
     let mut exit_poll = tokio::time::interval(Duration::from_millis(50));
+    let writer = tokio::spawn(async move {
+        while let Some(command) = writes.recv().await {
+            if stdin.write_all(command.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
+                break;
+            }
+        }
+    });
     let exit_code = loop {
         tokio::select! {
             biased;
             _ = &mut stop => {
-                stdin.shutdown().await.ok();
                 child.kill().await.ok();
                 break child.wait().await.ok().and_then(|status| status.code()).unwrap_or(-1);
-            }
-            write = writes.recv() => {
-                let Some(write) = write else {
-                    stdin.shutdown().await.ok();
-                    child.kill().await.ok();
-                    break child.wait().await.ok().and_then(|status| status.code()).unwrap_or(-1);
-                };
-                if stdin.write_all(write.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                    child.kill().await.ok();
-                    break child.wait().await.ok().and_then(|status| status.code()).unwrap_or(-1);
-                }
             }
             read = stdout.read(&mut stdout_chunk) => {
                 match read {
@@ -429,6 +436,7 @@ async fn drive_control_process(
             }
         }
     };
+    writer.abort();
     let _ = process_events
         .send(ProcessEvent::Exited {
             exit_code,

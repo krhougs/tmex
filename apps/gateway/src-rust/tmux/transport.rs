@@ -645,8 +645,9 @@ impl SshInvocationBuilder for SystemOpenSshInvocationBuilder {
         remote_command: &str,
     ) -> Result<CommandSpec, TmuxTransportError> {
         let mut args = vec!["-T".to_owned(), "-p".to_owned(), config.port.to_string()];
-        append_option(&mut args, "StrictHostKeyChecking=accept-new");
-        append_option(&mut args, "ConnectTimeout=10");
+        append_option(&mut args, "StrictHostKeyChecking=no");
+        append_option(&mut args, "UserKnownHostsFile=/dev/null");
+        append_option(&mut args, "ConnectTimeout=20");
         let credentials = self.prepare_credentials(&config.auth)?;
         let mut environment = BTreeMap::new();
         credentials.apply(&mut args, &mut environment);
@@ -1021,7 +1022,7 @@ impl TmuxTransport for SshTmuxTransport {
             .ok_or(TmuxTransportError::Closed)?
             .run_shell(&command, deadline, output_limit)
             .await;
-        if result.is_err() {
+        if result.is_err() && !matches!(result, Err(TmuxTransportError::CommandTimedOut(_))) {
             if let Some(mut session) = slot.take() {
                 session.close().await;
             }
@@ -1071,6 +1072,7 @@ impl TmuxTransport for SshTmuxTransport {
             .await;
         match result {
             Ok(result) => result.exit_code == 0,
+            Err(TmuxTransportError::CommandTimedOut(_)) => false,
             Err(_) => {
                 if let Some(mut session) = slot.take() {
                     session.close().await;
@@ -1247,6 +1249,9 @@ async fn read_command_frame(
     marker.extend_from_slice(command_id.as_bytes());
     marker.push(b' ');
     loop {
+        if let Some(()) = drain_orphan_frame(buffer, &marker, output_limit)? {
+            continue;
+        }
         if let Some(result) = take_command_frame(buffer, &marker, output_limit)? {
             return Ok(result);
         }
@@ -1303,6 +1308,35 @@ fn take_command_frame(
         stdout: output,
         stderr: String::new(),
     }))
+}
+
+fn drain_orphan_frame(
+    buffer: &mut Vec<u8>,
+    own_marker: &[u8],
+    output_limit: usize,
+) -> Result<Option<()>, TmuxTransportError> {
+    let Some(sentinel_at) = find_bytes(buffer, COMMAND_SENTINEL) else {
+        return Ok(None);
+    };
+    if buffer[sentinel_at..].starts_with(own_marker) {
+        return Ok(None);
+    }
+    if sentinel_at > output_limit {
+        return Err(TmuxTransportError::CommandOutputTooLarge(output_limit));
+    }
+    let status_start = sentinel_at + COMMAND_SENTINEL.len();
+    let Some(relative_end) = buffer[status_start..].iter().position(|byte| *byte == 0x1e) else {
+        return Ok(None);
+    };
+    let mut drain_end = status_start + relative_end + 1;
+    while buffer
+        .get(drain_end)
+        .is_some_and(|byte| matches!(byte, b'\r' | b'\n'))
+    {
+        drain_end += 1;
+    }
+    buffer.drain(..drain_end);
+    Ok(Some(()))
 }
 
 async fn pump_stderr_tail(mut stderr: ChildStderr, tail: Arc<StdMutex<Vec<u8>>>) {
@@ -1453,8 +1487,12 @@ mod tests {
         assert!(spec
             .args
             .iter()
-            .any(|arg| arg == "StrictHostKeyChecking=accept-new"));
-        assert!(spec.args.iter().any(|arg| arg == "ConnectTimeout=10"));
+            .any(|arg| arg == "StrictHostKeyChecking=no"));
+        assert!(spec
+            .args
+            .iter()
+            .any(|arg| arg == "UserKnownHostsFile=/dev/null"));
+        assert!(spec.args.iter().any(|arg| arg == "ConnectTimeout=20"));
         assert!(spec.args.iter().any(|arg| arg == "BatchMode=yes"));
         assert!(spec.args.iter().any(|arg| arg == "alice@jump-alias"));
         assert!(spec.clear_env);

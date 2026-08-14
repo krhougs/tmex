@@ -72,7 +72,13 @@ impl ConnectionLifecycleEmitter {
             return None;
         }
         self.session_closed_emitted = true;
-        let first_line = message.lines().next().unwrap_or_default().trim().to_owned();
+        let first_line = message
+            .split('\n')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('\r')
+            .trim()
+            .to_owned();
         Some(LifecycleEvent {
             kind: LifecycleEventKind::SessionClosed,
             tmux: LifecycleTmuxContext {

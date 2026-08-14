@@ -215,8 +215,8 @@ pub fn resize_pane_command(pane_id: &str, cols: Option<u16>, rows: Option<u16>) 
 
 pub fn capture_pane_text_command(pane_id: &str, history_lines: Option<usize>) -> Vec<String> {
     let mut command = strings(["capture-pane", "-t", pane_id, "-p", "-J"]);
-    if let Some(lines) = history_lines {
-        command.extend(["-S".to_owned(), format!("-{}", lines)]);
+    if let Some(lines) = history_lines.filter(|lines| *lines > 0) {
+        command.extend(["-S".to_owned(), format!("-{lines}")]);
     }
     command
 }

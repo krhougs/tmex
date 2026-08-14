@@ -10,6 +10,7 @@ use futures_util::FutureExt;
 use tmex_protocol::{CanonicalHistoryCursor, StateSnapshot, WindowWire, WireToken};
 use tmex_terminal::HeadlessTerminalOptions;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinSet;
 use tokio::time::{interval, sleep};
 
 use super::canonical_runtime::DeviceCanonicalState;
@@ -39,7 +40,7 @@ use super::{
     RUNTIME_COMMAND_QUEUE_CAPACITY, RUNTIME_EVENT_QUEUE_CAPACITY,
 };
 
-const DEFAULT_COMMAND_OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
+const DEFAULT_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 const PANE_MODE_ALT_SCREEN: u8 = 1 << 5;
 const PANE_MODE_FLAGS_PRESENT: u8 = 1 << 7;
 
@@ -560,6 +561,9 @@ impl DeviceSessionRuntime {
         cols: u16,
         rows: u16,
     ) -> Result<(), DeviceSessionRuntimeError> {
+        if self.canonical.is_closed() {
+            return Err(DeviceSessionRuntimeError::Closed);
+        }
         let (response, receiver) = oneshot::channel();
         self.commands
             .send(RuntimeCommand::ResizeWindowForPane {
@@ -1122,6 +1126,183 @@ struct RuntimeActor {
     shutdown_ack: Option<oneshot::Sender<()>>,
 }
 
+type CommandCompletion = Box<dyn FnOnce(&mut RuntimeActor) -> bool + Send>;
+
+async fn resize_window_via(
+    transport: &Arc<dyn TmuxTransport>,
+    kind: TmuxRuntimeKind,
+    pane_id: &str,
+    window_id: Option<String>,
+    cols: u16,
+    rows: u16,
+) -> Result<Option<()>, DeviceSessionRuntimeError> {
+    let window_id = match window_id {
+        Some(window_id) => window_id,
+        None => {
+            let output = checked_command(
+                transport,
+                &strings(["display-message", "-p", "-t", pane_id, "#{window_id}"]),
+                kind,
+                TargetMissingMode::AllowAndRefresh,
+            )
+            .await?;
+            let window_id = output.stdout.trim();
+            if !super::is_tmux_window_id(window_id) {
+                return Ok(None);
+            }
+            window_id.to_owned()
+        }
+    };
+    checked_command(
+        transport,
+        &resize_window_command(&window_id, cols, rows),
+        kind,
+        TargetMissingMode::AllowAndRefresh,
+    )
+    .await
+    .map(|_| Some(()))
+}
+
+async fn close_window_via(
+    transport: &Arc<dyn TmuxTransport>,
+    kind: TmuxRuntimeKind,
+    session: &str,
+    cwd: &str,
+    window_id: &str,
+) -> Result<(), DeviceSessionRuntimeError> {
+    let count = checked_command(
+        transport,
+        &strings(["display-message", "-p", "-t", session, "#{session_windows}"]),
+        kind,
+        TargetMissingMode::Reject,
+    )
+    .await?
+    .stdout
+    .trim()
+    .parse::<usize>()
+    .unwrap_or(0);
+    if count <= 1 {
+        checked_command(
+            transport,
+            &strings(["new-window", "-d", "-t", session, "-c", cwd]),
+            kind,
+            TargetMissingMode::Reject,
+        )
+        .await?;
+    }
+    checked_command(
+        transport,
+        &strings(["kill-window", "-t", window_id]),
+        kind,
+        TargetMissingMode::AllowAndRefresh,
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn configure_window_style_via(
+    transport: &Arc<dyn TmuxTransport>,
+    kind: TmuxRuntimeKind,
+    session: &str,
+    style: &str,
+) -> Result<(), DeviceSessionRuntimeError> {
+    let list = checked_command(
+        transport,
+        &strings(["list-windows", "-t", session, "-F", "#{window_id}"]),
+        kind,
+        TargetMissingMode::Reject,
+    )
+    .await?;
+    let windows = list
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|id| super::is_tmux_window_id(id))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if let Some(commands) = configure_window_style_commands(session, &windows, style) {
+        for command in commands {
+            checked_command(transport, &command, kind, TargetMissingMode::Reject).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn fetch_terminal_history_via(
+    transport: &Arc<dyn TmuxTransport>,
+    kind: TmuxRuntimeKind,
+    pane_id: &str,
+) -> Result<Option<CapturedTerminalHistory>, DeviceSessionRuntimeError> {
+    let screen = checked_command(
+        transport,
+        &super::pane_screen_info_command(pane_id),
+        kind,
+        TargetMissingMode::AllowAndRefresh,
+    )
+    .await?;
+    let screen = parse_pane_screen_info(&screen.stdout);
+    let normal = checked_command(
+        transport,
+        &strings([
+            "capture-pane",
+            "-t",
+            pane_id,
+            "-S",
+            "-",
+            "-E",
+            "-",
+            "-e",
+            "-J",
+            "-N",
+            "-p",
+        ]),
+        kind,
+        TargetMissingMode::AllowAndRefresh,
+    )
+    .await?
+    .stdout;
+    let alternate = checked_command(
+        transport,
+        &strings([
+            "capture-pane",
+            "-t",
+            pane_id,
+            "-a",
+            "-S",
+            "-",
+            "-E",
+            "-",
+            "-e",
+            "-J",
+            "-N",
+            "-p",
+            "-q",
+        ]),
+        kind,
+        TargetMissingMode::AllowAndRefresh,
+    )
+    .await?
+    .stdout;
+    let history = if screen.alternate_screen {
+        if !normal.trim().is_empty() {
+            normal
+        } else {
+            alternate
+        }
+    } else if !normal.is_empty() {
+        normal
+    } else {
+        alternate
+    };
+    if history.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(CapturedTerminalHistory {
+        data: append_cursor_restore(&history, &screen),
+        alternate_screen: screen.alternate_screen,
+        modes: encode_pane_modes(&screen.modes, false) & !PANE_MODE_FLAGS_PRESENT,
+    }))
+}
 #[allow(clippy::too_many_arguments)]
 async fn run_actor(
     config: DeviceSessionConfig,
@@ -1187,15 +1368,26 @@ async fn run_actor(
     heartbeat.tick().await;
     let mut metadata_flush = interval(Duration::from_millis(8));
     metadata_flush.tick().await;
+    let mut inflight = JoinSet::<CommandCompletion>::new();
     loop {
         tokio::select! {
-            command = command_receiver.recv() => {
-                let Some(command) = command else { break; };
-                if actor.handle_command(command).await { break; }
-            }
+            biased;
             event = actor.control_events.recv() => {
                 let Some(event) = event else { continue; };
                 if actor.handle_control_event(event).await { break; }
+            }
+            completed = inflight.join_next(), if !inflight.is_empty() => {
+                match completed {
+                    Some(Ok(completion)) => {
+                        if completion(&mut actor) { break; }
+                    }
+                    Some(Err(error)) => actor.emit_error(format!("command task failed: {error}")),
+                    None => {}
+                }
+            }
+            command = command_receiver.recv() => {
+                let Some(command) = command else { break; };
+                if actor.handle_command(command, &mut inflight).await { break; }
             }
             _ = heartbeat.tick(), if actor.control.is_some() => {
                 if let Some(control) = &actor.control { let _ = control.heartbeat(); }
@@ -1205,6 +1397,7 @@ async fn run_actor(
             }
         }
     }
+    inflight.abort_all();
     actor.shutdown().await;
     terminated.store(true, Ordering::Release);
     if let Some(response) = actor.shutdown_ack.take() {
@@ -1221,9 +1414,11 @@ impl RuntimeActor {
             TargetMissingMode::Reject,
         )
         .await?;
-        if self.config.enable_control_mode
-            && !is_control_mode_supported(parse_tmux_version(&version.stdout))
-        {
+        let version_gated = match self.config.kind() {
+            TmuxRuntimeKind::Ssh => true,
+            TmuxRuntimeKind::Local => self.config.enable_control_mode,
+        };
+        if version_gated && !is_control_mode_supported(parse_tmux_version(&version.stdout)) {
             return Err(DeviceSessionRuntimeError::TmuxVersionUnsupported(
                 version.stdout.trim().to_owned(),
             ));
@@ -1438,15 +1633,32 @@ impl RuntimeActor {
         cols: u16,
         rows: u16,
     ) -> Result<(), DeviceSessionRuntimeError> {
-        let window_id = self.snapshot.as_ref().and_then(|snapshot| {
+        let snapshot_window = self.snapshot.as_ref().and_then(|snapshot| {
             snapshot.session.as_ref().and_then(|session| {
                 session
                     .windows
                     .iter()
                     .find(|window| window.panes.iter().any(|pane| pane.id == pane_id))
-                    .map(|window| window.id.clone())
             })
         });
+        let window_id = if let Some(window) = snapshot_window {
+            if window.panes.len() > 1 {
+                if crate::ws::parse_window_layout_size(window.layout.as_deref()).is_some_and(
+                    |(current_cols, current_rows)| current_cols == cols && current_rows == rows,
+                ) {
+                    return Ok(());
+                }
+            } else if window
+                .panes
+                .iter()
+                .any(|pane| pane.id == pane_id && pane.width == cols && pane.height == rows)
+            {
+                return Ok(());
+            }
+            Some(window.id.clone())
+        } else {
+            None
+        };
         let window_id = match window_id {
             Some(window_id) => window_id,
             None => {
@@ -1482,7 +1694,11 @@ impl RuntimeActor {
         resized.map(|_| ())
     }
 
-    async fn handle_command(&mut self, command: RuntimeCommand) -> bool {
+    async fn handle_command(
+        &mut self,
+        command: RuntimeCommand,
+        inflight: &mut JoinSet<CommandCompletion>,
+    ) -> bool {
         match command {
             RuntimeCommand::SendInput {
                 pane_id,
@@ -1510,28 +1726,35 @@ impl RuntimeActor {
                 cols,
                 rows,
             } => {
-                let result = checked_command(
-                    &self.transport,
-                    &resize_pane_command(&pane_id, Some(cols), Some(rows)),
-                    self.config.kind(),
-                    TargetMissingMode::AllowAndRefresh,
-                )
-                .await;
-                let server_gone = result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .filter(|message| is_tmux_server_gone_message(message));
-                if server_gone.is_none() {
-                    self.request_snapshot();
-                }
-                if let Err(error) = result {
-                    self.emit_error(error.to_string());
-                }
-                if let Some(message) = server_gone {
-                    self.notify_session_closed(&message);
-                    return true;
-                }
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result = checked_command(
+                        &transport,
+                        &resize_pane_command(&pane_id, Some(cols), Some(rows)),
+                        kind,
+                        TargetMissingMode::AllowAndRefresh,
+                    )
+                    .await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        let server_gone = result
+                            .as_ref()
+                            .err()
+                            .map(ToString::to_string)
+                            .filter(|message| is_tmux_server_gone_message(message));
+                        if server_gone.is_none() {
+                            actor.request_snapshot();
+                        }
+                        if let Err(error) = result {
+                            actor.emit_error(error.to_string());
+                        }
+                        if let Some(message) = server_gone {
+                            actor.notify_session_closed(&message);
+                            return true;
+                        }
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::SelectPane {
                 window_id,
@@ -1557,24 +1780,64 @@ impl RuntimeActor {
                 rows,
                 response,
             } => {
-                let result = self.resize_window_for_pane(&pane_id, cols, rows).await;
-                let server_gone = result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .filter(|message| is_tmux_server_gone_message(message));
-                if response.is_none() {
-                    if let Err(error) = &result {
-                        self.emit_error(error.to_string());
+                let snapshot_window = self.snapshot.as_ref().and_then(|snapshot| {
+                    snapshot.session.as_ref().and_then(|session| {
+                        session
+                            .windows
+                            .iter()
+                            .find(|window| window.panes.iter().any(|pane| pane.id == pane_id))
+                    })
+                });
+                if let Some(window) = snapshot_window {
+                    let unchanged = if window.panes.len() > 1 {
+                        crate::ws::parse_window_layout_size(window.layout.as_deref()).is_some_and(
+                            |(current_cols, current_rows)| {
+                                current_cols == cols && current_rows == rows
+                            },
+                        )
+                    } else {
+                        window.panes.iter().any(|pane| {
+                            pane.id == pane_id && pane.width == cols && pane.height == rows
+                        })
+                    };
+                    if unchanged {
+                        if let Some(response) = response {
+                            let _ = response.send(Ok(()));
+                        }
+                        return false;
                     }
                 }
-                if let Some(response) = response {
-                    let _ = response.send(result);
-                }
-                if let Some(message) = server_gone {
-                    self.notify_session_closed(&message);
-                    return true;
-                }
+                let window_id = snapshot_window.map(|window| window.id.clone());
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result =
+                        resize_window_via(&transport, kind, &pane_id, window_id, cols, rows).await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        let server_gone = result
+                            .as_ref()
+                            .err()
+                            .map(ToString::to_string)
+                            .filter(|message| is_tmux_server_gone_message(message));
+                        if response.is_none() {
+                            if let Err(error) = &result {
+                                actor.emit_error(error.to_string());
+                            }
+                        }
+                        let resized = result.as_ref().is_ok_and(|resized| resized.is_some());
+                        if let Some(response) = response {
+                            let _ = response.send(result.map(|_| ()));
+                        }
+                        if resized {
+                            actor.request_snapshot();
+                        }
+                        if let Some(message) = server_gone {
+                            actor.notify_session_closed(&message);
+                            return true;
+                        }
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::UpdateDefaultWorkingDir {
                 default_working_dir,
@@ -1610,16 +1873,24 @@ impl RuntimeActor {
                 let _ = response.send(result);
             }
             RuntimeCommand::SetWindowStyle { style, response } => {
-                let result =
-                    if super::resolve_tmux_window_style(&self.config.tmux_window_style).is_none() {
-                        Ok(())
-                    } else {
-                        self.configure_window_style_value(&style).await
-                    };
-                if let Err(error) = &result {
-                    self.emit_error(error.to_string());
+                if super::resolve_tmux_window_style(&self.config.tmux_window_style).is_none() {
+                    let _ = response.send(Ok(()));
+                } else {
+                    let transport = self.transport.clone();
+                    let kind = self.config.kind();
+                    let session = self.config.normalized_session_name().to_owned();
+                    inflight.spawn(async move {
+                        let result =
+                            configure_window_style_via(&transport, kind, &session, &style).await;
+                        Box::new(move |actor: &mut RuntimeActor| {
+                            if let Err(error) = &result {
+                                actor.emit_error(error.to_string());
+                            }
+                            let _ = response.send(result);
+                            false
+                        }) as CommandCompletion
+                    });
                 }
-                let _ = response.send(result);
             }
             RuntimeCommand::CreateWindow {
                 name,
@@ -1628,34 +1899,41 @@ impl RuntimeActor {
             } => {
                 let session = self.config.normalized_session_name().to_owned();
                 let cwd = cwd.unwrap_or_else(|| self.default_working_dir());
-                let result = checked_command(
-                    &self.transport,
-                    &create_window_command(
-                        &session,
-                        &cwd,
-                        name.as_deref().filter(|name| !name.is_empty()),
-                    ),
-                    self.config.kind(),
-                    TargetMissingMode::Reject,
-                )
-                .await;
-                let server_gone = result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .filter(|message| is_tmux_server_gone_message(message));
-                if result.is_ok() {
-                    self.request_snapshot();
-                }
-                let result = result.map(|output| {
-                    let window_id = output.stdout.trim();
-                    super::is_tmux_window_id(window_id).then(|| window_id.to_owned())
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result = checked_command(
+                        &transport,
+                        &create_window_command(
+                            &session,
+                            &cwd,
+                            name.as_deref().filter(|name| !name.is_empty()),
+                        ),
+                        kind,
+                        TargetMissingMode::Reject,
+                    )
+                    .await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        let server_gone = result
+                            .as_ref()
+                            .err()
+                            .map(ToString::to_string)
+                            .filter(|message| is_tmux_server_gone_message(message));
+                        if result.is_ok() {
+                            actor.request_snapshot();
+                        }
+                        let result = result.map(|output| {
+                            let window_id = output.stdout.trim();
+                            super::is_tmux_window_id(window_id).then(|| window_id.to_owned())
+                        });
+                        let _ = response.send(result);
+                        if let Some(message) = server_gone {
+                            actor.notify_session_closed(&message);
+                            return true;
+                        }
+                        false
+                    }) as CommandCompletion
                 });
-                let _ = response.send(result);
-                if let Some(message) = server_gone {
-                    self.notify_session_closed(&message);
-                    return true;
-                }
             }
             RuntimeCommand::SplitPane {
                 pane_id,
@@ -1664,36 +1942,45 @@ impl RuntimeActor {
                 response,
             } => {
                 let cwd = cwd.unwrap_or_else(|| self.default_working_dir());
-                let result = checked_command(
-                    &self.transport,
-                    &super::split_pane_command(&pane_id, direction, &cwd),
-                    self.config.kind(),
-                    TargetMissingMode::AllowAndRefresh,
-                )
-                .await;
-                let server_gone = result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .filter(|message| is_tmux_server_gone_message(message));
-                if let Ok(output) = &result {
-                    if let Some((window_id, new_pane_id)) = output.stdout.trim().split_once('|') {
-                        if super::is_tmux_window_id(window_id)
-                            && super::is_tmux_pane_id(new_pane_id)
-                        {
-                            self.emit(TmuxRuntimeEvent::PaneActivated {
-                                window_id: window_id.to_owned(),
-                                pane_id: new_pane_id.to_owned(),
-                            });
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result = checked_command(
+                        &transport,
+                        &super::split_pane_command(&pane_id, direction, &cwd),
+                        kind,
+                        TargetMissingMode::AllowAndRefresh,
+                    )
+                    .await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        let server_gone = result
+                            .as_ref()
+                            .err()
+                            .map(ToString::to_string)
+                            .filter(|message| is_tmux_server_gone_message(message));
+                        if let Ok(output) = &result {
+                            if let Some((window_id, new_pane_id)) =
+                                output.stdout.trim().split_once('|')
+                            {
+                                if super::is_tmux_window_id(window_id)
+                                    && super::is_tmux_pane_id(new_pane_id)
+                                {
+                                    actor.emit(TmuxRuntimeEvent::PaneActivated {
+                                        window_id: window_id.to_owned(),
+                                        pane_id: new_pane_id.to_owned(),
+                                    });
+                                }
+                            }
+                            actor.request_snapshot();
                         }
-                    }
-                    self.request_snapshot();
-                }
-                let _ = response.send(result);
-                if let Some(message) = server_gone {
-                    self.notify_session_closed(&message);
-                    return true;
-                }
+                        let _ = response.send(result);
+                        if let Some(message) = server_gone {
+                            actor.notify_session_closed(&message);
+                            return true;
+                        }
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::SignalTheme {
                 pane_id,
@@ -1718,58 +2005,83 @@ impl RuntimeActor {
                 refresh,
                 response,
             } => {
-                let result =
-                    checked_command(&self.transport, &args, self.config.kind(), missing).await;
-                let server_gone = result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .filter(|message| is_tmux_server_gone_message(message));
-                if refresh && server_gone.is_none() {
-                    self.request_snapshot();
-                }
-                let _ = response.send(result);
-                if let Some(message) = server_gone {
-                    self.notify_session_closed(&message);
-                    return true;
-                }
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result = checked_command(&transport, &args, kind, missing).await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        let server_gone = result
+                            .as_ref()
+                            .err()
+                            .map(ToString::to_string)
+                            .filter(|message| is_tmux_server_gone_message(message));
+                        if refresh && server_gone.is_none() {
+                            actor.request_snapshot();
+                        }
+                        let _ = response.send(result);
+                        if let Some(message) = server_gone {
+                            actor.notify_session_closed(&message);
+                            return true;
+                        }
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::RunBatch {
                 commands,
                 refresh,
                 response,
             } => {
-                let mut results = Vec::with_capacity(commands.len());
-                let mut failure = None;
-                for (args, missing) in commands {
-                    match checked_command(&self.transport, &args, self.config.kind(), missing).await
-                    {
-                        Ok(result) => results.push(result),
-                        Err(error) => {
-                            failure = Some(error);
-                            break;
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let mut results = Vec::with_capacity(commands.len());
+                    let mut failure = None;
+                    for (args, missing) in commands {
+                        match checked_command(&transport, &args, kind, missing).await {
+                            Ok(result) => results.push(result),
+                            Err(error) => {
+                                failure = Some(error);
+                                break;
+                            }
                         }
                     }
-                }
-                let server_gone = failure
-                    .as_ref()
-                    .map(ToString::to_string)
-                    .filter(|message| is_tmux_server_gone_message(message));
-                if refresh && server_gone.is_none() {
-                    self.request_snapshot();
-                }
-                let _ = response.send(failure.map_or(Ok(results), Err));
-                if let Some(message) = server_gone {
-                    self.notify_session_closed(&message);
-                    return true;
-                }
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        let server_gone = failure
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .filter(|message| is_tmux_server_gone_message(message));
+                        if refresh && server_gone.is_none() {
+                            actor.request_snapshot();
+                        }
+                        let _ = response.send(failure.map_or(Ok(results), Err));
+                        if let Some(message) = server_gone {
+                            actor.notify_session_closed(&message);
+                            return true;
+                        }
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::CloseWindow {
                 window_id,
                 response,
             } => {
-                let result = self.close_window(&window_id).await;
-                let _ = response.send(result);
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                let session = self.config.normalized_session_name().to_owned();
+                let cwd = self.default_working_dir();
+                inflight.spawn(async move {
+                    let result =
+                        close_window_via(&transport, kind, &session, &cwd, &window_id).await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        if result.is_ok() {
+                            actor.request_snapshot();
+                        }
+                        let _ = response.send(result);
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::RequestSnapshot => self.request_snapshot(),
             RuntimeCommand::CaptureText {
@@ -1777,37 +2089,54 @@ impl RuntimeActor {
                 history_lines,
                 response,
             } => {
-                let command = super::capture_pane_text_command(&pane_id, history_lines);
-                let result = checked_command(
-                    &self.transport,
-                    &command,
-                    self.config.kind(),
-                    TargetMissingMode::Reject,
-                )
-                .await
-                .map(|result| result.stdout);
-                let _ = response.send(result);
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let command = super::capture_pane_text_command(&pane_id, history_lines);
+                    let result =
+                        checked_command(&transport, &command, kind, TargetMissingMode::Reject)
+                            .await
+                            .map(|result| result.stdout);
+                    Box::new(move |_actor: &mut RuntimeActor| {
+                        let _ = response.send(result);
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::FetchTerminalHistory { pane_id, response } => {
-                let result = self.fetch_terminal_history(&pane_id).await;
-                if let Ok(Some(history)) = &result {
-                    self.emit(TmuxRuntimeEvent::TerminalHistory {
-                        pane_id,
-                        history: history.clone(),
-                    });
-                }
-                let _ = response.send(result);
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result = fetch_terminal_history_via(&transport, kind, &pane_id).await;
+                    Box::new(move |actor: &mut RuntimeActor| {
+                        if let Ok(Some(history)) = &result {
+                            actor.emit(TmuxRuntimeEvent::TerminalHistory {
+                                pane_id,
+                                history: history.clone(),
+                            });
+                        }
+                        let _ = response.send(result);
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::PaneInfo { pane_id, response } => {
-                let result = checked_command(
-                    &self.transport,
-                    &pane_info_command(&pane_id),
-                    self.config.kind(),
-                    TargetMissingMode::Reject,
-                )
-                .await
-                .map(|result| parse_pane_meta(&result.stdout));
-                let _ = response.send(result);
+                let transport = self.transport.clone();
+                let kind = self.config.kind();
+                inflight.spawn(async move {
+                    let result = checked_command(
+                        &transport,
+                        &pane_info_command(&pane_id),
+                        kind,
+                        TargetMissingMode::Reject,
+                    )
+                    .await
+                    .map(|result| parse_pane_meta(&result.stdout));
+                    Box::new(move |_actor: &mut RuntimeActor| {
+                        let _ = response.send(result);
+                        false
+                    }) as CommandCompletion
+                });
             }
             RuntimeCommand::ReadHistory {
                 pane_id,
@@ -2347,121 +2676,6 @@ impl RuntimeActor {
             }
         }
         Ok(())
-    }
-
-    async fn close_window(&mut self, window_id: &str) -> Result<(), DeviceSessionRuntimeError> {
-        let session = self.config.normalized_session_name();
-        let count = checked_command(
-            &self.transport,
-            &strings(["display-message", "-p", "-t", session, "#{session_windows}"]),
-            self.config.kind(),
-            TargetMissingMode::Reject,
-        )
-        .await?
-        .stdout
-        .trim()
-        .parse::<usize>()
-        .unwrap_or(0);
-        if count <= 1 {
-            checked_command(
-                &self.transport,
-                &strings([
-                    "new-window",
-                    "-d",
-                    "-t",
-                    session,
-                    "-c",
-                    &self.default_working_dir(),
-                ]),
-                self.config.kind(),
-                TargetMissingMode::Reject,
-            )
-            .await?;
-        }
-        checked_command(
-            &self.transport,
-            &strings(["kill-window", "-t", window_id]),
-            self.config.kind(),
-            TargetMissingMode::AllowAndRefresh,
-        )
-        .await?;
-        self.request_snapshot();
-        Ok(())
-    }
-
-    async fn fetch_terminal_history(
-        &mut self,
-        pane_id: &str,
-    ) -> Result<Option<CapturedTerminalHistory>, DeviceSessionRuntimeError> {
-        let screen = checked_command(
-            &self.transport,
-            &super::pane_screen_info_command(pane_id),
-            self.config.kind(),
-            TargetMissingMode::AllowAndRefresh,
-        )
-        .await?;
-        let screen = parse_pane_screen_info(&screen.stdout);
-        let normal = checked_command(
-            &self.transport,
-            &strings([
-                "capture-pane",
-                "-t",
-                pane_id,
-                "-S",
-                "-",
-                "-E",
-                "-",
-                "-e",
-                "-J",
-                "-N",
-                "-p",
-            ]),
-            self.config.kind(),
-            TargetMissingMode::AllowAndRefresh,
-        )
-        .await?
-        .stdout;
-        let alternate = checked_command(
-            &self.transport,
-            &strings([
-                "capture-pane",
-                "-t",
-                pane_id,
-                "-a",
-                "-S",
-                "-",
-                "-E",
-                "-",
-                "-e",
-                "-J",
-                "-N",
-                "-p",
-                "-q",
-            ]),
-            self.config.kind(),
-            TargetMissingMode::AllowAndRefresh,
-        )
-        .await?
-        .stdout;
-        let history = if screen.alternate_screen {
-            if !normal.trim().is_empty() {
-                normal
-            } else {
-                alternate
-            }
-        } else if !normal.is_empty() {
-            normal
-        } else {
-            alternate
-        };
-        if history.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(CapturedTerminalHistory {
-            data: append_cursor_restore(&history, &screen),
-            alternate_screen: screen.alternate_screen,
-            modes: encode_pane_modes(&screen.modes, false) & !PANE_MODE_FLAGS_PRESENT,
-        }))
     }
 
     async fn restore_theme_subscriptions(&mut self) {
