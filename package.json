@@ -1,10 +1,7 @@
 {
   "name": "tmex",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "bash ./scripts/dev-supervisor.sh",
     "notify:demo": "bash ./scripts/notify-demo.sh",
@@ -16,11 +13,14 @@
     "build:tmex": "bun run --filter tmex-cli build",
     "build:tmex:cli": "bun run --filter tmex-cli build:cli",
     "build:artifacts": "bun packages/app/scripts/build-artifacts.ts",
+    "build:gateway:artifact": "bun scripts/gateway-release-artifacts.ts build",
+    "assemble:gateway:artifacts": "bun scripts/gateway-release-artifacts.ts assemble",
     "build:fonts": "bun scripts/fonts/build-fonts.ts",
     "release:tmex": "bun scripts/release.ts",
     "publish:tmex": "bun run build && bun run --filter tmex-cli release",
     "test": "bun run --filter '*' test",
-    "test:tmex": "bun run --filter tmex-cli test",
+    "test:tmex": "bun run --filter tmex-cli test && bun run test:gateway:artifacts",
+    "test:gateway:artifacts": "bun test scripts/gateway-release-artifacts.test.ts",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
     "format": "biome format . --write"

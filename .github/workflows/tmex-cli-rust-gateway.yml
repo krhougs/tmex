@@ -1,0 +1,163 @@
+name: tmex-cli Rust Gateway artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: tmex-cli version already committed in packages/app/package.json
+        required: true
+        type: string
+
+concurrency:
+  group: tmex-cli-rust-gateway-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build-native:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            rust-target: aarch64-apple-darwin
+            runner: macos-15
+          - target: darwin-x64
+            rust-target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: linux-arm64
+            rust-target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: linux-x64
+            rust-target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Install Rust 1.90.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "${{ matrix.rust-target }}"
+
+      - name: Build native Gateway artifact
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          bun scripts/gateway-release-artifacts.ts build \
+            --target "${{ matrix.target }}" \
+            --version "$RELEASE_VERSION" \
+            --out-dir dist/gateway-input
+
+      - name: Attest native Gateway provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/gateway-input/${{ matrix.target }}/tmex-gateway
+
+      - name: Upload native Gateway fragment
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tmex-gateway-${{ inputs.version }}-${{ matrix.target }}
+          path: dist/gateway-input
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble-package:
+    name: Assemble and smoke tmex-cli package
+    needs: build-native
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download native Gateway fragments
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: tmex-gateway-${{ inputs.version }}-*
+          path: dist/gateway-input
+          merge-multiple: true
+
+      - name: Assemble release manifest
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          bun scripts/gateway-release-artifacts.ts assemble \
+            --input-dir dist/gateway-input \
+            --version "$RELEASE_VERSION" \
+            --out-dir dist/gateway-release
+
+      - name: Attest assembled Gateway files
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/gateway-release/manifest.json
+            dist/gateway-release/*/tmex-gateway
+
+      - name: Test package release contracts
+        run: bun run test:tmex
+
+      - name: Build tmex-cli from attested Gateway artifacts
+        env:
+          TMEX_GATEWAY_ARTIFACTS_MANIFEST: ${{ github.workspace }}/dist/gateway-release/manifest.json
+        run: bun run build
+
+      - name: Smoke installed-layout Gateway artifact
+        env:
+          TMEX_GATEWAY_ARTIFACTS_MANIFEST: ${{ github.workspace }}/dist/gateway-release/manifest.json
+        run: bun packages/app/scripts/build-artifacts.ts --outdir dist/package-artifacts --smoke
+
+      - name: Pack npm candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm
+          npm pack --workspace tmex-cli --pack-destination dist/npm
+          test "$(find dist/npm -maxdepth 1 -type f -name '*.tgz' | wc -l | tr -d ' ')" = 1
+
+      - name: Attest npm candidate
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/npm/*.tgz
+
+      - name: Upload assembled Gateway release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tmex-gateway-release-${{ inputs.version }}
+          path: dist/gateway-release
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload npm candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tmex-cli-npm-${{ inputs.version }}
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+          retention-days: 14

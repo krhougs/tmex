@@ -1,201 +1,156 @@
 # tmex-cli 发布流程
 
-## 背景
+## 发布内容
 
-`tmex-cli` 的 npm 包源码位于 `packages/app`，但最终发布内容不只包含 CLI 入口，还包含以下产物：
+`tmex-cli` 的 npm 包源码位于 `packages/app`，发布包包含：
 
-- `packages/app/dist/cli-node.js`：Node 侧 CLI 入口。
-- `packages/app/dist/runtime/server.js`：Bun 运行时入口，内部会打包 gateway 运行时代码。
-- `packages/app/resources/fe-dist`：前端静态资源。
-- `packages/app/resources/gateway-drizzle`：gateway 数据库迁移文件。
-- `packages/app/CHANGELOG.md`：**仅含当前版本**的更新日志，随包发布；程序内自更新会从 CDN 拉取目标版本的该文件展示（见下文「版本注入与自更新」）。
+- `dist/cli-node.js`：`tmex` / `tmex-cli` 共用的 CLI 入口；
+- `resources/gateway-artifacts`：macOS、Linux 的 arm64/x64 Rust Gateway 产物及 SHA-256 清单；
+- `resources/fe-dist`：前端静态资源；
+- `CHANGELOG.md`：仅含当前版本的双语更新日志。
 
-因此，发布前不能只关注 `packages/app` 本身，必须确保根工作区内依赖发布包的产物全部重新生成。
+Gateway migration 已编译进 Rust binary。npm 包不再包含 JavaScript Gateway、Ghostty WASM 或
+运行时 migration 目录。
 
-> 版本号是构建期注入的：`bun run build` 期间 `packages/app` 的 `build:runtime` 会读 `packages/app/package.json` 的 `version`，经 `bun build --define TMEX_MONOREPO_VERSION="x.y.z"` 烧进 `dist/runtime/server.js`。所以**必须先 bump 版本号再 build**，否则 bundle 里烧进的是旧版本。详见 [版本注入与自更新](#版本注入与自更新)。
+`packages/app/package.json.version` 与根 `Cargo.toml` 的 `[workspace.package].version` 必须一致。
+`bun run release:tmex` 会同时更新二者并刷新 `Cargo.lock`。
 
-## 结论
+## Rust Gateway artifact pipeline
 
-发布前必须执行**全量重新编译**，推荐统一在仓库根目录运行：
+正式四目标产物由 `.github/workflows/tmex-cli-rust-gateway.yml` 在原生 runner 上生成：
 
-```bash
-bun install
-bun run build
+| package target | Rust host | runner |
+| --- | --- | --- |
+| `darwin-arm64` | `aarch64-apple-darwin` | `macos-15` |
+| `darwin-x64` | `x86_64-apple-darwin` | `macos-15-intel` |
+| `linux-arm64` | `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` |
+| `linux-x64` | `x86_64-unknown-linux-gnu` | `ubuntu-24.04` |
+
+每个 matrix job 只允许构建当前宿主 target。producer 从 Cargo JSON 的
+`compiler-artifact.executable` 读取实际二进制路径，不推测 `target/release` 文件名。每个产物先生成
+单 target fragment，再由聚合 job 校验版本、目标完整性和 SHA-256，最终生成 package 直接消费的：
+
+```json
+{
+  "schemaVersion": 1,
+  "version": "0.18.0",
+  "artifacts": [
+    {
+      "target": "darwin-arm64",
+      "path": "darwin-arm64/tmex-gateway",
+      "sha256": "..."
+    }
+  ]
+}
 ```
 
-其中 `bun run build` 会依次执行：
-
-```bash
-bun run build:i18n
-bun run build:fe
-bun run build:tmex:resources
-bun run build:tmex
-```
-
-这一步是发布门槛，不能用 `bun run --filter tmex-cli build` 替代，原因如下：
-
-- 它不会主动执行 `packages/shared` 的 `build:i18n`。
-- 它只会在 `apps/fe/dist/index.html` 不存在时才触发前端构建；如果 `dist` 已存在但过期，会直接复制旧产物进入 npm 包。
+实际清单必须恰好包含四个 target。workflow 使用 GitHub Artifact Attestations 为每个原生 binary、聚合
+清单和 npm tarball 生成 Sigstore provenance；这不是 Apple Developer ID code signing 或 notarization，
+不得把 provenance 描述成平台签名。
 
 ## 标准流程
 
-### 1. bump 版本号 + 生成 changelog
-
-不要手改 `package.json`。在仓库根目录执行：
-
-```bash
-bun run release:tmex <newVersion>      # 例：bun run release:tmex 0.11.0
-```
-
-`scripts/release.ts` 会：
-
-1. 校验 semver；
-2. 取「上一条 `chore(release)` 提交 .. HEAD」的 commit，按 conventional commit 前缀（feat/fix/perf/refactor/docs，其余归 Other）分组，排除 `chore(release)` 自身；
-3. 把 `packages/app/CHANGELOG.md` 写成 **双语 commit 原文草稿**（**仅当前版本**，含日期，首行带 `<!-- DRAFT… -->` 标记；`## English` 在前、`## 中文` 在后，`---` 分隔，两段共用同一份 commit）；
-4. 写 `packages/app/package.json` 的 `version`。
-
-可选参数：`--from <ref> --to <ref> --no-bump --date <YYYY-MM-DD>`。
-
-### 1.5 由 agent 把草稿改写为用户语言（必做）
-
-`release.ts` 生成的是给工程师看的双语 commit 草稿，**不能直接发给用户**。让 agent 按 [改写规范](2026061406-release-changelog-flow.md#改写规范agent-步骤) 把 `packages/app/CHANGELOG.md` 改写为普通客户看得懂的人话：去掉 commit hash / scope / `feat:`/`fix:` 前缀 / 实现黑话，按「新增 / 改进 / 修复」讲用户能感知的价值，并**删除首行 DRAFT 标记**。`## English` 段写英文、`## 中文` 段写简体中文，两段内容须一一对应。改完审阅一遍。
-
-> 顺序很重要：必须先跑 `release:tmex`（bump 版本）+ 改写 changelog，再 `bun run build`，因为版本号在 build 期注入 bundle。
-
-### 2. 全量重新编译
-
-在仓库根目录执行：
+### 1. bump 版本号并生成 changelog
 
 ```bash
 bun install
-bun run build
+bun run release:tmex <newVersion>
 ```
 
-### 3. 基础校验
+脚本会：
 
-至少执行以下检查：
+1. 生成 `packages/app/CHANGELOG.md` 双语草稿；
+2. 更新 `packages/app/package.json.version`；
+3. 更新根 `Cargo.toml` 的 Rust workspace version；
+4. 通过 `cargo metadata` 刷新 `Cargo.lock`。
+
+可选参数：`--from <ref> --to <ref> --no-bump --date <YYYY-MM-DD>`。
+
+### 2. 改写 changelog
+
+按 [changelog 改写规范](2026061406-release-changelog-flow.md#改写规范agent-步骤) 把草稿改写为
+普通用户能理解的英文和简体中文，并删除顶部 `DRAFT` 标记。
+
+### 3. 提交并触发四目标 workflow
+
+将 release 变更提交、推送到允许的上游任务分支，然后在 GitHub Actions 手动运行
+`tmex-cli Rust Gateway artifacts`，输入已经提交的 `<newVersion>`。workflow 会依次执行：
+
+1. 四个原生 runner 执行 `cargo build --locked --release`；
+2. 对每个二进制生成 provenance attestation；
+3. 聚合 schema 1 manifest；
+4. 执行 `bun run test:tmex` 和完整 workspace/package build；
+5. 用当前 Linux x64 binary 在隔离临时目录执行 `/healthz` smoke；
+6. 生成并 attest `tmex-cli` npm tarball。
+
+workflow 不执行 `npm publish`。发布者必须先检查构建、smoke 和 attestation 结果。
+
+### 4. 验证并发布 npm candidate
+
+下载 workflow 的 `tmex-cli-npm-<version>` artifact，并验证 provenance：
 
 ```bash
-bun run test:tmex
-npm pack --dry-run --workspace tmex-cli
+gh attestation verify ./tmex-cli-<version>.tgz -R krhougs/tmex
+npm whoami || npm login
 ```
 
-校验重点：
-
-- `npm pack --dry-run` 输出中必须包含 `dist`、`resources` 与 `CHANGELOG.md`。
-- `resources/fe-dist` 中应包含最新前端静态资源。
-- `resources/gateway-drizzle` 中应包含迁移文件。
-- **CHANGELOG 已完成 agent 改写**：`grep -c DRAFT packages/app/CHANGELOG.md` 应为 `0`（仍有 DRAFT 标记说明漏了第 1.5 步），且内容无 commit hash / `feat:` 等黑话。
-- **CHANGELOG 为双语**：`grep -c '^## English' packages/app/CHANGELOG.md` 与 `grep -c '^## 中文' packages/app/CHANGELOG.md` 均应为 `1`（英中两段齐全，见 issue #20）。
-- **版本号已正确烧进 bundle**：`grep -c "<newVersion>" packages/app/dist/runtime/server.js` 应 > 0（确认 `--define` 注入生效，而非旧版本）。
-
-如果本次发布包含 `apps/gateway`、`apps/fe`、`packages/shared` 的行为变更，应额外执行受影响模块的测试或构建验证。
-
-### 4. 登录 npm
-
-先检查是否已登录：
+稳定版：
 
 ```bash
-npm whoami
+npm publish ./tmex-cli-<version>.tgz --access public --tag latest
 ```
 
-如果未登录：
+预发布版：
 
 ```bash
-npm login
+npm publish ./tmex-cli-<version>.tgz --access public --tag next
 ```
 
-说明：
-
-- `npm login` 可能会跳转浏览器完成授权。
-- 如果账户启用了 2FA，需要在登录或发布过程中输入一次性验证码。
-
-### 5. 发布稳定版
-
-稳定版发布到 `latest`：
-
-```bash
-cd packages/app
-npm publish --access public --tag latest
-```
-
-### 6. 发布预发布版
-
-如果版本号包含 `-alpha`、`-beta`、`-rc` 等后缀，建议发布到 `next`：
-
-```bash
-cd packages/app
-npm publish --access public --tag next
-```
-
-### 7. 发布后验证
+### 5. 发布后验证
 
 ```bash
 npm view tmex-cli version
 npx --yes tmex-cli@<version> --lang en help
 ```
 
-必要时再补一条安装验证：
+必要时再执行安装诊断：
 
 ```bash
 npx --yes tmex-cli@<version> doctor --lang en
 ```
 
-## 版本注入与自更新
+## 本机调试 producer
 
-「monorepo 版本」= 发布的 `tmex-cli` 版本（`packages/app/package.json.version`），是前后端唯一真相源。
+本机命令只构建当前宿主，传入其他 target 会 fail-closed：
 
-- **构建期注入**：`build:runtime`（`packages/app/scripts/build-runtime.ts`）与 docker 的 `apps/gateway` `build`（`apps/gateway/scripts/build.ts`）读该版本，经 `bun build --define TMEX_MONOREPO_VERSION="x.y.z"` 烧进 bundle；前端 `vite.config.ts` 同样 `define __MONOREPO_VERSION__`。运行时 `apps/gateway/src/system/version.ts` 用 `typeof` 守卫读取，dev 回退读仓库 `package.json`。**所以发版顺序必须是「先 `release:tmex` bump，再 `build`」**。
-- **CHANGELOG 随包发布**：`packages/app/CHANGELOG.md` 已在 `files` 中，每个发布版只含该版本日志。程序内「检查更新」时 gateway 从 `https://cdn.jsdelivr.net/npm/tmex-cli@<latest>/CHANGELOG.md` 拉取展示（拉不到则回退「版本号 + 发布时间」，如历史无 changelog 的版本）。
-- **程序内自更新**：设置页「版本与更新」触发后，gateway 以 `bun add`（无视缓存）下载目标版本，再 detached 执行 `tmex upgrade --apply-current-package` 完成停服务 → 部署 → 重启。仅 `production` + CLI 安装可用。详见 [自更新与版本展示](../update/2026061406-self-update.md) 与 [发版与 changelog 流程](2026061406-release-changelog-flow.md)。
+```bash
+bun scripts/gateway-release-artifacts.ts build \
+  --version <version> \
+  --out-dir dist/gateway-input
+```
+
+从 workflow 下载到同一目录的四个 fragment 可聚合为 package manifest：
+
+```bash
+bun scripts/gateway-release-artifacts.ts assemble \
+  --input-dir dist/gateway-input \
+  --version <version> \
+  --out-dir dist/gateway-release
+```
+
+完整本地 package build 必须显式提供该 manifest，不存在 JavaScript fallback：
+
+```bash
+TMEX_GATEWAY_ARTIFACTS_MANIFEST="$PWD/dist/gateway-release/manifest.json" bun run build
+bun run test:tmex
+npm pack --dry-run --workspace tmex-cli
+```
 
 ## 常见错误
 
-### 只跑 `bun run --filter tmex-cli build`
-
-风险：
-
-- 共享 i18n 生成文件可能不是最新。
-- 已存在但过期的 `apps/fe/dist` 会被直接打包。
-
-结论：不能作为正式发布前的唯一构建命令。
-
-### 在 `packages/app` 目录直接构建并发布
-
-风险：
-
-- 容易忽略根工作区的前端、共享代码和资源生成步骤。
-
-结论：构建统一在仓库根目录执行；发布命令再切到 `packages/app`。
-
-### 未检查 `npm pack --dry-run`
-
-风险：
-
-- 可能把不完整的 tarball 发到 npm，例如缺少 `dist/runtime` 或 `resources/fe-dist`。
-
-结论：发版前必须看一次 dry-run 结果。
-
-## 最小命令清单
-
-```bash
-# 仓库根目录
-bun install
-bun run release:tmex <newVersion>      # bump 版本 + 生成 CHANGELOG 草稿（commit 原文）
-#   → 让 agent 把 CHANGELOG.md 改写为用户能看懂的人话，删除 DRAFT 标记，再审阅
-bun run build                          # 必须在 bump+改写之后：版本号在此烧进 bundle
-bun run test:tmex
-npm pack --dry-run --workspace tmex-cli   # 确认含 dist/resources/CHANGELOG.md
-
-# 提交发版（仓库历史惯例：直接在主分支提交）
-git commit -am "chore(release): tmex-cli <newVersion>"
-
-# 登录
-npm whoami || npm login
-
-# 发布
-cd packages/app
-npm publish --access public --tag latest
-```
-
-> 也可用根脚本 `bun run publish:tmex`（= `bun run build && npm publish`）一步发布，但它**不含** `release:tmex` 与提交步骤，需自行先 bump+commit。
+- 不要在单台机器伪造四目标构建状态；正式产物只能来自 workflow 的四个原生 runner。
+- 不要恢复旧 Bun managed artifact；Rust Gateway producer 是唯一 production Gateway 构建入口。
+- 不要跳过 package/Cargo 版本一致性或 SHA-256 校验；producer 和 consumer 都会 fail-closed。
+- 不要直接对工作区执行 `npm publish`；发布 workflow 生成并验证过的 `.tgz`。
+- `bun run publish:tmex` 只适用于已经显式提供完整
+  `TMEX_GATEWAY_ARTIFACTS_MANIFEST` 的受控本地流程，默认不会下载或伪造 release artifact。

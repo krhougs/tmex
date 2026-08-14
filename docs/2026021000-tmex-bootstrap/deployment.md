@@ -79,11 +79,12 @@ curl http://localhost:3000/healthz
 
 ## 开发环境部署
 
-### 1. 安装 Bun
+### 1. 安装 Bun 与 Rust
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
+rustup toolchain install 1.90.0
 ```
 
 ### 2. 安装依赖
@@ -107,8 +108,7 @@ export DATABASE_URL=/tmp/tmex.db
 ### 4. 启动 Gateway
 
 ```bash
-cd apps/gateway
-bun dev
+cargo run --locked --package tmex-gateway --bin tmex-gateway
 
 # 服务运行在 http://0.0.0.0:8080
 ```
@@ -238,8 +238,7 @@ cd tmex
 bun install
 
 # 构建 Gateway
-cd apps/gateway
-bun run build
+cargo build --locked --release --package tmex-gateway --bin tmex-gateway
 
 # 构建 Frontend
 cd ../fe
@@ -259,14 +258,14 @@ After=network.target
 [Service]
 Type=simple
 User=tmex
-WorkingDirectory=/opt/tmex/apps/gateway
+WorkingDirectory=/opt/tmex
 Environment=NODE_ENV=production
 Environment=TMEX_MASTER_KEY=your-master-key
 Environment=TMEX_ADMIN_PASSWORD=your-password
 Environment=JWT_SECRET=your-jwt-secret
 Environment=GATEWAY_PORT=8080
 Environment=DATABASE_URL=/var/lib/tmex/tmex.db
-ExecStart=/root/.bun/bin/bun dist/index.js
+ExecStart=/opt/tmex/target/release/tmex-gateway
 Restart=always
 RestartSec=5
 
@@ -466,7 +465,7 @@ git pull origin main
 bun install
 
 # 重新构建
-cd apps/gateway && bun run build
+cargo build --locked --release --package tmex-gateway --bin tmex-gateway
 cd ../fe && bun run build
 
 # 重启服务

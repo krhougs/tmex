@@ -54,7 +54,7 @@ describe('loadEnv - development', () => {
     const env: Record<string, string | undefined> = {
       NODE_ENV: 'development',
       GATEWAY_PORT: '9883', // 继承自安装版，应被文件覆盖
-      TMEX_MIGRATIONS_DIR: `${INSTALL_DIR}/resources/gateway-drizzle`, // 毒变量
+      TMEX_FE_DIST_DIR: `${INSTALL_DIR}/resources/fe-dist`, // 毒变量
       SSH_AUTH_SOCK: '/tmp/agent.sock', // 文件未定义，应保留
     };
     const name = loadEnv({
@@ -66,7 +66,7 @@ describe('loadEnv - development', () => {
 
     expect(name).toBe('development');
     expect(env.GATEWAY_PORT).toBe('19663');
-    expect(env.TMEX_MIGRATIONS_DIR).toBeUndefined(); // 已净化
+    expect(env.TMEX_FE_DIST_DIR).toBeUndefined(); // 已净化
     expect(env.SSH_AUTH_SOCK).toBe('/tmp/agent.sock'); // 保留
     expect(env.DATABASE_URL).toBe(`${REPO_ROOT}/tmex.db`); // 相对路径解析到仓库根
   });
@@ -113,7 +113,6 @@ describe('loadEnv - production', () => {
       TMEX_BIND_HOST: '127.0.0.1',
       DATABASE_URL: `${INSTALL_DIR}/data/tmex.db`,
       TMEX_FE_DIST_DIR: `${INSTALL_DIR}/resources/fe-dist`,
-      TMEX_MIGRATIONS_DIR: `${INSTALL_DIR}/resources/gateway-drizzle`,
     };
   }
 
@@ -132,7 +131,6 @@ describe('loadEnv - production', () => {
 
     expect(name).toBe('production');
     // 关键安全断言：生产路径键即使含安装目录标记也绝不能被删除
-    expect(env.TMEX_MIGRATIONS_DIR).toBe(`${INSTALL_DIR}/resources/gateway-drizzle`);
     expect(env.TMEX_FE_DIST_DIR).toBe(`${INSTALL_DIR}/resources/fe-dist`);
   });
 
@@ -146,6 +144,6 @@ describe('loadEnv - production', () => {
     const env = prodEnv();
     expect(() =>
       loadEnv({ env, silent: true, dirExists: () => false, readFile: () => null })
-    ).toThrow(/TMEX_FE_DIST_DIR|TMEX_MIGRATIONS_DIR/);
+    ).toThrow(/TMEX_FE_DIST_DIR/);
   });
 });

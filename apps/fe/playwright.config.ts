@@ -93,10 +93,10 @@ export default defineConfig({
     {
       name: 'gateway',
       cwd: '../../',
-      command: './apps/gateway/scripts/run-with-ssh-agent.sh ./apps/gateway/src/index.ts',
-      // 行为配置（master key 等）由 gateway 自身 loadEnv() 从 test.env 加载；
-      // 继承的安装版 TMEX_MIGRATIONS_DIR 由 loadEnv 净化、migrate.ts 回退到仓库 drizzle。
-      // 这里只注入「按运行上下文变化的接线键」。
+      command:
+        './apps/gateway/scripts/run-with-ssh-agent.sh ./apps/gateway/scripts/run-rust-gateway.sh',
+      // 行为配置（master key 等）由 Rust Gateway 从 test.env 加载；这里只注入
+      // 「按运行上下文变化的接线键」。
       env: {
         NODE_ENV: 'test',
         GATEWAY_PORT: String(gatewayPort),
@@ -107,7 +107,7 @@ export default defineConfig({
         TMEX_TMUX_SOCKET: 'tmex-e2e',
       },
       url: `http://localhost:${gatewayPort}/healthz`,
-      timeout: 60_000,
+      timeout: 180_000,
       reuseExistingServer,
       stdout: 'pipe',
       stderr: 'pipe',

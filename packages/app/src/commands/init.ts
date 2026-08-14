@@ -8,13 +8,11 @@ import {
   defaultPort,
 } from '../constants';
 import { t } from '../i18n';
-import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import {
+  type DepInstallPlan,
   executeDependencyInstall,
   getInstallHintAsync,
-  planBunInstall,
   planTmuxInstall,
-  type DepInstallPlan,
 } from '../lib/dep-install';
 import { writeEnvFile } from '../lib/env-file';
 import { ensureDir, pathExists } from '../lib/fs-utils';
@@ -154,16 +152,16 @@ async function buildInitConfig(parsed: ParsedArgs): Promise<InitConfig> {
 }
 
 async function handleDepFailure(
-  dep: 'bun' | 'tmux',
+  dep: 'tmux',
   config: InitConfig,
   errorMessage: string
 ): Promise<void> {
   const hint = await getInstallHintAsync(dep);
-  const commands = dep === 'bun' ? planBunInstall() : await planTmuxInstall();
+  const commands = await planTmuxInstall();
   const plan: DepInstallPlan = {
     dep,
     commands,
-    requiredVersion: dep === 'tmux' ? '>= 3.0' : '>= 1.3.0',
+    requiredVersion: '>= 3.0',
     issue: 'missing',
   };
 
@@ -190,26 +188,11 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
   if (!config.skipDepCheck) {
     const tmux = await checkTmuxVersion();
     if (!tmux.ok) {
-      const reason = tmux.reason === 'version-too-low'
-        ? t('tmux.versionTooLow', { version: tmux.versionRaw || '' })
-        : t('tmux.notFound');
+      const reason =
+        tmux.reason === 'version-too-low'
+          ? t('tmux.versionTooLow', { version: tmux.versionRaw || '' })
+          : t('tmux.notFound');
       await handleDepFailure('tmux', config, reason);
-    }
-  }
-
-  const explicitBunPath = readExplicitBunPath(parsed.flags);
-  const bun = await checkBunVersion(undefined, { explicitPath: explicitBunPath });
-  if (!bun.ok || !bun.path) {
-    const reason = bun.reason || t('bun.checkFailed');
-    if (!config.skipDepCheck) {
-      await handleDepFailure('bun', config, reason);
-      const bunRetry = await checkBunVersion(undefined, { explicitPath: explicitBunPath });
-      if (!bunRetry.ok || !bunRetry.path) {
-        throw new Error(bunRetry.reason || t('bun.checkFailed'));
-      }
-      Object.assign(bun, bunRetry);
-    } else {
-      throw new Error(reason);
     }
   }
 
@@ -245,7 +228,7 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
     masterKey,
   });
   await writeEnvFile(installLayout.envPath, envValues);
-  await writeRunScript(installLayout, bun.path);
+  await writeRunScript(installLayout);
 
   await installService({
     serviceName: config.serviceName,
@@ -262,14 +245,12 @@ export async function runInit(parsed: ParsedArgs): Promise<void> {
     installDir: config.installDir,
     updatedAt: new Date().toISOString(),
     cliVersion,
-    bunPath: bun.path,
   };
   await writeInstallMeta(installLayout, meta);
 
   console.log(`[tmex] ${t('init.done')}`);
   console.log(`- ${t('init.summary.installDir')}: ${config.installDir}`);
   console.log(`- ${t('init.summary.serviceName')}: ${config.serviceName}`);
-  console.log(`- ${t('init.summary.bun')}: ${bun.version} (${bun.path})`);
   console.log(
     `- ${t('init.summary.autostart')}: ${config.autostart ? t('init.summary.autostart.on') : t('init.summary.autostart.off')}`
   );

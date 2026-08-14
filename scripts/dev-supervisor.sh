@@ -9,7 +9,7 @@ ENV_LOCAL_FILE="${PROJECT_DIR}/development.env.local"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/dev-supervisor-pids.sh"
 
-if ! command -v bun >/dev/null 2>&1; then
+if ! command -v bun >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
   if [[ -f "${HOME}/.zshrc" ]]; then
     # shellcheck disable=SC1090
     source "${HOME}/.zshrc" >/dev/null 2>&1 || true
@@ -21,11 +21,16 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "[dev-supervisor] error: cargo not found in PATH" >&2
+  exit 1
+fi
+
 cd "$PROJECT_DIR"
 
 # 加载 development.env（+ 可选 .local 覆盖），让 supervisor 自身拿到 GATEWAY_PORT/
-# FE_PORT 做健康检查与日志。继承的安装版毒变量（TMEX_MIGRATIONS_DIR 等）与相对
-# DATABASE_URL 的解析，统一交给应用启动时的 @tmex/shared loadEnv() 处理，这里不再重复。
+# FE_PORT 做健康检查与日志。Rust Gateway 会再次按 repository 模式加载同一环境文件，
+# 并把相对 DATABASE_URL 解析到仓库根。
 export NODE_ENV=development
 
 load_env_file() {
@@ -292,13 +297,13 @@ start_gateway_with_fresh_agent() {
   start_managed_ssh_agent_fresh || true
 
   if [[ -n "${MANAGED_SSH_AUTH_SOCK:-}" ]] && [[ -S "${MANAGED_SSH_AUTH_SOCK}" ]]; then
-    log "start gateway: bun --cwd apps/gateway --watch src/index.ts (ssh-agent pid=${MANAGED_SSH_AGENT_PID:-unknown})"
+    log "start gateway: Rust tmex-gateway (ssh-agent pid=${MANAGED_SSH_AGENT_PID:-unknown})"
     SSH_AUTH_SOCK="${MANAGED_SSH_AUTH_SOCK}" \
       SSH_AGENT_PID="${MANAGED_SSH_AGENT_PID:-}" \
-      bun --cwd apps/gateway --watch src/index.ts &
+      ./apps/gateway/scripts/run-rust-gateway.sh &
   else
-    log "start gateway: bun --cwd apps/gateway --watch src/index.ts (without ssh-agent)"
-    bun --cwd apps/gateway --watch src/index.ts &
+    log "start gateway: Rust tmex-gateway (without ssh-agent)"
+    ./apps/gateway/scripts/run-rust-gateway.sh &
   fi
 
   pid_store_set gateway "$!"

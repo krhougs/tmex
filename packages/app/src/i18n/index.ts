@@ -7,9 +7,9 @@ const MESSAGES: Record<CliLang, Record<string, string>> = {
     'cli.help': `tmex CLI
 
 Usage:
-  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path> --install-deps --skip-dep-check]
-  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>] [--fix]
-  tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]
+  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --install-deps --skip-dep-check]
+  tmex doctor [--install-dir <path>] [--json] [--fix]
+  tmex upgrade [--version <version>] [--install-dir <path>]
   tmex uninstall [--install-dir <path>] [--yes] [--purge]
 
 Global flags:
@@ -30,9 +30,10 @@ Global flags:
 
     'errors.layout.packageRootNotFound':
       'Unable to locate tmex package root. Please ensure dist artifacts are complete.',
-    'errors.layout.runtimeMissing': 'Runtime artifact not found: {{path}}',
+    'errors.layout.gatewayManifestMissing': 'Gateway artifact manifest not found: {{path}}',
+    'errors.layout.gatewayVersionMismatch':
+      'Gateway artifact version {{artifactVersion}} does not match package version {{packageVersion}}.',
     'errors.layout.feMissing': 'Frontend static assets not found: {{path}}',
-    'errors.layout.drizzleMissing': 'Gateway migration assets not found: {{path}}',
 
     'bun.notFound': 'Bun not found. Please install Bun and ensure it is available in PATH.',
     'bun.versionExecFailed': 'Failed to execute bun --version. Please verify Bun installation.',
@@ -72,7 +73,6 @@ Global flags:
     'init.done': 'Initialization completed.',
     'init.summary.installDir': 'Install dir',
     'init.summary.serviceName': 'Service name',
-    'init.summary.bun': 'Bun',
     'init.summary.autostart': 'Autostart',
     'init.summary.autostart.on': 'on',
     'init.summary.autostart.off': 'off',
@@ -115,7 +115,7 @@ Global flags:
     'upgrade.summary.installDir': 'Install dir',
 
     'uninstall.prompt.removeService': 'Uninstall system service',
-    'uninstall.prompt.removeProgram': 'Remove program files (runtime/resources/run.sh/meta)',
+    'uninstall.prompt.removeProgram': 'Remove program files (bin/resources/run.sh/meta)',
     'uninstall.prompt.removeEnv': 'Remove app.env',
     'uninstall.prompt.removeDatabase': 'Remove database file',
     'uninstall.done': 'Uninstall completed.',
@@ -132,10 +132,12 @@ Global flags:
     'deps.install.manual': 'Please install manually and retry.',
     'deps.install.sudoRequired': 'This operation requires sudo.',
     'deps.install.sudoUnavailable': 'sudo is not available. Please run as root or install sudo.',
-    'deps.install.nonInteractive': 'Missing dependency: {{dep}}. Use --install-deps to install automatically.',
+    'deps.install.nonInteractive':
+      'Missing dependency: {{dep}}. Use --install-deps to install automatically.',
     'deps.install.hint': 'Suggested install command: {{command}}',
     'deps.install.brewMissing': 'Homebrew not found. Install Homebrew first: https://brew.sh',
-    'deps.install.unknownDistro': 'Unable to detect Linux distribution. Please install {{dep}} manually.',
+    'deps.install.unknownDistro':
+      'Unable to detect Linux distribution. Please install {{dep}} manually.',
 
     'runtime.restartRequested': 'Restart requested; exiting for service manager restart.',
     'runtime.started': 'Service started on {{url}}',
@@ -146,7 +148,7 @@ Global flags:
   },
   'zh-CN': {
     'cli.help':
-      'tmex CLI\n\n用法：\n  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --bun-path <path> --install-deps --skip-dep-check]\n  tmex doctor [--install-dir <path>] [--json] [--bun-path <path>] [--fix]\n  tmex upgrade [--version <version>] [--install-dir <path>] [--bun-path <path>]\n  tmex uninstall [--install-dir <path>] [--yes] [--purge]\n\n全局参数：\n  --lang <en|zh-CN>',
+      'tmex CLI\n\n用法：\n  tmex init [--no-interactive --install-dir <path> --host <host> --port <port> --db-path <path> --autostart <true|false> --install-deps --skip-dep-check]\n  tmex doctor [--install-dir <path>] [--json] [--fix]\n  tmex upgrade [--version <version>] [--install-dir <path>]\n  tmex uninstall [--install-dir <path>] [--yes] [--purge]\n\n全局参数：\n  --lang <en|zh-CN>',
 
     'cli.error.unknownCommand': '未知命令：{{command}}',
 
@@ -162,9 +164,10 @@ Global flags:
     'errors.version.invalid': '非法版本号：{{input}}',
 
     'errors.layout.packageRootNotFound': '无法定位 tmex 包根目录，请确认 dist 产物完整。',
-    'errors.layout.runtimeMissing': '未找到 runtime 产物：{{path}}',
+    'errors.layout.gatewayManifestMissing': '未找到 Gateway 产物清单：{{path}}',
+    'errors.layout.gatewayVersionMismatch':
+      'Gateway 产物版本 {{artifactVersion}} 与 npm 包版本 {{packageVersion}} 不一致。',
     'errors.layout.feMissing': '未找到前端静态资源：{{path}}',
-    'errors.layout.drizzleMissing': '未找到网关迁移资源：{{path}}',
 
     'bun.notFound': '未检测到 Bun，请先安装 Bun 并确保在 PATH 中可用。',
     'bun.versionExecFailed': '无法执行 bun --version，请检查 Bun 安装是否完整。',
@@ -201,7 +204,6 @@ Global flags:
     'init.done': '初始化完成。',
     'init.summary.installDir': '安装目录',
     'init.summary.serviceName': '服务名称',
-    'init.summary.bun': 'Bun',
     'init.summary.autostart': '自启动',
     'init.summary.autostart.on': '开启',
     'init.summary.autostart.off': '关闭',
@@ -244,7 +246,7 @@ Global flags:
     'upgrade.summary.installDir': '安装目录',
 
     'uninstall.prompt.removeService': '是否卸载系统服务',
-    'uninstall.prompt.removeProgram': '是否删除程序文件（runtime/resources/run.sh/meta）',
+    'uninstall.prompt.removeProgram': '是否删除程序文件（bin/resources/run.sh/meta）',
     'uninstall.prompt.removeEnv': '是否删除 app.env',
     'uninstall.prompt.removeDatabase': '是否删除数据库文件',
     'uninstall.done': '卸载完成。',

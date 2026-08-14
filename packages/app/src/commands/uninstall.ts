@@ -53,6 +53,7 @@ export async function runUninstall(parsed: ParsedArgs): Promise<void> {
   }
 
   if (removeProgram) {
+    await removeIfExists(installLayout.binDir);
     await removeIfExists(installLayout.runtimeDir);
     await removeIfExists(installLayout.resourcesDir);
     await removeIfExists(installLayout.runScriptPath);

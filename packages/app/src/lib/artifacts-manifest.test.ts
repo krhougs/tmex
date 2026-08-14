@@ -23,22 +23,22 @@ describe('buildManifest', () => {
 
   test('files 按 path 字典序排序且带内容 hash', () => {
     const manifest = buildManifest('0.16.5', '2026-07-05T01:02:03.000Z', [
-      { path: 'runtime/server.js', content: 'server' },
+      { path: 'gateway-artifacts/darwin-arm64/tmex-gateway', content: 'gateway' },
       { path: 'fe-dist/index.html', content: '<html></html>' },
-      { path: 'gateway-drizzle/meta/_journal.json', content: '{}' },
+      { path: 'gateway-artifacts/manifest.json', content: '{}' },
     ]);
 
     expect(manifest.version).toBe('0.16.5');
     expect(manifest.builtAt).toBe('2026-07-05T01:02:03.000Z');
     expect(manifest.files.map((file) => file.path)).toEqual([
       'fe-dist/index.html',
-      'gateway-drizzle/meta/_journal.json',
-      'runtime/server.js',
+      'gateway-artifacts/darwin-arm64/tmex-gateway',
+      'gateway-artifacts/manifest.json',
     ]);
     for (const file of manifest.files) {
       expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
-    expect(manifest.files[2]?.sha256).toBe(sha256Hex('server'));
+    expect(manifest.files[1]?.sha256).toBe(sha256Hex('gateway'));
   });
 
   test('相同输入输出稳定（与传入顺序无关）', () => {

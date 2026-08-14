@@ -74,4 +74,9 @@ else
   echo "[gateway] warning: SSH_AUTH_SOCK 未设置，SSH Agent 认证将不可用" >&2
 fi
 
-exec bun "$@"
+if [[ "$#" -eq 0 ]]; then
+  echo "[gateway] error: command is required" >&2
+  exit 2
+fi
+
+exec "$@"

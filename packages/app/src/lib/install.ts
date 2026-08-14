@@ -1,8 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, copyFile, rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { t } from '../i18n';
+import { resolve } from 'node:path';
 import type { InstallMeta } from '../types';
 import { copyDirectory, ensureDir, pathExists, writeText } from './fs-utils';
 import type { InstallLayout, PackageLayout } from './install-layout';
@@ -50,56 +48,36 @@ export async function deployRuntimeFiles(
   installLayout: InstallLayout
 ): Promise<void> {
   await rm(installLayout.runtimeDir, { recursive: true, force: true });
+  await rm(installLayout.binDir, { recursive: true, force: true });
   await rm(installLayout.feDir, { recursive: true, force: true });
   await rm(installLayout.drizzleDir, { recursive: true, force: true });
 
-  await ensureDir(installLayout.runtimeDir);
+  await ensureDir(installLayout.binDir);
   await ensureDir(installLayout.resourcesDir);
 
-  await copyDirectory(packageLayout.runtimeDirPath, installLayout.runtimeDir);
+  await copyFile(packageLayout.gatewayBinaryPath, installLayout.gatewayBinaryPath);
+  await chmod(installLayout.gatewayBinaryPath, 0o755);
   await copyDirectory(packageLayout.resourceFePath, installLayout.feDir);
-  await copyDirectory(packageLayout.resourceDrizzlePath, installLayout.drizzleDir);
 }
 
-export async function writeRunScript(installLayout: InstallLayout, bunPath: string): Promise<void> {
-  for (let i = 0; i < bunPath.length; i += 1) {
-    const code = bunPath.charCodeAt(i);
-    // 拒绝会破坏生成 run.sh 的 shell 元字符：" ` $ \ 及换行回车（防注入 / DoS）。
-    if (code === 34 || code === 96 || code === 36 || code === 92 || code === 10 || code === 13) {
-      throw new Error(t('bun.unsafePath', { path: bunPath }));
-    }
-  }
-  // 服务由 launchd/systemd 拉起时 PATH 极简，run.sh 显式补全。${HOME}/.bun/bin 由下方条件块
-  // 动态补（故 extraPathDirs 排除它以免重复）；其余补 bun 实际目录 + homebrew/linuxbrew 兜底。
-  const homeBunBin = join(homedir(), '.bun', 'bin');
-  const bunDir = isAbsolute(bunPath) ? dirname(bunPath) : '';
-  const extraPathDirs = [
-    bunDir,
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    '/home/linuxbrew/.linuxbrew/bin',
-  ].filter((dir, index, arr) => dir.length > 0 && dir !== homeBunBin && arr.indexOf(dir) === index);
+export async function writeRunScript(installLayout: InstallLayout): Promise<void> {
   const lines = [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
     '',
     'SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"',
     'while IFS= read -r line || [[ -n "$line" ]]; do',
-    "  line=\"${line%$'\\r'}\"",
-    "  [[ \"$line\" =~ ^[[:space:]]*$ ]] && continue",
-    "  [[ \"$line\" =~ ^[[:space:]]*# ]] && continue",
+    '  line="${line%$\'\\r\'}"',
+    '  [[ "$line" =~ ^[[:space:]]*$ ]] && continue',
+    '  [[ "$line" =~ ^[[:space:]]*# ]] && continue',
     '  export "$line"',
-    `done < "${installLayout.envPath}"`,
+    'done < "${SCRIPT_DIR}/app.env"',
     '',
-    'if [[ -n "${HOME:-}" ]] && [[ -d "${HOME}/.bun/bin" ]]; then',
-    '  export PATH="${HOME}/.bun/bin:${PATH:-}"',
-    'fi',
-    `export PATH="${[...extraPathDirs, '${PATH:-}'].join(':')}"`,
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:${PATH:-}"',
     '',
-    `export TMEX_FE_DIST_DIR="${installLayout.feDir}"`,
-    `export TMEX_MIGRATIONS_DIR="${installLayout.drizzleDir}"`,
+    'export TMEX_FE_DIST_DIR="${SCRIPT_DIR}/resources/fe-dist"',
     '',
-    `exec "${bunPath}" "${installLayout.runtimeServerPath}"`,
+    'exec "${SCRIPT_DIR}/bin/tmex-gateway"',
     '',
   ];
   const script = lines.join('\n');
@@ -125,6 +103,10 @@ export async function backupInstallArtifacts(
     await copyDirectory(installLayout.runtimeDir, resolve(backupDir, 'runtime'));
   }
 
+  if (await pathExists(installLayout.binDir)) {
+    await copyDirectory(installLayout.binDir, resolve(backupDir, 'bin'));
+  }
+
   if (await pathExists(installLayout.resourcesDir)) {
     await copyDirectory(installLayout.resourcesDir, resolve(backupDir, 'resources'));
   }
@@ -143,15 +125,21 @@ export async function restoreInstallArtifacts(
   backupDir: string
 ): Promise<void> {
   const runtimeBackup = resolve(backupDir, 'runtime');
+  const binBackup = resolve(backupDir, 'bin');
   const resourcesBackup = resolve(backupDir, 'resources');
   const runScriptBackup = resolve(backupDir, 'run.sh');
   const metaBackup = resolve(backupDir, 'install-meta.json');
 
   await rm(installLayout.runtimeDir, { recursive: true, force: true });
+  await rm(installLayout.binDir, { recursive: true, force: true });
   await rm(installLayout.resourcesDir, { recursive: true, force: true });
 
   if (await pathExists(runtimeBackup)) {
     await copyDirectory(runtimeBackup, installLayout.runtimeDir);
+  }
+
+  if (await pathExists(binBackup)) {
+    await copyDirectory(binBackup, installLayout.binDir);
   }
 
   if (await pathExists(resourcesBackup)) {

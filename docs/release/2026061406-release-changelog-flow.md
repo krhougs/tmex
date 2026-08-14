@@ -14,7 +14,7 @@
 - **草稿来源**：commit 范围 = 上一条 `chore(release)` 提交 .. HEAD，按 conventional commit 前缀分组（feat/fix/perf/refactor/docs，其余 Other），排除 `chore(release)` 自身。
 - **DRAFT 护栏**：草稿首行是 HTML 注释 `<!-- DRAFT… -->`。漏改写时它不会在前端 markdown 渲染中显示（不污染用户视图），但维护者在文件 / `npm pack` 里仍可见——发布前确认它已被删除即代表改写完成。
 - **展示**：gateway 从 `https://cdn.jsdelivr.net/npm/tmex-cli@<latest>/CHANGELOG.md` 拉取（`no-store`）；失败回退「版本号 + 发布时间」（npm registry `time`），覆盖历史无 changelog 的旧版本。
-- **版本注入**：版本号在 `bun run build` 期由 `bun build --define TMEX_MONOREPO_VERSION` 烧进 runtime bundle（`packages/app/scripts/build-runtime.ts`、docker 走 `apps/gateway/scripts/build.ts`），前端走 vite `define`。**故发版顺序必须「先 bump 再 build」**。
+- **版本同步**：`release.ts` 同时更新 `packages/app/package.json.version` 与根 `Cargo.toml` 的 Rust workspace version，并刷新 `Cargo.lock`；前端仍从 package version 注入版本。四目标 producer 会拒绝 npm 与 Cargo 版本不一致的构建。
 
 ## 改写规范（agent 步骤）
 
@@ -64,7 +64,7 @@ bun run release:tmex <newVersion>
 # 可选：--from <ref> --to <ref> --no-bump --date <YYYY-MM-DD>
 ```
 
-行为：校验 semver → 取 commit 范围分组 → 写 `packages/app/CHANGELOG.md`（仅当前版本，含日期，`## English` + `## 中文` 双语草稿）→ 写 `packages/app/package.json.version`（`--no-bump` 跳过）。
+行为：校验 semver → 取 commit 范围分组 → 写 `packages/app/CHANGELOG.md`（仅当前版本，含日期，`## English` + `## 中文` 双语草稿）→ 同步 npm/Cargo workspace version 并刷新 `Cargo.lock`（`--no-bump` 跳过）。
 
 ## 注意事项
 

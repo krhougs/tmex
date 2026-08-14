@@ -3,8 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultInstallDir } from '../constants';
 import { t } from '../i18n';
-import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
-import { getInstallHint } from '../lib/dep-install';
 import { readEnvFile } from '../lib/env-file';
 import { pathExists } from '../lib/fs-utils';
 import {
@@ -26,7 +24,7 @@ import { asBoolean, asString } from '../lib/validate';
 import { readPackageVersion } from '../lib/version';
 import type { InstallMeta, ParsedArgs } from '../types';
 
-async function delegateUpgrade(parsed: ParsedArgs, targetVersion: string): Promise<void> {
+export function buildDelegatedUpgradeArgs(parsed: ParsedArgs, targetVersion: string): string[] {
   const args = ['--yes', `tmex-cli@${targetVersion}`, 'upgrade', '--apply-current-package'];
 
   const passthrough = ['install-dir', 'service-name', 'yes', 'lang'];
@@ -41,6 +39,11 @@ async function delegateUpgrade(parsed: ParsedArgs, targetVersion: string): Promi
     }
   }
 
+  return args;
+}
+
+async function delegateUpgrade(parsed: ParsedArgs, targetVersion: string): Promise<void> {
+  const args = buildDelegatedUpgradeArgs(parsed, targetVersion);
   const result = await runCommand('npx', args, { stdio: 'inherit' });
   if (result.code !== 0) {
     throw new Error(t('upgrade.delegateFailed', { code: result.code }));
@@ -97,17 +100,6 @@ export async function runUpgrade(parsed: ParsedArgs): Promise<void> {
   }
 
   const meta = await readJsonFile<InstallMeta>(installLayout.metaPath);
-  const explicitBunPath = readExplicitBunPath(parsed.flags);
-  const bun = await checkBunVersion(undefined, {
-    explicitPath: explicitBunPath,
-    metaBunPath: meta.bunPath,
-  });
-  if (!bun.ok || !bun.path) {
-    const hint = getInstallHint('bun');
-    const reason = bun.reason || t('bun.checkFailed');
-    throw new Error(`${reason}\n${t('deps.install.hint', { command: hint })}`);
-  }
-
   const packageLayout = await resolvePackageLayout(import.meta.url);
 
   const backupDir = await mkdtemp(join(tmpdir(), 'tmex-upgrade-'));
@@ -117,12 +109,11 @@ export async function runUpgrade(parsed: ParsedArgs): Promise<void> {
     await backupInstallArtifacts(installLayout, backupDir);
 
     await deployRuntimeFiles(packageLayout, installLayout);
-    await writeRunScript(installLayout, bun.path);
+    await writeRunScript(installLayout);
 
     const cliVersion = await readPackageVersion(packageLayout.packageRoot);
     meta.updatedAt = new Date().toISOString();
     meta.cliVersion = cliVersion;
-    meta.bunPath = bun.path;
     await writeInstallMeta(installLayout, meta);
 
     await installService({

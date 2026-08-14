@@ -1,14 +1,15 @@
-// 纯构建产物输出：runtime bundle + fe dist + gateway drizzle + manifest.json。
+// 纯构建产物输出：Rust Gateway targets + fe dist + manifest.json。
 // 不包含任何安装器 / 服务注册逻辑；构建本体直接复用 bundle-resources.sh 与
 // build-runtime.ts（spawn 调用而非复制逻辑，避免漂移）。
 //
 // 用法：bun scripts/build-artifacts.ts --outdir <dir> [--smoke]
-//   --outdir  必填，产物输出目录（runtime/ fe-dist/ gateway-drizzle/ manifest.json）
+//   --outdir  必填，产物输出目录（gateway-artifacts/ fe-dist/ manifest.json）
 //   --smoke   可选，构建后用产物起一个临时实例，curl /healthz 通过即杀掉
 
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
+  chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
@@ -20,6 +21,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { buildManifest } from '../src/lib/artifacts-manifest';
+import {
+  gatewayArtifactEntry,
+  gatewayTargetFor,
+  parseGatewayArtifactManifest,
+  verifyGatewayArtifact,
+} from '../src/lib/gateway-artifacts';
 
 const pkgRoot = resolve(import.meta.dir, '..');
 
@@ -94,12 +101,15 @@ function randomSmokePort(): number {
 
 async function smokeTest(outdir: string): Promise<void> {
   const workDir = mkdtempSync(join(tmpdir(), 'tmex-artifacts-smoke-'));
+  const fakeTmux = join(workDir, 'tmux-disabled');
+  writeFileSync(fakeTmux, '#!/usr/bin/env sh\nexit 127\n');
+  chmodSync(fakeTmux, 0o755);
 
   try {
     for (let attempt = 1; attempt <= SMOKE_PORT_ATTEMPTS; attempt++) {
       const port = randomSmokePort();
       console.log(`[build:artifacts] smoke attempt ${attempt}: 127.0.0.1:${port}`);
-      if (await smokeRunOnce(outdir, workDir, port, attempt)) {
+      if (await smokeRunOnce(outdir, workDir, fakeTmux, port, attempt)) {
         return;
       }
     }
@@ -112,11 +122,22 @@ async function smokeTest(outdir: string): Promise<void> {
 async function smokeRunOnce(
   outdir: string,
   workDir: string,
+  fakeTmux: string,
   port: number,
   attempt: number
 ): Promise<boolean> {
   const dbPath = join(workDir, `smoke-${attempt}.db`);
-  const proc = Bun.spawn(['bun', join(outdir, 'runtime/server.js')], {
+  const gatewayRoot = join(outdir, 'gateway-artifacts');
+  const gatewayManifest = parseGatewayArtifactManifest(
+    JSON.parse(readFileSync(join(gatewayRoot, 'manifest.json'), 'utf8')) as unknown,
+    { requireAllTargets: true }
+  );
+  const gatewayBinary = await verifyGatewayArtifact(
+    gatewayRoot,
+    gatewayArtifactEntry(gatewayManifest, gatewayTargetFor())
+  );
+  const proc = Bun.spawn([gatewayBinary, '--tmux-namespace', 'tmex-artifact-smoke'], {
+    cwd: workDir,
     env: {
       ...process.env,
       NODE_ENV: 'production',
@@ -125,7 +146,7 @@ async function smokeRunOnce(
       DATABASE_URL: dbPath,
       TMEX_MASTER_KEY: randomBytes(32).toString('base64'),
       TMEX_FE_DIST_DIR: join(outdir, 'fe-dist'),
-      TMEX_MIGRATIONS_DIR: join(outdir, 'gateway-drizzle'),
+      TMEX_TMUX_BIN: fakeTmux,
     },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -171,15 +192,13 @@ async function smokeRunOnce(
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  // 复用既有构建脚本，产出 resources/ 与 dist/runtime
-  step('bundling fe dist + gateway drizzle', 'bash', ['./scripts/bundle-resources.sh']);
-  step('building runtime bundle', 'bun', ['scripts/build-runtime.ts']);
+  step('bundling fe dist', 'bash', ['./scripts/bundle-resources.sh']);
+  step('bundling Rust Gateway artifacts', 'bun', ['scripts/build-runtime.ts']);
 
   mkdirSync(args.outdir, { recursive: true });
   const copies: Array<[string, string]> = [
-    ['dist/runtime', 'runtime'],
+    ['resources/gateway-artifacts', 'gateway-artifacts'],
     ['resources/fe-dist', 'fe-dist'],
-    ['resources/gateway-drizzle', 'gateway-drizzle'],
   ];
   for (const [src, dest] of copies) {
     const target = join(args.outdir, dest);

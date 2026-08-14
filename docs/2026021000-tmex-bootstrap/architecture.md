@@ -26,7 +26,7 @@ tmex 是一个通过网页接入多个设备（本地或 SSH）的 tmux 终端�
 ```
 tmex/
 ├── apps/
-│   ├── gateway/          # Bun.js 网关服务
+│   ├── gateway/          # Tokio/Axum Rust Gateway；TypeScript 为兼容 oracle
 │   │   ├── src/
 │   │   │   ├── api/      # REST API 路由
 │   │   │   ├── crypto/   # 加密/解密层
@@ -140,7 +140,7 @@ docker-compose down
 bun install
 
 # 启动 Gateway
-cd apps/gateway && bun dev
+cargo run --locked --package tmex-gateway --bin tmex-gateway
 
 # 启动 Frontend（新终端）
 cd apps/fe && bun dev

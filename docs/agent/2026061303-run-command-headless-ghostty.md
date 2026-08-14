@@ -1,5 +1,9 @@
 # run_command + 服务端 headless ghostty 终端工具
 
+> 2026-08-12 更新：production Gateway 已切换为 Rust，服务端终端状态由
+> `tmex-terminal`/`alacritty_terminal` 提供，不再分发 headless Ghostty WASM。下文保留为旧
+> TypeScript 实现与测试 oracle 的设计记录；浏览器端 Ghostty WASM 不受影响。
+
 ## 背景
 
 agent 操作终端原本是「屏幕抓取」：`read_screen` 走 `tmux capture-pane` 只拿可见屏，`send_input` 只回 15 行尾部。长输出被截断、无命令完成边界、无退出码、读屏非流式。本次把 agent 终端工具改为**服务端 headless ghostty 渲染 + 实时字节流**驱动，并新增基于 OSC 133 的 `run_command`。
@@ -37,6 +41,7 @@ system-prompt 增段：agent 先探测环境（POSIX/网络 CLI/TUI），据此�
 - gateway `bun test` 495 / shared 49 全绿（含：OSC 133 parser、HeadlessTerminal 真 wasm、emulator/registry 防泄漏、run_command 全分支 fake-emulator、工具 fallback、prompt 快照）。
 - gateway `bun build --target bun` 通过；前端 `bun run build`（tsc + vite）通过且正确产出 `ghostty-vt-*.wasm` 资产。
 
-## 已知follow-up
-1. **生产打包 wasm（已解决）**：生产 gateway 入口走 `packages/app`（tmex-cli）的 `build:runtime`（`bun build src/runtime/server.ts → dist/runtime/`），非 apps/gateway 自身的 bun build。新增 `packages/app/scripts/copy-runtime-assets.sh` 在 `build:runtime` 后把 `ghostty-vt.wasm` 拷进 `dist/runtime/assets/`，随 `install.ts` 的 `deployRuntimeFiles` 整目录进 `<installDir>/runtime/assets/`，命中 bundled `new URL('./assets/...', import.meta.url)`。dev/test 不变。
-2. **端到端 integration（见 docs/known-issues.md KI-2）**：真 tmux → control 流 → parser → emulator → run_command 的全链路集成测试（长输出不丢/退出码/vim 拒绝）建议补上；当前各层单测已分别覆盖（真 OSC 字节、真 ghostty wasm、run_command 全分支）。
+## 已知 follow-up
+
+旧 TypeScript oracle 仍保留分层测试；production Rust 链路的 tmux/control stream/terminal 与
+`run_command` 回归由 Gateway Cargo tests 覆盖。

@@ -1,53 +1,39 @@
 # Gateway Dockerfile
-FROM oven/bun:1 AS builder
+FROM rust:1.90.0-bookworm AS builder
 
 WORKDIR /app
 
-# 复制 workspace 配置
-COPY package.json bun.lock* ./
-COPY packages/shared/package.json packages/shared/
-COPY apps/gateway/package.json apps/gateway/
-# 版本真相源：构建期注入 monorepo 版本号需要读 packages/app/package.json
-COPY packages/app/package.json packages/app/
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY apps/gateway/Cargo.toml apps/gateway/build.rs apps/gateway/
+COPY apps/gateway/drizzle/ apps/gateway/drizzle/
+COPY apps/gateway/src-rust/ apps/gateway/src-rust/
+COPY packages/shared/src/i18n/locales/ packages/shared/src/i18n/locales/
 
-# 安装依赖
-RUN bun install
+RUN cargo build --locked --release --package tmex-gateway --bin tmex-gateway
 
-# 复制源代码
-COPY packages/shared/ packages/shared/
-COPY apps/gateway/ apps/gateway/
+FROM debian:bookworm-slim
 
-# 构建（scripts/build.ts 读 packages/app/package.json 注入 TMEX_MONOREPO_VERSION）
-WORKDIR /app/apps/gateway
-RUN bun run build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl openssh-client tmux \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --create-home --uid 1000 tmex \
+  && mkdir -p /app /data \
+  && chown -R tmex:tmex /app /data
 
-# 生产镜像
-FROM oven/bun:1-slim
+COPY --from=builder /app/target/release/tmex-gateway /usr/local/bin/tmex-gateway
 
+USER tmex
 WORKDIR /app
 
-# 安装 tmux
-RUN apt-get update && apt-get install -y tmux openssh-client && rm -rf /var/lib/apt/lists/*
-
-# 创建数据目录
-RUN mkdir -p /data
-
-# 复制构建产物
-COPY --from=builder /app/apps/gateway/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/apps/gateway/package.json ./
-
-# 非 root 用户运行
-RUN useradd -m -u 1000 bunuser && chown -R bunuser:bunuser /app /data
-USER bunuser
-
-ENV NODE_ENV=production
-ENV DATABASE_URL=/data/tmex.db
+ENV NODE_ENV=production \
+  GATEWAY_PORT=8080 \
+  TMEX_BIND_HOST=0.0.0.0 \
+  DATABASE_URL=/data/tmex.db
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD bun -e "fetch('http://localhost:8080/healthz').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+  CMD curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null || exit 1
 
-CMD ["bun", "dist/index.js"]
+CMD ["tmex-gateway"]

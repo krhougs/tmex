@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const INSTALL_MARKER = 'Application Support/tmex';
 
 /** 指向安装目录、dev/test 下需要净化的路径键 */
-const PATH_KEYS = ['TMEX_MIGRATIONS_DIR', 'TMEX_FE_DIST_DIR'] as const;
+const PATH_KEYS = ['TMEX_FE_DIST_DIR'] as const;
 
 /** 生产必需且非空的键 */
 const PRODUCTION_REQUIRED = [
@@ -26,7 +26,7 @@ const PRODUCTION_REQUIRED = [
 ] as const;
 
 /** 生产必需且必须指向真实存在目录的键（由 run.sh export） */
-const PRODUCTION_REQUIRED_DIRS = ['TMEX_FE_DIST_DIR', 'TMEX_MIGRATIONS_DIR'] as const;
+const PRODUCTION_REQUIRED_DIRS = ['TMEX_FE_DIST_DIR'] as const;
 
 export type EnvName = 'development' | 'test' | 'production';
 
@@ -143,7 +143,7 @@ function applyProductionEnv(
 
   if (missing.length > 0) {
     throw new Error(
-      `[env] 生产环境启动校验失败，缺少/无效的必需变量：${missing.join('、')}。生产变量应由安装版 run.sh 经 app.env 注入；请检查 app.env 是否完整、TMEX_FE_DIST_DIR/TMEX_MIGRATIONS_DIR 是否指向已部署的 resources 目录，或重新执行 \`tmex upgrade\` 重建 run.sh。`
+      `[env] 生产环境启动校验失败，缺少/无效的必需变量：${missing.join('、')}。生产变量应由安装版 run.sh 经 app.env 注入；请检查 app.env 是否完整、TMEX_FE_DIST_DIR 是否指向已部署的 resources 目录，或重新执行 \`tmex upgrade\` 重建 run.sh。`
     );
   }
 

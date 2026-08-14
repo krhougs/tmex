@@ -1,44 +1,28 @@
-// 打包 runtime（内联 gateway），并在构建期注入 monorepo 版本号。
-//
-// 注入 TMEX_MONOREPO_VERSION 后，运行时 apps/gateway/src/system/version.ts 的
-// typeof 守卫被短路，安装版/容器版无需再依赖 install-meta 或仓库 package.json 即可拿到版本。
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { bundleGatewayArtifacts } from '../src/lib/gateway-artifacts';
 
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+const packageRoot = resolve(import.meta.dir, '..');
+const sourceManifestPath = process.env.TMEX_GATEWAY_ARTIFACTS_MANIFEST;
 
-const pkgRoot = resolve(import.meta.dir, '..');
-const pkg = JSON.parse(readFileSync(resolve(pkgRoot, 'package.json'), 'utf8')) as {
-  version?: string;
-};
-const version = pkg.version ?? '0.0.0';
+if (!sourceManifestPath) {
+  console.error(
+    '[build:runtime] TMEX_GATEWAY_ARTIFACTS_MANIFEST is required; it must point to the release-produced Rust target manifest'
+  );
+  process.exit(1);
+}
 
-console.log(`[build:runtime] injecting TMEX_MONOREPO_VERSION="${version}"`);
+const packageVersion = (
+  JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8')) as { version?: unknown }
+).version;
+if (typeof packageVersion !== 'string') {
+  console.error('[build:runtime] tmex-cli package version is missing');
+  process.exit(1);
+}
 
-const build = spawnSync(
-  'bun',
-  [
-    'build',
-    'src/runtime/server.ts',
-    '--outdir',
-    './dist/runtime',
-    '--target',
-    'bun',
-    '--format',
-    'esm',
-    '--define',
-    `TMEX_MONOREPO_VERSION="${version}"`,
-  ],
-  { cwd: pkgRoot, stdio: 'inherit' }
+const manifest = await bundleGatewayArtifacts(
+  sourceManifestPath,
+  join(packageRoot, 'resources', 'gateway-artifacts'),
+  packageVersion
 );
-if (build.status !== 0) {
-  process.exit(build.status ?? 1);
-}
-
-const copy = spawnSync('bash', ['./scripts/copy-runtime-assets.sh'], {
-  cwd: pkgRoot,
-  stdio: 'inherit',
-});
-if (copy.status !== 0) {
-  process.exit(copy.status ?? 1);
-}
+console.log(`[build:runtime] bundled ${manifest.artifacts.length} Rust Gateway targets`);

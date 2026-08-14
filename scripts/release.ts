@@ -12,12 +12,14 @@
 //   - 默认 commit 范围 = 上一条 `chore(release)` 提交 .. HEAD。
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const pkgPath = resolve(repoRoot, 'packages/app/package.json');
 const changelogPath = resolve(repoRoot, 'packages/app/CHANGELOG.md');
+const cargoTomlPath = resolve(repoRoot, 'Cargo.toml');
+const cargoLockPath = resolve(repoRoot, 'Cargo.lock');
 
 interface Args {
   version: string;
@@ -166,6 +168,45 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+export function replaceWorkspacePackageVersion(content: string, version: string): string {
+  const sectionStart = content.indexOf('[workspace.package]');
+  if (sectionStart === -1) {
+    throw new Error('Cargo.toml is missing [workspace.package]');
+  }
+  const rest = content.slice(sectionStart + '[workspace.package]'.length);
+  const nextSectionOffset = rest.search(/^\[/m);
+  const sectionEnd =
+    nextSectionOffset === -1
+      ? content.length
+      : sectionStart + '[workspace.package]'.length + nextSectionOffset;
+  const section = content.slice(sectionStart, sectionEnd);
+  const matches = [...section.matchAll(/^version\s*=\s*"[^"]+"\s*$/gm)];
+  if (matches.length !== 1 || matches[0]?.index === undefined) {
+    throw new Error('Cargo.toml [workspace.package] must contain exactly one version');
+  }
+  const match = matches[0];
+  const start = sectionStart + match.index;
+  const end = start + match[0].length;
+  return `${content.slice(0, start)}version = "${version}"${content.slice(end)}`;
+}
+
+function ensureCargoAvailable(): void {
+  const available = spawnSync('cargo', ['--version'], { cwd: repoRoot, encoding: 'utf8' });
+  if (available.status !== 0) {
+    throw new Error(`cargo is required to bump the Rust workspace: ${available.stderr}`);
+  }
+}
+
+function refreshCargoLock(): void {
+  const metadata = spawnSync('cargo', ['metadata', '--format-version', '1', '--no-deps'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+  if (metadata.status !== 0) {
+    throw new Error(`failed to refresh Cargo.lock: ${metadata.stderr || metadata.stdout}`);
+  }
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const from = args.from ?? lastReleaseRef() ?? undefined;
@@ -179,11 +220,31 @@ function main(): void {
   );
 
   if (!args.noBump) {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    ensureCargoAvailable();
+    const originalPackageJson = readFileSync(pkgPath, 'utf8');
+    const originalCargoToml = readFileSync(cargoTomlPath, 'utf8');
+    const hadCargoLock = existsSync(cargoLockPath);
+    const originalCargoLock = hadCargoLock ? readFileSync(cargoLockPath) : null;
+    const pkg = JSON.parse(originalPackageJson) as { version?: string };
     const prev = pkg.version;
     pkg.version = args.version;
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-    console.log(`[release] bumped tmex-cli ${prev} -> ${args.version}`);
+    try {
+      writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+      writeFileSync(cargoTomlPath, replaceWorkspacePackageVersion(originalCargoToml, args.version));
+      refreshCargoLock();
+    } catch (error) {
+      writeFileSync(pkgPath, originalPackageJson);
+      writeFileSync(cargoTomlPath, originalCargoToml);
+      if (originalCargoLock) {
+        writeFileSync(cargoLockPath, originalCargoLock);
+      } else {
+        rmSync(cargoLockPath, { force: true });
+      }
+      throw error;
+    }
+    console.log(
+      `[release] bumped tmex-cli and Rust workspace ${prev} -> ${args.version}; refreshed Cargo.lock`
+    );
   }
 
   console.log('[release] CHANGELOG.md 当前是双语 commit 原文草稿（含 DRAFT 标记）。');
@@ -195,10 +256,15 @@ function main(): void {
   console.log(
     '  2) review packages/app/CHANGELOG.md（确认无 DRAFT 标记、无 commit 黑话、英中两段齐全）'
   );
-  console.log('  3) bun run build && bun run test:tmex');
+  console.log('  3) 提交 release 变更并推送到允许的上游任务分支');
   console.log(
-    `  4) git commit -am "chore(release): tmex-cli ${args.version}" && bun run publish:tmex`
+    `  4) 在 GitHub Actions 手动运行 tmex-cli Rust Gateway artifacts，version=${args.version}`
+  );
+  console.log(
+    '  5) workflow 四目标构建、attestation、package smoke 通过后，下载 tmex-cli-npm artifact 并发布其中的 .tgz'
   );
 }
 
-main();
+if (import.meta.main) {
+  main();
+}

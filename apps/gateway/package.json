@@ -3,22 +3,18 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "./scripts/run-with-ssh-agent.sh --watch src/index.ts",
-    "build": "bun scripts/build.ts",
-    "build:managed": "bun scripts/build-managed.ts",
-    "scan:managed": "bun scripts/scan-managed-artifact.ts",
-    "smoke:managed": "bun scripts/run-managed-smoke.ts",
-    "start": "./scripts/run-with-ssh-agent.sh dist/index.js",
-    "test": "bun test",
+    "dev": "./scripts/run-with-ssh-agent.sh ./scripts/run-rust-gateway.sh",
+    "build": "cargo build --locked --release --package tmex-gateway --bin tmex-gateway",
+    "start": "./scripts/run-with-ssh-agent.sh ../../target/release/tmex-gateway",
+    "test": "cargo test --locked --package tmex-gateway --all-targets && bun test",
+    "test:oracle": "bun test",
     "test:ssh-agent-local": "bun test ./src/tmux/ssh-agent-local.integration.ts",
     "test:live:llm": "NODE_ENV=test bun test ./src/llm/provider-live.integration.ts",
     "test:live:llm-api": "NODE_ENV=test bun test ./src/api/llm-api-live.integration.ts",
     "test:live:search": "NODE_ENV=test bun test ./src/agent/tools/web-search-live.integration.ts",
     "test:live:hosted-tool": "NODE_ENV=test bun test ./src/agent/agent-hosted-tool.integration.ts",
     "test:live:weixin": "NODE_ENV=test bun test ./src/weixin/ilink/send-live.integration.ts",
-    "test:live": "NODE_ENV=test bun test ./src/llm/provider-live.integration.ts ./src/api/llm-api-live.integration.ts ./src/agent/tools/web-search-live.integration.ts",
-    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
-    "db:migrate": "bun src/db/migrate.ts"
+    "test:live": "NODE_ENV=test bun test ./src/llm/provider-live.integration.ts ./src/api/llm-api-live.integration.ts ./src/agent/tools/web-search-live.integration.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.71",

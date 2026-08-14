@@ -2,13 +2,11 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { defaultInstallDir } from '../constants';
 import { t } from '../i18n';
-import { checkBunVersion, readExplicitBunPath } from '../lib/bun';
 import {
+  type DepInstallPlan,
   executeDependencyInstall,
   getInstallHintAsync,
-  planBunInstall,
   planTmuxInstall,
-  type DepInstallPlan,
 } from '../lib/dep-install';
 import { readEnvFile } from '../lib/env-file';
 import { pathExists } from '../lib/fs-utils';
@@ -62,31 +60,9 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
     });
   }
 
-  const explicitBunPath = readExplicitBunPath(parsed.flags);
   const meta = (await pathExists(installLayout.metaPath))
     ? await readJsonFile<InstallMeta>(installLayout.metaPath).catch(() => null)
     : null;
-  const bun = await checkBunVersion(undefined, {
-    explicitPath: explicitBunPath,
-    metaBunPath: meta?.bunPath,
-  });
-  if (bun.ok) {
-    checks.push({
-      id: 'bun',
-      level: 'pass',
-      message: t('doctor.bun.ok', { version: bun.version }),
-      detail: bun.path,
-    });
-  } else {
-    checks.push({
-      id: 'bun',
-      level: 'fail',
-      message: t('doctor.bun.fail', { reason: bun.reason || t('bun.checkFailed') }),
-      detail: bun.path,
-      hint: await getInstallHintAsync('bun'),
-      fixable: true,
-    });
-  }
 
   const tmux = await checkTmuxVersion();
   if (tmux.ok) {
@@ -267,18 +243,19 @@ export async function runDoctor(parsed: ParsedArgs): Promise<void> {
     console.log(`\n[tmex] ${t('doctor.fix.header')}`);
 
     for (const check of fixableFailures) {
-      const dep = check.id as 'bun' | 'tmux';
-      if (dep !== 'bun' && dep !== 'tmux') {
+      const dep = check.id as 'tmux';
+      if (dep !== 'tmux') {
         console.log(`[tmex] ${t('doctor.fix.skip', { id: check.id })}`);
         continue;
       }
 
-      const commands = dep === 'bun' ? planBunInstall() : await planTmuxInstall();
+      const commands = await planTmuxInstall();
       const plan: DepInstallPlan = {
         dep,
         commands,
-        requiredVersion: dep === 'tmux' ? '>= 3.0' : '>= 1.3.0',
-        issue: check.id === 'tmux' && check.message.includes('version') ? 'version-too-low' : 'missing',
+        requiredVersion: '>= 3.0',
+        issue:
+          check.id === 'tmux' && check.message.includes('version') ? 'version-too-low' : 'missing',
       };
 
       const nonInteractive = asBoolean(parsed.flags['no-interactive']) ?? false;
