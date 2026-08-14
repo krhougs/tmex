@@ -18,7 +18,7 @@ use crate::database::repository::{CreateFileRootInput, RepositoryError, UpdateFi
 use crate::entity::file_roots;
 use crate::files::{
     AppendUploadError, DownloadSession, FileCancellation, FileError, FileErrorCode, PulledFile,
-    RsyncProgress, TransferManager, RAW_MAX_BYTES, UPLOAD_CHUNK_SIZE,
+    RsyncProgress, TransferManager, RAW_MAX_BYTES, UPLOAD_CHUNK_BODY_LIMIT, UPLOAD_CHUNK_SIZE,
 };
 
 use super::dto::SettingsNamespace;
@@ -530,7 +530,7 @@ async fn handle_upload_chunk(
     else {
         return Ok(invalid_request(handler));
     };
-    let bytes = match to_bytes(request.into_body(), UPLOAD_CHUNK_SIZE).await {
+    let bytes = match to_bytes(request.into_body(), UPLOAD_CHUNK_BODY_LIMIT).await {
         Ok(bytes) => bytes,
         Err(_) => return Ok(code_error(FileError::code(FileErrorCode::TooLarge))),
     };

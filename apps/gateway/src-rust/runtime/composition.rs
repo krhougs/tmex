@@ -467,7 +467,12 @@ fn build_event_notifier(
             "webhook",
             Arc::new(WebhookChannel::new(
                 event_config.clone(),
-                Arc::new(ReqwestWebhookTransport::new(reqwest::Client::new())),
+                Arc::new(ReqwestWebhookTransport::new(
+                    reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(30))
+                        .build()
+                        .unwrap_or_else(|_| reqwest::Client::new()),
+                )),
                 now_millis.clone(),
             )),
         ),

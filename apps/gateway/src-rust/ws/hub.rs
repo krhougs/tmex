@@ -4331,14 +4331,21 @@ fn encode_agent_event(event: &AgentEvent) -> Result<(u8, Vec<u8>), serde_json::E
             tool_call_id,
             tool_name,
             output,
-            is_error,
+        } => (
+            AGENT_EVENT_TOOL_RESULT,
+            json!({ "toolCallId": tool_call_id, "toolName": tool_name, "output": output }),
+        ),
+        AgentEvent::ToolError {
+            tool_call_id,
+            tool_name,
+            output,
         } => (
             AGENT_EVENT_TOOL_RESULT,
             json!({
                 "toolCallId": tool_call_id,
                 "toolName": tool_name,
                 "output": output,
-                "isError": is_error,
+                "isError": true,
             }),
         ),
         AgentEvent::ConfirmationRequest(confirmation) => (

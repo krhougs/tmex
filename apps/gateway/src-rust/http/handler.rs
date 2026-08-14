@@ -111,7 +111,7 @@ impl HttpHandler {
             agent_service: None,
             telegram_service: None,
             weixin_service: None,
-            update_registry: Arc::new(ReqwestUpdateRegistry),
+            update_registry: Arc::new(ReqwestUpdateRegistry::default()),
             upgrade: UpgradeController::production(),
         }
     }

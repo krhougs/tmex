@@ -50,16 +50,26 @@ struct DistTags {
     latest: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct ReqwestUpdateRegistry;
+#[derive(Clone, Debug)]
+pub struct ReqwestUpdateRegistry {
+    client: reqwest::Client,
+}
+
+impl Default for ReqwestUpdateRegistry {
+    fn default() -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(FETCH_TIMEOUT)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+        }
+    }
+}
 
 #[async_trait]
 impl UpdateRegistry for ReqwestUpdateRegistry {
     async fn fetch_packument(&self) -> Result<RegistryPackument, UpdateRegistryError> {
-        let client = reqwest::Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .build()
-            .map_err(|error| UpdateRegistryError(error.to_string()))?;
+        let client = &self.client;
         let response = client
             .get(REGISTRY_URL)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -94,11 +104,8 @@ impl UpdateRegistry for ReqwestUpdateRegistry {
     }
 
     async fn fetch_changelog(&self, version: &str) -> Option<String> {
-        let client = reqwest::Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .build()
-            .ok()?;
-        let response = client
+        let response = self
+            .client
             .get(changelog_url(version))
             .header(reqwest::header::CACHE_CONTROL, "no-cache")
             .send()

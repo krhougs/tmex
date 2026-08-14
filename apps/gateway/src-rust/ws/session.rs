@@ -5,7 +5,7 @@ use tmex_protocol::{
 
 use super::{
     decode_frame, encoded_envelope_len, next_chunk_stream_id, split_payload_into_chunks,
-    validate_envelope, ChunkReassembler, SessionProtocolError, MAX_CHUNK_STREAM_BYTES,
+    validate_envelope, ChunkReassembler, SessionProtocolError,
 };
 
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u32 = 15_000;
@@ -178,12 +178,6 @@ impl LegacyBorshSession {
         payload: Vec<u8>,
         flags: u16,
     ) -> Result<Vec<Envelope>, SessionProtocolError> {
-        if payload.len() > MAX_CHUNK_STREAM_BYTES {
-            return Err(SessionProtocolError::frame_too_large(
-                payload.len(),
-                MAX_CHUNK_STREAM_BYTES,
-            ));
-        }
         let original_seq = self.take_outbound_seq();
         let max_frame_bytes = self.outbound_max_frame_bytes();
         let max_unchunked_payload = max_frame_bytes
@@ -466,7 +460,7 @@ mod tests {
     };
 
     use super::*;
-
+    use crate::ws::MAX_CHUNK_STREAM_BYTES;
     fn hello(max_frame_bytes: u32) -> HelloC2s {
         HelloC2s {
             client_impl: "tmex-fe".into(),

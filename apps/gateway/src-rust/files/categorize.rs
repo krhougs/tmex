@@ -132,7 +132,10 @@ const KNOWN_NOEXT: &[&str] = &[
 ];
 
 fn extension(name: &str) -> &str {
-    name.rsplit_once('.').map_or("", |(_, extension)| extension)
+    match name.rfind('.') {
+        Some(index) if index > 0 => &name[index + 1..],
+        _ => "",
+    }
 }
 
 pub fn categorize(name: &str) -> FileCategory {

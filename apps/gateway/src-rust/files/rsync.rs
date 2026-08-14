@@ -102,14 +102,19 @@ fn unescape_octal(input: &str) -> String {
             };
             output.push(character);
             index += character.len_utf8();
-        } else if bytes.get(index + 1) == Some(&b'\\') {
-            flush(&mut pending, &mut output);
-            output.push('\\');
-            index += 2;
         } else if let Some(digits) = bytes.get(index + 1..index + 4) {
             if digits.iter().all(|digit| matches!(digit, b'0'..=b'7')) {
-                pending.push((digits[0] - b'0') * 64 + (digits[1] - b'0') * 8 + digits[2] - b'0');
-                index += 4;
+                let value = (u16::from(digits[0] - b'0') * 64)
+                    + (u16::from(digits[1] - b'0') * 8)
+                    + u16::from(digits[2] - b'0');
+                if value <= 255 {
+                    pending.push(value as u8);
+                    index += 4;
+                } else {
+                    flush(&mut pending, &mut output);
+                    output.push('\\');
+                    index += 1;
+                }
             } else {
                 flush(&mut pending, &mut output);
                 output.push('\\');
@@ -132,7 +137,8 @@ pub fn classify_rsync_failure(exit_code: i32, stderr: &str) -> FileErrorCode {
     }
     if stderr.contains("command not found")
         || stderr.contains("rsync: not found")
-        || (stderr.contains("rsync error: error in rsync protocol") && stderr.contains("code 127"))
+        || (stderr.contains("rsync error: error in rsync protocol")
+            && stderr.contains("(code 127)"))
         || stderr.contains("exec: rsync: not found")
         || stderr.contains("bash: rsync")
     {
@@ -166,18 +172,20 @@ pub fn classify_rsync_failure(exit_code: i32, stderr: &str) -> FileErrorCode {
     if stderr.contains("permission denied") {
         return FileErrorCode::PermissionDenied;
     }
-    if [
-        "no such file or directory",
-        "change_dir",
-        "link_stat",
-        "failed to stat",
-    ]
-    .iter()
-    .any(|needle| stderr.contains(needle))
+    if stderr.contains("no such file or directory")
+        || stderr.contains("failed to stat")
+        || contains_after(&stderr, "change_dir", "failed")
+        || contains_after(&stderr, "link_stat", "failed")
     {
         return FileErrorCode::NotFound;
     }
     FileErrorCode::Unknown
+}
+
+fn contains_after(haystack: &str, first: &str, second: &str) -> bool {
+    haystack
+        .find(first)
+        .is_some_and(|index| haystack[index + first.len()..].contains(second))
 }
 
 pub fn rsync_list_args(spec: &PreparedRsyncDevice, remote_path: &str) -> Vec<String> {

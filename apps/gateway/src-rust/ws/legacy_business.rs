@@ -1504,7 +1504,7 @@ fn is_tmux_id(value: &str, prefix: char) -> bool {
     })
 }
 
-fn parse_window_layout_size(layout: Option<&str>) -> Option<(u16, u16)> {
+pub fn parse_window_layout_size(layout: Option<&str>) -> Option<(u16, u16)> {
     let layout = layout?;
     let (_, dimensions) = layout.split_once(',')?;
     let dimensions = dimensions.split([',', '[', '{']).next()?;

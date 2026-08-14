@@ -28,4 +28,5 @@ pub use types::{
 };
 
 pub const UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
+pub const UPLOAD_CHUNK_BODY_LIMIT: usize = 128 * 1024 * 1024;
 pub const RAW_MAX_BYTES: u64 = 50 * 1024 * 1024;

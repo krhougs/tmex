@@ -364,6 +364,7 @@ async fn poll_bot(
     next_offset: Arc<AtomicI64>,
     mut cancel: watch::Receiver<bool>,
 ) {
+    let mut failures = 0u32;
     loop {
         if *cancel.borrow() {
             return;
@@ -383,6 +384,7 @@ async fn poll_bot(
         };
         match result {
             Ok(updates) => {
+                failures = 0;
                 let mut highest_update_id = None;
                 for update in updates {
                     highest_update_id =
@@ -410,8 +412,10 @@ async fn poll_bot(
             }
             Err(error) => {
                 tracing::error!(bot_id, error = %error, "Telegram long poll failed");
+                let delay = TELEGRAM_POLL_RETRY_DELAY.saturating_mul(1u32 << failures.min(5));
+                failures += 1;
                 tokio::select! {
-                    _ = tokio::time::sleep(TELEGRAM_POLL_RETRY_DELAY) => {}
+                    _ = tokio::time::sleep(delay) => {}
                     changed = cancel.changed() => {
                         if changed.is_err() || *cancel.borrow() {
                             return;

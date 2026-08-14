@@ -8,9 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
-use super::{
-    FileCancellation, FileError, FileErrorCode, FileResult, PulledFile, UPLOAD_CHUNK_SIZE,
-};
+use super::{FileCancellation, FileError, FileErrorCode, FileResult, PulledFile};
 
 const SESSION_TTL: Duration = Duration::from_secs(30 * 60);
 const GC_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -115,9 +113,6 @@ impl TransferManager {
         offset: u64,
         bytes: &[u8],
     ) -> Result<u64, AppendUploadError> {
-        if bytes.len() > UPLOAD_CHUNK_SIZE {
-            return Err(AppendUploadError::TooLarge);
-        }
         let session = lock_recover(&self.inner.uploads).get(id).cloned();
         let Some(session) = session else {
             return Err(AppendUploadError::NotFound);
@@ -317,6 +312,7 @@ pub(crate) fn temporary_file(prefix: &str) -> FileResult<(TempDir, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::UPLOAD_CHUNK_SIZE;
 
     #[tokio::test]
     async fn upload_chunks_are_bounded_and_strictly_sequential() {

@@ -28,8 +28,9 @@ pub use hub::{
     GATEWAY_WS_SESSION_MAILBOX_CAPACITY,
 };
 pub use legacy_business::{
-    CapturedPaneHistory, LegacyBusinessEvent, LegacyBusinessRuntime, LegacyBusinessSession,
-    LegacyPanePosition, LegacyRuntimeCommand, LegacySplitDirection, LegacyTmuxEventDelivery,
+    parse_window_layout_size, CapturedPaneHistory, LegacyBusinessEvent, LegacyBusinessRuntime,
+    LegacyBusinessSession, LegacyPanePosition, LegacyRuntimeCommand, LegacySplitDirection,
+    LegacyTmuxEventDelivery,
 };
 pub use session::{
     LegacyBorshSession, NegotiatedClient, SessionAction, SessionConfig, SessionPhase,
