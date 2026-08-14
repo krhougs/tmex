@@ -3136,6 +3136,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn canonical_resize_pane_targets_the_owning_window() {
+        let (factory, _close_started, _close_finished, commands) = recording_fake_factory(None);
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        let canonical = super::super::DeviceCanonicalRuntime::new(runtime.clone()).unwrap();
+
+        CanonicalFeedRuntime::resize_pane(&canonical, "%legacy-window-resize", 137, 41)
+            .await
+            .unwrap();
+
+        {
+            let commands = commands.lock().unwrap();
+            assert!(commands.iter().any(|args| {
+                args == &strings(["resize-window", "-t", "@9", "-x", "137", "-y", "41"])
+            }));
+            assert!(!commands.iter().any(|args| {
+                args.first().map(String::as_str) == Some("resize-pane")
+                    && args.iter().any(|arg| arg == "%legacy-window-resize")
+            }));
+        }
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn legacy_select_and_sync_resize_stay_fifo_when_the_runtime_queue_is_full() {
         let close_started = Arc::new(AtomicBool::new(false));
         let close_finished = Arc::new(AtomicBool::new(false));

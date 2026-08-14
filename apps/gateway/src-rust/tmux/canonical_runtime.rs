@@ -315,9 +315,12 @@ impl CanonicalFeedRuntime for DeviceCanonicalRuntime {
         cols: u16,
         rows: u16,
     ) -> RuntimeFuture<'a, Result<(), CanonicalRuntimeError>> {
+        // Canonical ResizePane is the client grid for the owning window, the
+        // same as JS runtime.resizePane → resize-window. resize-pane would
+        // briefly apply and then snap back to the control client's size.
         Box::pin(async move {
             self.runtime
-                .enqueue_resize_pane(pane_id, cols, rows)
+                .resize_window_for_pane(pane_id, cols, rows)
                 .await
                 .map_err(canonical_error)
         })
