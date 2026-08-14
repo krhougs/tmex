@@ -72,6 +72,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  desktopMediaQuery,
   className,
   style,
   children,
@@ -80,8 +81,9 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  desktopMediaQuery?: string
 }) {
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(desktopMediaQuery)
   const [openMobile, setOpenMobile] = React.useState(false)
 
   // preferredWidthRef 保存用户期望宽度（仅受下限约束、不被视口裁剪），
