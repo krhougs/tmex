@@ -81,6 +81,13 @@ fn run_entrypoint() -> Result<i32, StandaloneError> {
         return Ok(0);
     };
 
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let environment = load_process_environment()?;
     validate_production_environment(&environment)?;
     let current_exe = env::current_exe()
@@ -101,6 +108,7 @@ fn run_entrypoint() -> Result<i32, StandaloneError> {
         format!("{GATEWAY_VERSION}_dev")
     };
     println!("[gateway] tmex {display_version}");
+    tracing::info!(version = %display_version, "tmex-gateway starting");
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
