@@ -29,8 +29,8 @@ use crate::telegram::{
     TelegramServiceDependencies,
 };
 use crate::tmux::{
-    DeviceSessionRuntime, RepositoryTmuxRuntimeConfig, RepositoryTmuxRuntimeFactory, SpawnExecutor,
-    TmuxRuntimeRegistry,
+    DeviceSessionRuntime, ManagedTmuxRuntime, RepositoryTmuxRuntimeConfig,
+    RepositoryTmuxRuntimeFactory, SpawnExecutor, TmuxRuntimeRegistry,
 };
 use crate::watch::{
     GatewayWatchRuntime, GatewayWatchRuntimeDependencies, WatchService, WatchServiceConfig,
@@ -52,12 +52,18 @@ pub(crate) struct RuntimeServices {
     pub(crate) hub: Arc<GatewayWsHub>,
     pub(crate) site_name: String,
     pub(crate) restart_policy: GatewayRestartPolicy,
+    repository: crate::database::repository::Repository,
     watch: WatchService,
     agent: Arc<AgentSupervisor>,
     push: Arc<PushSupervisor>,
     runtimes: Arc<TmuxRuntimeRegistry<DeviceSessionRuntime>>,
     telegram: Arc<TelegramService>,
     weixin: Arc<WeixinService>,
+}
+
+pub(crate) struct RequiredLocalRuntimeLease {
+    device_id: String,
+    runtime: Arc<DeviceSessionRuntime>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -287,7 +293,7 @@ impl RuntimeServices {
             environment,
         }));
         let handler = HttpHandler::with_master_key(
-            repository,
+            repository.clone(),
             config,
             master_key,
             http_runtime,
@@ -304,6 +310,7 @@ impl RuntimeServices {
             hub,
             site_name,
             restart_policy,
+            repository,
             watch,
             agent,
             push,
@@ -311,6 +318,32 @@ impl RuntimeServices {
             telegram,
             weixin,
         })
+    }
+
+    pub(crate) async fn acquire_required_local_runtime(
+        &self,
+    ) -> Result<RequiredLocalRuntimeLease, GatewayRuntimeError> {
+        let devices = self
+            .repository
+            .get_all_devices()
+            .await
+            .map_err(|error| runtime_error("required-local-tmux", error))?;
+        let device_id = select_required_local_device_id(
+            devices
+                .iter()
+                .map(|device| (device.id.as_str(), device.r#type.as_str())),
+        )
+        .ok_or_else(|| {
+            GatewayRuntimeError::new("required-local-tmux", "no local device configured")
+        })?;
+        let runtime = acquire_required_local_runtime(&self.runtimes, &device_id).await?;
+        Ok(RequiredLocalRuntimeLease { device_id, runtime })
+    }
+
+    pub(crate) async fn release_required_local_runtime(&self, lease: RequiredLocalRuntimeLease) {
+        self.runtimes
+            .release(&lease.device_id, Some(&lease.runtime))
+            .await;
     }
 
     pub(crate) async fn start(&self) -> Result<(), GatewayRuntimeError> {
@@ -516,15 +549,40 @@ pub(crate) fn site_defaults(config: &GatewayConfig) -> RepositorySiteSettingsDef
     }
 }
 
+fn select_required_local_device_id<'a, I>(devices: I) -> Option<String>
+where
+    I: IntoIterator<Item = (&'a str, &'a str)>,
+{
+    devices
+        .into_iter()
+        .find(|(_, device_type)| *device_type == "local")
+        .map(|(id, _)| id.to_owned())
+}
+
+async fn acquire_required_local_runtime<R>(
+    registry: &TmuxRuntimeRegistry<R>,
+    device_id: &str,
+) -> Result<Arc<R>, GatewayRuntimeError>
+where
+    R: ManagedTmuxRuntime,
+{
+    registry.acquire(device_id).await.map_err(|error| {
+        GatewayRuntimeError::new("required-local-tmux", format!("{error}: {device_id}"))
+    })
+}
+
 fn runtime_error(stage: &'static str, error: impl std::fmt::Display) -> GatewayRuntimeError {
     GatewayRuntimeError::new(stage, error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     use super::*;
+    use crate::runtime::ports::GatewayRuntimeOptions;
+    use crate::tmux::RuntimeRegistryError;
 
     #[derive(Default)]
     struct RecordingLifecycle {
@@ -595,5 +653,75 @@ mod tests {
                 ServiceLifecycleOperation::StopWeixin,
             ]
         );
+    }
+
+    #[test]
+    fn default_options_do_not_require_a_local_runtime() {
+        assert!(!GatewayRuntimeOptions::default().require_local_tmux_runtime);
+    }
+
+    #[test]
+    fn required_local_selection_picks_the_first_local_device() {
+        let selected = select_required_local_device_id([
+            ("ssh-1", "ssh"),
+            ("local-1", "local"),
+            ("local-2", "local"),
+        ]);
+        assert_eq!(selected.as_deref(), Some("local-1"));
+    }
+
+    #[test]
+    fn required_local_selection_fails_without_a_local_device() {
+        assert_eq!(
+            select_required_local_device_id([("ssh-1", "ssh"), ("ssh-2", "ssh")]),
+            None
+        );
+    }
+
+    #[derive(Debug)]
+    struct TestRuntime {
+        shutdowns: AtomicUsize,
+    }
+    #[async_trait]
+    impl ManagedTmuxRuntime for TestRuntime {
+        fn is_terminated(&self) -> bool {
+            false
+        }
+
+        async fn shutdown(&self) {
+            self.shutdowns.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    #[tokio::test]
+    async fn required_acquire_error_uses_required_local_tmux_stage() {
+        let registry: TmuxRuntimeRegistry<TestRuntime> =
+            TmuxRuntimeRegistry::new(Arc::new(|device_id: String| async move {
+                Err(RuntimeRegistryError::new(format!(
+                    "tmux_runtime_start_failed: {device_id}"
+                )))
+            }));
+        let error = acquire_required_local_runtime(&registry, "local-1")
+            .await
+            .expect_err("acquire failure must block readiness");
+        assert_eq!(error.stage, "required-local-tmux");
+        assert!(error.cause.contains("tmux_runtime_start_failed"));
+        assert!(error.cause.contains("local-1"));
+    }
+
+    #[tokio::test]
+    async fn required_lease_is_not_shut_down_before_explicit_release() {
+        let registry = TmuxRuntimeRegistry::new(Arc::new(|_: String| async {
+            Ok(Arc::new(TestRuntime {
+                shutdowns: AtomicUsize::new(0),
+            }))
+        }));
+        let runtime = acquire_required_local_runtime(&registry, "local-1")
+            .await
+            .expect("required acquire succeeds");
+        assert_eq!(runtime.shutdowns.load(Ordering::Acquire), 0);
+        assert!(registry.peek("local-1").await.is_some());
+        registry.release("local-1", Some(&runtime)).await;
+        assert_eq!(runtime.shutdowns.load(Ordering::Acquire), 1);
     }
 }

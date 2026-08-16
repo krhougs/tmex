@@ -63,6 +63,7 @@ pub struct GatewayRuntimeOptions {
     pub command_capacity: usize,
     pub control_capacity: usize,
     pub max_http_concurrency: usize,
+    pub require_local_tmux_runtime: bool,
 }
 
 impl Default for GatewayRuntimeOptions {
@@ -71,6 +72,7 @@ impl Default for GatewayRuntimeOptions {
             command_capacity: DEFAULT_COMMAND_CAPACITY,
             control_capacity: DEFAULT_RUNTIME_CONTROL_CAPACITY,
             max_http_concurrency: DEFAULT_RUNTIME_HTTP_CONCURRENCY,
+            require_local_tmux_runtime: false,
         }
     }
 }

@@ -133,12 +133,32 @@ async fn run_root(
             return Err(error);
         }
     };
+    let required_lease = if options.require_local_tmux_runtime {
+        match services.acquire_required_local_runtime().await {
+            Ok(lease) => Some(lease),
+            Err(error) => {
+                fail(&lifecycle, &error);
+                let cleanup_error = services.stop(false).await.err();
+                let error = append_cleanup_error(error, cleanup_error);
+                let _ = ready.send(Err(error.clone()));
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
     if let Err(error) = services.start().await {
+        if let Some(lease) = required_lease {
+            services.release_required_local_runtime(lease).await;
+        }
         fail(&lifecycle, &error);
         let cleanup_error = services.stop(false).await.err();
         let error = append_cleanup_error(error, cleanup_error);
         let _ = ready.send(Err(error.clone()));
         return Err(error);
+    }
+    if let Some(lease) = required_lease {
+        services.release_required_local_runtime(lease).await;
     }
     services.send_online_best_effort(&services.site_name).await;
     transition(&lifecycle, GatewayState::Ready)?;
