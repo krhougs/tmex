@@ -10,6 +10,7 @@ import {
 } from "react-hot-toast"
 
 import { cn } from "../utils"
+import { useHostLayerRef } from "./host-layer"
 
 export type ToastLevel = "default" | "success" | "error" | "warning" | "info"
 
@@ -51,8 +52,17 @@ function ToastCard({
 }) {
   const dismissible = options?.dismissible !== false
   const showClose = dismissible && options?.closeButton !== false
+  const hostRef = useHostLayerRef<HTMLDivElement>({
+    kind: "toast",
+    input: "region",
+    backdrop: "blur",
+    keyboard: "fixed",
+    fixed: true,
+    z: 60,
+  })
   return (
     <div
+      ref={hostRef}
       data-testid="app-toast"
       data-level={level}
       className={cn(

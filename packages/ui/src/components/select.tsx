@@ -4,6 +4,7 @@ import * as React from "react"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { cn } from "../utils"
 import { useDismissLayer } from "./dismiss-layer"
+import { useHostLayerRef } from "./host-layer"
 
 // Select 的 `actionsRef` 只暴露 `unmount`（且传入会关掉 Base UI 自己的卸载时序），
 // 所以这里不走 actionsRef，而是在调用方未受控时由 wrapper 托管 `open`，
@@ -85,6 +86,7 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
+  ref,
   side = "bottom",
   sideOffset = 4,
   align = "center",
@@ -96,6 +98,10 @@ function SelectContent({
     SelectPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
   >) {
+  const hostRef = useHostLayerRef<HTMLDivElement>(
+    { kind: "popover", input: "region", backdrop: "blur", fixed: true, z: 50 },
+    ref
+  )
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner
@@ -107,6 +113,7 @@ function SelectContent({
         className="isolate z-50"
       >
         <SelectPrimitive.Popup
+          ref={hostRef}
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn("bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ring-foreground/10 min-w-36 rounded-lg shadow-md ring-1 duration-100 data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2 relative isolate z-50 max-h-(--available-height) w-(--anchor-width) origin-(--transform-origin) overflow-x-hidden overflow-y-auto data-[align-trigger=true]:animate-none", className )}

@@ -15,6 +15,7 @@ import { useBellStore } from '@tmex/notifications';
 import type { TmuxPane, TmuxWindow } from '@tmex/shared';
 import { parseWindowLayout } from '@tmex/shared';
 import { usePaneAgentState, useRuntime, useTmuxStore } from '@tmex/stores/react';
+import { HostLayerElement } from '@tmex/ui/host-layer';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Terminal } from './Terminal';
@@ -792,7 +793,11 @@ export function SplitTerminalArea({
             </div>
             {/* 拖拽重排的落点预览：目标 pane 的半区高亮 */}
             {dropPreview && (
-              <div
+              <HostLayerElement
+                kind="drag-feedback"
+                input="passthrough"
+                backdrop="none"
+                z={30}
                 data-testid="split-pane-drop-preview"
                 data-position={dropPreview}
                 className={`pointer-events-none absolute z-30 rounded-sm bg-primary/20 ring-1 ring-inset ring-primary/60 ${DROP_PREVIEW_CLASS[dropPreview]}`}
@@ -805,7 +810,11 @@ export function SplitTerminalArea({
       {/* 拖拽（splitter / 标题栏）期间的事件隔离层：吞掉滑过终端的鼠标事件，
           避免触发 canvas 的文本选择等另一套事件体系（拖拽本身经 pointer capture 不受遮挡影响） */}
       {(dragState !== null || paneDrag?.active) && (
-        <div
+        <HostLayerElement
+          kind="drag-shield"
+          input="region"
+          backdrop="none"
+          z={30}
           data-testid="split-drag-shield"
           className={`absolute inset-0 z-30 ${
             dragState !== null
@@ -819,7 +828,12 @@ export function SplitTerminalArea({
 
       {/* 侧栏落点高亮：移入其他窗口 / 拆为独立窗口 */}
       {paneDrag?.active && paneDrag.target && paneDrag.target.type !== 'pane' && (
-        <div
+        <HostLayerElement
+          kind="drag-feedback"
+          input="passthrough"
+          backdrop="none"
+          fixed
+          z={40}
           data-testid="split-pane-sidebar-drop"
           data-drop-type={paneDrag.target.type}
           className="pointer-events-none fixed z-40 rounded-lg bg-primary/15 ring-1 ring-inset ring-primary/50"
@@ -834,7 +848,12 @@ export function SplitTerminalArea({
 
       {/* 拖拽中的浮动标签：跟随指针提示正在移动的 pane 与动作 */}
       {paneDrag?.active && (
-        <div
+        <HostLayerElement
+          kind="drag-feedback"
+          input="passthrough"
+          backdrop="blur"
+          fixed
+          z={50}
           data-testid="split-pane-drag-label"
           className="pointer-events-none fixed z-50 rounded border border-primary/40 bg-popover/95 px-2 py-1 font-mono text-[10.5px] text-popover-foreground shadow-md"
           style={{ left: paneDrag.pointerX + 12, top: paneDrag.pointerY + 12 }}
@@ -846,7 +865,7 @@ export function SplitTerminalArea({
           {paneDrag.target?.type === 'break' && (
             <div className="text-[9.5px] text-muted-foreground">{t('window.breakToWindow')}</div>
           )}
-        </div>
+        </HostLayerElement>
       )}
 
       {renderGeometry.gutters.map((gutter, index) => {
@@ -892,7 +911,11 @@ export function SplitTerminalArea({
             </div>
             {/* 拖拽参考线 */}
             {isDragging && dragState && (
-              <div
+              <HostLayerElement
+                kind="drag-feedback"
+                input="passthrough"
+                backdrop="none"
+                z={30}
                 data-testid="split-gutter-guide"
                 className="pointer-events-none absolute bg-primary/45"
                 style={

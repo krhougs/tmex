@@ -7,6 +7,7 @@ import { XIcon } from "lucide-react"
 import { cn } from "../utils"
 import { Button } from "./button"
 import { useDismissLayerRoot } from "./dismiss-layer"
+import { useHostLayerRef } from "./host-layer"
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   const dismissLayerProps = useDismissLayerRoot(props)
@@ -25,9 +26,14 @@ function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
   return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
 }
 
-function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+function SheetOverlay({ className, ref, ...props }: SheetPrimitive.Backdrop.Props) {
+  const hostRef = useHostLayerRef<HTMLDivElement>(
+    { kind: "modal-backdrop", input: "modal", backdrop: "snapshot", fixed: true, z: 50 },
+    ref
+  )
   return (
     <SheetPrimitive.Backdrop
+      ref={hostRef}
       data-slot="sheet-overlay"
       className={cn("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/10 duration-100 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 z-50", className)}
       {...props}
@@ -63,6 +69,10 @@ function SheetContent({
     },
     [ref]
   )
+  const hostRef = useHostLayerRef<HTMLDivElement>(
+    { kind: "sheet", input: "region", backdrop: "blur", keyboard: "resize", fixed: true, z: 51 },
+    setPopupRef
+  )
 
   return (
     <SheetPortal>
@@ -70,7 +80,7 @@ function SheetContent({
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
-        ref={setPopupRef}
+        ref={hostRef}
         // 非键盘打开一律把焦点落在浮层本体上，避免首个输入框自动聚焦拉起虚拟键盘；
         // 键盘用户仍走默认的首个可聚焦元素，不降级可访问性。
         initialFocus={
