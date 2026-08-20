@@ -1262,7 +1262,7 @@ export function DeviceConsole({
     <div
       ref={rootRef}
       className="flex h-full min-h-0 flex-col"
-      style={{ backgroundColor: terminalTheme.background }}
+      style={{ backgroundColor: terminalTheme.background, borderRadius: 'inherit' }}
       data-testid="device-page"
     >
       <div
