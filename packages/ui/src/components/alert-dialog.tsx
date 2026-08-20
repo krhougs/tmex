@@ -6,6 +6,7 @@ import * as React from "react"
 import { cn } from "../utils"
 import { Button } from "./button"
 import { useDismissLayerRoot } from "./dismiss-layer"
+import { useHostLayerRef } from "./host-layer"
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
   const dismissLayerProps = useDismissLayerRoot(props)
@@ -32,10 +33,16 @@ function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
 
 function AlertDialogOverlay({
   className,
+  ref,
   ...props
 }: AlertDialogPrimitive.Backdrop.Props) {
+  const hostRef = useHostLayerRef<HTMLDivElement>(
+    { kind: "modal-backdrop", input: "modal", backdrop: "snapshot", fixed: true, z: 50 },
+    ref
+  )
   return (
     <AlertDialogPrimitive.Backdrop
+      ref={hostRef}
       data-slot="alert-dialog-overlay"
       className={cn(
         "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 isolate z-50",
@@ -49,14 +56,20 @@ function AlertDialogOverlay({
 function AlertDialogContent({
   className,
   size = "default",
+  ref,
   ...props
 }: AlertDialogPrimitive.Popup.Props & {
   size?: "default" | "sm"
 }) {
+  const hostRef = useHostLayerRef<HTMLDivElement>(
+    { kind: "dialog", input: "region", backdrop: "blur", keyboard: "resize", fixed: true, z: 51 },
+    ref
+  )
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Popup
+        ref={hostRef}
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
