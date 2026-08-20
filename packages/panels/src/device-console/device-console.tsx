@@ -104,6 +104,7 @@ export interface DeviceConsoleProps {
    *  缺省沿用 buildBrowserTitle（`[siteName]label`）与 siteName 复原。 */
   formatBrowserTitle?: (label: string | null) => string;
   prepareTerminalResources?: (fontId: string, fontSize: number) => Promise<void>;
+  transparentTerminalSurface?: boolean;
 }
 
 export function DeviceConsole({
@@ -113,6 +114,7 @@ export function DeviceConsole({
   devicesQueryKey = defaultDevicesQueryKey,
   formatBrowserTitle,
   prepareTerminalResources,
+  transparentTerminalSurface = false,
 }: DeviceConsoleProps) {
   const { t } = useTranslation();
   const runtime = useRuntime();
@@ -1257,7 +1259,12 @@ export function DeviceConsole({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="device-page">
+    <div
+      className={`flex h-full min-h-0 flex-col ${
+        transparentTerminalSurface ? 'bg-transparent' : 'bg-background'
+      }`}
+      data-testid="device-page"
+    >
       <div
         className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${
           isMobile && inputMode === 'editor' ? 'pb-1' : ''
@@ -1265,7 +1272,11 @@ export function DeviceConsole({
       >
         <div
           className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
-          style={{ backgroundColor: terminalTheme.background }}
+          style={{
+            backgroundColor: transparentTerminalSurface
+              ? 'transparent'
+              : terminalTheme.background,
+          }}
         >
           {isSelectionInvalid ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
