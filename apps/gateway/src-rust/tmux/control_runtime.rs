@@ -1,4 +1,5 @@
 use std::fmt;
+use std::future::pending;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,7 +7,7 @@ use std::time::Duration;
 use futures_util::FutureExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use super::{
     capture_pane_frame_at_control_barrier, AtomicPaneCapture, AtomicPaneCaptureError,
@@ -251,6 +252,7 @@ async fn run_control_runtime(
     let mut process_stop = Some(process_stop);
     let mut exit_reason = None;
     loop {
+        let subscription_deadline_ms = subscription.next_deadline_ms();
         tokio::select! {
             biased;
             request = requests.recv() => {
@@ -364,6 +366,21 @@ async fn run_control_runtime(
                     }
                 }
             }
+            _ = async move {
+                let Some(deadline_ms) = subscription_deadline_ms else {
+                    pending::<()>().await;
+                    return;
+                };
+                sleep(Duration::from_millis(deadline_ms.saturating_sub(system_time_ms()))).await;
+            } => {
+                let projected = subscription.advance(system_time_ms());
+                if !projected.is_empty() {
+                    if let Some(ready) = ready.take() { let _ = ready.send(()); }
+                }
+                for event in projected {
+                    if events.send(event).await.is_err() { return; }
+                }
+            }
         }
     }
     queue.dispose("tmux control runtime closed");
@@ -469,5 +486,54 @@ mod tests {
     fn raw_control_commands_are_line_delimited_once() {
         assert_eq!(ensure_newline("list-panes".to_owned()), "list-panes\n");
         assert_eq!(ensure_newline("list-panes\n".to_owned()), "list-panes\n");
+    }
+
+    #[tokio::test]
+    async fn initial_structure_notifications_become_ready_without_another_chunk() {
+        let queue = ControlModeCommandQueue::new();
+        let subscription = ControlModeSubscription::with_command_queue(queue.guard());
+        let (wire_tx, _wire_rx) = mpsc::channel(CONTROL_COMMAND_CAPACITY);
+        let (process_tx, process_rx) = mpsc::channel(CONTROL_CHUNK_QUEUE_CAPACITY);
+        let (request_tx, request_rx) = mpsc::channel(CONTROL_COMMAND_CAPACITY);
+        let (events_tx, mut events_rx) = mpsc::channel(CONTROL_CHUNK_QUEUE_CAPACITY);
+        let (process_stop_tx, _process_stop_rx) = oneshot::channel();
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let runtime = tokio::spawn(run_control_runtime(
+            subscription,
+            queue,
+            wire_tx,
+            process_rx,
+            request_rx,
+            events_tx,
+            process_stop_tx,
+            ready_tx,
+        ));
+
+        process_tx
+            .send(ProcessEvent::Chunk(
+                b"\n%window-add @1\n%window-add @2\n%sessions-changed\n%session-changed $1 tmex\n"
+                    .to_vec(),
+            ))
+            .await
+            .unwrap();
+
+        timeout(Duration::from_secs(1), ready_rx)
+            .await
+            .expect("control runtime did not become ready")
+            .expect("control runtime closed before becoming ready");
+        assert!(matches!(
+            timeout(Duration::from_secs(1), events_rx.recv()).await,
+            Ok(Some(ControlModeSubscriptionEvent::StructureChanged))
+        ));
+
+        let (stopped_tx, stopped_rx) = oneshot::channel();
+        request_tx
+            .send(ControlRequest::Stop {
+                response: stopped_tx,
+            })
+            .await
+            .unwrap();
+        stopped_rx.await.unwrap();
+        runtime.await.unwrap();
     }
 }
