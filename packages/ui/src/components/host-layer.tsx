@@ -8,6 +8,7 @@ export type HostLayerKind =
   | "sheet"
   | "popover"
   | "toast"
+  | "overlay"
   | "drag-shield"
   | "drag-feedback"
   | "window-drag"

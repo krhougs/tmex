@@ -275,6 +275,7 @@ function Sidebar({
           }
           side={side}
           animation="top-down"
+          presentation="overlay"
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>

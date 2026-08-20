@@ -26,16 +26,31 @@ function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
   return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
 }
 
-function SheetOverlay({ className, ref, ...props }: SheetPrimitive.Backdrop.Props) {
+type SheetPresentation = "modal" | "overlay"
+
+function SheetOverlay({
+  className,
+  ref,
+  presentation = "modal",
+  ...props
+}: SheetPrimitive.Backdrop.Props & { presentation?: SheetPresentation }) {
   const hostRef = useHostLayerRef<HTMLDivElement>(
-    { kind: "modal-backdrop", input: "modal", backdrop: "snapshot", fixed: true, z: 50 },
+    presentation === "overlay"
+      ? { kind: "overlay", input: "region", backdrop: "none", fixed: true, z: 50 }
+      : { kind: "modal-backdrop", input: "modal", backdrop: "snapshot", fixed: true, z: 50 },
     ref
   )
   return (
     <SheetPrimitive.Backdrop
       ref={hostRef}
       data-slot="sheet-overlay"
-      className={cn("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/10 duration-100 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 z-50", className)}
+      data-presentation={presentation}
+      className={cn(
+        "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 duration-100 data-ending-style:opacity-0 data-starting-style:opacity-0 fixed inset-0 z-50",
+        presentation === "modal" && "bg-black/10 supports-backdrop-filter:backdrop-blur-xs",
+        presentation === "overlay" && "bg-transparent backdrop-blur-none",
+        className
+      )}
       {...props}
     />
   )
@@ -49,6 +64,7 @@ function SheetContent({
   side = "right",
   showCloseButton = true,
   animation = "slide",
+  presentation = "modal",
   initialFocus,
   ref,
   ...props
@@ -56,6 +72,7 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
   animation?: "slide" | "fade" | "bottom-up" | "top-down"
+  presentation?: SheetPresentation
 }) {
   const popupRef = React.useRef<HTMLDivElement | null>(null)
   const setPopupRef = React.useCallback(
@@ -70,16 +87,24 @@ function SheetContent({
     [ref]
   )
   const hostRef = useHostLayerRef<HTMLDivElement>(
-    { kind: "sheet", input: "region", backdrop: "blur", keyboard: "resize", fixed: true, z: 51 },
+    {
+      kind: "sheet",
+      input: "region",
+      backdrop: presentation === "overlay" ? "none" : "blur",
+      keyboard: "resize",
+      fixed: true,
+      z: 51,
+    },
     setPopupRef
   )
 
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay presentation={presentation} />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
+        data-presentation={presentation}
         ref={hostRef}
         // 非键盘打开一律把焦点落在浮层本体上，避免首个输入框自动聚焦拉起虚拟键盘；
         // 键盘用户仍走默认的首个可聚焦元素，不降级可访问性。
