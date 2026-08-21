@@ -12,11 +12,16 @@
 )]
 
 mod control_mode;
+mod keyboard_modes;
 mod pane_stream;
 
 pub use control_mode::{
     unescape_control_mode_data, unescape_control_mode_data_with_status, ControlModeBlock,
     ControlModeEvent, ControlModeNotification, ControlModeParser, UnescapedControlModeData,
+};
+pub use keyboard_modes::{
+    apply_sequence, detect_keyboard_sequence, encode_pane_option_value, keyboard_restore_sequences,
+    parse_pane_option_value, KbdSequence, KeyboardModeState, KittySetMode, KITTY_STACK_DEPTH,
 };
 pub use pane_stream::{
     PaneStreamEvent, PaneStreamFragment, PaneStreamNotification, PaneStreamNotificationSource,
