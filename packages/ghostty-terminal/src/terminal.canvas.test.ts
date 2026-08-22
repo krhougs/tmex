@@ -829,6 +829,39 @@ describe('GhosttyTerminalController canvas baseline', () => {
     disposable.dispose();
   });
 
+  test('custom key handler can suppress both keydown and keyup encoding', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    const container = dom.document.createElement('div');
+    container.setBoundingClientRect({ width: 960, height: 480 });
+    dom.document.body.appendChild(container);
+    terminal.open(container as unknown as HTMLElement);
+
+    const received: string[] = [];
+    terminal.onData((data: string) => received.push(data));
+    const handled: string[] = [];
+    terminal.attachCustomKeyEventHandler((event) => {
+      handled.push(event.type);
+      return false;
+    });
+    const textarea = findElementsByTag(dom.document.body, 'div').find(
+      (element) => element.className === 'xterm-helper-textarea'
+    );
+    textarea?.dispatchEvent({ type: 'keydown', key: 'ArrowUp', code: 'ArrowUp' });
+    textarea?.dispatchEvent({ type: 'keyup', key: 'ArrowUp', code: 'ArrowUp' });
+
+    expect(handled).toEqual(['keydown', 'keyup']);
+    expect(received).toEqual([]);
+  });
+
   // Android Gboard 在 contenteditable 上不发 Backspace 的 keydown（报 keyCode 229），
   // 删除一律走 beforeinput 的 deleteContent* inputType 且 data 为空；必须按等价
   // 按键编码补发，否则退格被丢弃。keyCode：Backspace=53，Delete=68。
@@ -1778,12 +1811,8 @@ describe('ghostty render-state bindings', () => {
     try {
       // 带查询串的动态 import 绕过 mock.module 后的模块缓存,取真实 wasm 实现(本文件既有约定)
       const { getGhosttyBindings } = await import(`./ghostty-wasm.ts?bgdata=${Date.now()}`);
-      const {
-        createRenderState,
-        disposeRenderStateResources,
-        iterateRows,
-        updateRenderState,
-      } = await import(`./render-state.ts?bgdata=${Date.now()}`);
+      const { createRenderState, disposeRenderStateResources, iterateRows, updateRenderState } =
+        await import(`./render-state.ts?bgdata=${Date.now()}`);
 
       const bindings = await getGhosttyBindings();
       const terminal = bindings.createTerminal(80, 24, 1000);
@@ -1804,9 +1833,7 @@ describe('ghostty render-state bindings', () => {
 
           updateRenderState(renderState, terminal);
           const rows = Array.from(iterateRows(renderState));
-          const bgCells = rows
-            .flatMap((row) => row.cells)
-            .filter((cell) => cell.bgColor !== null);
+          const bgCells = rows.flatMap((row) => row.cells).filter((cell) => cell.bgColor !== null);
           expect(bgCells.length).toBeGreaterThan(0);
           expect(bgCells[0].bgColor).toEqual({ r: 20, g: 30, b: 80 });
 
@@ -2199,11 +2226,7 @@ describe('CanvasRenderer', () => {
     });
     const cursorCanvas = findCanvasByLayer(screen, 'cursor');
     expect(cursorCanvas).toBeTruthy();
-    const renderStyle = (
-      style: GhosttyCursorVisualStyle,
-      blinking = false,
-      wideTail = false
-    ) => {
+    const renderStyle = (style: GhosttyCursorVisualStyle, blinking = false, wideTail = false) => {
       cursorCanvas?.context.operations.splice(0);
       renderer.render({
         meta: {
@@ -2286,7 +2309,6 @@ describe('CanvasRenderer', () => {
     const lastOperation = (operations: Array<Record<string, unknown>>, type: string) =>
       [...operations].reverse().find((operation) => operation.type === type);
 
-
     expect(lastOperation(renderStyle('block'), 'fillRect')).toMatchObject({
       x: 0,
       y: 0,
@@ -2294,9 +2316,7 @@ describe('CanvasRenderer', () => {
       height: 20,
       globalAlpha: 1,
     });
-    expect(
-      (renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer
-    ).toBeNull();
+    expect((renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer).toBeNull();
     expect(cursorCanvas?.style.opacity).toBe('1');
 
     expect(lastOperation(renderStyle('underline'), 'fillRect')).toMatchObject({
@@ -2331,13 +2351,9 @@ describe('CanvasRenderer', () => {
     });
 
     renderStyle('block', true);
-    expect(
-      (renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer
-    ).not.toBeNull();
+    expect((renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer).not.toBeNull();
     renderer.dispose();
-    expect(
-      (renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer
-    ).toBeNull();
+    expect((renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer).toBeNull();
   });
 
   test('draws on integer device pixels with fractional cell size and dpr', async () => {

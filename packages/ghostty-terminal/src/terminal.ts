@@ -1375,6 +1375,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
         }
       }
 
+      if (!this.customKeyEventHandler(event)) {
+        return;
+      }
+
       if (this.disableStdin || this.imeIsComposing) {
         return;
       }

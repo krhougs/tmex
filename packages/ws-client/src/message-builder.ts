@@ -159,6 +159,23 @@ export function buildTermInput(
   return { kind: wsBorsh.KIND_TERM_INPUT, payload };
 }
 
+export function buildTermKeyInput(
+  deviceId: string,
+  paneId: string,
+  key: wsBorsh.TerminalKey,
+  modifiers: number,
+  action: wsBorsh.TerminalKeyAction
+): { kind: number; payload: Uint8Array } {
+  const payload = wsBorsh.encodePayload(wsBorsh.schema.TermKeyInputSchema, {
+    deviceId,
+    paneId,
+    key,
+    modifiers,
+    action,
+  });
+  return { kind: wsBorsh.KIND_TERM_KEY_INPUT, payload };
+}
+
 export function buildTermPaste(
   deviceId: string,
   paneId: string,

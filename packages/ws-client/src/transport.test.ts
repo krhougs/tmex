@@ -78,4 +78,34 @@ describe('shared gateway transport', () => {
       name: 'editor',
     });
   });
+
+  test('encodes semantic key identity without client escape bytes', () => {
+    const message = encodeGatewayTransportCommand({
+      type: 'terminal-key-input',
+      deviceId: 'device-a',
+      paneId: '%1',
+      key: { Enter: {} },
+      modifiers: wsBorsh.TERMINAL_KEY_MOD_CTRL | wsBorsh.TERMINAL_KEY_MOD_SHIFT,
+      action: { Press: {} },
+    });
+    expect(message.kind).toBe(wsBorsh.KIND_TERM_KEY_INPUT);
+    expect(wsBorsh.decodePayload(wsBorsh.schema.TermKeyInputSchema, message.payload)).toEqual({
+      deviceId: 'device-a',
+      paneId: '%1',
+      key: { Enter: {} },
+      modifiers: wsBorsh.TERMINAL_KEY_MOD_CTRL | wsBorsh.TERMINAL_KEY_MOD_SHIFT,
+      action: { Press: {} },
+    });
+  });
+
+  test('reads shared server capabilities lazily', () => {
+    let capabilities: readonly string[] = [];
+    const transport = createSharedGatewayTransport({
+      serverCapabilities: () => capabilities,
+      onCommand: () => true,
+    });
+    expect(transport.serverCapabilities).toEqual([]);
+    capabilities = ['terminal.semantic-key.v1'];
+    expect(transport.serverCapabilities).toEqual(['terminal.semantic-key.v1']);
+  });
 });

@@ -10,6 +10,7 @@ import {
   buildDeviceConnect,
   buildDeviceDisconnect,
   buildTermInput,
+  buildTermKeyInput,
   buildTermPaste,
   buildTermResize,
   buildTermSyncSize,
@@ -153,6 +154,14 @@ export type GatewayTransportCommand =
       data: string;
       isComposing: boolean;
     }
+  | {
+      type: 'terminal-key-input';
+      deviceId: string;
+      paneId: string;
+      key: wsBorsh.TerminalKey;
+      modifiers: number;
+      action: wsBorsh.TerminalKeyAction;
+    }
   | { type: 'terminal-paste'; deviceId: string; paneId: string; data: string }
   | { type: 'terminal-resize'; deviceId: string; paneId: string; cols: number; rows: number }
   | { type: 'terminal-sync-size'; deviceId: string; paneId: string; cols: number; rows: number }
@@ -253,6 +262,14 @@ export function encodeGatewayTransportCommand(command: GatewayTransportCommand):
       return buildTmuxSelectWindow(command.deviceId, command.windowId);
     case 'terminal-input':
       return buildTermInput(command.deviceId, command.paneId, command.data, command.isComposing);
+    case 'terminal-key-input':
+      return buildTermKeyInput(
+        command.deviceId,
+        command.paneId,
+        command.key,
+        command.modifiers,
+        command.action
+      );
     case 'terminal-paste':
       return buildTermPaste(command.deviceId, command.paneId, command.data);
     case 'terminal-resize':
@@ -561,7 +578,7 @@ export class LazyWebSocketGatewayTransport implements GatewayTransport {
 export interface SharedGatewayTransportOptions {
   initialState?: ConnectionState;
   sourceRoute?: GatewayTransportSourceRoute;
-  serverCapabilities?: readonly string[];
+  serverCapabilities?: readonly string[] | (() => readonly string[]);
   serverSelection?: boolean;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -617,7 +634,11 @@ export function createSharedGatewayTransport(
     get latencyMs() {
       return latencyMs;
     },
-    serverCapabilities: options.serverCapabilities ?? [],
+    get serverCapabilities() {
+      return typeof options.serverCapabilities === 'function'
+        ? options.serverCapabilities()
+        : (options.serverCapabilities ?? []);
+    },
     connect() {
       if (disposed || state === 'READY' || state === 'WS_CONNECTING') return;
       connectRequested = true;

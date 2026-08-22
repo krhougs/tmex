@@ -30,6 +30,10 @@ import {
   registerCursorRectGetter,
   unregisterCursorRectGetter,
 } from '../utils/keyboard-cursor-bridge';
+import {
+  type TerminalSemanticKeyInput,
+  keyboardEventToSemanticKey,
+} from '../utils/terminalSemanticKey';
 import { SelectionToolbar } from './SelectionToolbar';
 import { TerminalSurface, type TerminalSurfaceTarget } from './TerminalSurface';
 import {
@@ -188,6 +192,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const [bootState, setBootState] = useState<TerminalBootState>({ status: 'loading' });
     const [retryNonce, setRetryNonce] = useState(0);
     const sendInput = useTmuxStore((state) => state.sendInput);
+    const sendKeyInput = useTmuxStore((state) => state.sendKeyInput);
+    const semanticKeyInput = useTmuxStore((state) => state.semanticKeyInput);
     const mountPane = useTmuxStore((state) => state.mountPane);
     const requestPaneScreen = useTmuxStore((state) => state.requestPaneScreen);
     const fetchPaneHistory = useTmuxStore((state) => state.fetchPaneHistory);
@@ -224,6 +230,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     const canWriteRef = useRef(deviceConnected && !isSelectionInvalid);
     const currentInputModeRef = useRef(inputMode);
     const currentTerminalThemeRef = useRef(terminalTheme);
+    const semanticKeysDownRef = useRef(new Set<string>());
     const initialScreenRequestedRef = useRef(false);
     const hasBootedGenerationRef = useRef(false);
     const historyRequestInFlightRef = useRef(false);
@@ -271,6 +278,17 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         sendInput(activeDeviceId, activePaneId, data, false);
       },
       [inputMode, sendInput]
+    );
+
+    const sendTerminalKeyInput = useCallback(
+      (input: TerminalSemanticKeyInput) => {
+        if (inputMode !== 'direct' || !canWriteRef.current) return;
+        const activeDeviceId = currentDeviceIdRef.current;
+        const activePaneId = currentPaneIdRef.current;
+        if (!activeDeviceId || !activePaneId) return;
+        sendKeyInput(activeDeviceId, activePaneId, input.key, input.modifiers, input.action);
+      },
+      [inputMode, sendKeyInput]
     );
 
     const {
@@ -788,8 +806,28 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
 
       instance.attachCustomKeyEventHandler((domEvent) => {
         if (!deviceConnected || isSelectionInvalid) return true;
-        if (domEvent.type !== 'keydown') return true;
         if (inputMode !== 'direct') return true;
+
+        const semanticKeyId = domEvent.code || domEvent.key;
+        if (
+          semanticKeyInput &&
+          domEvent.type === 'keyup' &&
+          semanticKeysDownRef.current.delete(semanticKeyId)
+        ) {
+          domEvent.preventDefault();
+          return false;
+        }
+        if (domEvent.type !== 'keydown') return true;
+
+        if (semanticKeyInput) {
+          const input = keyboardEventToSemanticKey(domEvent);
+          if (input) {
+            semanticKeysDownRef.current.add(semanticKeyId);
+            domEvent.preventDefault();
+            sendTerminalKeyInput(input);
+            return false;
+          }
+        }
 
         if (domEvent.shiftKey && domEvent.key === 'Enter') {
           domEvent.preventDefault();
@@ -803,6 +841,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       return () => {
         disposable.dispose();
         instance.attachCustomKeyEventHandler(() => true);
+        semanticKeysDownRef.current.clear();
       };
     }, [
       instance,
@@ -810,6 +849,8 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       isSelectionInvalid,
       inputMode,
       sendTerminalInput,
+      semanticKeyInput,
+      sendTerminalKeyInput,
       deviceId,
       paneId,
     ]);

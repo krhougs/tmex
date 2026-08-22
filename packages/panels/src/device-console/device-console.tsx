@@ -20,7 +20,11 @@ import {
   hostAppPath,
 } from '@tmex/stores';
 import { useRuntime, useSiteStore, useTmuxStore, useUIStore } from '@tmex/stores/react';
-import { Terminal as TerminalComponent, type TerminalRef } from '@tmex/terminal-ui';
+import {
+  Terminal as TerminalComponent,
+  type TerminalRef,
+  terminalShortcutToSemanticKey,
+} from '@tmex/terminal-ui';
 import { SplitTerminalArea } from '@tmex/terminal-ui';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@tmex/terminal-ui';
 import { shouldApplyRemotePaneSize } from '@tmex/terminal-ui';
@@ -225,7 +229,9 @@ export function DeviceConsole({
       recentlyClosedTargets[`pane:${deviceId}:${resolvedPaneId}`] !== undefined
   );
   const isKnownClosedWindow = Boolean(
-    isWindowMissing && windowId && recentlyClosedTargets[`window:${deviceId}:${windowId}`] !== undefined
+    isWindowMissing &&
+      windowId &&
+      recentlyClosedTargets[`window:${deviceId}:${windowId}`] !== undefined
   );
 
   // URL 点名的 window/pane 不在当前快照 ≠ 目标失效：select 不等快照校验就已下发，
@@ -1088,14 +1094,24 @@ export function DeviceConsole({
   }, [paneEditorDraft]);
 
   const handleSendShortcut = useCallback(
-    (payload: string) => {
-      if (!deviceId || !resolvedPaneId || !canInteractWithPane) {
+    (item: TerminalShortcutItem) => {
+      if (!deviceId || !resolvedPaneId || !canInteractWithPane || !item.payload) {
         return;
       }
 
-      // Send directly to the terminal's input handler
       const store = runtime.stores.tmux.getState();
-      store.sendInput(deviceId, resolvedPaneId, payload, false);
+      const semantic = store.semanticKeyInput ? terminalShortcutToSemanticKey(item) : null;
+      if (semantic) {
+        store.sendKeyInput(
+          deviceId,
+          resolvedPaneId,
+          semantic.key,
+          semantic.modifiers,
+          semantic.action
+        );
+      } else {
+        store.sendInput(deviceId, resolvedPaneId, item.payload, false);
+      }
     },
     [canInteractWithPane, deviceId, resolvedPaneId, runtime]
   );
@@ -1114,9 +1130,7 @@ export function DeviceConsole({
         }
       }
       if (item.type === 'send') {
-        if (item.payload) {
-          handleSendShortcut(item.payload);
-        }
+        handleSendShortcut(item);
         return;
       }
       // 需要有效设备 / pane 的动作（paste / newAgentSession）
@@ -1270,9 +1284,7 @@ export function DeviceConsole({
           isMobile && inputMode === 'editor' ? 'pb-1' : ''
         }`}
       >
-        <div
-          className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl"
-        >
+        <div className="h-full px-3 py-1 min-h-0 min-w-0 w-full relative flex rounded-xl">
           {isSelectionInvalid ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="max-w-sm space-y-4">

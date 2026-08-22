@@ -95,6 +95,7 @@ export {
   buildTmuxBreakPane,
   type MovePanePosition,
   buildTermInput,
+  buildTermKeyInput,
   buildTermPaste,
   buildTermResize,
   buildTermSyncSize,

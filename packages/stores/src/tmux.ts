@@ -36,6 +36,7 @@ export interface TmuxState {
   connectionState: ConnectionState;
   hasConnectedOnce: boolean;
   wsLatencyMs: number | null;
+  semanticKeyInput: boolean;
   snapshots: SnapshotMap;
   connectedDevices: Set<string>;
   deviceConnected: Record<string, boolean | undefined>;
@@ -72,6 +73,13 @@ export interface TmuxState {
   ) => void;
   selectWindow: (deviceId: string, windowId: string) => void;
   sendInput: (deviceId: string, paneId: string, data: string, isComposing?: boolean) => void;
+  sendKeyInput: (
+    deviceId: string,
+    paneId: string,
+    key: wsBorsh.TerminalKey,
+    modifiers: number,
+    action: wsBorsh.TerminalKeyAction
+  ) => void;
   resizePane: (deviceId: string, paneId: string, cols: number, rows: number) => void;
   syncPaneSize: (deviceId: string, paneId: string, cols: number, rows: number) => void;
   paste: (deviceId: string, paneId: string, data: string) => void;
@@ -113,10 +121,7 @@ export interface TmuxState {
 const CONNECT_DEDUP_WINDOW_MS = 500;
 const RECENTLY_CLOSED_TTL_MS = 30_000;
 
-function markRecentlyClosed(
-  prev: Record<string, number>,
-  key: string
-): Record<string, number> {
+function markRecentlyClosed(prev: Record<string, number>, key: string): Record<string, number> {
   const now = Date.now();
   const next: Record<string, number> = {};
   for (const [k, ts] of Object.entries(prev)) {
@@ -338,6 +343,9 @@ export function createTmuxStore(
             connectionState: event.state,
             hasConnectedOnce: event.state === 'READY' ? true : prev.hasConnectedOnce,
             wsLatencyMs: event.state === 'READY' ? prev.wsLatencyMs : null,
+            semanticKeyInput:
+              event.state === 'READY' &&
+              transport.serverCapabilities.includes('terminal.semantic-key.v1'),
           }));
           if (event.state === 'READY') handleReady();
           return;
@@ -545,6 +553,9 @@ export function createTmuxStore(
       connectionState: initialState,
       hasConnectedOnce: transport.hasConnectedOnce,
       wsLatencyMs: transport.latencyMs,
+      semanticKeyInput:
+        initialState === 'READY' &&
+        transport.serverCapabilities.includes('terminal.semantic-key.v1'),
     });
     if (initialState === 'READY') handleReady();
 
@@ -687,6 +698,7 @@ export function createTmuxStore(
     connectionState: 'IDLE' as ConnectionState,
     hasConnectedOnce: false,
     wsLatencyMs: null,
+    semanticKeyInput: false,
     snapshots: {},
     connectedDevices: new Set(),
     deviceConnected: {},
@@ -803,6 +815,18 @@ export function createTmuxStore(
     sendInput(deviceId, paneId, data, isComposing = false) {
       if (!deviceId || !paneId) return;
       core.transport.send({ type: 'terminal-input', deviceId, paneId, data, isComposing });
+    },
+
+    sendKeyInput(deviceId, paneId, key, modifiers, action) {
+      if (!deviceId || !paneId) return;
+      core.transport.send({
+        type: 'terminal-key-input',
+        deviceId,
+        paneId,
+        key,
+        modifiers,
+        action,
+      });
     },
 
     resizePane(deviceId, paneId, cols, rows) {
