@@ -2,6 +2,7 @@
 // 参考: docs/ws-protocol/2026021402-ws-borsh-v1-spec.md
 
 import { b } from '@zorsh/zorsh';
+import { TerminalKeyActionSchema, TerminalKeySchema } from './canonical-state';
 
 // ========== 基础类型 ==========
 
@@ -217,6 +218,14 @@ export const TermInputSchema = b.struct({
   encoding: b.u8(),
   data: b.bytes(),
   isComposing: b.bool(),
+});
+
+export const TermKeyInputSchema = b.struct({
+  deviceId: b.string(),
+  paneId: b.string(),
+  key: TerminalKeySchema,
+  modifiers: b.u16(),
+  action: TerminalKeyActionSchema,
 });
 
 export const TermPasteSchema = b.struct({

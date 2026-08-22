@@ -231,6 +231,15 @@ pub type TermInput = TermData;
 pub type TermPaste = TermData;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct TermKeyInput {
+    pub device_id: String,
+    pub pane_id: String,
+    pub key: crate::TerminalKey,
+    pub modifiers: u16,
+    pub action: crate::TerminalKeyAction,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct TermResize {
     pub device_id: String,
     pub pane_id: String,

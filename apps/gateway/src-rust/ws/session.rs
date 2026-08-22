@@ -9,11 +9,13 @@ use super::{
 };
 
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u32 = 15_000;
-pub const DEFAULT_CAPABILITIES: [&str; 4] = [
+pub const TERMINAL_SEMANTIC_KEY_V1: &str = "terminal.semantic-key.v1";
+pub const DEFAULT_CAPABILITIES: [&str; 5] = [
     "tmex-ws-borsh-v1",
     "tmex-agent-v1",
     "tmex-split-v1",
     "canonical-state-v1",
+    TERMINAL_SEMANTIC_KEY_V1,
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -442,6 +444,7 @@ fn is_client_business_kind(kind: MessageKind) -> bool {
             | MessageKind::TmuxMovePane
             | MessageKind::TmuxBreakPane
             | MessageKind::TermInput
+            | MessageKind::TermKeyInput
             | MessageKind::TermPaste
             | MessageKind::TermResize
             | MessageKind::TermSyncSize

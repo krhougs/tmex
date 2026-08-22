@@ -5,12 +5,12 @@ use tmex_protocol::{
     AgentUnsubscribe, CanonicalEvent, ClipboardWrite, DeviceConnect, DeviceConnected,
     DeviceDisconnect, DeviceDisconnected, DeviceEvent, Envelope, ErrorPayload, EventNotifyS2c,
     MessageKind, ProtocolErrorCode, SettingsUpdateS2c, SiteThemeUpdateC2s, SiteThemeUpdateS2c,
-    StateSnapshot, StateSnapshotDiff, TermHistory, TermInput, TermOutput, TermPaste, TermResize,
-    TmuxApplyStackedLayout, TmuxBreakPane, TmuxClosePane, TmuxCloseWindow, TmuxCreateWindow,
-    TmuxEvent, TmuxFetchPaneHistory, TmuxFocusPane, TmuxMovePane, TmuxRenamePane, TmuxRenameWindow,
-    TmuxReorderPanes, TmuxReorderWindows, TmuxResizePane, TmuxSelect, TmuxSelectWindow,
-    TmuxSetWindowStyle, TmuxSplitPane, TmuxSubscribePanes, TmuxWindowCreated, WatchEvent,
-    WireToken, AGENT_EVENT_SYNC, SITE_THEME_DARK, SITE_THEME_LIGHT,
+    StateSnapshot, StateSnapshotDiff, TermHistory, TermInput, TermKeyInput, TermOutput, TermPaste,
+    TermResize, TmuxApplyStackedLayout, TmuxBreakPane, TmuxClosePane, TmuxCloseWindow,
+    TmuxCreateWindow, TmuxEvent, TmuxFetchPaneHistory, TmuxFocusPane, TmuxMovePane, TmuxRenamePane,
+    TmuxRenameWindow, TmuxReorderPanes, TmuxReorderWindows, TmuxResizePane, TmuxSelect,
+    TmuxSelectWindow, TmuxSetWindowStyle, TmuxSplitPane, TmuxSubscribePanes, TmuxWindowCreated,
+    WatchEvent, WireToken, AGENT_EVENT_SYNC, SITE_THEME_DARK, SITE_THEME_LIGHT,
 };
 
 use super::{
@@ -143,6 +143,13 @@ pub enum LegacyRuntimeCommand {
         device_id: String,
         pane_id: String,
         data: String,
+    },
+    SendKey {
+        device_id: String,
+        pane_id: String,
+        key: tmex_protocol::TerminalKey,
+        modifiers: u16,
+        action: tmex_protocol::TerminalKeyAction,
     },
     SendInputBatch {
         device_id: String,
@@ -1065,6 +1072,18 @@ impl LegacyBusinessSession {
                         device_id: command.device_id,
                         pane_id: command.pane_id,
                         data: String::from_utf8_lossy(&command.data).into_owned(),
+                    });
+                }
+            }
+            MessageKind::TermKeyInput => {
+                let command = decode!(TermKeyInput);
+                if self.attached_devices.contains(&command.device_id) {
+                    runtime.dispatch(LegacyRuntimeCommand::SendKey {
+                        device_id: command.device_id,
+                        pane_id: command.pane_id,
+                        key: command.key,
+                        modifiers: command.modifiers,
+                        action: command.action,
                     });
                 }
             }

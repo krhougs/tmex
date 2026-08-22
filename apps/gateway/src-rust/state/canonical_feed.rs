@@ -13,9 +13,10 @@ use tmex_protocol::{
     CanonicalHistoryCommit, CanonicalPaneData, CanonicalPaneGap, CanonicalPaneSubscription,
     CanonicalPaneTarget, CanonicalRequestHistory, CanonicalRequestScreen, CanonicalResizePane,
     CanonicalScreenBegin, CanonicalScreenCommit, CanonicalSourceGap, CanonicalSubscriptionApplied,
-    CanonicalSubscriptionRejection, CanonicalTerminalInput, ProtocolErrorCode,
-    SetPaneSubscriptions, SourceMetadataPatch, SourceMetadataRecord, SourceMetadataSnapshot,
-    WireToken, CANONICAL_STATE_MAX_FRAME_BYTES, SOURCE_GAP_REASON_CACHE_EVICTED,
+    CanonicalSubscriptionRejection, CanonicalTerminalInput, CanonicalTerminalKeyInput,
+    ProtocolErrorCode, SetPaneSubscriptions, SourceMetadataPatch, SourceMetadataRecord,
+    SourceMetadataSnapshot, TerminalKey, TerminalKeyAction, WireToken,
+    CANONICAL_STATE_MAX_FRAME_BYTES, SOURCE_GAP_REASON_CACHE_EVICTED,
     SOURCE_GAP_REASON_EPOCH_CHANGED, SOURCE_GAP_REASON_PANE_GAP,
     SOURCE_GAP_REASON_RESOURCE_EXHAUSTED, SUBSCRIPTION_REJECTED_EPOCH_CHANGED,
     SUBSCRIPTION_REJECTED_NOT_FOUND, SUBSCRIPTION_REJECTED_RESOURCE_EXHAUSTED,
@@ -374,6 +375,9 @@ impl CanonicalFeedSession {
             CanonicalCommand::ResizePane(command) => self.handle_resize_pane(command).await,
             CanonicalCommand::RequestScreen(command) => self.handle_request_screen(command).await,
             CanonicalCommand::RequestHistory(command) => self.handle_request_history(command).await,
+            CanonicalCommand::TerminalKeyInput(command) => {
+                self.handle_terminal_key_input(command).await
+            }
         };
         if let Err(error) = result {
             self.send_error(
@@ -812,6 +816,57 @@ impl CanonicalFeedSession {
         if let Err(error) = target
             .runtime
             .send_input_bytes(&target.pane.pane_id, &command.data)
+            .await
+        {
+            self.send_error(
+                Some(command.request_id),
+                ProtocolErrorCode::TmuxNotReady as u16,
+                &error.message,
+                true,
+            );
+            return Ok(());
+        }
+        self.input_ids.insert(command.input_id);
+        self.input_id_order.push_back(command.input_id);
+        while self.input_id_order.len() > CANONICAL_MAX_INPUT_DEDUP_IDS {
+            if let Some(removed) = self.input_id_order.pop_front() {
+                self.input_ids.remove(&removed);
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_terminal_key_input(
+        &mut self,
+        command: CanonicalTerminalKeyInput,
+    ) -> Result<(), CanonicalRuntimeError> {
+        let Some(target) = self
+            .resolve_target(&command.pane, Some(command.request_id))
+            .await?
+        else {
+            return Ok(());
+        };
+        if command.pane_epoch != target.pane.pane_epoch {
+            self.send_target_gap(
+                &command.pane,
+                command.pane_epoch,
+                0,
+                target.pane.pane_epoch,
+                0,
+            );
+            return Ok(());
+        }
+        if self.input_ids.contains(&command.input_id) {
+            return Ok(());
+        }
+        if let Err(error) = target
+            .runtime
+            .send_key_input(
+                &target.pane.pane_id,
+                command.key,
+                command.modifiers,
+                command.action,
+            )
             .await
         {
             self.send_error(
@@ -2003,6 +2058,7 @@ fn canonical_command_request_id(command: &CanonicalCommand) -> Option<WireToken>
         CanonicalCommand::ResizePane(command) => Some(command.request_id),
         CanonicalCommand::RequestScreen(command) => Some(command.request_id),
         CanonicalCommand::RequestHistory(command) => Some(command.request_id),
+        CanonicalCommand::TerminalKeyInput(command) => Some(command.request_id),
     }
 }
 
@@ -2080,6 +2136,7 @@ mod tests {
         callbacks: Option<PaneRetentionConsumerCallbacks>,
         listener: Option<CanonicalFeedRuntimeListener>,
         input: Vec<(String, Vec<u8>)>,
+        key_input: Vec<(String, TerminalKey, u16, TerminalKeyAction)>,
         input_failures_remaining: usize,
         resizes: Vec<(String, u16, u16)>,
         screen_data: Vec<u8>,
@@ -2335,6 +2392,28 @@ mod tests {
                     return Err(CanonicalRuntimeError::new("input queue unavailable"));
                 }
                 state.input.push((pane_id, data));
+                Ok(())
+            })
+        }
+
+        fn send_key_input<'a>(
+            &'a self,
+            pane_id: &'a str,
+            key: TerminalKey,
+            modifiers: u16,
+            action: TerminalKeyAction,
+        ) -> RuntimeFuture<'a, Result<(), CanonicalRuntimeError>> {
+            let state = Arc::clone(&self.state);
+            let pane_id = pane_id.to_owned();
+            Box::pin(async move {
+                let mut state = state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.input_failures_remaining > 0 {
+                    state.input_failures_remaining -= 1;
+                    return Err(CanonicalRuntimeError::new("input queue unavailable"));
+                }
+                state.key_input.push((pane_id, key, modifiers, action));
                 Ok(())
             })
         }
@@ -2806,6 +2885,35 @@ mod tests {
         assert_eq!(
             runtime.state().input,
             vec![("%1".to_owned(), b"x".to_vec())]
+        );
+
+        let key_input = CanonicalTerminalKeyInput {
+            request_id: REQUEST_ID,
+            pane: target("device-a"),
+            pane_epoch: PANE_EPOCH,
+            input_id: [0x56; 16],
+            key: TerminalKey::Enter,
+            modifiers: tmex_protocol::TERMINAL_KEY_MOD_CTRL | tmex_protocol::TERMINAL_KEY_MOD_SHIFT,
+            action: TerminalKeyAction::Press,
+        };
+        harness
+            .session
+            .handle_command(CanonicalCommand::TerminalKeyInput(key_input.clone()))
+            .await
+            .expect("semantic key handled");
+        harness
+            .session
+            .handle_command(CanonicalCommand::TerminalKeyInput(key_input))
+            .await
+            .expect("duplicate semantic key handled");
+        assert_eq!(
+            runtime.state().key_input,
+            vec![(
+                "%1".to_owned(),
+                TerminalKey::Enter,
+                tmex_protocol::TERMINAL_KEY_MOD_CTRL | tmex_protocol::TERMINAL_KEY_MOD_SHIFT,
+                TerminalKeyAction::Press,
+            )]
         );
 
         harness

@@ -309,6 +309,21 @@ impl CanonicalFeedRuntime for DeviceCanonicalRuntime {
         })
     }
 
+    fn send_key_input<'a>(
+        &'a self,
+        pane_id: &'a str,
+        key: tmex_protocol::TerminalKey,
+        modifiers: u16,
+        action: tmex_protocol::TerminalKeyAction,
+    ) -> RuntimeFuture<'a, Result<(), CanonicalRuntimeError>> {
+        Box::pin(async move {
+            self.runtime
+                .send_key_input(pane_id, key, modifiers, action)
+                .await
+                .map_err(canonical_error)
+        })
+    }
+
     fn resize_pane<'a>(
         &'a self,
         pane_id: &'a str,

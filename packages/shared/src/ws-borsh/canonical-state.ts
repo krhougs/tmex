@@ -13,6 +13,16 @@ export const WS_ENVELOPE_WIRE_OVERHEAD_BYTES = 16;
 export const CANONICAL_STATE_MAX_PAYLOAD_BYTES =
   CANONICAL_STATE_MAX_FRAME_BYTES - WS_ENVELOPE_WIRE_OVERHEAD_BYTES;
 
+export const TERMINAL_KEY_MOD_SHIFT = 1 << 0;
+export const TERMINAL_KEY_MOD_ALT = 1 << 1;
+export const TERMINAL_KEY_MOD_CTRL = 1 << 2;
+export const TERMINAL_KEY_MOD_SUPER = 1 << 3;
+export const TERMINAL_KEY_MOD_HYPER = 1 << 4;
+export const TERMINAL_KEY_MOD_META = 1 << 5;
+export const TERMINAL_KEY_MOD_CAPS_LOCK = 1 << 6;
+export const TERMINAL_KEY_MOD_NUM_LOCK = 1 << 7;
+export const TERMINAL_KEY_MOD_MASK = 0xff;
+
 export const SOURCE_ENTITY_DEVICE = 0;
 export const SOURCE_ENTITY_SERVER = 1;
 export const SOURCE_ENTITY_SESSION = 2;
@@ -111,6 +121,58 @@ export const CanonicalTerminalInputSchema = b.struct({
   data: b.bytes(),
 });
 
+export const TerminalKeySchema = b.enum({
+  Unicode: b.u32(),
+  Enter: b.unit(),
+  Tab: b.unit(),
+  BackTab: b.unit(),
+  Escape: b.unit(),
+  Backspace: b.unit(),
+  Insert: b.unit(),
+  Delete: b.unit(),
+  Home: b.unit(),
+  End: b.unit(),
+  PageUp: b.unit(),
+  PageDown: b.unit(),
+  ArrowUp: b.unit(),
+  ArrowDown: b.unit(),
+  ArrowLeft: b.unit(),
+  ArrowRight: b.unit(),
+  Function: b.u8(),
+  NumpadEnter: b.unit(),
+  NumpadDigit: b.u8(),
+  NumpadDecimal: b.unit(),
+  NumpadAdd: b.unit(),
+  NumpadSubtract: b.unit(),
+  NumpadMultiply: b.unit(),
+  NumpadDivide: b.unit(),
+  NumpadEqual: b.unit(),
+  ShiftLeft: b.unit(),
+  ShiftRight: b.unit(),
+  ControlLeft: b.unit(),
+  ControlRight: b.unit(),
+  AltLeft: b.unit(),
+  AltRight: b.unit(),
+  SuperLeft: b.unit(),
+  SuperRight: b.unit(),
+});
+
+export const TerminalKeyActionSchema = b.enum({
+  Press: b.unit(),
+  Repeat: b.u16(),
+  Release: b.unit(),
+});
+
+export const CanonicalTerminalKeyInputSchema = b.struct({
+  requestId: b.bytes(16),
+  pane: CanonicalPaneTargetSchema,
+  paneEpoch: b.bytes(16),
+  inputId: b.bytes(16),
+  key: TerminalKeySchema,
+  modifiers: b.u16(),
+  action: TerminalKeyActionSchema,
+});
+
 export const CanonicalResizePaneSchema = b.struct({
   requestId: b.bytes(16),
   pane: CanonicalPaneTargetSchema,
@@ -137,6 +199,7 @@ export const CanonicalCommandSchema = b.enum({
   ResizePane: CanonicalResizePaneSchema,
   RequestScreen: CanonicalRequestScreenSchema,
   RequestHistory: CanonicalRequestHistorySchema,
+  TerminalKeyInput: CanonicalTerminalKeyInputSchema,
 });
 
 export const CanonicalCommandEnvelopeSchema = b.struct({
@@ -288,6 +351,9 @@ export type CanonicalPaneTarget = b.infer<typeof CanonicalPaneTargetSchema>;
 export type CanonicalTerminalCursor = b.infer<typeof CanonicalTerminalCursorSchema>;
 export type CanonicalHistoryCursor = b.infer<typeof CanonicalHistoryCursorSchema>;
 export type CanonicalPaneSubscription = b.infer<typeof CanonicalPaneSubscriptionSchema>;
+export type TerminalKey = b.infer<typeof TerminalKeySchema>;
+export type TerminalKeyAction = b.infer<typeof TerminalKeyActionSchema>;
+export type CanonicalTerminalKeyInput = b.infer<typeof CanonicalTerminalKeyInputSchema>;
 export type CanonicalCommand = b.infer<typeof CanonicalCommandSchema>;
 export type CanonicalCommandEnvelope = b.infer<typeof CanonicalCommandEnvelopeSchema>;
 export type CanonicalEvent = b.infer<typeof CanonicalEventSchema>;

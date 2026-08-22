@@ -44,6 +44,7 @@ pub enum MessageKind {
     TermOutput = 0x0305,
     TermHistory = 0x0306,
     ClipboardWrite = 0x0307,
+    TermKeyInput = 0x0308,
     SwitchAck = 0x0401,
     LiveResume = 0x0402,
     Chunk = 0x0501,
@@ -59,7 +60,7 @@ pub enum MessageKind {
 }
 
 impl MessageKind {
-    pub const ALL: [Self; 51] = [
+    pub const ALL: [Self; 52] = [
         Self::HelloC2s,
         Self::HelloS2c,
         Self::Ping,
@@ -99,6 +100,7 @@ impl MessageKind {
         Self::TermOutput,
         Self::TermHistory,
         Self::ClipboardWrite,
+        Self::TermKeyInput,
         Self::SwitchAck,
         Self::LiveResume,
         Self::Chunk,
@@ -151,6 +153,7 @@ impl MessageKind {
             Self::TermPaste => "TERM_PASTE",
             Self::TermResize => "TERM_RESIZE",
             Self::TermSyncSize => "TERM_SYNC_SIZE",
+            Self::TermKeyInput => "TERM_KEY_INPUT",
             Self::TermOutput => "TERM_OUTPUT",
             Self::TermHistory => "TERM_HISTORY",
             Self::ClipboardWrite => "CLIPBOARD_WRITE",
@@ -209,6 +212,14 @@ mod tests {
                 kind
             );
         }
+    }
+
+    #[test]
+    fn semantic_key_kind_is_appended_without_reindexing_terminal_kinds() {
+        assert_eq!(MessageKind::TermOutput as u16, 0x0305);
+        assert_eq!(MessageKind::TermHistory as u16, 0x0306);
+        assert_eq!(MessageKind::ClipboardWrite as u16, 0x0307);
+        assert_eq!(MessageKind::TermKeyInput as u16, 0x0308);
     }
 
     #[test]

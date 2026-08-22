@@ -2950,6 +2950,26 @@ impl GatewaySessionActor {
                         }
                     }
                 }
+                LegacyRuntimeCommand::SendKey {
+                    device_id,
+                    pane_id,
+                    key,
+                    modifiers,
+                    action,
+                } => {
+                    if let Some(runtime) = self
+                        .runtime_subscriptions
+                        .get(&device_id)
+                        .map(|subscription| subscription.runtime.clone())
+                    {
+                        if let Err(error) = runtime
+                            .send_key_input(&pane_id, key, modifiers, action)
+                            .await
+                        {
+                            self.send_runtime_error(&device_id, error.to_string());
+                        }
+                    }
+                }
                 LegacyRuntimeCommand::SendInputBatch {
                     device_id,
                     pane_id,

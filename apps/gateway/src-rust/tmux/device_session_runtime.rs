@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::FutureExt;
-use tmex_protocol::{CanonicalHistoryCursor, StateSnapshot, WindowWire, WireToken};
+use tmex_protocol::{
+    CanonicalHistoryCursor, StateSnapshot, TerminalKey, TerminalKeyAction, WindowWire, WireToken,
+};
 use tmex_terminal::{
     apply_sequence, encode_pane_option_value, keyboard_restore_sequences, parse_pane_option_value,
     HeadlessTerminalOptions, KeyboardModeState,
@@ -24,23 +26,23 @@ use super::{
     is_target_missing_message, is_tmux_server_gone_message, join_shell_args,
     pane_history_info_command, pane_info_command, parse_pane_history_capture_info, parse_pane_meta,
     parse_pane_screen_info, parse_state_snapshot, parse_tmux_version, resize_pane_command,
-    resize_window_command, send_input_commands, session_configuration_commands, snapshot_commands,
-    start_control_runtime, CapturedPaneHistoryPage, CapturedTerminalHistory,
-    ConnectionLifecycleEmitter, ControlModeSubscriptionEvent, ControlRuntimeError,
-    ControlRuntimeHandle, DeviceSessionConfig, LocalShellPathResolver, LocalTmuxTransport,
-    MetadataProjection, MetadataProjectionError, MetadataProjectionSnapshot, MovePanePosition,
-    PaneEmulator, PaneHistoryCaptureInfo, PaneHistoryCursor, PaneHistoryCursorError,
-    PaneHistoryCursorErrorReason, PaneHistoryReader, PaneHistorySource, PaneIdentity, PaneInfo,
-    PaneModeFlags, PaneRetention, PaneRetentionError, PaneRetentionStats, PaneScreenCheckpoint,
-    PaneTerminalCursor, ProcessSshConfigLookup, ProjectionEntityKind, ServerEpochError,
-    SnapshotRefreshAction, SnapshotRefreshCoordinator, SnapshotRefreshRunResult, SpawnExecutor,
-    SplitDirection, SshConfigError, SshInvocationBuilder, SshTmuxTransport, StandaloneSpawnPolicy,
-    SystemOpenSshInvocationBuilder, TargetMissingMode, ThemeMode, ThemeSubscriptionTracker,
-    TmuxCommandResult, TmuxLifecycleSink, TmuxRuntimeEvent, TmuxRuntimeKind, TmuxTransport,
-    TmuxTransportConfig, TmuxTransportError, CONTROL_MAX_RESTARTS, CONTROL_RESTART_DELAY,
-    CONTROL_STABLE_RESET, HEARTBEAT_INTERVAL, LOCAL_RUN_TIMEOUT, NO_SERVER_RUNNING_MAX_RETRIES,
-    NO_SERVER_RUNNING_RETRY_DELAY, PARKING_WINDOW_NAME, REMOTE_RUN_TIMEOUT,
-    RUNTIME_COMMAND_QUEUE_CAPACITY, RUNTIME_EVENT_QUEUE_CAPACITY,
+    resize_window_command, send_input_commands, send_key_input_command,
+    session_configuration_commands, snapshot_commands, start_control_runtime,
+    CapturedPaneHistoryPage, CapturedTerminalHistory, ConnectionLifecycleEmitter,
+    ControlModeSubscriptionEvent, ControlRuntimeError, ControlRuntimeHandle, DeviceSessionConfig,
+    LocalShellPathResolver, LocalTmuxTransport, MetadataProjection, MetadataProjectionError,
+    MetadataProjectionSnapshot, MovePanePosition, PaneEmulator, PaneHistoryCaptureInfo,
+    PaneHistoryCursor, PaneHistoryCursorError, PaneHistoryCursorErrorReason, PaneHistoryReader,
+    PaneHistorySource, PaneIdentity, PaneInfo, PaneModeFlags, PaneRetention, PaneRetentionError,
+    PaneRetentionStats, PaneScreenCheckpoint, PaneTerminalCursor, ProcessSshConfigLookup,
+    ProjectionEntityKind, ServerEpochError, SnapshotRefreshAction, SnapshotRefreshCoordinator,
+    SnapshotRefreshRunResult, SpawnExecutor, SplitDirection, SshConfigError, SshInvocationBuilder,
+    SshTmuxTransport, StandaloneSpawnPolicy, SystemOpenSshInvocationBuilder, TargetMissingMode,
+    ThemeMode, ThemeSubscriptionTracker, TmuxCommandResult, TmuxLifecycleSink, TmuxRuntimeEvent,
+    TmuxRuntimeKind, TmuxTransport, TmuxTransportConfig, TmuxTransportError, CONTROL_MAX_RESTARTS,
+    CONTROL_RESTART_DELAY, CONTROL_STABLE_RESET, HEARTBEAT_INTERVAL, LOCAL_RUN_TIMEOUT,
+    NO_SERVER_RUNNING_MAX_RETRIES, NO_SERVER_RUNNING_RETRY_DELAY, PARKING_WINDOW_NAME,
+    REMOTE_RUN_TIMEOUT, RUNTIME_COMMAND_QUEUE_CAPACITY, RUNTIME_EVENT_QUEUE_CAPACITY,
 };
 
 const DEFAULT_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
@@ -59,6 +61,7 @@ pub enum DeviceSessionRuntimeError {
     Closed,
     Backpressure,
     CommandFailed { command: String, detail: String },
+    InvalidTerminalKey(String),
     TmuxVersionUnsupported(String),
     InvalidTmuxOutput(String),
 }
@@ -80,6 +83,7 @@ impl fmt::Display for DeviceSessionRuntimeError {
             Self::CommandFailed { command, detail } => {
                 write!(formatter, "tmux command failed ({command}): {detail}")
             }
+            Self::InvalidTerminalKey(detail) => formatter.write_str(detail),
             Self::TmuxVersionUnsupported(version) => {
                 write!(
                     formatter,
@@ -195,6 +199,13 @@ enum RuntimeCommand {
     SendInput {
         pane_id: String,
         data: Vec<u8>,
+        response: oneshot::Sender<Result<(), DeviceSessionRuntimeError>>,
+    },
+    SendKey {
+        pane_id: String,
+        key: TerminalKey,
+        modifiers: u16,
+        action: TerminalKeyAction,
         response: oneshot::Sender<Result<(), DeviceSessionRuntimeError>>,
     },
     SendInputOneWay {
@@ -488,6 +499,29 @@ impl DeviceSessionRuntime {
             .send(RuntimeCommand::SendInput {
                 pane_id: pane_id.to_owned(),
                 data: data.to_vec(),
+                response,
+            })
+            .await
+            .map_err(|_| DeviceSessionRuntimeError::Closed)?;
+        receiver
+            .await
+            .map_err(|_| DeviceSessionRuntimeError::Closed)?
+    }
+
+    pub async fn send_key_input(
+        &self,
+        pane_id: &str,
+        key: TerminalKey,
+        modifiers: u16,
+        action: TerminalKeyAction,
+    ) -> Result<(), DeviceSessionRuntimeError> {
+        let (response, receiver) = oneshot::channel();
+        self.commands
+            .send(RuntimeCommand::SendKey {
+                pane_id: pane_id.to_owned(),
+                key,
+                modifiers,
+                action,
                 response,
             })
             .await
@@ -1728,6 +1762,16 @@ impl RuntimeActor {
                 let result = self.send_input(&pane_id, &data).await;
                 let _ = response.send(result);
             }
+            RuntimeCommand::SendKey {
+                pane_id,
+                key,
+                modifiers,
+                action,
+                response,
+            } => {
+                let result = self.send_key(&pane_id, &key, modifiers, &action).await;
+                let _ = response.send(result);
+            }
             RuntimeCommand::SendInputOneWay { pane_id, data } => {
                 if let Err(error) = self.send_input(&pane_id, &data).await {
                     self.emit_error(error.to_string());
@@ -2736,6 +2780,31 @@ impl RuntimeActor {
         Ok(())
     }
 
+    async fn send_key(
+        &mut self,
+        pane_id: &str,
+        key: &TerminalKey,
+        modifiers: u16,
+        action: &TerminalKeyAction,
+    ) -> Result<(), DeviceSessionRuntimeError> {
+        let command = send_key_input_command(pane_id, key, modifiers, action)
+            .map_err(|error| DeviceSessionRuntimeError::InvalidTerminalKey(error.to_string()))?;
+        if let Some(control) = &self.control {
+            control
+                .execute(join_shell_args(&command), LOCAL_RUN_TIMEOUT)
+                .await?;
+        } else {
+            checked_command(
+                &self.transport,
+                &command,
+                self.config.kind(),
+                TargetMissingMode::Reject,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     /// gateway 重启后从 tmux pane user option 重水化键盘协议模式（唯一真源在
     /// `keyboard_modes` map，option 仅为重启恢复服务）。命令失败跳过——等价
     /// 旧网关「无键盘模式跟踪」行为。
@@ -3085,7 +3154,7 @@ mod tests {
     use crate::tmux::{
         ControlClient, LocalTmuxConfig, MetadataProjectionFlush, TMEX_SERVER_EPOCH_OPTION,
     };
-    use tmex_protocol::SourceMetadataPatch;
+    use tmex_protocol::{SourceMetadataPatch, TERMINAL_KEY_MOD_CTRL, TERMINAL_KEY_MOD_SHIFT};
     use tmex_terminal::KbdSequence;
     use tokio::sync::{Notify, Semaphore};
     use tokio::time::timeout;
@@ -3386,6 +3455,32 @@ mod tests {
         })
         .await;
 
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn semantic_key_input_routes_through_the_runtime_actor() {
+        let (factory, _close_started, _close_finished, commands) = recording_fake_factory(None);
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+
+        runtime
+            .send_key_input(
+                "%1",
+                TerminalKey::Enter,
+                TERMINAL_KEY_MOD_CTRL | TERMINAL_KEY_MOD_SHIFT,
+                TerminalKeyAction::Press,
+            )
+            .await
+            .unwrap();
+
+        assert!(commands.lock().unwrap().contains(&vec![
+            "send-keys".to_owned(),
+            "-t".to_owned(),
+            "%1".to_owned(),
+            "C-S-Enter".to_owned(),
+        ]));
         runtime.shutdown().await;
     }
 

@@ -311,6 +311,14 @@ pub trait CanonicalFeedRuntime: Send + Sync {
         data: &'a [u8],
     ) -> RuntimeFuture<'a, Result<(), CanonicalRuntimeError>>;
 
+    fn send_key_input<'a>(
+        &'a self,
+        pane_id: &'a str,
+        key: tmex_protocol::TerminalKey,
+        modifiers: u16,
+        action: tmex_protocol::TerminalKeyAction,
+    ) -> RuntimeFuture<'a, Result<(), CanonicalRuntimeError>>;
+
     fn resize_pane<'a>(
         &'a self,
         pane_id: &'a str,

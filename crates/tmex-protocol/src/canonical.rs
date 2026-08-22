@@ -116,6 +116,71 @@ pub struct CanonicalTerminalInput {
     pub data: Vec<u8>,
 }
 
+pub const TERMINAL_KEY_MOD_SHIFT: u16 = 1 << 0;
+pub const TERMINAL_KEY_MOD_ALT: u16 = 1 << 1;
+pub const TERMINAL_KEY_MOD_CTRL: u16 = 1 << 2;
+pub const TERMINAL_KEY_MOD_SUPER: u16 = 1 << 3;
+pub const TERMINAL_KEY_MOD_HYPER: u16 = 1 << 4;
+pub const TERMINAL_KEY_MOD_META: u16 = 1 << 5;
+pub const TERMINAL_KEY_MOD_CAPS_LOCK: u16 = 1 << 6;
+pub const TERMINAL_KEY_MOD_NUM_LOCK: u16 = 1 << 7;
+pub const TERMINAL_KEY_MOD_MASK: u16 = 0xff;
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub enum TerminalKey {
+    Unicode(u32),
+    Enter,
+    Tab,
+    BackTab,
+    Escape,
+    Backspace,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Function(u8),
+    NumpadEnter,
+    NumpadDigit(u8),
+    NumpadDecimal,
+    NumpadAdd,
+    NumpadSubtract,
+    NumpadMultiply,
+    NumpadDivide,
+    NumpadEqual,
+    ShiftLeft,
+    ShiftRight,
+    ControlLeft,
+    ControlRight,
+    AltLeft,
+    AltRight,
+    SuperLeft,
+    SuperRight,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub enum TerminalKeyAction {
+    Press,
+    Repeat(u16),
+    Release,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct CanonicalTerminalKeyInput {
+    pub request_id: WireToken,
+    pub pane: CanonicalPaneTarget,
+    pub pane_epoch: WireToken,
+    pub input_id: WireToken,
+    pub key: TerminalKey,
+    pub modifiers: u16,
+    pub action: TerminalKeyAction,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct CanonicalResizePane {
     pub request_id: WireToken,
@@ -146,6 +211,7 @@ pub enum CanonicalCommand {
     ResizePane(CanonicalResizePane),
     RequestScreen(CanonicalRequestScreen),
     RequestHistory(CanonicalRequestHistory),
+    TerminalKeyInput(CanonicalTerminalKeyInput),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -426,6 +492,30 @@ mod tests {
                 .command,
             CanonicalCommand::RequestScreen(_)
         ));
+    }
+
+    #[test]
+    fn semantic_key_is_appended_without_reindexing_v1_commands() {
+        let command = CanonicalCommand::TerminalKeyInput(CanonicalTerminalKeyInput {
+            request_id: [2; 16],
+            pane: pane(),
+            pane_epoch: [3; 16],
+            input_id: [4; 16],
+            key: TerminalKey::Enter,
+            modifiers: TERMINAL_KEY_MOD_CTRL | TERMINAL_KEY_MOD_SHIFT,
+            action: TerminalKeyAction::Press,
+        });
+        let encoded = encode_canonical_command(command.clone()).expect("encode semantic key");
+        assert_eq!(
+            encoded[2], 5,
+            "new variant must be appended after all v1 commands"
+        );
+        assert_eq!(
+            decode_canonical_command(&encoded)
+                .expect("decode semantic key")
+                .command,
+            command
+        );
     }
 
     #[test]

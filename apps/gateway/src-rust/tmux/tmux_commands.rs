@@ -1,6 +1,12 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
-use tmex_protocol::{PaneWire, SessionWire, StateSnapshot, WindowWire};
+use tmex_protocol::{
+    PaneWire, SessionWire, StateSnapshot, TerminalKey, TerminalKeyAction, WindowWire,
+    TERMINAL_KEY_MOD_ALT, TERMINAL_KEY_MOD_CAPS_LOCK, TERMINAL_KEY_MOD_CTRL,
+    TERMINAL_KEY_MOD_HYPER, TERMINAL_KEY_MOD_MASK, TERMINAL_KEY_MOD_META,
+    TERMINAL_KEY_MOD_NUM_LOCK, TERMINAL_KEY_MOD_SHIFT, TERMINAL_KEY_MOD_SUPER,
+};
 
 use super::{
     encode_bytes_to_hex_chunks, parse_pane_snapshot_row, parse_window_snapshot_row,
@@ -10,6 +16,161 @@ use super::{
 };
 
 pub const SESSION_SNAPSHOT_FORMAT: &str = "#{session_id}|#{session_name}";
+
+const TERMINAL_KEY_REPEAT_MAX: u16 = 32;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TerminalKeyCommandError {
+    InvalidModifierBits(u16),
+    UnsupportedModifier(u16),
+    InvalidKey(&'static str),
+    UnsupportedAction,
+    InvalidRepeat(u16),
+}
+
+impl fmt::Display for TerminalKeyCommandError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidModifierBits(bits) => {
+                write!(
+                    formatter,
+                    "terminal key has unknown modifier bits: {bits:#x}"
+                )
+            }
+            Self::UnsupportedModifier(bits) => {
+                write!(
+                    formatter,
+                    "terminal key has unsupported modifiers: {bits:#x}"
+                )
+            }
+            Self::InvalidKey(reason) => write!(formatter, "invalid terminal key: {reason}"),
+            Self::UnsupportedAction => formatter.write_str("terminal key release is unsupported"),
+            Self::InvalidRepeat(count) => {
+                write!(
+                    formatter,
+                    "terminal key repeat must be in 1..={TERMINAL_KEY_REPEAT_MAX}, got {count}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for TerminalKeyCommandError {}
+
+pub fn send_key_input_command(
+    pane_id: &str,
+    key: &TerminalKey,
+    modifiers: u16,
+    action: &TerminalKeyAction,
+) -> Result<Vec<String>, TerminalKeyCommandError> {
+    if modifiers & !TERMINAL_KEY_MOD_MASK != 0 {
+        return Err(TerminalKeyCommandError::InvalidModifierBits(modifiers));
+    }
+    let unsupported =
+        modifiers & (TERMINAL_KEY_MOD_SUPER | TERMINAL_KEY_MOD_HYPER | TERMINAL_KEY_MOD_META);
+    if unsupported != 0 {
+        return Err(TerminalKeyCommandError::UnsupportedModifier(unsupported));
+    }
+    // Lock bits describe keyboard state; tmux derives its wire sequence from the key and
+    // control modifiers, so locks do not become token prefixes.
+    let mut control_modifiers =
+        modifiers & !(TERMINAL_KEY_MOD_CAPS_LOCK | TERMINAL_KEY_MOD_NUM_LOCK);
+    let base = match key {
+        TerminalKey::Unicode(value) => {
+            let value = char::from_u32(*value)
+                .filter(|value| value.is_ascii() && !value.is_ascii_control())
+                .ok_or(TerminalKeyCommandError::InvalidKey(
+                    "Unicode semantic keys must be printable ASCII in v1",
+                ))?;
+            if value == ' ' {
+                "Space".to_owned()
+            } else if value.is_ascii_alphabetic() && control_modifiers & TERMINAL_KEY_MOD_SHIFT != 0
+            {
+                value.to_ascii_lowercase().to_string()
+            } else {
+                value.to_string()
+            }
+        }
+        TerminalKey::Enter => "Enter".to_owned(),
+        TerminalKey::Tab if control_modifiers & TERMINAL_KEY_MOD_SHIFT != 0 => {
+            control_modifiers &= !TERMINAL_KEY_MOD_SHIFT;
+            "BTab".to_owned()
+        }
+        TerminalKey::Tab => "Tab".to_owned(),
+        TerminalKey::BackTab => {
+            control_modifiers &= !TERMINAL_KEY_MOD_SHIFT;
+            "BTab".to_owned()
+        }
+        TerminalKey::Escape => "Escape".to_owned(),
+        TerminalKey::Backspace => "BSpace".to_owned(),
+        TerminalKey::Insert => "IC".to_owned(),
+        TerminalKey::Delete => "DC".to_owned(),
+        TerminalKey::Home => "Home".to_owned(),
+        TerminalKey::End => "End".to_owned(),
+        TerminalKey::PageUp => "PPage".to_owned(),
+        TerminalKey::PageDown => "NPage".to_owned(),
+        TerminalKey::ArrowUp => "Up".to_owned(),
+        TerminalKey::ArrowDown => "Down".to_owned(),
+        TerminalKey::ArrowLeft => "Left".to_owned(),
+        TerminalKey::ArrowRight => "Right".to_owned(),
+        TerminalKey::Function(number @ 1..=35) => format!("F{number}"),
+        TerminalKey::Function(_) => {
+            return Err(TerminalKeyCommandError::InvalidKey(
+                "function key must be in 1..=35",
+            ));
+        }
+        TerminalKey::NumpadEnter => "KPEnter".to_owned(),
+        TerminalKey::NumpadDigit(number @ 0..=9) => format!("KP{number}"),
+        TerminalKey::NumpadDigit(_) => {
+            return Err(TerminalKeyCommandError::InvalidKey(
+                "numpad digit must be in 0..=9",
+            ));
+        }
+        TerminalKey::NumpadDecimal => "KPDecimal".to_owned(),
+        TerminalKey::NumpadAdd => "KPPlus".to_owned(),
+        TerminalKey::NumpadSubtract => "KPMinus".to_owned(),
+        TerminalKey::NumpadMultiply => "KPMultiply".to_owned(),
+        TerminalKey::NumpadDivide => "KPDivide".to_owned(),
+        TerminalKey::NumpadEqual => "KPEqual".to_owned(),
+        TerminalKey::ShiftLeft
+        | TerminalKey::ShiftRight
+        | TerminalKey::ControlLeft
+        | TerminalKey::ControlRight
+        | TerminalKey::AltLeft
+        | TerminalKey::AltRight
+        | TerminalKey::SuperLeft
+        | TerminalKey::SuperRight => {
+            return Err(TerminalKeyCommandError::InvalidKey(
+                "standalone modifier keys are not supported in v1",
+            ));
+        }
+    };
+    let mut token = String::new();
+    if control_modifiers & TERMINAL_KEY_MOD_CTRL != 0 {
+        token.push_str("C-");
+    }
+    if control_modifiers & TERMINAL_KEY_MOD_ALT != 0 {
+        token.push_str("M-");
+    }
+    if control_modifiers & TERMINAL_KEY_MOD_SHIFT != 0 {
+        token.push_str("S-");
+    }
+    token.push_str(&base);
+
+    let mut command = vec!["send-keys".to_owned()];
+    match action {
+        TerminalKeyAction::Press => {}
+        TerminalKeyAction::Repeat(count @ 1..=TERMINAL_KEY_REPEAT_MAX) => {
+            command.extend(["-N".to_owned(), count.to_string()]);
+        }
+        TerminalKeyAction::Repeat(count) => {
+            return Err(TerminalKeyCommandError::InvalidRepeat(*count));
+        }
+        TerminalKeyAction::Release => return Err(TerminalKeyCommandError::UnsupportedAction),
+    }
+    command.extend(["-t".to_owned(), pane_id.to_owned(), token]);
+    Ok(command)
+}
 
 pub fn session_configuration_commands(
     session_name: &str,
@@ -394,6 +555,7 @@ mod tests {
             "%2|@2|0|1|80|24|0|0|0|two|bash|/tmp\n%1|@1|0|1|80|24|0|0|1|one|zsh|/home\n",
         );
         let session = snapshot.session.unwrap();
+
         assert_eq!(
             session
                 .windows
@@ -403,6 +565,52 @@ mod tests {
             ["@1", "@2"]
         );
         assert_eq!(session.windows[0].panes[0].id, "%1");
+    }
+    #[test]
+    fn semantic_key_commands_preserve_multi_modifiers_and_actions() {
+        assert_eq!(
+            send_key_input_command(
+                "%1",
+                &TerminalKey::Enter,
+                TERMINAL_KEY_MOD_SHIFT,
+                &TerminalKeyAction::Press,
+            )
+            .unwrap(),
+            ["send-keys", "-t", "%1", "S-Enter"]
+        );
+        assert_eq!(
+            send_key_input_command(
+                "%1",
+                &TerminalKey::ArrowUp,
+                TERMINAL_KEY_MOD_CTRL | TERMINAL_KEY_MOD_ALT | TERMINAL_KEY_MOD_SHIFT,
+                &TerminalKeyAction::Press,
+            )
+            .unwrap(),
+            ["send-keys", "-t", "%1", "C-M-S-Up"]
+        );
+        assert_eq!(
+            send_key_input_command(
+                "%1",
+                &TerminalKey::Tab,
+                TERMINAL_KEY_MOD_SHIFT,
+                &TerminalKeyAction::Repeat(3),
+            )
+            .unwrap(),
+            ["send-keys", "-N", "3", "-t", "%1", "BTab"]
+        );
+        assert_eq!(
+            send_key_input_command("%1", &TerminalKey::Enter, 0, &TerminalKeyAction::Release,),
+            Err(TerminalKeyCommandError::UnsupportedAction)
+        );
+        assert!(matches!(
+            send_key_input_command(
+                "%1",
+                &TerminalKey::Enter,
+                TERMINAL_KEY_MOD_SUPER,
+                &TerminalKeyAction::Press,
+            ),
+            Err(TerminalKeyCommandError::UnsupportedModifier(_))
+        ));
     }
 
     #[test]
