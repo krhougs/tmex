@@ -11,6 +11,11 @@
 /// kitty keyboard flags 栈深度上限（ghostty FlagStack 同值）。
 pub const KITTY_STACK_DEPTH: usize = 8;
 
+/// kitty flags 合法位集（ghostty `Flags = packed struct(u5)`：disambiguate /
+/// event-types / alternates / report-all / associated-text）。含越界位的
+/// push/set 会被客户端引擎整条忽略，检测层同口径拒绝。
+pub const KITTY_FLAGS_MASK: u16 = 0b1_1111;
+
 /// 检出的键盘协议控制序列（原始语义，不含栈运算结果）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KbdSequence {
@@ -26,6 +31,8 @@ pub enum KbdSequence {
     CursorKeys(bool),
     /// `CSI ? 2004 h/l`
     BracketedPaste(bool),
+    /// `ESC c`（RIS）：客户端引擎复位全部键盘协议模式（kitty 栈、MoK、DECCKM、bp）
+    ResetAll,
 }
 
 /// `CSI = flags ; mode u` 的 mode 参数。
@@ -66,11 +73,18 @@ pub fn detect_keyboard_sequence(params: &[u8], final_byte: u8) -> Option<KbdSequ
 fn detect_kitty_u(params: &[u8]) -> Option<KbdSequence> {
     let (prefix, rest) = params.split_first()?;
     match prefix {
-        b'>' => parse_u16(rest).map(KbdSequence::PushKittyFlags),
-        b'<' => parse_u16(rest).or(Some(1)).map(KbdSequence::PopKittyFlags),
+        b'>' => parse_flags(rest).map(KbdSequence::PushKittyFlags),
+        b'<' => {
+            // 参数缺省才默认 pop 1；畸形参数（如 `<;u`）客户端引擎整条忽略。
+            if rest.is_empty() {
+                Some(KbdSequence::PopKittyFlags(1))
+            } else {
+                parse_u16(rest).map(KbdSequence::PopKittyFlags)
+            }
+        }
         b'=' => {
             let (flags, mode) = match rest.iter().position(|&b| b == b';') {
-                None => (parse_u16(rest)?, KittySetMode::Set),
+                None => (parse_flags(rest)?, KittySetMode::Set),
                 Some(sep) => {
                     let (flags_raw, mode_raw) = rest.split_at(sep);
                     let mode = match parse_u16(&mode_raw[1..])? {
@@ -79,7 +93,7 @@ fn detect_kitty_u(params: &[u8]) -> Option<KbdSequence> {
                         3 => KittySetMode::Not,
                         _ => return None,
                     };
-                    (parse_u16(flags_raw)?, mode)
+                    (parse_flags(flags_raw)?, mode)
                 }
             };
             Some(KbdSequence::SetKittyFlags { flags, mode })
@@ -88,6 +102,11 @@ fn detect_kitty_u(params: &[u8]) -> Option<KbdSequence> {
     }
 }
 
+/// flags 参数解析：数值合法且不含越界位才接受（与客户端引擎同口径）。
+fn parse_flags(bytes: &[u8]) -> Option<u16> {
+    let flags = parse_u16(bytes)?;
+    (flags & !KITTY_FLAGS_MASK == 0).then_some(flags)
+}
 /// `>4;n m` / `>4 m`（reset → 0）。
 fn detect_modify_other_keys(params: &[u8]) -> Option<KbdSequence> {
     if params.first() != Some(&b'>') {
@@ -133,8 +152,16 @@ fn parse_u16(bytes: &[u8]) -> Option<u16> {
     }
     u16::try_from(value).ok()
 }
+
+/// 把检出序列归并进状态（镜像 ghostty FlagStack：8 深 ring、push 满逐出最旧、
+/// pop n≥depth 全重置、set/or/not 写栈顶）。
 pub fn apply_sequence(state: &mut KeyboardModeState, seq: KbdSequence) {
     match seq {
+        KbdSequence::ResetAll => {
+            // RIS：客户端引擎复位全部键盘协议模式（kitty 协议规范：RIS 清空栈）
+            *state = KeyboardModeState::default();
+        }
+
         KbdSequence::PushKittyFlags(flags) => {
             state.kitty_stack.push(flags);
             if state.kitty_stack.len() > KITTY_STACK_DEPTH {
@@ -291,6 +318,36 @@ mod tests {
             })
         );
         assert_eq!(detect(b"<u"), Some(KbdSequence::PopKittyFlags(1)));
+    }
+
+    #[test]
+    fn unsupported_kitty_flag_bits_rejected_like_ghostty() {
+        // ghostty Flags = packed u5：含越界位的 push/set 整条忽略（探针实测）
+        assert_eq!(detect(b">32u"), None);
+        assert_eq!(detect(b">33u"), None);
+        assert_eq!(detect(b"=32u"), None);
+        assert_eq!(detect(b"=33;2u"), None);
+        assert_eq!(detect(b">31u"), Some(KbdSequence::PushKittyFlags(31)));
+    }
+
+    #[test]
+    fn malformed_pop_param_ignored_only_empty_defaults() {
+        // `<;u`（畸形参数）ghostty 忽略；`<u`（空）才默认 pop 1
+        assert_eq!(detect(b"<;u"), None);
+        assert_eq!(detect(b"<u"), Some(KbdSequence::PopKittyFlags(1)));
+        assert_eq!(detect(b"<xu"), None);
+    }
+
+    #[test]
+    fn reset_all_clears_every_tracked_mode() {
+        let mut state = KeyboardModeState {
+            kitty_stack: vec![7, 1],
+            modify_other_keys: 2,
+            application_cursor: true,
+            bracketed_paste: true,
+        };
+        apply_sequence(&mut state, KbdSequence::ResetAll);
+        assert_eq!(state, KeyboardModeState::default());
     }
 
     #[test]

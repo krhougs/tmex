@@ -235,6 +235,12 @@ impl PaneStreamParser {
                     self.csi_bytes.clear();
                     self.phase = Phase::Csi;
                 }
+                b'c' => {
+                    // RIS：透传字节并通知键盘模式复位（kitty 栈/MoK/DECCKM/bp）
+                    output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
+                    output.push_event(PaneStreamEvent::KeyboardSequence(KbdSequence::ResetAll));
+                    self.phase = Phase::Normal;
+                }
                 _ => {
                     output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
                     self.phase = Phase::Normal;
@@ -842,6 +848,20 @@ mod tests {
             assert_eq!(output.events.len(), 4, "split at {split}");
             assert_eq!(output.terminal_bytes, &input[..], "split at {split}");
         }
+    }
+
+    #[test]
+    fn ris_emits_keyboard_reset_and_passes_bytes_through() {
+        let input = b"A\x1b[>7u\x1bcB";
+        let output = PaneStreamParser::new().push(input);
+        assert_eq!(output.terminal_bytes, &b"A\x1b[>7u\x1bcB"[..]);
+        assert_eq!(
+            output.events,
+            vec![
+                PaneStreamEvent::KeyboardSequence(KbdSequence::PushKittyFlags(7)),
+                PaneStreamEvent::KeyboardSequence(KbdSequence::ResetAll),
+            ]
+        );
     }
 
     #[test]
