@@ -2629,6 +2629,15 @@ impl RuntimeActor {
             .get(pane_id)
             .map(keyboard_restore_sequences)
             .unwrap_or_default();
+        let fixed_overhead = prefix.len() + cursor_restore.len() + keyboard_restore.len();
+        // 请求上限容不下固定开销（极端小 byte_limit + 8 层 kitty 栈）时，按优先级
+        // 舍弃恢复序列——快照仍成立（模式状态由后续 live 流重放自愈），但绝不
+        // 让最终 data 超过客户端请求的字节上限。
+        let keyboard_restore = if fixed_overhead > max_bytes {
+            Vec::new()
+        } else {
+            keyboard_restore
+        };
         let text_budget =
             max_bytes.saturating_sub(prefix.len() + cursor_restore.len() + keyboard_restore.len());
         let mut raw = Vec::new();
@@ -3454,6 +3463,62 @@ mod tests {
             b"\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>1u\x1b[>4;2m".to_vec()
         );
 
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn tiny_byte_limit_never_exceeds_request_cap() {
+        let close_started = Arc::new(AtomicBool::new(false));
+        let close_finished = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(StdMutex::new(Vec::new()));
+        let transport = Arc::new(FakeTransport {
+            close_gate: None,
+            select_gate: None,
+            close_started,
+            close_finished,
+            commands,
+            has_session_exit_code: 0,
+            reject_default_path: false,
+            panic_snapshot: None,
+            pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
+            capture_text: Some("hello".to_owned()),
+        });
+        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        let snapshot = runtime.current_snapshot().await.unwrap().expect("snapshot");
+        assert!(snapshot
+            .session
+            .map(|s| !s.windows.is_empty())
+            .unwrap_or(false));
+
+        // 深栈 + MoK + DECCKM：恢复序列 8 层。极小 byte_limit 下 data 不得超上限。
+        for flags in [7u16, 1, 2, 3, 4, 5, 6, 7] {
+            runtime
+                .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                    pane_id: "%1".to_owned(),
+                    seq: KbdSequence::PushKittyFlags(flags),
+                })
+                .await;
+        }
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::ModifyOtherKeys(2),
+            })
+            .await;
+        let limit = 64;
+        let checkpoint = runtime
+            .capture_canonical_screen("%1", limit)
+            .await
+            .unwrap()
+            .expect("capture under tiny limit");
+        assert!(
+            checkpoint.data.len() <= limit,
+            "data {} must not exceed byte_limit {limit}",
+            checkpoint.data.len()
+        );
         runtime.shutdown().await;
     }
 
