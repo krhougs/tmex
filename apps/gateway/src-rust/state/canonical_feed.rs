@@ -15,9 +15,8 @@ use tmex_protocol::{
     CanonicalScreenBegin, CanonicalScreenCommit, CanonicalSourceGap, CanonicalSubscriptionApplied,
     CanonicalSubscriptionRejection, CanonicalTerminalInput, CanonicalTerminalKeyInput,
     ProtocolErrorCode, SetPaneSubscriptions, SourceMetadataPatch, SourceMetadataRecord,
-    SourceMetadataSnapshot, TerminalKey, TerminalKeyAction, WireToken,
-    CANONICAL_STATE_MAX_FRAME_BYTES, SOURCE_GAP_REASON_CACHE_EVICTED,
-    SOURCE_GAP_REASON_EPOCH_CHANGED, SOURCE_GAP_REASON_PANE_GAP,
+    SourceMetadataSnapshot, WireToken, CANONICAL_STATE_MAX_FRAME_BYTES,
+    SOURCE_GAP_REASON_CACHE_EVICTED, SOURCE_GAP_REASON_EPOCH_CHANGED, SOURCE_GAP_REASON_PANE_GAP,
     SOURCE_GAP_REASON_RESOURCE_EXHAUSTED, SUBSCRIPTION_REJECTED_EPOCH_CHANGED,
     SUBSCRIPTION_REJECTED_NOT_FOUND, SUBSCRIPTION_REJECTED_RESOURCE_EXHAUSTED,
     WS_ENVELOPE_WIRE_OVERHEAD_BYTES,
@@ -2117,8 +2116,8 @@ mod tests {
         encode_canonical_event, CanonicalCommand, CanonicalHistoryCursor,
         CanonicalPaneSubscription, CanonicalPaneTarget, CanonicalRequestHistory,
         CanonicalRequestScreen, CanonicalTerminalInput, SetPaneSubscriptions, SourceEntityKey,
-        SourceMetadataField, SourceMetadataRecord, SourceMetadataValue, SOURCE_ENTITY_PANE,
-        SOURCE_FIELD_PANE_EPOCH, SOURCE_FIELD_TITLE,
+        SourceMetadataField, SourceMetadataRecord, SourceMetadataValue, TerminalKey,
+        TerminalKeyAction, SOURCE_ENTITY_PANE, SOURCE_FIELD_PANE_EPOCH, SOURCE_FIELD_TITLE,
     };
     use tokio::sync::Semaphore;
 
