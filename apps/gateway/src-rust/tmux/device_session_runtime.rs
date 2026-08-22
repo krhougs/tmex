@@ -2632,16 +2632,13 @@ impl RuntimeActor {
             .map(keyboard_restore_sequences)
             .unwrap_or_default();
         let fixed_overhead = prefix.len() + cursor_restore.len() + keyboard_restore.len();
-        // 请求上限容不下固定开销（极端小 byte_limit + 8 层 kitty 栈）时，按优先级
-        // 舍弃恢复序列——快照仍成立（模式状态由后续 live 流重放自愈），但绝不
-        // 让最终 data 超过客户端请求的字节上限。
-        let keyboard_restore = if fixed_overhead > max_bytes {
-            Vec::new()
-        } else {
-            keyboard_restore
-        };
-        let text_budget =
-            max_bytes.saturating_sub(prefix.len() + cursor_restore.len() + keyboard_restore.len());
+        // 键盘模式序列位于 checkpoint.base_seq 之前，后续 live replay 不会再看到；
+        // 固定状态装不进请求上限时必须拒绝 checkpoint，不能静默丢弃后交付永久
+        // 错误的编码状态。调用方走既有 rebase/retry 有界恢复。
+        if fixed_overhead > max_bytes {
+            return Ok(None);
+        }
+        let text_budget = max_bytes.saturating_sub(fixed_overhead);
         let mut raw = Vec::new();
         if history_included {
             raw.extend_from_slice(&history_bytes);
@@ -3502,7 +3499,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tiny_byte_limit_never_exceeds_request_cap() {
+    async fn tiny_byte_limit_rejects_checkpoint_when_modes_do_not_fit() {
         let close_started = Arc::new(AtomicBool::new(false));
         let close_finished = Arc::new(AtomicBool::new(false));
         let commands = Arc::new(StdMutex::new(Vec::new()));
@@ -3544,15 +3541,22 @@ mod tests {
             })
             .await;
         let limit = 64;
-        let checkpoint = runtime
-            .capture_canonical_screen("%1", limit)
-            .await
-            .unwrap()
-            .expect("capture under tiny limit");
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::CursorKeys(true),
+            })
+            .await;
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::BracketedPaste(true),
+            })
+            .await;
+        let checkpoint = runtime.capture_canonical_screen("%1", limit).await.unwrap();
         assert!(
-            checkpoint.data.len() <= limit,
-            "data {} must not exceed byte_limit {limit}",
-            checkpoint.data.len()
+            checkpoint.is_none(),
+            "checkpoint must fail closed rather than drop unreplayable keyboard state"
         );
         runtime.shutdown().await;
     }

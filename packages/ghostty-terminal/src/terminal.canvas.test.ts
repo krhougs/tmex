@@ -2199,11 +2199,15 @@ describe('CanvasRenderer', () => {
     });
     const cursorCanvas = findCanvasByLayer(screen, 'cursor');
     expect(cursorCanvas).toBeTruthy();
-    const renderStyle = (style: GhosttyCursorVisualStyle, blinking = false) => {
+    const renderStyle = (
+      style: GhosttyCursorVisualStyle,
+      blinking = false,
+      wideTail = false
+    ) => {
       cursorCanvas?.context.operations.splice(0);
       renderer.render({
         meta: {
-          cols: 1,
+          cols: wideTail ? 2 : 1,
           rows: 1,
           dirty: 'full',
           colors: {
@@ -2217,9 +2221,9 @@ describe('CanvasRenderer', () => {
             visible: true,
             blinking,
             passwordInput: false,
-            x: 0,
+            x: wideTail ? 1 : 0,
             y: 0,
-            wideTail: false,
+            wideTail,
           },
         },
         rows: [
@@ -2228,8 +2232,51 @@ describe('CanvasRenderer', () => {
             dirty: true,
             wrap: false,
             wrapContinuation: false,
-            text: '',
-            cells: [],
+            text: wideTail ? '界' : '',
+            cells: wideTail
+              ? [
+                  {
+                    x: 0,
+                    text: '界',
+                    codepoints: [0x754c],
+                    widthKind: 'wide' as const,
+                    hasText: true,
+                    style: {
+                      bold: false,
+                      italic: false,
+                      faint: false,
+                      blink: false,
+                      inverse: false,
+                      invisible: false,
+                      strikethrough: false,
+                      overline: false,
+                      underline: 0,
+                    },
+                    fgColor: null,
+                    bgColor: null,
+                  },
+                  {
+                    x: 1,
+                    text: '',
+                    codepoints: [],
+                    widthKind: 'spacer-tail' as const,
+                    hasText: false,
+                    style: {
+                      bold: false,
+                      italic: false,
+                      faint: false,
+                      blink: false,
+                      inverse: false,
+                      invisible: false,
+                      strikethrough: false,
+                      overline: false,
+                      underline: 0,
+                    },
+                    fgColor: null,
+                    bgColor: null,
+                  },
+                ]
+              : [],
           },
         ],
         cellDimensions: { width: 10, height: 20 },
@@ -2269,6 +2316,18 @@ describe('CanvasRenderer', () => {
       y: 0.5,
       width: 9,
       height: 19,
+    });
+
+    const wideOperations = renderStyle('block', false, true);
+    expect(lastOperation(wideOperations, 'fillRect')).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 20,
+    });
+    expect(lastOperation(wideOperations, 'fillText')).toMatchObject({
+      text: '界',
+      x: 0,
     });
 
     renderStyle('block', true);

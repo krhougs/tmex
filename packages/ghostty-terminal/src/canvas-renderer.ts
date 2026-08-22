@@ -763,7 +763,8 @@ export class CanvasRenderer {
       return;
     }
 
-    const x = cursor.x * this.deviceCellWidth;
+    const cursorColumn = cursor.wideTail ? Math.max(0, cursor.x - 1) : cursor.x;
+    const x = cursorColumn * this.deviceCellWidth;
     const y = cursor.y * this.deviceCellHeight;
     const width = cursor.wideTail ? this.deviceCellWidth * 2 : this.deviceCellWidth;
     const thickness = Math.max(1, Math.round(this.dpr));
@@ -777,7 +778,7 @@ export class CanvasRenderer {
       case 'block': {
         this.cursorContext.fillRect(x, y, width, this.deviceCellHeight);
         const row = rows.find((candidate) => candidate.y === cursor.y);
-        const cell = row?.cells.find((candidate) => candidate.x === cursor.x);
+        const cell = row?.cells.find((candidate) => candidate.x === cursorColumn);
         if (cell?.text && !cell.style.invisible) {
           // Cursor canvas 位于主字形层上方；block 背景会遮住原字符，因此以 cell
           // 原背景色重绘字形，得到传统终端的反色 block 语义。
