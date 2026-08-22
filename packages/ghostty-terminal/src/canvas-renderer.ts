@@ -211,7 +211,7 @@ export class CanvasRenderer {
     const effectiveDirty = wiped || frame.forceFull === true ? 'full' : frame.meta.dirty;
 
     if (effectiveDirty === 'clean') {
-      this.drawCursor(frame.meta);
+      this.drawCursor(frame.meta, frame.rows);
       return;
     }
 
@@ -248,7 +248,7 @@ export class CanvasRenderer {
       this.lastDrawnRows.push(row.y);
     }
 
-    this.drawCursor(frame.meta);
+    this.drawCursor(frame.meta, frame.rows);
   }
 
   getDebugState(): CanvasRendererDebugState {
@@ -748,7 +748,10 @@ export class CanvasRenderer {
     if (quadrants & 0b1000) fill(midX, midY, width, height);
   }
 
-  private drawCursor(meta: GhosttyRenderSnapshotMeta): void {
+  private drawCursor(
+    meta: GhosttyRenderSnapshotMeta,
+    rows: readonly GhosttyRenderRow[]
+  ): void {
     const colors = meta.colors;
     const cursor = meta.cursor;
     const previous = this.lastCursor;
@@ -771,9 +774,22 @@ export class CanvasRenderer {
     this.cursorContext.strokeStyle = cssColor;
     this.cursorContext.globalAlpha = 1;
     switch (cursor.style) {
-      case 'block':
+      case 'block': {
         this.cursorContext.fillRect(x, y, width, this.deviceCellHeight);
+        const row = rows.find((candidate) => candidate.y === cursor.y);
+        const cell = row?.cells.find((candidate) => candidate.x === cursor.x);
+        if (cell?.text && !cell.style.invisible) {
+          // Cursor canvas 位于主字形层上方；block 背景会遮住原字符，因此以 cell
+          // 原背景色重绘字形，得到传统终端的反色 block 语义。
+          const cellBackground = cell.style.inverse
+            ? (cell.fgColor ?? colors.foreground)
+            : (cell.bgColor ?? colors.background);
+          this.cursorContext.fillStyle = this.toCss(cellBackground);
+          this.cursorContext.font = this.resolveFont(cell.style);
+          this.cursorContext.fillText(cell.text, x, y + this.textBaselineY);
+        }
         break;
+      }
       case 'block-hollow':
         this.cursorContext.lineWidth = thickness;
         this.cursorContext.strokeRect(

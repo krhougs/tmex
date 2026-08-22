@@ -5,7 +5,12 @@ import * as realRenderState from './render-state';
 // realGhosttyWasm.* 会跟着变成 fake，还原必须用 mock 前拷出的值。
 const realGhosttyWasmSnapshot = { ...realGhosttyWasm };
 const realRenderStateSnapshot = { ...realRenderState };
-import type { GhosttyRenderCursor, GhosttyRenderRow, GhosttyTheme } from './types';
+import type {
+  GhosttyCursorVisualStyle,
+  GhosttyRenderCursor,
+  GhosttyRenderRow,
+  GhosttyTheme,
+} from './types';
 import type { SelectionLineModel } from './selection-model';
 
 type FakeEvent = {
@@ -2123,6 +2128,14 @@ describe('CanvasRenderer', () => {
     expect(
       cursorCanvas?.context.operations.some((operation) => operation.type === 'fillRect')
     ).toBeTruthy();
+    expect(
+      cursorCanvas?.context.operations.some(
+        (operation) =>
+          operation.type === 'fillText' &&
+          operation.text === 'D' &&
+          operation.fillStyle === 'rgb(0 128 0)'
+      )
+    ).toBeTruthy();
 
     renderer.render({
       ...frame,
@@ -2169,6 +2182,103 @@ describe('CanvasRenderer', () => {
 
     renderer.dispose();
     expect(findElementsByTag(screen, 'canvas').length).toBe(0);
+  });
+
+  test('renders all cursor styles and honors blinking metadata', async () => {
+    dom = installFakeDom();
+    // Test files intentionally reload CanvasRenderer because module-level canvas state is isolated
+    // per fake DOM instance; static import would share the prior test's constructors.
+    const { CanvasRenderer } = await import(`./canvas-renderer.ts?cursor=${Date.now()}`);
+    const screen = dom.document.createElement('div');
+    dom.document.body.appendChild(screen);
+    const renderer = new CanvasRenderer({
+      screenElement: screen as unknown as HTMLElement,
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+    });
+    const cursorCanvas = findCanvasByLayer(screen, 'cursor');
+    expect(cursorCanvas).toBeTruthy();
+    const renderStyle = (style: GhosttyCursorVisualStyle, blinking = false) => {
+      cursorCanvas?.context.operations.splice(0);
+      renderer.render({
+        meta: {
+          cols: 1,
+          rows: 1,
+          dirty: 'full',
+          colors: {
+            background: { r: 17, g: 17, b: 17 },
+            foreground: { r: 238, g: 238, b: 238 },
+            cursor: { r: 255, g: 255, b: 255 },
+            palette: Array.from({ length: 256 }, () => ({ r: 0, g: 0, b: 0 })),
+          },
+          cursor: {
+            style,
+            visible: true,
+            blinking,
+            passwordInput: false,
+            x: 0,
+            y: 0,
+            wideTail: false,
+          },
+        },
+        rows: [
+          {
+            y: 0,
+            dirty: true,
+            wrap: false,
+            wrapContinuation: false,
+            text: '',
+            cells: [],
+          },
+        ],
+        cellDimensions: { width: 10, height: 20 },
+      });
+      return cursorCanvas?.context.operations ?? [];
+    };
+    const lastOperation = (operations: Array<Record<string, unknown>>, type: string) =>
+      [...operations].reverse().find((operation) => operation.type === type);
+
+
+    expect(lastOperation(renderStyle('block'), 'fillRect')).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 20,
+      globalAlpha: 1,
+    });
+    expect(
+      (renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer
+    ).toBeNull();
+    expect(cursorCanvas?.style.opacity).toBe('1');
+
+    expect(lastOperation(renderStyle('underline'), 'fillRect')).toMatchObject({
+      x: 0,
+      y: 18,
+      width: 10,
+      height: 2,
+    });
+    expect(lastOperation(renderStyle('bar'), 'fillRect')).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 20,
+    });
+    expect(lastOperation(renderStyle('block-hollow'), 'strokeRect')).toMatchObject({
+      x: 0.5,
+      y: 0.5,
+      width: 9,
+      height: 19,
+    });
+
+    renderStyle('block', true);
+    expect(
+      (renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer
+    ).not.toBeNull();
+    renderer.dispose();
+    expect(
+      (renderer as unknown as { cursorBlinkTimer: unknown }).cursorBlinkTimer
+    ).toBeNull();
   });
 
   test('draws on integer device pixels with fractional cell size and dpr', async () => {

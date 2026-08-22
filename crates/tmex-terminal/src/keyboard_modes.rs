@@ -87,11 +87,16 @@ fn detect_kitty_u(params: &[u8]) -> Option<KbdSequence> {
                 None => (parse_flags(rest)?, KittySetMode::Set),
                 Some(sep) => {
                     let (flags_raw, mode_raw) = rest.split_at(sep);
-                    let mode = match parse_u16(&mode_raw[1..])? {
-                        1 => KittySetMode::Set,
-                        2 => KittySetMode::Or,
-                        3 => KittySetMode::Not,
-                        _ => return None,
+                    let mode_raw = &mode_raw[1..];
+                    let mode = if mode_raw.is_empty() {
+                        KittySetMode::Set
+                    } else {
+                        match parse_u16(mode_raw)? {
+                            1 => KittySetMode::Set,
+                            2 => KittySetMode::Or,
+                            3 => KittySetMode::Not,
+                            _ => return None,
+                        }
                     };
                     (parse_flags(flags_raw)?, mode)
                 }
@@ -102,9 +107,14 @@ fn detect_kitty_u(params: &[u8]) -> Option<KbdSequence> {
     }
 }
 
-/// flags 参数解析：数值合法且不含越界位才接受（与客户端引擎同口径）。
+/// flags 参数解析：空参数缺省 0；非空时数值必须合法且不含越界位（与客户端引擎
+/// `Flags = packed struct(u5)` 同口径）。
 fn parse_flags(bytes: &[u8]) -> Option<u16> {
-    let flags = parse_u16(bytes)?;
+    let flags = if bytes.is_empty() {
+        0
+    } else {
+        parse_u16(bytes)?
+    };
     (flags & !KITTY_FLAGS_MASK == 0).then_some(flags)
 }
 /// `>4;n m` / `>4 m`（reset → 0）。
@@ -318,6 +328,28 @@ mod tests {
             })
         );
         assert_eq!(detect(b"<u"), Some(KbdSequence::PopKittyFlags(1)));
+        assert_eq!(detect(b">u"), Some(KbdSequence::PushKittyFlags(0)));
+        assert_eq!(
+            detect(b"=u"),
+            Some(KbdSequence::SetKittyFlags {
+                flags: 0,
+                mode: KittySetMode::Set
+            })
+        );
+        assert_eq!(
+            detect(b"=1;u"),
+            Some(KbdSequence::SetKittyFlags {
+                flags: 1,
+                mode: KittySetMode::Set
+            })
+        );
+        assert_eq!(
+            detect(b"=;2u"),
+            Some(KbdSequence::SetKittyFlags {
+                flags: 0,
+                mode: KittySetMode::Or
+            })
+        );
     }
 
     #[test]
