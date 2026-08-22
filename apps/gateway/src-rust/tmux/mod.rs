@@ -8,6 +8,7 @@ mod control_runtime;
 mod control_stream_metrics;
 mod device_session_runtime;
 mod input_encoder;
+mod key_input;
 mod lifecycle_emitter;
 mod local_shell_path;
 mod metadata_projection;
@@ -75,6 +76,7 @@ pub use input_encoder::{
     encode_bytes_to_hex_chunks, encode_bytes_to_hex_chunks_with_size, encode_input_to_hex_chunks,
     encode_input_to_hex_chunks_with_size, InputEncodingError, SEND_KEYS_HEX_CHUNK_BYTES,
 };
+pub use key_input::{encode_terminal_key, TerminalKeyEncodeError};
 pub use lifecycle_emitter::{
     ConnectionLifecycleEmitter, LifecycleEvent, LifecycleEventKind, LifecycleTmuxContext,
     TmuxLifecycleSink,
@@ -150,9 +152,8 @@ pub use tmux_commands::{
     capture_history_range_command, capture_pane_text_command, configure_window_style_commands,
     create_window_command, ensure_session_commands, move_pane_command, pane_history_info_command,
     pane_info_command, pane_screen_info_command, parse_state_snapshot, resize_pane_command,
-    resize_window_command, send_input_commands, send_key_input_command,
-    session_configuration_commands, snapshot_commands, split_pane_command, TerminalKeyCommandError,
-    SESSION_SNAPSHOT_FORMAT,
+    resize_window_command, send_input_commands, session_configuration_commands, snapshot_commands,
+    split_pane_command, SESSION_SNAPSHOT_FORMAT,
 };
 pub use tmux_version::{
     is_control_mode_supported, normalize_tmux_version_output, parse_tmux_version,

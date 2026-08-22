@@ -21,12 +21,12 @@ use tokio::time::{interval, sleep};
 use super::canonical_runtime::DeviceCanonicalState;
 use super::{
     append_cursor_restore, capture_history_range_command, configure_window_style_commands,
-    create_window_command, decode_server_epoch, encode_server_epoch, ensure_session_commands,
-    inherited_environment, is_control_mode_supported, is_no_server_running_message,
-    is_target_missing_message, is_tmux_server_gone_message, join_shell_args,
-    pane_history_info_command, pane_info_command, parse_pane_history_capture_info, parse_pane_meta,
-    parse_pane_screen_info, parse_state_snapshot, parse_tmux_version, resize_pane_command,
-    resize_window_command, send_input_commands, send_key_input_command,
+    create_window_command, decode_server_epoch, encode_server_epoch, encode_terminal_key,
+    ensure_session_commands, inherited_environment, is_control_mode_supported,
+    is_no_server_running_message, is_target_missing_message, is_tmux_server_gone_message,
+    join_shell_args, pane_history_info_command, pane_info_command, parse_pane_history_capture_info,
+    parse_pane_meta, parse_pane_screen_info, parse_state_snapshot, parse_tmux_version,
+    resize_pane_command, resize_window_command, send_input_commands,
     session_configuration_commands, snapshot_commands, start_control_runtime,
     CapturedPaneHistoryPage, CapturedTerminalHistory, ConnectionLifecycleEmitter,
     ControlModeSubscriptionEvent, ControlRuntimeError, ControlRuntimeHandle, DeviceSessionConfig,
@@ -2787,22 +2787,14 @@ impl RuntimeActor {
         modifiers: u16,
         action: &TerminalKeyAction,
     ) -> Result<(), DeviceSessionRuntimeError> {
-        let command = send_key_input_command(pane_id, key, modifiers, action)
+        let mode = self
+            .keyboard_modes
+            .get(pane_id)
+            .cloned()
+            .unwrap_or_default();
+        let bytes = encode_terminal_key(key, modifiers, action, &mode)
             .map_err(|error| DeviceSessionRuntimeError::InvalidTerminalKey(error.to_string()))?;
-        if let Some(control) = &self.control {
-            control
-                .execute(join_shell_args(&command), LOCAL_RUN_TIMEOUT)
-                .await?;
-        } else {
-            checked_command(
-                &self.transport,
-                &command,
-                self.config.kind(),
-                TargetMissingMode::Reject,
-            )
-            .await?;
-        }
-        Ok(())
+        self.send_input(pane_id, &bytes).await
     }
 
     /// gateway 重启后从 tmux pane user option 重水化键盘协议模式（唯一真源在
@@ -3466,6 +3458,12 @@ mod tests {
             .unwrap();
 
         runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::PushKittyFlags(7),
+            })
+            .await;
+        runtime
             .send_key_input(
                 "%1",
                 TerminalKey::Enter,
@@ -3477,9 +3475,16 @@ mod tests {
 
         assert!(commands.lock().unwrap().contains(&vec![
             "send-keys".to_owned(),
+            "-H".to_owned(),
             "-t".to_owned(),
             "%1".to_owned(),
-            "C-S-Enter".to_owned(),
+            "1b".to_owned(),
+            "5b".to_owned(),
+            "31".to_owned(),
+            "33".to_owned(),
+            "3b".to_owned(),
+            "36".to_owned(),
+            "75".to_owned(),
         ]));
         runtime.shutdown().await;
     }
