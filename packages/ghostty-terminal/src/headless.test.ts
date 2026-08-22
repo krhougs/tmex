@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { getGhosttyBindings } from './ghostty-wasm';
 import { HeadlessTerminal } from './headless';
-
 describe('HeadlessTerminal', () => {
   test('渲染态纯文本：剥 ANSI 颜色与控制序列', async () => {
     const term = await HeadlessTerminal.create({ cols: 80, rows: 24 });
@@ -60,5 +60,36 @@ describe('HeadlessTerminal', () => {
     term.free();
     expect(term.disposed).toBe(true);
     expect(() => term.render()).toThrow(/freed/);
+  });
+
+  // gateway canonical 快照 data 尾部追加键盘协议恢复序列（见 tmex gateway
+  // keyboard mode tracker）；引擎 reset() 后重放快照必须还原编码器模式状态，
+  // 否则冷启动/切换终端后 kitty 协议程序（如 Codex TUI）的按键编码退化。
+  test('快照恢复序列还原键盘协议编码状态', async () => {
+    const bindings = await getGhosttyBindings();
+    const term = await HeadlessTerminal.create({ cols: 80, rows: 24 });
+    const encoder = bindings.createKeyEncoder();
+    // HeadlessTerminal.terminal 是私有 wasm 句柄；测试需要直接喂编码器。
+    const handle = (term as unknown as { terminal: number }).terminal;
+    const KEY_ENTER = 58;
+    const KEY_UP = 78;
+    const SHIFT = 1 << 0;
+
+    try {
+      // 基线：reset 后默认 legacy —— 方向键 CSI A、Shift-Enter 走 ghostty
+      // 的组合键兜底（27;2;13~，无 modifyOtherKeys/KKP）
+      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_UP, mods: 0, composing: false })).toBe('\x1b[A');
+      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_ENTER, mods: SHIFT, composing: false })).toBe('\x1b[27;2;13~');
+
+      // Codex 形态快照：kitty flags=7 + modifyOtherKeys=2 + DECCKM
+      term.write('\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>4;2m\x1b[?1h');
+      // 方向键：disambiguate + DECCKM → CSI 1;1:1A（kitty 编码带 event type）
+      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_UP, mods: 0, composing: false })).toBe('\x1b[1;1:1A');
+      // Shift-Enter：disambiguate → CSI 13;2u（Codex 可识别换行）
+      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_ENTER, mods: SHIFT, composing: false })).toBe('\x1b[13;2u');
+    } finally {
+      bindings.freeKeyEncoder(encoder);
+      term.free();
+    }
   });
 });
