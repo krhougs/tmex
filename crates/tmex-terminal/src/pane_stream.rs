@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine as _;
 
+use crate::keyboard_modes::{detect_keyboard_sequence, KbdSequence};
 use crate::{PromptMarker, PromptMarkerKind};
 
 const MAX_OSC_KIND_BYTES: usize = 16;
@@ -43,6 +44,7 @@ pub enum PaneStreamEvent {
     PromptMarker(PromptMarker),
     ClipboardWrite(String),
     ThemeSubscription(bool),
+    KeyboardSequence(KbdSequence),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -243,11 +245,15 @@ impl PaneStreamParser {
                     let theme_subscription = matches!(byte, b'h' | b'l')
                         && !self.in_tmux_passthrough
                         && self.csi_has_theme_mode();
+                    let keyboard_sequence = detect_keyboard_sequence(&self.csi_bytes, byte);
                     output.terminal_bytes.extend_from_slice(b"\x1b[");
                     output.terminal_bytes.append(&mut self.csi_bytes);
                     output.terminal_bytes.push(byte);
                     if theme_subscription {
                         output.push_event(PaneStreamEvent::ThemeSubscription(byte == b'h'));
+                    }
+                    if let Some(seq) = keyboard_sequence {
+                        output.push_event(PaneStreamEvent::KeyboardSequence(seq));
                     }
                     self.phase = Phase::Normal;
                 } else if (0x20..=0x3f).contains(&byte) && self.csi_bytes.len() < MAX_CSI_BYTES {
@@ -807,6 +813,35 @@ mod tests {
                 }),
             ]
         );
+    }
+
+    #[test]
+    fn keyboard_sequences_emitted_and_bytes_passed_through() {
+        let input = b"A\x1b[>7u\x1b[>4;2m\x1b[?1hB\x1b[<1u";
+        let output = PaneStreamParser::new().push(input);
+        // 序列字节仍透传给终端，同时发出结构化事件
+        assert_eq!(
+            output.terminal_bytes,
+            &b"A\x1b[>7u\x1b[>4;2m\x1b[?1hB\x1b[<1u"[..]
+        );
+        assert_eq!(
+            output.events,
+            vec![
+                PaneStreamEvent::KeyboardSequence(KbdSequence::PushKittyFlags(7)),
+                PaneStreamEvent::KeyboardSequence(KbdSequence::ModifyOtherKeys(2)),
+                PaneStreamEvent::KeyboardSequence(KbdSequence::CursorKeys(true)),
+                PaneStreamEvent::KeyboardSequence(KbdSequence::PopKittyFlags(1)),
+            ]
+        );
+
+        // 任意切点跨 chunk：事件不丢不重
+        for split in 1..input.len() {
+            let mut parser = PaneStreamParser::new();
+            let mut output = parser.push(&input[..split]);
+            output.append(parser.push(&input[split..]));
+            assert_eq!(output.events.len(), 4, "split at {split}");
+            assert_eq!(output.terminal_bytes, &input[..], "split at {split}");
+        }
     }
 
     #[test]

@@ -8,7 +8,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use tmex_protocol::{CanonicalHistoryCursor, StateSnapshot, WindowWire, WireToken};
-use tmex_terminal::HeadlessTerminalOptions;
+use tmex_terminal::{
+    apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminalOptions,
+    KeyboardModeState,
+};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::{interval, sleep};
@@ -301,6 +304,10 @@ enum RuntimeCommand {
     SnapshotFinished {
         base_revision: u64,
         result: Result<StateSnapshot, DeviceSessionRuntimeError>,
+    },
+    #[cfg(test)]
+    InjectControlEventForTest {
+        event: Box<ControlModeSubscriptionEvent>,
     },
     #[cfg(test)]
     PanicForTest,
@@ -1089,6 +1096,16 @@ impl DeviceSessionRuntime {
     async fn panic_actor_for_test(&self) {
         let _ = self.commands.send(RuntimeCommand::PanicForTest).await;
     }
+
+    #[cfg(test)]
+    async fn inject_control_event_for_test(&self, event: ControlModeSubscriptionEvent) {
+        let _ = self
+            .commands
+            .send(RuntimeCommand::InjectControlEventForTest {
+                event: Box::new(event),
+            })
+            .await;
+    }
 }
 
 #[async_trait]
@@ -1115,6 +1132,7 @@ struct RuntimeActor {
     canonical: DeviceCanonicalState,
     history: PaneHistoryReader,
     emulators: HashMap<String, PaneEmulator>,
+    keyboard_modes: HashMap<String, KeyboardModeState>,
     theme_subscriptions: ThemeSubscriptionTracker,
     snapshot: Option<StateSnapshot>,
     snapshot_refresh: SnapshotRefreshCoordinator,
@@ -1336,6 +1354,7 @@ async fn run_actor(
         canonical,
         history: PaneHistoryReader::new(history_source),
         emulators: HashMap::new(),
+        keyboard_modes: HashMap::new(),
         theme_subscriptions: ThemeSubscriptionTracker::new(),
         snapshot: None,
         snapshot_refresh: SnapshotRefreshCoordinator::new(),
@@ -1460,6 +1479,7 @@ impl RuntimeActor {
         if self.config.enable_control_mode {
             self.start_control().await?;
         }
+        self.restore_keyboard_modes().await;
         self.restore_theme_subscriptions().await;
         if created {
             self.emit(TmuxRuntimeEvent::Lifecycle(
@@ -2209,6 +2229,12 @@ impl RuntimeActor {
                 }
             },
             #[cfg(test)]
+            RuntimeCommand::InjectControlEventForTest { event } => {
+                if self.handle_control_event(*event).await {
+                    return true;
+                }
+            }
+            #[cfg(test)]
             RuntimeCommand::PanicForTest => panic!("runtime actor test panic"),
         }
         false
@@ -2310,6 +2336,18 @@ impl RuntimeActor {
                     "@tmex_2031",
                     if subscribed { "on" } else { "off" },
                 ]);
+                let _ = run_allow_failure(&self.transport, &command, self.config.kind()).await;
+            }
+            ControlModeSubscriptionEvent::KeyboardSequence { pane_id, seq } => {
+                let state = self.keyboard_modes.entry(pane_id.clone()).or_default();
+                apply_sequence(state, seq);
+                let value = encode_pane_option_value(state);
+                let mut command = strings(["set-option", "-p", "-t", &pane_id, "@tmex-kbd"]);
+                if value.is_empty() {
+                    command.push("-u".to_owned());
+                } else {
+                    command.push(value);
+                }
                 let _ = run_allow_failure(&self.transport, &command, self.config.kind()).await;
             }
             ControlModeSubscriptionEvent::Pause { .. }
@@ -2436,6 +2474,8 @@ impl RuntimeActor {
                 .invalidate_pane(&pane.pane_id, Some(pane.pane_epoch));
         }
         self.emulators
+            .retain(|pane_id, _| current.contains(pane_id));
+        self.keyboard_modes
             .retain(|pane_id, _| current.contains(pane_id));
         self.theme_subscriptions.prune(&current);
         if let Some(previous) = previous {
@@ -2676,6 +2716,38 @@ impl RuntimeActor {
             }
         }
         Ok(())
+    }
+
+    /// gateway 重启后从 tmux pane user option 重水化键盘协议模式（唯一真源在
+    /// `keyboard_modes` map，option 仅为重启恢复服务）。命令失败跳过——等价
+    /// 旧网关「无键盘模式跟踪」行为。
+    async fn restore_keyboard_modes(&mut self) {
+        let result = run_allow_failure(
+            &self.transport,
+            &strings(["list-panes", "-a", "-F", "#{pane_id}|#{@tmex-kbd}"]),
+            self.config.kind(),
+        )
+        .await;
+        let Ok(result) = result else {
+            return;
+        };
+        if result.exit_code != 0 {
+            return;
+        }
+        self.keyboard_modes.clear();
+        for line in result.stdout.lines() {
+            let Some((pane_id, value)) = line.trim().split_once('|') else {
+                continue;
+            };
+            if !super::is_tmux_pane_id(pane_id) {
+                continue;
+            }
+            let state = parse_pane_option_value(value);
+            if state.is_default() {
+                continue;
+            }
+            self.keyboard_modes.insert(pane_id.to_owned(), state);
+        }
     }
 
     async fn restore_theme_subscriptions(&mut self) {
@@ -2979,6 +3051,7 @@ mod tests {
         ControlClient, LocalTmuxConfig, MetadataProjectionFlush, TMEX_SERVER_EPOCH_OPTION,
     };
     use tmex_protocol::SourceMetadataPatch;
+    use tmex_terminal::KbdSequence;
     use tokio::sync::{Notify, Semaphore};
     use tokio::time::timeout;
 
@@ -3193,6 +3266,64 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn keyboard_sequences_update_state_and_persist_option() {
+        let (factory, _close_started, _close_finished, commands) = recording_fake_factory(None);
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::PushKittyFlags(7),
+            })
+            .await;
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::ModifyOtherKeys(2),
+            })
+            .await;
+        wait_until(|| {
+            commands
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|args| args.last().map(String::as_str) == Some("k=7;m=2"))
+        })
+        .await;
+
+        // 归零序列把 option 清成 unset
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::PopKittyFlags(9),
+            })
+            .await;
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::ModifyOtherKeys(0),
+            })
+            .await;
+        wait_until(|| {
+            let commands = commands.lock().unwrap();
+            let set = commands
+                .iter()
+                .filter(|args| args.contains(&"@tmex-kbd".to_owned()))
+                .collect::<Vec<_>>();
+            set.len() >= 4
+                && set
+                    .last()
+                    .map(|args| args.contains(&"-u".to_owned()))
+                    .unwrap_or(false)
+        })
+        .await;
+
+        runtime.shutdown().await;
     }
 
     #[tokio::test]
