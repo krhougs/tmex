@@ -20,8 +20,8 @@ pub use control_mode::{
     ControlModeEvent, ControlModeNotification, ControlModeParser, UnescapedControlModeData,
 };
 pub use keyboard_modes::{
-    apply_sequence, detect_keyboard_sequence, encode_pane_option_value, keyboard_restore_sequences,
-    parse_pane_option_value, KbdSequence, KeyboardModeState, KittySetMode, KITTY_STACK_DEPTH,
+    apply_sequence, detect_keyboard_sequence, encode_pane_option_value, parse_pane_option_value,
+    KbdSequence, KeyboardModeState, KittySetMode, KITTY_STACK_DEPTH,
 };
 pub use pane_stream::{
     PaneStreamEvent, PaneStreamFragment, PaneStreamNotification, PaneStreamNotificationSource,

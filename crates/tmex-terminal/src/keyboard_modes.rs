@@ -1,12 +1,6 @@
-//! Pane 键盘协议模式：对 pane 输出流中 kitty keyboard protocol / modifyOtherKeys /
-//! DECCKM / bracketed paste 控制序列的无状态识别、状态归并（镜像 ghostty
-//! terminal/Kitty/key.zig FlagStack 语义）、快照恢复序列生成与 tmux pane
-//! user option 编解码。
-//!
-//! gateway 在控制连接生命周期内用 [`detect_keyboard_sequence`] 检出序列事件，
-//! 由 device_session_runtime 持有唯一状态真源；状态经 pane user option 跨
-//! gateway 重启持久化。恢复序列追加进 canonical 快照 data 字节流，客户端
-//! 引擎重放快照即还原编码器模式状态。
+//! Pane 键盘协议模式：识别 pane 输出流中的 Kitty keyboard protocol、
+//! modifyOtherKeys、DECCKM 与 bracketed paste，归并状态并持久化到 tmux pane
+//! option。Gateway 以此状态在服务端编码 semantic key；客户端快照不再镜像输入模式。
 
 /// kitty keyboard flags 栈深度上限（ghostty FlagStack 同值）。
 pub const KITTY_STACK_DEPTH: usize = 8;
@@ -208,29 +202,6 @@ pub fn apply_sequence(state: &mut KeyboardModeState, seq: KbdSequence) {
         KbdSequence::CursorKeys(enabled) => state.application_cursor = enabled,
         KbdSequence::BracketedPaste(enabled) => state.bracketed_paste = enabled,
     }
-}
-/// 生成快照恢复序列（只发非默认值；客户端引擎 reset() 后默认即全零）。
-/// kitty 栈：`CSI = f u` set 重建栈底 + 逐层 `CSI > f u` push，
-/// 对良构程序序列与真实序列流逐事件等价。
-pub fn keyboard_restore_sequences(state: &KeyboardModeState) -> Vec<u8> {
-    let mut out = Vec::new();
-    if let Some((&bottom, rest)) = state.kitty_stack.split_first() {
-        out.extend_from_slice(format!("\x1b[={bottom}u").as_bytes());
-        for &flags in rest {
-            out.extend_from_slice(format!("\x1b[>{flags}u").as_bytes());
-        }
-    }
-    match state.modify_other_keys {
-        0 => {}
-        level => out.extend_from_slice(format!("\x1b[>4;{level}m").as_bytes()),
-    }
-    if state.application_cursor {
-        out.extend_from_slice(b"\x1b[?1h");
-    }
-    if state.bracketed_paste {
-        out.extend_from_slice(b"\x1b[?2004h");
-    }
-    out
 }
 
 /// 编码为 tmux pane user option 值（`k=7,1;m=2;c=1;b=1`；默认段省略）。
@@ -499,28 +470,6 @@ mod tests {
                 bracketed_paste: false,
             }
         );
-    }
-
-    #[test]
-    fn restore_sequences_only_non_default() {
-        assert!(keyboard_restore_sequences(&KeyboardModeState::default()).is_empty());
-        // Codex 形态：单层栈 [7] + MoK=2 + DECCKM
-        let codex = KeyboardModeState {
-            kitty_stack: vec![7],
-            modify_other_keys: 2,
-            application_cursor: true,
-            bracketed_paste: false,
-        };
-        assert_eq!(
-            keyboard_restore_sequences(&codex),
-            b"\x1b[=7u\x1b[>4;2m\x1b[?1h"
-        );
-        // 多层栈：set 重建栈底 + push 逐层
-        let nested = KeyboardModeState {
-            kitty_stack: vec![1, 7],
-            ..KeyboardModeState::default()
-        };
-        assert_eq!(keyboard_restore_sequences(&nested), b"\x1b[=1u\x1b[>7u");
     }
 
     #[test]

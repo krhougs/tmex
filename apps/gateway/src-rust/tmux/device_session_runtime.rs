@@ -11,8 +11,8 @@ use tmex_protocol::{
     CanonicalHistoryCursor, StateSnapshot, TerminalKey, TerminalKeyAction, WindowWire, WireToken,
 };
 use tmex_terminal::{
-    apply_sequence, encode_pane_option_value, keyboard_restore_sequences, parse_pane_option_value,
-    HeadlessTerminalOptions, KeyboardModeState,
+    apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminalOptions,
+    KeyboardModeState,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -2657,7 +2657,11 @@ impl RuntimeActor {
             (Some(x), Some(y)) => format!("\x1b[{};{}H", y + 1, x + 1),
             _ => String::new(),
         };
-        let text_budget = max_bytes.saturating_sub(prefix.len() + cursor_restore.len());
+        let fixed_overhead = prefix.len() + cursor_restore.len();
+        if fixed_overhead > max_bytes {
+            return Ok(None);
+        }
+        let text_budget = max_bytes.saturating_sub(fixed_overhead);
         let history_bytes = if !frame.alternate_screen && frame.history_size > 0 {
             frame
                 .history_text
@@ -2670,19 +2674,6 @@ impl RuntimeActor {
         let visible = frame.text.as_bytes();
         let history_included = !history_bytes.is_empty()
             && history_bytes.len().saturating_add(visible.len()) <= text_budget;
-        let keyboard_restore = self
-            .keyboard_modes
-            .get(pane_id)
-            .map(keyboard_restore_sequences)
-            .unwrap_or_default();
-        let fixed_overhead = prefix.len() + cursor_restore.len() + keyboard_restore.len();
-        // 键盘模式序列位于 checkpoint.base_seq 之前，后续 live replay 不会再看到；
-        // 固定状态装不进请求上限时必须拒绝 checkpoint，不能静默丢弃后交付永久
-        // 错误的编码状态。调用方走既有 rebase/retry 有界恢复。
-        if fixed_overhead > max_bytes {
-            return Ok(None);
-        }
-        let text_budget = max_bytes.saturating_sub(fixed_overhead);
         let mut raw = Vec::new();
         if history_included {
             raw.extend_from_slice(&history_bytes);
@@ -2690,13 +2681,10 @@ impl RuntimeActor {
         raw.extend_from_slice(visible);
         let text_was_truncated = raw.len() > text_budget;
         let text = truncate_utf8_tail(&raw, text_budget);
-        let mut data = Vec::with_capacity(
-            prefix.len() + text.len() + cursor_restore.len() + keyboard_restore.len(),
-        );
+        let mut data = Vec::with_capacity(prefix.len() + text.len() + cursor_restore.len());
         data.extend_from_slice(prefix);
         data.extend_from_slice(&text);
         data.extend_from_slice(cursor_restore.as_bytes());
-        data.extend_from_slice(&keyboard_restore);
         let Some(current_identity) = self.pane_identity(pane_id) else {
             return Ok(None);
         };
@@ -3510,7 +3498,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn keyboard_modes_replayed_in_screen_snapshot_data() {
+    async fn keyboard_modes_stay_server_side_and_do_not_pollute_snapshots() {
         let close_started = Arc::new(AtomicBool::new(false));
         let close_finished = Arc::new(AtomicBool::new(false));
         let commands = Arc::new(StdMutex::new(Vec::new()));
@@ -3542,7 +3530,7 @@ mod tests {
             "fake pane snapshot must be projected"
         );
 
-        // 无键盘模式：快照 data 与旧行为逐字节一致（零回归锚点）
+        // 屏幕快照只携带可见终端状态，不再给客户端镜像输入协议模式。
         let plain = runtime
             .capture_canonical_screen("%1", 4096)
             .await
@@ -3554,7 +3542,7 @@ mod tests {
             "plain pane data must be byte-identical to legacy behavior"
         );
 
-        // Codex 形态：kitty flags=7 + modifyOtherKeys=2
+        // Codex 形态：Gateway 仍跟踪 kitty/MoK，供服务端 semantic encoder 使用。
         runtime
             .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
                 pane_id: "%1".to_owned(),
@@ -3573,91 +3561,10 @@ mod tests {
             .unwrap()
             .expect("codex capture");
         assert_eq!(
-            codex.data,
-            b"\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>4;2m".to_vec(),
-            "keyboard restore sequences must be appended after cursor restore"
+            codex.data, plain.data,
+            "keyboard protocol modes must stay in the Gateway encoder state"
         );
 
-        // 多层栈：set 重建栈底 + push
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
-                pane_id: "%1".to_owned(),
-                seq: KbdSequence::PushKittyFlags(1),
-            })
-            .await;
-        let nested = runtime
-            .capture_canonical_screen("%1", 4096)
-            .await
-            .unwrap()
-            .expect("nested capture");
-        assert_eq!(
-            nested.data,
-            b"\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>1u\x1b[>4;2m".to_vec()
-        );
-
-        runtime.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn tiny_byte_limit_rejects_checkpoint_when_modes_do_not_fit() {
-        let close_started = Arc::new(AtomicBool::new(false));
-        let close_finished = Arc::new(AtomicBool::new(false));
-        let commands = Arc::new(StdMutex::new(Vec::new()));
-        let transport = Arc::new(FakeTransport {
-            close_gate: None,
-            select_gate: None,
-            close_started,
-            close_finished,
-            commands,
-            has_session_exit_code: 0,
-            reject_default_path: false,
-            panic_snapshot: None,
-            pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
-            capture_text: Some("hello".to_owned()),
-        });
-        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
-        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
-            .await
-            .unwrap();
-        let snapshot = runtime.current_snapshot().await.unwrap().expect("snapshot");
-        assert!(snapshot
-            .session
-            .map(|s| !s.windows.is_empty())
-            .unwrap_or(false));
-
-        // 深栈 + MoK + DECCKM：恢复序列 8 层。极小 byte_limit 下 data 不得超上限。
-        for flags in [7u16, 1, 2, 3, 4, 5, 6, 7] {
-            runtime
-                .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
-                    pane_id: "%1".to_owned(),
-                    seq: KbdSequence::PushKittyFlags(flags),
-                })
-                .await;
-        }
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
-                pane_id: "%1".to_owned(),
-                seq: KbdSequence::ModifyOtherKeys(2),
-            })
-            .await;
-        let limit = 64;
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
-                pane_id: "%1".to_owned(),
-                seq: KbdSequence::CursorKeys(true),
-            })
-            .await;
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
-                pane_id: "%1".to_owned(),
-                seq: KbdSequence::BracketedPaste(true),
-            })
-            .await;
-        let checkpoint = runtime.capture_canonical_screen("%1", limit).await.unwrap();
-        assert!(
-            checkpoint.is_none(),
-            "checkpoint must fail closed rather than drop unreplayable keyboard state"
-        );
         runtime.shutdown().await;
     }
 
