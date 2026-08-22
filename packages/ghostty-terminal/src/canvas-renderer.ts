@@ -769,16 +769,38 @@ export class CanvasRenderer {
 
     this.cursorContext.fillStyle = cssColor;
     this.cursorContext.strokeStyle = cssColor;
-    this.cursorContext.globalAlpha = 0.7;
-    this.cursorContext.fillRect(
-      x,
-      y + this.deviceCellHeight - 2 * thickness,
-      Math.max(width - thickness, thickness),
-      2 * thickness
-    );
     this.cursorContext.globalAlpha = 1;
+    switch (cursor.style) {
+      case 'block':
+        this.cursorContext.fillRect(x, y, width, this.deviceCellHeight);
+        break;
+      case 'block-hollow':
+        this.cursorContext.lineWidth = thickness;
+        this.cursorContext.strokeRect(
+          x + thickness / 2,
+          y + thickness / 2,
+          Math.max(width - thickness, thickness),
+          Math.max(this.deviceCellHeight - thickness, thickness)
+        );
+        break;
+      case 'underline':
+        this.cursorContext.fillRect(
+          x,
+          y + this.deviceCellHeight - 2 * thickness,
+          width,
+          2 * thickness
+        );
+        break;
+      case 'bar':
+        this.cursorContext.fillRect(x, y, 2 * thickness, this.deviceCellHeight);
+        break;
+    }
 
-    this.startCursorBlink();
+    if (cursor.blinking) {
+      this.startCursorBlink();
+    } else {
+      this.stopCursorBlink();
+    }
 
     this.lastCursor = {
       x: cursor.x,
