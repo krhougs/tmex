@@ -2558,17 +2558,19 @@ impl RuntimeActor {
             )
             .await?;
             let info = parse_pane_meta(&info.stdout);
-            let text = checked_command(
-                &self.transport,
-                &super::capture_pane_text_command(
-                    pane_id,
-                    (!info.alternate_screen).then_some(history_lines),
-                ),
-                self.config.kind(),
-                TargetMissingMode::Reject,
-            )
-            .await?
-            .stdout;
+            let text = strip_capture_command_terminator(
+                checked_command(
+                    &self.transport,
+                    &super::capture_pane_text_command(
+                        pane_id,
+                        (!info.alternate_screen).then_some(history_lines),
+                    ),
+                    self.config.kind(),
+                    TargetMissingMode::Reject,
+                )
+                .await?
+                .stdout,
+            );
             *base_cursor
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -3047,6 +3049,19 @@ fn encode_pane_modes(flags: &PaneModeFlags, alternate_screen: bool) -> u8 {
     modes
 }
 
+/// `tmux capture-pane -p` 的 stdout 以命令输出行结束符收尾。该终结符不代表
+/// viewport 之外的新 terminal row；snapshot 重放时若保留，会在满高屏写出最后
+/// 一个 CRLF 并触发一次 scroll。只移除一个终结符，绝不 trim trailing spaces/SGR；
+/// `row\n\n` 仍保留一个 LF，准确表示真实空末行。
+fn strip_capture_command_terminator(mut text: String) -> String {
+    if text.ends_with("\r\n") {
+        text.truncate(text.len() - 2);
+    } else if text.ends_with('\n') {
+        text.truncate(text.len() - 1);
+    }
+    text
+}
+
 fn truncate_utf8_tail(value: &[u8], byte_limit: usize) -> Vec<u8> {
     let mut start = value.len().saturating_sub(byte_limit);
     while start < value.len() && (0x80..0xc0).contains(&value[start]) {
@@ -3377,6 +3392,26 @@ mod tests {
         runtime.shutdown().await;
     }
 
+    #[test]
+    fn capture_command_terminator_strips_exactly_one_line_ending() {
+        assert_eq!(strip_capture_command_terminator("row\n".to_owned()), "row");
+        assert_eq!(
+            strip_capture_command_terminator("row\r\n".to_owned()),
+            "row"
+        );
+        assert_eq!(
+            strip_capture_command_terminator("row\n\n".to_owned()),
+            "row\n",
+            "真实空末行必须保留"
+        );
+        assert_eq!(
+            strip_capture_command_terminator("row  \x1b[0m\n".to_owned()),
+            "row  \x1b[0m",
+            "尾随空格与 SGR 不得 trim"
+        );
+        assert_eq!(strip_capture_command_terminator("row".to_owned()), "row");
+    }
+
     #[tokio::test]
     async fn keyboard_modes_replayed_in_screen_snapshot_data() {
         let close_started = Arc::new(AtomicBool::new(false));
@@ -3395,7 +3430,7 @@ mod tests {
                 // %1 | @1 | 0 | 1 | 80 | 24 | 0 | 0 | 1 | title | bash | /tmp
                 "%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned(),
             ),
-            capture_text: Some("hello".to_owned()),
+            capture_text: Some("hello\n".to_owned()),
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
         let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
