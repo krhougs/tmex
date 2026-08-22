@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use futures_util::FutureExt;
 use tmex_protocol::{CanonicalHistoryCursor, StateSnapshot, WindowWire, WireToken};
 use tmex_terminal::{
-    apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminalOptions,
-    KeyboardModeState,
+    apply_sequence, encode_pane_option_value, keyboard_restore_sequences, parse_pane_option_value,
+    HeadlessTerminalOptions, KeyboardModeState,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -2624,6 +2624,13 @@ impl RuntimeActor {
         let visible = frame.text.as_bytes();
         let history_included = !history_bytes.is_empty()
             && history_bytes.len().saturating_add(visible.len()) <= text_budget;
+        let keyboard_restore = self
+            .keyboard_modes
+            .get(pane_id)
+            .map(keyboard_restore_sequences)
+            .unwrap_or_default();
+        let text_budget =
+            max_bytes.saturating_sub(prefix.len() + cursor_restore.len() + keyboard_restore.len());
         let mut raw = Vec::new();
         if history_included {
             raw.extend_from_slice(&history_bytes);
@@ -2631,10 +2638,13 @@ impl RuntimeActor {
         raw.extend_from_slice(visible);
         let text_was_truncated = raw.len() > text_budget;
         let text = truncate_utf8_tail(&raw, text_budget);
-        let mut data = Vec::with_capacity(prefix.len() + text.len() + cursor_restore.len());
+        let mut data = Vec::with_capacity(
+            prefix.len() + text.len() + cursor_restore.len() + keyboard_restore.len(),
+        );
         data.extend_from_slice(prefix);
         data.extend_from_slice(&text);
         data.extend_from_slice(cursor_restore.as_bytes());
+        data.extend_from_slice(&keyboard_restore);
         let Some(current_identity) = self.pane_identity(pane_id) else {
             return Ok(None);
         };
@@ -3047,6 +3057,10 @@ mod tests {
         PaneRetentionConsumerCallbacks as CanonicalRetentionCallbacks,
         PaneSubscriptionRequest as CanonicalSubscriptionRequest,
     };
+    use crate::tmux::capture_history::{
+        PANE_HISTORY_CAPTURE_INFO_FORMAT, PANE_META_FORMAT, PANE_SCREEN_INFO_FORMAT,
+    };
+    use crate::tmux::tmux_commands::SESSION_SNAPSHOT_FORMAT;
     use crate::tmux::{
         ControlClient, LocalTmuxConfig, MetadataProjectionFlush, TMEX_SERVER_EPOCH_OPTION,
     };
@@ -3064,6 +3078,10 @@ mod tests {
         has_session_exit_code: i32,
         reject_default_path: bool,
         panic_snapshot: Option<Arc<AtomicBool>>,
+        /// Some(line) 时 list-panes -s 返回该行（pane 快照注入）。
+        pane_snapshot_line: Option<String>,
+        /// capture-pane 响应文本。
+        capture_text: Option<String>,
     }
 
     struct FakeSelectGate {
@@ -3109,10 +3127,32 @@ mod tests {
             }
             let stdout = if args == ["-V"] {
                 "tmux 3.4\n"
+            } else if args.first().map(String::as_str) == Some("display-message")
+                && args.last().map(String::as_str) == Some(SESSION_SNAPSHOT_FORMAT)
+            {
+                "$0|tmex-runtime-lifecycle-test\n"
+            } else if args.first().map(String::as_str) == Some("list-windows") {
+                "@1|0|1|layout|term\n"
             } else if args.first().map(String::as_str) == Some("show-options")
                 && args.last().map(String::as_str) == Some(TMEX_SERVER_EPOCH_OPTION)
             {
                 "00000000000000000000000000000000\n"
+            } else if args.first().map(String::as_str) == Some("list-panes") {
+                self.pane_snapshot_line.as_deref().unwrap_or("")
+            } else if args.first().map(String::as_str) == Some("capture-pane") {
+                self.capture_text.as_deref().unwrap_or("")
+            } else if args.first().map(String::as_str) == Some("display-message")
+                && args.last().map(String::as_str) == Some(PANE_META_FORMAT)
+            {
+                "80 24 0 0 0 bash\n"
+            } else if args.first().map(String::as_str) == Some("display-message")
+                && args.last().map(String::as_str) == Some(PANE_SCREEN_INFO_FORMAT)
+            {
+                "0 0 0 24 0 0 0 0 0\n"
+            } else if args.first().map(String::as_str) == Some("display-message")
+                && args.last().map(String::as_str) == Some(PANE_HISTORY_CAPTURE_INFO_FORMAT)
+            {
+                "0|80\n"
             } else if args.first().map(String::as_str) == Some("display-message")
                 && args.last().map(String::as_str) == Some("#{session_windows}")
             {
@@ -3245,6 +3285,8 @@ mod tests {
             has_session_exit_code: i32::from(!session_exists),
             reject_default_path: false,
             panic_snapshot: None,
+            pane_snapshot_line: None,
+            capture_text: None,
         });
         (
             Arc::new(FakeTransportFactory { transport }),
@@ -3327,6 +3369,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn keyboard_modes_replayed_in_screen_snapshot_data() {
+        let close_started = Arc::new(AtomicBool::new(false));
+        let close_finished = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(StdMutex::new(Vec::new()));
+        let transport = Arc::new(FakeTransport {
+            close_gate: None,
+            select_gate: None,
+            close_started,
+            close_finished,
+            commands,
+            has_session_exit_code: 0,
+            reject_default_path: false,
+            panic_snapshot: None,
+            pane_snapshot_line: Some(
+                // %1 | @1 | 0 | 1 | 80 | 24 | 0 | 0 | 1 | title | bash | /tmp
+                "%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned(),
+            ),
+            capture_text: Some("hello".to_owned()),
+        });
+        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        let snapshot = runtime.current_snapshot().await.unwrap().expect("snapshot");
+        assert!(
+            snapshot
+                .session
+                .map(|session| !session.windows.is_empty())
+                .unwrap_or(false),
+            "fake pane snapshot must be projected"
+        );
+
+        // 无键盘模式：快照 data 与旧行为逐字节一致（零回归锚点）
+        let plain = runtime
+            .capture_canonical_screen("%1", 4096)
+            .await
+            .unwrap()
+            .expect("plain capture");
+        assert_eq!(
+            plain.data,
+            b"\x1b[2J\x1b[Hhello\x1b[1;1H".to_vec(),
+            "plain pane data must be byte-identical to legacy behavior"
+        );
+
+        // Codex 形态：kitty flags=7 + modifyOtherKeys=2
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::PushKittyFlags(7),
+            })
+            .await;
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::ModifyOtherKeys(2),
+            })
+            .await;
+        let codex = runtime
+            .capture_canonical_screen("%1", 4096)
+            .await
+            .unwrap()
+            .expect("codex capture");
+        assert_eq!(
+            codex.data,
+            b"\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>4;2m".to_vec(),
+            "keyboard restore sequences must be appended after cursor restore"
+        );
+
+        // 多层栈：set 重建栈底 + push
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
+                pane_id: "%1".to_owned(),
+                seq: KbdSequence::PushKittyFlags(1),
+            })
+            .await;
+        let nested = runtime
+            .capture_canonical_screen("%1", 4096)
+            .await
+            .unwrap()
+            .expect("nested capture");
+        assert_eq!(
+            nested.data,
+            b"\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>1u\x1b[>4;2m".to_vec()
+        );
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn unsupported_best_effort_session_option_does_not_abort_startup() {
         let close_started = Arc::new(AtomicBool::new(false));
         let close_finished = Arc::new(AtomicBool::new(false));
@@ -3340,6 +3471,8 @@ mod tests {
             has_session_exit_code: 0,
             reject_default_path: true,
             panic_snapshot: None,
+            pane_snapshot_line: None,
+            capture_text: None,
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
 
@@ -3398,6 +3531,8 @@ mod tests {
             has_session_exit_code: 0,
             reject_default_path: false,
             panic_snapshot: Some(panic_snapshot.clone()),
+            pane_snapshot_line: None,
+            capture_text: None,
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
         let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
@@ -3521,6 +3656,8 @@ mod tests {
             has_session_exit_code: 0,
             reject_default_path: false,
             panic_snapshot: None,
+            pane_snapshot_line: None,
+            capture_text: None,
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
         let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
