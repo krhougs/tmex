@@ -34,7 +34,7 @@ use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term, TermMode};
-use alacritty_terminal::vte::ansi;
+use alacritty_terminal::vte::ansi::{self, Color, NamedColor};
 
 pub const DEFAULT_COLS: usize = 80;
 pub const DEFAULT_ROWS: usize = 24;
@@ -44,6 +44,34 @@ pub const DEFAULT_SCROLLBACK_LINES: usize = 5_000;
 pub struct TerminalSize {
     pub cols: usize,
     pub rows: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalSgrState {
+    bytes: Vec<u8>,
+}
+
+impl TerminalSgrState {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalContinuationState {
+    sgr: TerminalSgrState,
+    pub insert: bool,
+    pub wrap: bool,
+    pub cursor_visible: bool,
+    pub application_cursor: bool,
+    pub application_keypad: bool,
+    pub origin: bool,
+}
+
+impl TerminalContinuationState {
+    pub fn sgr(&self) -> &TerminalSgrState {
+        &self.sgr
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +223,49 @@ impl HeadlessTerminal {
         }
     }
 
+    pub fn sgr_state(&self) -> TerminalSgrState {
+        let template = &self.term.grid().cursor.template;
+        let mut parameters = vec!["0".to_owned()];
+        for (flag, code) in [
+            (Flags::BOLD, "1"),
+            (Flags::DIM, "2"),
+            (Flags::ITALIC, "3"),
+            (Flags::UNDERLINE, "4"),
+            (Flags::DOUBLE_UNDERLINE, "21"),
+            (Flags::UNDERCURL, "4:3"),
+            (Flags::DOTTED_UNDERLINE, "4:4"),
+            (Flags::DASHED_UNDERLINE, "4:5"),
+            (Flags::INVERSE, "7"),
+            (Flags::HIDDEN, "8"),
+            (Flags::STRIKEOUT, "9"),
+        ] {
+            if template.flags.contains(flag) {
+                parameters.push(code.to_owned());
+            }
+        }
+        push_color(&mut parameters, template.fg, ColorTarget::Foreground);
+        push_color(&mut parameters, template.bg, ColorTarget::Background);
+        if let Some(color) = template.underline_color() {
+            push_color(&mut parameters, color, ColorTarget::Underline);
+        }
+        TerminalSgrState {
+            bytes: format!("\x1b[{}m", parameters.join(";")).into_bytes(),
+        }
+    }
+
+    pub fn continuation_state(&self) -> TerminalContinuationState {
+        let mode = self.term.mode();
+        TerminalContinuationState {
+            sgr: self.sgr_state(),
+            insert: mode.contains(TermMode::INSERT),
+            wrap: mode.contains(TermMode::LINE_WRAP),
+            cursor_visible: mode.contains(TermMode::SHOW_CURSOR),
+            application_cursor: mode.contains(TermMode::APP_CURSOR),
+            application_keypad: mode.contains(TermMode::APP_KEYPAD),
+            origin: mode.contains(TermMode::ORIGIN),
+        }
+    }
+
     pub fn scrollback_limit(&self) -> usize {
         self.options.scrollback_lines
     }
@@ -259,6 +330,56 @@ impl HeadlessTerminal {
         for listener in self.taps.values_mut() {
             listener(event);
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ColorTarget {
+    Foreground,
+    Background,
+    Underline,
+}
+
+fn push_color(parameters: &mut Vec<String>, color: Color, target: ColorTarget) {
+    match color {
+        Color::Spec(color) => parameters.push(format!(
+            "{};2;{};{};{}",
+            match target {
+                ColorTarget::Foreground => 38,
+                ColorTarget::Background => 48,
+                ColorTarget::Underline => 58,
+            },
+            color.r,
+            color.g,
+            color.b
+        )),
+        Color::Indexed(index) => parameters.push(format!(
+            "{};5;{index}",
+            match target {
+                ColorTarget::Foreground => 38,
+                ColorTarget::Background => 48,
+                ColorTarget::Underline => 58,
+            }
+        )),
+        Color::Named(color) => push_named_color(parameters, color, target),
+    }
+}
+
+fn push_named_color(parameters: &mut Vec<String>, color: NamedColor, target: ColorTarget) {
+    let index = color as usize;
+    let code = match target {
+        ColorTarget::Foreground if index < 8 => Some(30 + index),
+        ColorTarget::Foreground if index < 16 => Some(90 + index - 8),
+        ColorTarget::Background if index < 8 => Some(40 + index),
+        ColorTarget::Background if index < 16 => Some(100 + index - 8),
+        ColorTarget::Underline if index < 16 => {
+            parameters.push(format!("58;5;{index}"));
+            return;
+        }
+        _ => None,
+    };
+    if let Some(code) = code {
+        parameters.push(code.to_string());
     }
 }
 
@@ -462,6 +583,44 @@ mod tests {
         assert_eq!(term.scrollback_limit(), 1);
         term.feed(b"x");
         assert_eq!(term.viewport_text(), "x");
+    }
+
+    #[test]
+    fn sgr_state_round_trips_current_character_attributes() {
+        let mut source = terminal(10, 3, 0);
+        source.feed(b"\x1b[1;3;4;7;38;2;1;2;3;48;5;16;58;5;12m");
+        let state = source.sgr_state();
+
+        let mut restored = terminal(10, 3, 0);
+        restored.feed(state.as_bytes());
+
+        assert_eq!(restored.sgr_state(), state);
+        assert!(state.as_bytes().starts_with(b"\x1b[0;"));
+    }
+
+    #[test]
+    fn default_sgr_state_clears_a_previous_background() {
+        let source = terminal(10, 3, 0);
+        let mut restored = terminal(10, 3, 0);
+        restored.feed(b"\x1b[48;5;16m");
+        restored.feed(source.sgr_state().as_bytes());
+
+        assert_eq!(restored.sgr_state(), source.sgr_state());
+    }
+
+    #[test]
+    fn continuation_state_tracks_modes_and_character_attributes_together() {
+        let mut term = terminal(10, 3, 0);
+        term.feed(b"\x1b[4h\x1b[?7l\x1b[?25l\x1b[?1h\x1b=\x1b[?6h\x1b[48;5;16m");
+
+        let state = term.continuation_state();
+        assert!(state.insert);
+        assert!(!state.wrap);
+        assert!(!state.cursor_visible);
+        assert!(state.application_cursor);
+        assert!(state.application_keypad);
+        assert!(state.origin);
+        assert!(state.sgr().as_bytes().starts_with(b"\x1b[0;"));
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]

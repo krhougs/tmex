@@ -14,10 +14,13 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 
+use super::capture_history::{
+    parse_pane_screen_info, PaneContinuationModes, PaneScreenInfo, PANE_SCREEN_INFO_FORMAT,
+};
+
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_STALLED_STREAM_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_HISTORY_LINES: usize = 4096;
-const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 type BoxedCommandValue = Box<dyn Any + Send>;
 type CommandResult = Result<BoxedCommandValue, ControlModeQueueError>;
@@ -525,6 +528,7 @@ pub struct AtomicPaneCapture {
     pub alternate_screen: bool,
     pub history_size: usize,
     pub modes: Option<PaneModeFlags>,
+    pub continuation: PaneContinuationModes,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -550,16 +554,6 @@ impl From<ControlModeQueueError> for AtomicPaneCaptureError {
     }
 }
 
-struct PaneFrameInfo {
-    cols: usize,
-    rows: usize,
-    cursor_x: Option<usize>,
-    cursor_y: Option<usize>,
-    alternate_screen: bool,
-    history_size: usize,
-    modes: PaneModeFlags,
-}
-
 pub async fn capture_pane_frame_at_control_barrier<W, WriteError, Barrier>(
     queue: &ControlModeCommandQueue,
     mut write: W,
@@ -583,9 +577,7 @@ where
     };
     let info_command = queue.execute(
         &mut write,
-        format!(
-            "display-message -p -t {pane_id} \"#{{pane_width}}|#{{pane_height}}|#{{alternate_on}}|#{{cursor_x}}|#{{cursor_y}}|#{{history_size}}|#{{mouse_standard_flag}}|#{{mouse_button_flag}}|#{{mouse_all_flag}}|#{{mouse_sgr_flag}}|#{{mouse_utf8_flag}}\""
-        ),
+        format!("display-message -p -t {pane_id} \"{PANE_SCREEN_INFO_FORMAT}\""),
         options,
         parse_pane_frame_info,
     );
@@ -634,79 +626,19 @@ where
         alternate_screen: info.alternate_screen,
         history_size: info.history_size,
         modes: Some(info.modes),
+        continuation: info.continuation,
     })
 }
 
-fn parse_pane_frame_info(block: ControlModeBlock) -> Result<PaneFrameInfo, ControlModeQueueError> {
-    let fields = block
-        .lines
-        .first()
-        .map(|line| line.split('|').collect::<Vec<_>>())
-        .unwrap_or_default();
-    let cols = fields
-        .first()
-        .and_then(|value| parse_nonnegative_integer(value));
-    let rows = fields
-        .get(1)
-        .and_then(|value| parse_nonnegative_integer(value));
-    let (Some(cols), Some(rows)) = (cols, rows) else {
-        return Err(ControlModeQueueError::Transform(
-            "invalid tmux pane frame info".to_owned(),
-        ));
-    };
+fn parse_pane_frame_info(block: ControlModeBlock) -> Result<PaneScreenInfo, ControlModeQueueError> {
+    let info = parse_pane_screen_info(block.lines.first().map_or("", String::as_str));
+    let (cols, rows) = (info.cols, info.rows);
     if cols == 0 || rows == 0 {
         return Err(ControlModeQueueError::Transform(
             "invalid tmux pane frame info".to_owned(),
         ));
     }
-
-    Ok(PaneFrameInfo {
-        cols,
-        rows,
-        alternate_screen: fields.get(2) == Some(&"1"),
-        cursor_x: fields
-            .get(3)
-            .and_then(|value| parse_nonnegative_integer(value)),
-        cursor_y: fields
-            .get(4)
-            .and_then(|value| parse_nonnegative_integer(value)),
-        history_size: fields
-            .get(5)
-            .and_then(|value| parse_nonnegative_integer(value))
-            .unwrap_or(0),
-        modes: PaneModeFlags {
-            mouse_standard: fields.get(6) == Some(&"1"),
-            mouse_button: fields.get(7) == Some(&"1"),
-            mouse_all: fields.get(8) == Some(&"1"),
-            mouse_sgr: fields.get(9) == Some(&"1"),
-            mouse_utf8: fields.get(10) == Some(&"1"),
-        },
-    })
-}
-
-fn parse_nonnegative_integer(value: &str) -> Option<usize> {
-    if value.is_empty() {
-        return None;
-    }
-    let value = value.trim_start();
-    let (negative, digits) = match value.as_bytes().first() {
-        Some(b'-') => (true, &value[1..]),
-        Some(b'+') => (false, &value[1..]),
-        _ => (false, value),
-    };
-    let digit_count = digits
-        .as_bytes()
-        .iter()
-        .take_while(|byte| byte.is_ascii_digit())
-        .count();
-    if digit_count == 0 {
-        return None;
-    }
-    let parsed = digits[..digit_count].parse::<u64>().ok()?;
-    if parsed > MAX_SAFE_INTEGER || (negative && parsed != 0) {
-        return None;
-    }
-    usize::try_from(parsed).ok()
+    Ok(info)
 }
 
 fn is_tmux_pane_id(value: &str) -> bool {
@@ -877,7 +809,7 @@ mod tests {
 
         let mut subscription = ControlModeSubscription::with_command_queue(queue.guard());
         let events = subscription.push(
-            b"%begin 1 2 0\n80|24|0|3|4|200|1|0|0|1|0\n%end 1 2 0\n%begin 1 3 0\n%output literal\n\n%window-add literal\n%end 1 3 0\n%output %1 live\n",
+            b"%begin 1 2 0\n80|24|0|3|4|200|1|0|0|1|0|2|21|1|0|1|0|1|1\n%end 1 2 0\n%begin 1 3 0\n%output literal\n\n%window-add literal\n%end 1 3 0\n%output %1 live\n",
             0,
         );
         assert_eq!(barrier_count.load(Ordering::SeqCst), 1);
@@ -889,6 +821,16 @@ mod tests {
         assert_eq!(capture.text, "%output literal\n\n%window-add literal");
         assert_eq!(capture.history_text.as_deref(), Some("old history"));
         assert_eq!((capture.cols, capture.rows), (80, 24));
+        assert_eq!(
+            (
+                capture.continuation.scroll_region_upper,
+                capture.continuation.scroll_region_lower
+            ),
+            (2, 21)
+        );
+        assert!(capture.continuation.origin);
+        assert!(capture.continuation.application_cursor);
+        assert!(capture.continuation.application_keypad);
         assert!(events.iter().any(|event| matches!(
             event,
             crate::tmux::ControlModeSubscriptionEvent::TerminalOutput { pane_id, data }

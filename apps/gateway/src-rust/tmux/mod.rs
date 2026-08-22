@@ -38,9 +38,9 @@ mod window_style;
 pub use canonical_runtime::DeviceCanonicalRuntime;
 pub use capture_history::{
     append_cursor_restore, parse_pane_history_capture_info, parse_pane_meta,
-    parse_pane_screen_info, PaneHistoryCaptureInfo, PaneInfo, PaneScreenInfo,
-    ParsePaneHistoryCaptureInfoError, PANE_HISTORY_CAPTURE_INFO_FORMAT, PANE_META_FORMAT,
-    PANE_SCREEN_INFO_FORMAT,
+    parse_pane_screen_info, PaneContinuationModes, PaneHistoryCaptureInfo, PaneInfo,
+    PaneScreenInfo, ParsePaneHistoryCaptureInfoError, PANE_HISTORY_CAPTURE_INFO_FORMAT,
+    PANE_META_FORMAT, PANE_SCREEN_INFO_FORMAT,
 };
 pub use command_builder::{join_shell_args, quote_shell_arg};
 pub use connection_types::{

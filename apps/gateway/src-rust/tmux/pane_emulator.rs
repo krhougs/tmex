@@ -2,8 +2,8 @@ use std::fmt;
 
 use tmex_protocol::WireToken;
 use tmex_terminal::{
-    HeadlessTerminal, HeadlessTerminalOptions, PromptMarker, TerminalSize, TerminalTap,
-    TerminalTapId,
+    HeadlessTerminal, HeadlessTerminalOptions, PromptMarker, TerminalContinuationState,
+    TerminalSize, TerminalTap, TerminalTapId,
 };
 
 use super::{PaneDataSegment, PaneReplayPlan, PaneScreenCheckpoint};
@@ -162,6 +162,15 @@ impl PaneEmulator {
         self.pane_epoch.map(|epoch| (epoch, self.terminal_seq))
     }
 
+    pub fn continuation_state_at(
+        &self,
+        pane_epoch: WireToken,
+        terminal_seq: u64,
+    ) -> Option<TerminalContinuationState> {
+        (self.pane_epoch == Some(pane_epoch) && self.terminal_seq == terminal_seq)
+            .then(|| self.terminal.continuation_state())
+    }
+
     pub fn reset(&mut self) {
         self.terminal.reset();
         self.pane_epoch = None;
@@ -241,5 +250,28 @@ mod tests {
             emulator.rebuild(&checkpoint, &gap),
             Err(PaneEmulatorError::ReplayGap)
         );
+    }
+
+    #[test]
+    fn continuation_state_is_only_exposed_for_the_exact_terminal_identity() {
+        let epoch = [3; 16];
+        let mut emulator = PaneEmulator::new("%1", HeadlessTerminalOptions::default());
+        emulator.begin_at(epoch, 10);
+        emulator
+            .feed_segment(&PaneDataSegment {
+                pane_id: "%1".to_owned(),
+                pane_epoch: epoch,
+                seq_start: 10,
+                seq_end: 20,
+                data: b"\x1b[48;5;16m".to_vec(),
+            })
+            .unwrap();
+
+        let state = emulator
+            .continuation_state_at(epoch, 20)
+            .expect("exact identity");
+        assert!(state.sgr().as_bytes().starts_with(b"\x1b[0;"));
+        assert!(emulator.continuation_state_at(epoch, 19).is_none());
+        assert!(emulator.continuation_state_at([4; 16], 20).is_none());
     }
 }

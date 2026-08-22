@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -12,7 +12,7 @@ use tmex_protocol::{
 };
 use tmex_terminal::{
     apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminalOptions,
-    KeyboardModeState,
+    KeyboardModeState, TerminalContinuationState,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -31,18 +31,19 @@ use super::{
     CapturedPaneHistoryPage, CapturedTerminalHistory, ConnectionLifecycleEmitter,
     ControlModeSubscriptionEvent, ControlRuntimeError, ControlRuntimeHandle, DeviceSessionConfig,
     LocalShellPathResolver, LocalTmuxTransport, MetadataProjection, MetadataProjectionError,
-    MetadataProjectionSnapshot, MovePanePosition, PaneEmulator, PaneHistoryCaptureInfo,
-    PaneHistoryCursor, PaneHistoryCursorError, PaneHistoryCursorErrorReason, PaneHistoryReader,
-    PaneHistorySource, PaneIdentity, PaneInfo, PaneModeFlags, PaneRetention, PaneRetentionError,
-    PaneRetentionStats, PaneScreenCheckpoint, PaneTerminalCursor, ProcessSshConfigLookup,
-    ProjectionEntityKind, ServerEpochError, SnapshotRefreshAction, SnapshotRefreshCoordinator,
-    SnapshotRefreshRunResult, SpawnExecutor, SplitDirection, SshConfigError, SshInvocationBuilder,
-    SshTmuxTransport, StandaloneSpawnPolicy, SystemOpenSshInvocationBuilder, TargetMissingMode,
-    ThemeMode, ThemeSubscriptionTracker, TmuxCommandResult, TmuxLifecycleSink, TmuxRuntimeEvent,
-    TmuxRuntimeKind, TmuxTransport, TmuxTransportConfig, TmuxTransportError, CONTROL_MAX_RESTARTS,
-    CONTROL_RESTART_DELAY, CONTROL_STABLE_RESET, HEARTBEAT_INTERVAL, LOCAL_RUN_TIMEOUT,
-    NO_SERVER_RUNNING_MAX_RETRIES, NO_SERVER_RUNNING_RETRY_DELAY, PARKING_WINDOW_NAME,
-    REMOTE_RUN_TIMEOUT, RUNTIME_COMMAND_QUEUE_CAPACITY, RUNTIME_EVENT_QUEUE_CAPACITY,
+    MetadataProjectionSnapshot, MovePanePosition, PaneContinuationModes, PaneEmulator,
+    PaneHistoryCaptureInfo, PaneHistoryCursor, PaneHistoryCursorError,
+    PaneHistoryCursorErrorReason, PaneHistoryReader, PaneHistorySource, PaneIdentity, PaneInfo,
+    PaneModeFlags, PaneRetention, PaneRetentionError, PaneRetentionStats, PaneScreenCheckpoint,
+    PaneTerminalCursor, ProcessSshConfigLookup, ProjectionEntityKind, ServerEpochError,
+    SnapshotRefreshAction, SnapshotRefreshCoordinator, SnapshotRefreshRunResult, SpawnExecutor,
+    SplitDirection, SshConfigError, SshInvocationBuilder, SshTmuxTransport, StandaloneSpawnPolicy,
+    SystemOpenSshInvocationBuilder, TargetMissingMode, ThemeMode, ThemeSubscriptionTracker,
+    TmuxCommandResult, TmuxLifecycleSink, TmuxRuntimeEvent, TmuxRuntimeKind, TmuxTransport,
+    TmuxTransportConfig, TmuxTransportError, CONTROL_MAX_RESTARTS, CONTROL_RESTART_DELAY,
+    CONTROL_STABLE_RESET, HEARTBEAT_INTERVAL, LOCAL_RUN_TIMEOUT, NO_SERVER_RUNNING_MAX_RETRIES,
+    NO_SERVER_RUNNING_RETRY_DELAY, PARKING_WINDOW_NAME, REMOTE_RUN_TIMEOUT,
+    RUNTIME_COMMAND_QUEUE_CAPACITY, RUNTIME_EVENT_QUEUE_CAPACITY,
 };
 
 const DEFAULT_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
@@ -2596,12 +2597,12 @@ impl RuntimeActor {
         } else {
             let info = checked_command(
                 &self.transport,
-                &pane_info_command(pane_id),
+                &super::pane_screen_info_command(pane_id),
                 self.config.kind(),
                 TargetMissingMode::Reject,
             )
             .await?;
-            let info = parse_pane_meta(&info.stdout);
+            let info = parse_pane_screen_info(&info.stdout);
             let text = strip_capture_command_terminator(
                 checked_command(
                     &self.transport,
@@ -2638,7 +2639,8 @@ impl RuntimeActor {
                 cursor_y: info.cursor_y,
                 alternate_screen: info.alternate_screen,
                 history_size,
-                modes: None,
+                modes: Some(info.modes),
+                continuation: info.continuation,
             }
         };
         let base_cursor = base_cursor
@@ -2653,11 +2655,18 @@ impl RuntimeActor {
         } else {
             b"\x1b[2J\x1b[H".as_slice()
         };
-        let cursor_restore = match (frame.cursor_x, frame.cursor_y) {
-            (Some(x), Some(y)) => format!("\x1b[{};{}H", y + 1, x + 1),
-            _ => String::new(),
-        };
-        let fixed_overhead = prefix.len() + cursor_restore.len();
+        let terminal_state = self.emulators.get(pane_id).and_then(|emulator| {
+            emulator.continuation_state_at(base_cursor.pane_epoch, base_cursor.terminal_seq)
+        });
+        let continuation = encode_terminal_continuation(
+            &frame.continuation,
+            frame.cols,
+            frame.rows,
+            frame.cursor_x,
+            frame.cursor_y,
+            terminal_state.as_ref(),
+        );
+        let fixed_overhead = prefix.len() + continuation.len();
         if fixed_overhead > max_bytes {
             return Ok(None);
         }
@@ -2681,10 +2690,10 @@ impl RuntimeActor {
         raw.extend_from_slice(visible);
         let text_was_truncated = raw.len() > text_budget;
         let text = truncate_utf8_tail(&raw, text_budget);
-        let mut data = Vec::with_capacity(prefix.len() + text.len() + cursor_restore.len());
+        let mut data = Vec::with_capacity(prefix.len() + text.len() + continuation.len());
         data.extend_from_slice(prefix);
         data.extend_from_slice(&text);
-        data.extend_from_slice(cursor_restore.as_bytes());
+        data.extend_from_slice(&continuation);
         let Some(current_identity) = self.pane_identity(pane_id) else {
             return Ok(None);
         };
@@ -3095,6 +3104,69 @@ fn encode_pane_modes(flags: &PaneModeFlags, alternate_screen: bool) -> u8 {
     modes
 }
 
+fn encode_terminal_continuation(
+    modes: &PaneContinuationModes,
+    cols: usize,
+    rows: usize,
+    cursor_x: Option<usize>,
+    cursor_y: Option<usize>,
+    terminal: Option<&TerminalContinuationState>,
+) -> Vec<u8> {
+    let mut output = String::from("\x1b[0m\x1b[?6l");
+    let insert = terminal.map_or(modes.insert, |state| state.insert);
+    let wrap = terminal.map_or(modes.wrap, |state| state.wrap);
+    let cursor_visible = terminal.map_or(modes.cursor_visible, |state| state.cursor_visible);
+    let application_cursor =
+        terminal.map_or(modes.application_cursor, |state| state.application_cursor);
+    let application_keypad =
+        terminal.map_or(modes.application_keypad, |state| state.application_keypad);
+    let origin = terminal.map_or(modes.origin, |state| state.origin);
+
+    output.push_str(if insert { "\x1b[4h" } else { "\x1b[4l" });
+    for (mode, enabled) in [(7, wrap), (25, cursor_visible), (1, application_cursor)] {
+        let _ = write!(output, "\x1b[?{mode}{}", if enabled { 'h' } else { 'l' });
+    }
+    output.push_str(if application_keypad { "\x1b=" } else { "\x1b>" });
+
+    let region_upper = modes.scroll_region_upper.min(rows.saturating_sub(1));
+    let region_lower = modes
+        .scroll_region_lower
+        .max(region_upper)
+        .min(rows.saturating_sub(1));
+    if region_upper == 0 && region_lower.saturating_add(1) == rows {
+        output.push_str("\x1b[r");
+    } else {
+        let _ = write!(output, "\x1b[{};{}r", region_upper + 1, region_lower + 1);
+    }
+
+    if origin {
+        output.push_str("\x1b[?6h");
+    }
+    if let (Some(x), Some(y)) = (cursor_x, cursor_y) {
+        let x = x.min(cols.saturating_sub(1));
+        let y = y.min(rows.saturating_sub(1));
+        let row = if origin {
+            y.saturating_sub(region_upper)
+                .min(region_lower.saturating_sub(region_upper))
+                + 1
+        } else {
+            y + 1
+        };
+        let _ = write!(output, "\x1b[{row};{}H", x + 1);
+    }
+    output
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(
+            terminal
+                .map_or(b"\x1b[0m".as_slice(), |state| state.sgr().as_bytes())
+                .iter()
+                .copied(),
+        )
+        .collect()
+}
+
 /// `tmux capture-pane -p` 的 stdout 以命令输出行结束符收尾。该终结符不代表
 /// viewport 之外的新 terminal row；snapshot 重放时若保留，会在满高屏写出最后
 /// 一个 CRLF 并触发一次 scroll。只移除一个终结符，绝不 trim trailing spaces/SGR；
@@ -3135,7 +3207,7 @@ mod tests {
         ControlClient, LocalTmuxConfig, MetadataProjectionFlush, TMEX_SERVER_EPOCH_OPTION,
     };
     use tmex_protocol::{SourceMetadataPatch, TERMINAL_KEY_MOD_CTRL, TERMINAL_KEY_MOD_SHIFT};
-    use tmex_terminal::KbdSequence;
+    use tmex_terminal::{HeadlessTerminal, KbdSequence};
     use tokio::sync::{Notify, Semaphore};
     use tokio::time::timeout;
 
@@ -3218,7 +3290,7 @@ mod tests {
             } else if args.first().map(String::as_str) == Some("display-message")
                 && args.last().map(String::as_str) == Some(PANE_SCREEN_INFO_FORMAT)
             {
-                "0 0 0 24 0 0 0 0 0\n"
+                "80|24|0|0|0|0|0|0|0|0|0|0|23|0|0|1|1|0|0\n"
             } else if args.first().map(String::as_str) == Some("display-message")
                 && args.last().map(String::as_str) == Some(PANE_HISTORY_CAPTURE_INFO_FORMAT)
             {
@@ -3497,6 +3569,59 @@ mod tests {
         assert_eq!(strip_capture_command_terminator("row".to_owned()), "row");
     }
 
+    #[test]
+    fn continuation_restores_partial_region_modes_cursor_and_neutral_sgr() {
+        let modes = PaneContinuationModes {
+            scroll_region_upper: 2,
+            scroll_region_lower: 8,
+            origin: true,
+            insert: true,
+            wrap: false,
+            cursor_visible: false,
+            application_cursor: true,
+            application_keypad: true,
+        };
+        let encoded = encode_terminal_continuation(&modes, 20, 10, Some(6), Some(4), None);
+
+        assert_eq!(
+            encoded,
+            b"\x1b[0m\x1b[?6l\x1b[4h\x1b[?7l\x1b[?25l\x1b[?1h\x1b=\x1b[3;9r\x1b[?6h\x1b[3;7H\x1b[0m"
+        );
+    }
+
+    #[test]
+    fn exact_emulator_modes_override_mux_format_placeholders() {
+        let mut terminal = HeadlessTerminal::default();
+        terminal.feed(b"\x1b[4h\x1b[?7l\x1b[?25h\x1b[?1h\x1b=");
+        let state = terminal.continuation_state();
+        let placeholder_modes = PaneContinuationModes {
+            scroll_region_upper: 0,
+            scroll_region_lower: 23,
+            origin: false,
+            insert: false,
+            wrap: true,
+            cursor_visible: false,
+            application_cursor: false,
+            application_keypad: false,
+        };
+
+        let encoded = encode_terminal_continuation(
+            &placeholder_modes,
+            80,
+            24,
+            Some(0),
+            Some(0),
+            Some(&state),
+        );
+        let encoded = String::from_utf8(encoded).expect("escape stream is UTF-8");
+
+        assert!(encoded.contains("\x1b[4h"));
+        assert!(encoded.contains("\x1b[?7l"));
+        assert!(encoded.contains("\x1b[?25h"));
+        assert!(encoded.contains("\x1b[?1h"));
+        assert!(encoded.contains("\x1b="));
+    }
+
     #[tokio::test]
     async fn keyboard_modes_stay_server_side_and_do_not_pollute_snapshots() {
         let close_started = Arc::new(AtomicBool::new(false));
@@ -3538,10 +3663,9 @@ mod tests {
             .expect("plain capture");
         assert_eq!(
             plain.data,
-            b"\x1b[2J\x1b[Hhello\x1b[1;1H".to_vec(),
-            "plain pane data must be byte-identical to legacy behavior"
+            b"\x1b[2J\x1b[Hhello\x1b[0m\x1b[?6l\x1b[4l\x1b[?7h\x1b[?25h\x1b[?1l\x1b>\x1b[r\x1b[1;1H\x1b[0m".to_vec(),
+            "plain pane data must end in a neutral, self-contained continuation state"
         );
-
         // Codex 形态：Gateway 仍跟踪 kitty/MoK，供服务端 semantic encoder 使用。
         runtime
             .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
