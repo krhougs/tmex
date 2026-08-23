@@ -35,6 +35,8 @@ import {
   dispatchPaneReset,
   dispatchPaneScreenSnapshot,
   dispatchPaneTerminalData,
+  hasPaneSink,
+  onPaneSinkChange,
   registerPaneSink,
 } from '@tmex/ws-client/pane-sink-registry';
 import i18next from 'i18next';
@@ -115,6 +117,8 @@ export interface PaneSinkRouting {
     modes: number
   ): boolean;
   beginPaneHistoryGate(deviceId: string, paneId: string, token: Uint8Array): void;
+  hasPaneSink(deviceId: string, paneId: string): boolean;
+  onPaneSinkChange(listener: () => void): () => void;
   cleanupDevicePaneState(deviceId: string): void;
 }
 
@@ -292,6 +296,8 @@ const defaultBell: BellPlayer = { play: playBellSound };
 
 const defaultPaneSinks: PaneSinkRouting = {
   registerPaneSink,
+  hasPaneSink,
+  onPaneSinkChange,
   dispatchPaneReset,
   dispatchPaneApplyHistory,
   dispatchPaneOutput,
@@ -325,6 +331,8 @@ export function resolveRuntimeCore(options: AppRuntimeOptions = {}): RuntimeCore
     paneSinks: conn
       ? {
           registerPaneSink: (d, p, sink) => conn.paneSinks.registerPaneSink(d, p, sink),
+          hasPaneSink: (d, p) => conn.paneSinks.hasPaneSink(d, p),
+          onPaneSinkChange: (listener) => conn.paneSinks.onPaneSinkChange(listener),
           dispatchPaneReset: (d, p, o) => conn.paneSinks.dispatchPaneReset(d, p, o),
           dispatchPaneApplyHistory: (d, p, data, alt, m) =>
             conn.paneSinks.dispatchPaneApplyHistory(d, p, data, alt, m),

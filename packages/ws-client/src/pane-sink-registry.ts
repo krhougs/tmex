@@ -68,6 +68,7 @@ function splitPaneKey(key: string): [string, string] {
 // 每个 gateway 连接一份注册表实例；模块级函数代理到默认实例（单连接宿主零改动）
 export class PaneSinkRegistry {
   private sinks = new Map<string, PaneSink>();
+  private sinkListeners = new Set<() => void>();
   private pending = new Map<string, PendingPaneState>();
   private historyGates = new Map<string, HistoryGate>();
 
@@ -90,7 +91,9 @@ export class PaneSinkRegistry {
 
   registerPaneSink(deviceId: string, paneId: string, sink: PaneSink): () => void {
     const key = paneKey(deviceId, paneId);
+    const wasAttached = this.sinks.has(key);
     this.sinks.set(key, sink);
+    if (!wasAttached) this.notifyPaneSinkChange();
 
     const state = this.pending.get(key);
     if (state) {
@@ -117,8 +120,18 @@ export class PaneSinkRegistry {
     return () => {
       if (this.sinks.get(key) === sink) {
         this.sinks.delete(key);
+        this.notifyPaneSinkChange();
       }
     };
+  }
+
+  onPaneSinkChange(listener: () => void): () => void {
+    this.sinkListeners.add(listener);
+    return () => this.sinkListeners.delete(listener);
+  }
+
+  private notifyPaneSinkChange(): void {
+    for (const listener of [...this.sinkListeners]) listener();
   }
 
   dispatchPaneReset(deviceId: string, paneId: string, origin: PaneResetOrigin = 'select'): void {
@@ -319,11 +332,13 @@ export class PaneSinkRegistry {
   }
 
   reset(): void {
+    const hadSinks = this.sinks.size > 0;
     this.sinks.clear();
     this.pending.clear();
     for (const key of this.historyGates.keys()) {
       this.closePaneHistoryGate(key, { flush: false });
     }
+    if (hadSinks) this.notifyPaneSinkChange();
   }
 }
 
@@ -397,6 +412,10 @@ export function dispatchPaneHistory(
 
 export function hasPaneSink(deviceId: string, paneId: string): boolean {
   return defaultRegistry.hasPaneSink(deviceId, paneId);
+}
+
+export function onPaneSinkChange(listener: () => void): () => void {
+  return defaultRegistry.onPaneSinkChange(listener);
 }
 
 export function cleanupDevicePaneState(deviceId: string): void {

@@ -116,6 +116,31 @@ describe('pane-sink-registry', () => {
     expect(a.events).toEqual([]);
   });
 
+  test('attachment changes are level-triggered and ignore sink replacement', () => {
+    const registry = new PaneSinkRegistry();
+    let changes = 0;
+    const off = registry.onPaneSinkChange(() => {
+      changes += 1;
+    });
+    const a = createRecordingSink();
+    const b = createRecordingSink();
+    const unregisterA = registry.registerPaneSink('dev', '%1', a.sink);
+    const unregisterB = registry.registerPaneSink('dev', '%1', b.sink);
+    expect(registry.hasPaneSink('dev', '%1')).toBe(true);
+    expect(changes).toBe(1);
+
+    unregisterA();
+    expect(changes).toBe(1);
+    unregisterB();
+    expect(registry.hasPaneSink('dev', '%1')).toBe(false);
+    expect(changes).toBe(2);
+
+    registry.registerPaneSink('dev', '%2', a.sink);
+    registry.reset();
+    expect(changes).toBe(4);
+    off();
+  });
+
   test('history gate buffers live output until matching history arrives', () => {
     const { sink, events } = createRecordingSink();
     registerPaneSink('dev', '%3', sink);
