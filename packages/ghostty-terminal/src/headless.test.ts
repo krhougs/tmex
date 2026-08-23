@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { getGhosttyBindings } from './ghostty-wasm';
 import { HeadlessTerminal } from './headless';
+import {
+  createRenderState,
+  disposeRenderStateResources,
+  iterateRows,
+  updateRenderState,
+} from './render-state';
 describe('HeadlessTerminal', () => {
   test('渲染态纯文本：剥 ANSI 颜色与控制序列', async () => {
     const term = await HeadlessTerminal.create({ cols: 80, rows: 24 });
@@ -54,6 +60,30 @@ describe('HeadlessTerminal', () => {
     term.free();
   });
 
+  test('canonical snapshot 中的背景空白 cell 保留完整行高', async () => {
+    const term = await HeadlessTerminal.create({ cols: 20, rows: 8, scrollback: 0 });
+    const bindings = (
+      term as unknown as { bindings: Awaited<ReturnType<typeof getGhosttyBindings>> }
+    ).bindings;
+    const handle = (term as unknown as { terminal: number }).terminal;
+    const renderState = createRenderState(bindings);
+    const grayRow = `\x1b[0;48;5;240m${' '.repeat(20)}`;
+    term.write(`\x1b[2J\x1b[H\x1b[0m\x1b[H${grayRow}\r\n${grayRow}\r\n${grayRow}\x1b[0m`);
+
+    try {
+      updateRenderState(renderState, handle);
+      const rows = [...iterateRows(renderState)];
+      for (let row = 0; row < 3; row += 1) {
+        expect(rows[row]?.cells).toHaveLength(20);
+        expect(rows[row]?.cells.every((cell) => cell.bgPaletteIndex === 240)).toBe(true);
+      }
+      expect(rows[3]?.cells.every((cell) => cell.bgPaletteIndex === null)).toBe(true);
+    } finally {
+      disposeRenderStateResources(renderState);
+      term.free();
+    }
+  });
+
   test('free 幂等且 free 后 render 抛错', async () => {
     const term = await HeadlessTerminal.create({ cols: 10, rows: 3 });
     term.free();
@@ -78,15 +108,43 @@ describe('HeadlessTerminal', () => {
     try {
       // 基线：reset 后默认 legacy —— 方向键 CSI A、Shift-Enter 走 ghostty
       // 的组合键兜底（27;2;13~，无 modifyOtherKeys/KKP）
-      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_UP, mods: 0, composing: false })).toBe('\x1b[A');
-      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_ENTER, mods: SHIFT, composing: false })).toBe('\x1b[27;2;13~');
+      expect(
+        bindings.encodeKeyEvent(encoder, handle, {
+          action: 'press',
+          keyCode: KEY_UP,
+          mods: 0,
+          composing: false,
+        })
+      ).toBe('\x1b[A');
+      expect(
+        bindings.encodeKeyEvent(encoder, handle, {
+          action: 'press',
+          keyCode: KEY_ENTER,
+          mods: SHIFT,
+          composing: false,
+        })
+      ).toBe('\x1b[27;2;13~');
 
       // Codex 形态快照：kitty flags=7 + modifyOtherKeys=2 + DECCKM
       term.write('\x1b[2J\x1b[Hhello\x1b[1;1H\x1b[=7u\x1b[>4;2m\x1b[?1h');
       // 方向键：disambiguate + DECCKM → CSI 1;1:1A（kitty 编码带 event type）
-      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_UP, mods: 0, composing: false })).toBe('\x1b[1;1:1A');
+      expect(
+        bindings.encodeKeyEvent(encoder, handle, {
+          action: 'press',
+          keyCode: KEY_UP,
+          mods: 0,
+          composing: false,
+        })
+      ).toBe('\x1b[1;1:1A');
       // Shift-Enter：disambiguate → CSI 13;2u（Codex 可识别换行）
-      expect(bindings.encodeKeyEvent(encoder, handle, { action: 'press', keyCode: KEY_ENTER, mods: SHIFT, composing: false })).toBe('\x1b[13;2u');
+      expect(
+        bindings.encodeKeyEvent(encoder, handle, {
+          action: 'press',
+          keyCode: KEY_ENTER,
+          mods: SHIFT,
+          composing: false,
+        })
+      ).toBe('\x1b[13;2u');
     } finally {
       bindings.freeKeyEncoder(encoder);
       term.free();

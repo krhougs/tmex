@@ -11,8 +11,8 @@ use tmex_protocol::{
     CanonicalHistoryCursor, StateSnapshot, TerminalKey, TerminalKeyAction, WindowWire, WireToken,
 };
 use tmex_terminal::{
-    apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminalOptions,
-    KeyboardModeState, TerminalContinuationState,
+    apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminal,
+    HeadlessTerminalOptions, KeyboardModeState, TerminalContinuationState,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -2658,6 +2658,23 @@ impl RuntimeActor {
         let terminal_state = self.emulators.get(pane_id).and_then(|emulator| {
             emulator.continuation_state_at(base_cursor.pane_epoch, base_cursor.terminal_seq)
         });
+        let exact_viewport = self.emulators.get(pane_id).and_then(|emulator| {
+            let viewport = emulator.viewport_ansi_at(
+                base_cursor.pane_epoch,
+                base_cursor.terminal_seq,
+                frame.cols,
+                frame.rows,
+                frame.alternate_screen,
+            )?;
+            (emulator.viewport_text()
+                == captured_viewport_text(
+                    &frame.text,
+                    frame.cols,
+                    frame.rows,
+                    frame.alternate_screen,
+                ))
+            .then_some(viewport)
+        });
         let continuation = encode_terminal_continuation(
             &frame.continuation,
             frame.cols,
@@ -2680,19 +2697,16 @@ impl RuntimeActor {
         } else {
             Vec::new()
         };
-        let visible = frame.text.as_bytes();
-        let history_included = !history_bytes.is_empty()
-            && history_bytes.len().saturating_add(visible.len()) <= text_budget;
-        let mut raw = Vec::new();
-        if history_included {
-            raw.extend_from_slice(&history_bytes);
-        }
-        raw.extend_from_slice(visible);
-        let text_was_truncated = raw.len() > text_budget;
-        let text = truncate_utf8_tail(&raw, text_budget);
-        let mut data = Vec::with_capacity(prefix.len() + text.len() + continuation.len());
+        let encoded_text = encode_checkpoint_text(
+            &history_bytes,
+            frame.text.as_bytes(),
+            exact_viewport.as_deref(),
+            text_budget,
+        );
+        let mut data =
+            Vec::with_capacity(prefix.len() + encoded_text.data.len() + continuation.len());
         data.extend_from_slice(prefix);
-        data.extend_from_slice(&text);
+        data.extend_from_slice(&encoded_text.data);
         data.extend_from_slice(&continuation);
         let Some(current_identity) = self.pane_identity(pane_id) else {
             return Ok(None);
@@ -2702,8 +2716,10 @@ impl RuntimeActor {
         {
             return Ok(None);
         }
-        let embedded_history = frame.history_text.is_none() && !frame.alternate_screen;
-        let embedded_lines = if history_included || embedded_history {
+        let embedded_history = frame.history_text.is_none()
+            && !frame.alternate_screen
+            && !encoded_text.exact_viewport_used;
+        let embedded_lines = if encoded_text.history_included || embedded_history {
             history_lines
         } else {
             0
@@ -2715,7 +2731,7 @@ impl RuntimeActor {
                 .create_cursor(
                     pane_id,
                     current_identity.pane_epoch,
-                    if text_was_truncated {
+                    if encoded_text.truncated {
                         frame.history_size
                     } else {
                         frame.history_size.saturating_sub(embedded_lines)
@@ -2744,12 +2760,13 @@ impl RuntimeActor {
         if !self.retention.store_screen_checkpoint(checkpoint.clone()) {
             return Ok(None);
         }
-        if let Some(replay) = self.retention.read_replay(pane_id, &base_cursor)? {
-            let emulator = self
-                .emulators
-                .entry(pane_id.to_owned())
-                .or_insert_with(|| PaneEmulator::new(pane_id, HeadlessTerminalOptions::default()));
-            let _ = emulator.rebuild(&checkpoint, &replay);
+        if !encoded_text.exact_viewport_used {
+            if let Some(replay) = self.retention.read_replay(pane_id, &base_cursor)? {
+                let emulator = self.emulators.entry(pane_id.to_owned()).or_insert_with(|| {
+                    PaneEmulator::new(pane_id, HeadlessTerminalOptions::default())
+                });
+                let _ = emulator.rebuild(&checkpoint, &replay);
+            }
         }
         Ok(Some(checkpoint))
     }
@@ -3188,6 +3205,82 @@ fn truncate_utf8_tail(value: &[u8], byte_limit: usize) -> Vec<u8> {
     value[start..].to_vec()
 }
 
+fn captured_viewport_text(text: &str, cols: usize, rows: usize, alternate_screen: bool) -> String {
+    let mut terminal = HeadlessTerminal::new(HeadlessTerminalOptions {
+        cols,
+        rows,
+        scrollback_lines: 0,
+    });
+    terminal.feed(if alternate_screen {
+        b"\x1b[?1049h\x1b[2J\x1b[H".as_slice()
+    } else {
+        b"\x1b[2J\x1b[H".as_slice()
+    });
+    let mut normalized = Vec::with_capacity(text.len());
+    let mut previous_was_cr = false;
+    for &byte in text.as_bytes() {
+        if byte == b'\n' && !previous_was_cr {
+            normalized.push(b'\r');
+        }
+        normalized.push(byte);
+        previous_was_cr = byte == b'\r';
+    }
+    terminal.feed(&normalized);
+    terminal.viewport_text()
+}
+
+struct EncodedCheckpointText {
+    data: Vec<u8>,
+    history_included: bool,
+    truncated: bool,
+    exact_viewport_used: bool,
+}
+
+fn encode_checkpoint_text(
+    history: &[u8],
+    fallback_viewport: &[u8],
+    exact_viewport: Option<&[u8]>,
+    byte_limit: usize,
+) -> EncodedCheckpointText {
+    let exact_viewport = exact_viewport.filter(|viewport| viewport.len() <= byte_limit);
+    let exact_viewport_used = exact_viewport.is_some();
+    let viewport = exact_viewport.unwrap_or(fallback_viewport);
+    let separator = (!exact_viewport_used).then_some(b"\x1b[0m".as_slice());
+    let viewport_size = separator.map_or(viewport.len(), |bytes| {
+        bytes.len().saturating_add(viewport.len())
+    });
+    let history_included =
+        !history.is_empty() && history.len().saturating_add(viewport_size) <= byte_limit;
+    let history_size = if history_included { history.len() } else { 0 };
+    let mut data = Vec::with_capacity(history_size.saturating_add(viewport_size.min(byte_limit)));
+    if history_included {
+        data.extend_from_slice(history);
+    }
+    let truncated = viewport_size > byte_limit;
+    if truncated {
+        if let Some(separator) = separator.filter(|bytes| bytes.len() <= byte_limit) {
+            data.extend_from_slice(separator);
+            data.extend_from_slice(&truncate_utf8_tail(
+                viewport,
+                byte_limit.saturating_sub(separator.len()),
+            ));
+        } else {
+            data.extend_from_slice(&truncate_utf8_tail(viewport, byte_limit));
+        }
+    } else {
+        if let Some(separator) = separator {
+            data.extend_from_slice(separator);
+        }
+        data.extend_from_slice(viewport);
+    }
+    EncodedCheckpointText {
+        data,
+        history_included,
+        truncated,
+        exact_viewport_used,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -3622,6 +3715,24 @@ mod tests {
         assert!(encoded.contains("\x1b="));
     }
 
+    #[test]
+    fn checkpoint_text_resets_sgr_between_independent_capture_fragments() {
+        let encoded = encode_checkpoint_text(b"\x1b[40m   \n", b"visible", None, 1024);
+
+        assert_eq!(encoded.data, b"\x1b[40m   \n\x1b[0mvisible");
+        assert!(encoded.history_included);
+        assert!(!encoded.truncated);
+        assert!(!encoded.exact_viewport_used);
+    }
+
+    #[test]
+    fn checkpoint_text_keeps_the_fallback_reset_whole_when_truncated() {
+        let encoded = encode_checkpoint_text(&[], b"abcdef", None, 6);
+
+        assert_eq!(encoded.data, b"\x1b[0mef");
+        assert!(encoded.truncated);
+    }
+
     #[tokio::test]
     async fn keyboard_modes_stay_server_side_and_do_not_pollute_snapshots() {
         let close_started = Arc::new(AtomicBool::new(false));
@@ -3663,7 +3774,7 @@ mod tests {
             .expect("plain capture");
         assert_eq!(
             plain.data,
-            b"\x1b[2J\x1b[Hhello\x1b[0m\x1b[?6l\x1b[4l\x1b[?7h\x1b[?25h\x1b[?1l\x1b>\x1b[r\x1b[1;1H\x1b[0m".to_vec(),
+            b"\x1b[2J\x1b[H\x1b[0mhello\x1b[0m\x1b[?6l\x1b[4l\x1b[?7h\x1b[?25h\x1b[?1l\x1b>\x1b[r\x1b[1;1H\x1b[0m".to_vec(),
             "plain pane data must end in a neutral, self-contained continuation state"
         );
         // Codex 形态：Gateway 仍跟踪 kitty/MoK，供服务端 semantic encoder 使用。
@@ -3684,10 +3795,96 @@ mod tests {
             .await
             .unwrap()
             .expect("codex capture");
+        let snapshot_state = |data: &[u8]| {
+            let mut terminal = HeadlessTerminal::default();
+            terminal.feed(data);
+            (terminal.viewport_ansi(), terminal.continuation_state())
+        };
         assert_eq!(
-            codex.data, plain.data,
+            snapshot_state(&codex.data),
+            snapshot_state(&plain.data),
             "keyboard protocol modes must stay in the Gateway encoder state"
         );
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn canonical_screen_uses_exact_emulator_cells_when_tmux_text_loses_backgrounds() {
+        let close_started = Arc::new(AtomicBool::new(false));
+        let close_finished = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(StdMutex::new(Vec::new()));
+        let transport = Arc::new(FakeTransport {
+            close_gate: None,
+            select_gate: None,
+            close_started,
+            close_finished,
+            commands,
+            has_session_exit_code: 0,
+            reject_default_path: false,
+            panic_snapshot: None,
+            pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
+            capture_text: Some(String::new()),
+        });
+        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::TerminalOutput {
+                pane_id: "%1".to_owned(),
+                data: b"\x1b[H\x1b[48;5;240m\x1b[2K\x1b[2;1H\x1b[2K\x1b[3;1H\x1b[2K\x1b[0m"
+                    .to_vec(),
+            })
+            .await;
+
+        let checkpoint = runtime
+            .capture_canonical_screen("%1", 64 * 1024)
+            .await
+            .unwrap()
+            .expect("canonical screen");
+        let data = String::from_utf8(checkpoint.data).expect("ANSI snapshot is UTF-8");
+        assert!(data.contains("\x1b[0;48;5;240m"));
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn canonical_screen_rejects_an_incomplete_emulator_viewport() {
+        let close_started = Arc::new(AtomicBool::new(false));
+        let close_finished = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(StdMutex::new(Vec::new()));
+        let transport = Arc::new(FakeTransport {
+            close_gate: None,
+            select_gate: None,
+            close_started,
+            close_finished,
+            commands,
+            has_session_exit_code: 0,
+            reject_default_path: false,
+            panic_snapshot: None,
+            pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
+            capture_text: Some("existing\n".to_owned()),
+        });
+        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::TerminalOutput {
+                pane_id: "%1".to_owned(),
+                data: b"new".to_vec(),
+            })
+            .await;
+
+        let checkpoint = runtime
+            .capture_canonical_screen("%1", 64 * 1024)
+            .await
+            .unwrap()
+            .expect("canonical screen");
+        let data = String::from_utf8(checkpoint.data).expect("ANSI snapshot is UTF-8");
+        assert!(data.contains("existing"));
+        assert!(!data.contains("new"));
 
         runtime.shutdown().await;
     }
