@@ -19,6 +19,7 @@ use tokio::task::JoinSet;
 use tokio::time::{interval, sleep};
 
 use super::canonical_runtime::DeviceCanonicalState;
+use super::metadata_projection::parse_layout_leaves;
 use super::{
     append_cursor_restore, capture_history_range_command, configure_window_style_commands,
     create_window_command, decode_server_epoch, encode_server_epoch, encode_terminal_key,
@@ -2345,6 +2346,15 @@ impl RuntimeActor {
                 self.emit(TmuxRuntimeEvent::ClipboardWrite { pane_id, text });
             }
             ControlModeSubscriptionEvent::SourceMetadata(event) => {
+                if let super::SourceMetadataEvent::LayoutChanged { layout, .. } = &event {
+                    for pane in parse_layout_leaves(layout) {
+                        self.sync_emulator_size(
+                            &format!("%{}", pane.pane_number),
+                            pane.width,
+                            pane.height,
+                        );
+                    }
+                }
                 match self.metadata.apply_source_event(&event) {
                     Ok(()) => self.canonical.sync_metadata(
                         self.metadata.server_epoch(),
@@ -2488,6 +2498,7 @@ impl RuntimeActor {
         snapshot: StateSnapshot,
         base_revision: u64,
     ) -> Result<(), DeviceSessionRuntimeError> {
+        let snapshot_sizes_are_current = self.metadata.revision() == base_revision;
         let previous = self.snapshot.replace(snapshot.clone());
         self.metadata.reconcile(&snapshot, Some(base_revision))?;
         let panes = snapshot
@@ -2520,6 +2531,16 @@ impl RuntimeActor {
         }
         self.emulators
             .retain(|pane_id, _| current.contains(pane_id));
+        if snapshot_sizes_are_current {
+            for pane in snapshot
+                .session
+                .iter()
+                .flat_map(|session| &session.windows)
+                .flat_map(|window| &window.panes)
+            {
+                self.sync_emulator_size(&pane.id, pane.width, pane.height);
+            }
+        }
         self.keyboard_modes
             .retain(|pane_id, _| current.contains(pane_id));
         self.theme_subscriptions.prune(&current);
@@ -2553,6 +2574,23 @@ impl RuntimeActor {
             pane_id: pane_id.to_owned(),
             pane_epoch,
         })
+    }
+
+    fn sync_emulator_size(&mut self, pane_id: &str, cols: u16, rows: u16) {
+        let options = HeadlessTerminalOptions {
+            cols: usize::from(cols.max(1)),
+            rows: usize::from(rows.max(1)),
+            ..HeadlessTerminalOptions::default()
+        };
+        self.emulators
+            .entry(pane_id.to_owned())
+            .and_modify(|emulator| {
+                let size = emulator.size();
+                if size.cols != options.cols || size.rows != options.rows {
+                    emulator.resize(options.cols, options.rows);
+                }
+            })
+            .or_insert_with(|| PaneEmulator::new(pane_id, options));
     }
 
     async fn capture_canonical_screen(
@@ -2658,6 +2696,9 @@ impl RuntimeActor {
         let terminal_state = self.emulators.get(pane_id).and_then(|emulator| {
             emulator.continuation_state_at(base_cursor.pane_epoch, base_cursor.terminal_seq)
         });
+        let captured_viewport =
+            captured_viewport_terminal(&frame.text, frame.cols, frame.rows, frame.alternate_screen);
+        let captured_viewport_text = captured_viewport.viewport_text();
         let exact_viewport = self.emulators.get(pane_id).and_then(|emulator| {
             let viewport = emulator.viewport_ansi_at(
                 base_cursor.pane_epoch,
@@ -2666,15 +2707,9 @@ impl RuntimeActor {
                 frame.rows,
                 frame.alternate_screen,
             )?;
-            (emulator.viewport_text()
-                == captured_viewport_text(
-                    &frame.text,
-                    frame.cols,
-                    frame.rows,
-                    frame.alternate_screen,
-                ))
-            .then_some(viewport)
+            (emulator.viewport_text() == captured_viewport_text).then_some(viewport)
         });
+        let fallback_viewport = captured_viewport.viewport_ansi();
         let continuation = encode_terminal_continuation(
             &frame.continuation,
             frame.cols,
@@ -2699,7 +2734,7 @@ impl RuntimeActor {
         };
         let encoded_text = encode_checkpoint_text(
             &history_bytes,
-            frame.text.as_bytes(),
+            &fallback_viewport,
             exact_viewport.as_deref(),
             text_budget,
         );
@@ -2716,10 +2751,7 @@ impl RuntimeActor {
         {
             return Ok(None);
         }
-        let embedded_history = frame.history_text.is_none()
-            && !frame.alternate_screen
-            && !encoded_text.exact_viewport_used;
-        let embedded_lines = if encoded_text.history_included || embedded_history {
+        let embedded_lines = if encoded_text.history_included {
             history_lines
         } else {
             0
@@ -3205,7 +3237,12 @@ fn truncate_utf8_tail(value: &[u8], byte_limit: usize) -> Vec<u8> {
     value[start..].to_vec()
 }
 
-fn captured_viewport_text(text: &str, cols: usize, rows: usize, alternate_screen: bool) -> String {
+fn captured_viewport_terminal(
+    text: &str,
+    cols: usize,
+    rows: usize,
+    alternate_screen: bool,
+) -> HeadlessTerminal {
     let mut terminal = HeadlessTerminal::new(HeadlessTerminalOptions {
         cols,
         rows,
@@ -3226,7 +3263,7 @@ fn captured_viewport_text(text: &str, cols: usize, rows: usize, alternate_screen
         previous_was_cr = byte == b'\r';
     }
     terminal.feed(&normalized);
-    terminal.viewport_text()
+    terminal
 }
 
 struct EncodedCheckpointText {
@@ -3234,6 +3271,20 @@ struct EncodedCheckpointText {
     history_included: bool,
     truncated: bool,
     exact_viewport_used: bool,
+}
+
+const CANONICAL_VIEWPORT_PREFIX: &[u8] = b"\x1b[0m\x1b[H";
+const CANONICAL_VIEWPORT_RESET: &[u8] = b"\x1b[0m";
+
+// A canonical viewport paints every cell. When history precedes it, keeping CUP home would
+// overwrite the history tail before it reaches scrollback; dropping only CUP lets one full screen
+// of cells scroll the history tail out while preserving the same final viewport.
+fn canonical_viewport_after_history(viewport: &[u8]) -> Option<Vec<u8>> {
+    let body = viewport.strip_prefix(CANONICAL_VIEWPORT_PREFIX)?;
+    let mut appended = Vec::with_capacity(CANONICAL_VIEWPORT_RESET.len() + body.len());
+    appended.extend_from_slice(CANONICAL_VIEWPORT_RESET);
+    appended.extend_from_slice(body);
+    Some(appended)
 }
 
 fn encode_checkpoint_text(
@@ -3245,12 +3296,20 @@ fn encode_checkpoint_text(
     let exact_viewport = exact_viewport.filter(|viewport| viewport.len() <= byte_limit);
     let exact_viewport_used = exact_viewport.is_some();
     let viewport = exact_viewport.unwrap_or(fallback_viewport);
-    let separator = (!exact_viewport_used).then_some(b"\x1b[0m".as_slice());
-    let viewport_size = separator.map_or(viewport.len(), |bytes| {
-        bytes.len().saturating_add(viewport.len())
-    });
-    let history_included =
-        !history.is_empty() && history.len().saturating_add(viewport_size) <= byte_limit;
+    let appended_viewport = if history.is_empty() {
+        None
+    } else {
+        canonical_viewport_after_history(viewport)
+    };
+    let history_included = appended_viewport
+        .as_ref()
+        .is_some_and(|appended| history.len().saturating_add(appended.len()) <= byte_limit);
+    let viewport = if history_included {
+        appended_viewport.as_deref().unwrap_or(viewport)
+    } else {
+        viewport
+    };
+    let viewport_size = viewport.len();
     let history_size = if history_included { history.len() } else { 0 };
     let mut data = Vec::with_capacity(history_size.saturating_add(viewport_size.min(byte_limit)));
     if history_included {
@@ -3258,19 +3317,19 @@ fn encode_checkpoint_text(
     }
     let truncated = viewport_size > byte_limit;
     if truncated {
-        if let Some(separator) = separator.filter(|bytes| bytes.len() <= byte_limit) {
-            data.extend_from_slice(separator);
+        if let Some(body) = viewport
+            .strip_prefix(CANONICAL_VIEWPORT_PREFIX)
+            .filter(|_| CANONICAL_VIEWPORT_PREFIX.len() <= byte_limit)
+        {
+            data.extend_from_slice(CANONICAL_VIEWPORT_PREFIX);
             data.extend_from_slice(&truncate_utf8_tail(
-                viewport,
-                byte_limit.saturating_sub(separator.len()),
+                body,
+                byte_limit.saturating_sub(CANONICAL_VIEWPORT_PREFIX.len()),
             ));
         } else {
             data.extend_from_slice(&truncate_utf8_tail(viewport, byte_limit));
         }
     } else {
-        if let Some(separator) = separator {
-            data.extend_from_slice(separator);
-        }
         data.extend_from_slice(viewport);
     }
     EncodedCheckpointText {
@@ -3315,6 +3374,8 @@ mod tests {
         panic_snapshot: Option<Arc<AtomicBool>>,
         /// Some(line) 时 list-panes -s 返回该行（pane 快照注入）。
         pane_snapshot_line: Option<String>,
+        /// display-message pane screen info 响应文本。
+        pane_screen_info: Option<String>,
         /// capture-pane 响应文本。
         capture_text: Option<String>,
     }
@@ -3383,7 +3444,9 @@ mod tests {
             } else if args.first().map(String::as_str) == Some("display-message")
                 && args.last().map(String::as_str) == Some(PANE_SCREEN_INFO_FORMAT)
             {
-                "80|24|0|0|0|0|0|0|0|0|0|0|23|0|0|1|1|0|0\n"
+                self.pane_screen_info
+                    .as_deref()
+                    .unwrap_or("80|24|0|0|0|0|0|0|0|0|0|0|23|0|0|1|1|0|0\n")
             } else if args.first().map(String::as_str) == Some("display-message")
                 && args.last().map(String::as_str) == Some(PANE_HISTORY_CAPTURE_INFO_FORMAT)
             {
@@ -3521,6 +3584,7 @@ mod tests {
             reject_default_path: false,
             panic_snapshot: None,
             pane_snapshot_line: None,
+            pane_screen_info: None,
             capture_text: None,
         });
         (
@@ -3716,20 +3780,50 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_text_resets_sgr_between_independent_capture_fragments() {
-        let encoded = encode_checkpoint_text(b"\x1b[40m   \n", b"visible", None, 1024);
+    fn checkpoint_text_streams_a_canonical_viewport_after_history() {
+        let history = b"old\r\n";
+        let viewport = captured_viewport_terminal("visible", 8, 3, false).viewport_ansi();
+        let appended = canonical_viewport_after_history(&viewport).unwrap();
+        let encoded = encode_checkpoint_text(history, &viewport, None, 1024);
 
-        assert_eq!(encoded.data, b"\x1b[40m   \n\x1b[0mvisible");
+        assert_eq!(encoded.data, [history.as_slice(), &appended].concat());
         assert!(encoded.history_included);
         assert!(!encoded.truncated);
         assert!(!encoded.exact_viewport_used);
     }
 
     #[test]
-    fn checkpoint_text_keeps_the_fallback_reset_whole_when_truncated() {
-        let encoded = encode_checkpoint_text(&[], b"abcdef", None, 6);
+    fn checkpoint_fallback_preserves_history_and_isolates_viewport_cells() {
+        let history = b"old-a\r\nold-b\r\nold-c\r\n";
+        let captured = "\x1b[48;2;15;18;22m\x1b[2K\n\n\x1b[49mnew";
+        let viewport = captured_viewport_terminal(captured, 8, 3, false).viewport_ansi();
+        let encoded = encode_checkpoint_text(history, &viewport, None, 1024);
+        let options = HeadlessTerminalOptions {
+            cols: 8,
+            rows: 3,
+            scrollback_lines: 32,
+        };
+        let mut previous = HeadlessTerminal::new(options);
+        previous.feed(b"\x1b[2J\x1b[H");
+        previous.feed(history);
+        previous.feed(b"\x1b[0m");
+        previous.feed(captured.replace('\n', "\r\n").as_bytes());
 
-        assert_eq!(encoded.data, b"\x1b[0mef");
+        let mut terminal = HeadlessTerminal::new(options);
+        terminal.feed(b"\x1b[2J\x1b[H");
+        terminal.feed(&encoded.data);
+
+        assert_ne!(previous.viewport_ansi(), viewport);
+        assert_eq!(terminal.viewport_ansi(), viewport);
+        assert_eq!(terminal.history_lines(), previous.history_lines());
+    }
+
+    #[test]
+    fn checkpoint_text_does_not_emit_a_partial_fallback_boundary_when_truncated() {
+        let viewport = b"\x1b[0m\x1b[Habcdef";
+        let encoded = encode_checkpoint_text(&[], viewport, None, 9);
+
+        assert_eq!(encoded.data, b"\x1b[0m\x1b[Hef");
         assert!(encoded.truncated);
     }
 
@@ -3751,6 +3845,7 @@ mod tests {
                 // %1 | @1 | 0 | 1 | 80 | 24 | 0 | 0 | 1 | title | bash | /tmp
                 "%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned(),
             ),
+            pane_screen_info: None,
             capture_text: Some("hello\n".to_owned()),
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
@@ -3772,11 +3867,12 @@ mod tests {
             .await
             .unwrap()
             .expect("plain capture");
-        assert_eq!(
-            plain.data,
-            b"\x1b[2J\x1b[H\x1b[0mhello\x1b[0m\x1b[?6l\x1b[4l\x1b[?7h\x1b[?25h\x1b[?1l\x1b>\x1b[r\x1b[1;1H\x1b[0m".to_vec(),
-            "plain pane data must end in a neutral, self-contained continuation state"
-        );
+        let mut plain_terminal = HeadlessTerminal::default();
+        plain_terminal.feed(&plain.data);
+        assert_eq!(plain_terminal.viewport_text(), "hello");
+        assert!(plain.data.ends_with(
+            b"\x1b[0m\x1b[?6l\x1b[4l\x1b[?7h\x1b[?25h\x1b[?1l\x1b>\x1b[r\x1b[1;1H\x1b[0m"
+        ));
         // Codex 形态：Gateway 仍跟踪 kitty/MoK，供服务端 semantic encoder 使用。
         runtime
             .inject_control_event_for_test(ControlModeSubscriptionEvent::KeyboardSequence {
@@ -3823,7 +3919,8 @@ mod tests {
             has_session_exit_code: 0,
             reject_default_path: false,
             panic_snapshot: None,
-            pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
+            pane_snapshot_line: Some("%1|@1|0|1|40|12|0|0|1|term|bash|/tmp".to_owned()),
+            pane_screen_info: Some("40|12|0|0|0|0|0|0|0|0|0|0|11|0|0|1|1|0|0\n".to_owned()),
             capture_text: Some(String::new()),
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
@@ -3835,6 +3932,54 @@ mod tests {
                 pane_id: "%1".to_owned(),
                 data: b"\x1b[H\x1b[48;5;240m\x1b[2K\x1b[2;1H\x1b[2K\x1b[3;1H\x1b[2K\x1b[0m"
                     .to_vec(),
+            })
+            .await;
+
+        let checkpoint = runtime
+            .capture_canonical_screen("%1", 64 * 1024)
+            .await
+            .unwrap()
+            .expect("canonical screen");
+        let data = String::from_utf8(checkpoint.data).expect("ANSI snapshot is UTF-8");
+        assert!(data.contains("\x1b[0;48;5;240m"));
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn canonical_screen_resizes_the_emulator_before_post_layout_output() {
+        let close_started = Arc::new(AtomicBool::new(false));
+        let close_finished = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(StdMutex::new(Vec::new()));
+        let transport = Arc::new(FakeTransport {
+            close_gate: None,
+            select_gate: None,
+            close_started,
+            close_finished,
+            commands,
+            has_session_exit_code: 0,
+            reject_default_path: false,
+            panic_snapshot: None,
+            pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
+            pane_screen_info: Some("40|12|0|0|0|0|0|0|0|0|0|0|11|0|0|1|1|0|0\n".to_owned()),
+            capture_text: Some("visible".to_owned()),
+        });
+        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::SourceMetadata(
+                super::super::SourceMetadataEvent::LayoutChanged {
+                    window_id: "@1".to_owned(),
+                    layout: "0000,40x12,0,0,1".to_owned(),
+                },
+            ))
+            .await;
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::TerminalOutput {
+                pane_id: "%1".to_owned(),
+                data: b"\x1b[2J\x1b[Hvisible\x1b[2;1H\x1b[48;5;240m\x1b[2K\x1b[0m".to_vec(),
             })
             .await;
 
@@ -3864,6 +4009,7 @@ mod tests {
             reject_default_path: false,
             panic_snapshot: None,
             pane_snapshot_line: Some("%1|@1|0|1|80|24|0|0|1|term|bash|/tmp".to_owned()),
+            pane_screen_info: None,
             capture_text: Some("existing\n".to_owned()),
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
@@ -3904,6 +4050,7 @@ mod tests {
             reject_default_path: true,
             panic_snapshot: None,
             pane_snapshot_line: None,
+            pane_screen_info: None,
             capture_text: None,
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
@@ -3964,6 +4111,7 @@ mod tests {
             reject_default_path: false,
             panic_snapshot: Some(panic_snapshot.clone()),
             pane_snapshot_line: None,
+            pane_screen_info: None,
             capture_text: None,
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
@@ -4089,6 +4237,7 @@ mod tests {
             reject_default_path: false,
             panic_snapshot: None,
             pane_snapshot_line: None,
+            pane_screen_info: None,
             capture_text: None,
         });
         let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });

@@ -1083,10 +1083,10 @@ fn estimate_upsert_bytes(upsert: &PendingUpsert) -> usize {
 }
 
 #[derive(Clone, Copy)]
-struct LayoutLeaf {
-    pane_number: u32,
-    width: u16,
-    height: u16,
+pub(super) struct LayoutLeaf {
+    pub(super) pane_number: u32,
+    pub(super) width: u16,
+    pub(super) height: u16,
     x: u16,
     y: u16,
 }
@@ -1094,7 +1094,7 @@ struct LayoutParser<'a> {
     input: &'a [u8],
     position: usize,
 }
-fn parse_layout_leaves(layout: &str) -> Vec<LayoutLeaf> {
+pub(super) fn parse_layout_leaves(layout: &str) -> Vec<LayoutLeaf> {
     let bytes = layout.as_bytes();
     if bytes.len() < 6 || !bytes[..4].iter().all(u8::is_ascii_hexdigit) || bytes[4] != b',' {
         return Vec::new();

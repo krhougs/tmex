@@ -8,6 +8,19 @@ use tmex_terminal::{
 
 use super::{PaneDataSegment, PaneReplayPlan, PaneScreenCheckpoint};
 
+fn normalize_checkpoint_line_endings(data: &[u8]) -> Vec<u8> {
+    let mut normalized = Vec::with_capacity(data.len());
+    let mut previous_was_cr = false;
+    for &byte in data {
+        if byte == b'\n' && !previous_was_cr {
+            normalized.push(b'\r');
+        }
+        normalized.push(byte);
+        previous_was_cr = byte == b'\r';
+    }
+    normalized
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PaneEmulatorError {
     PaneMismatch { expected: String, actual: String },
@@ -99,7 +112,9 @@ impl PaneEmulator {
         });
         self.pane_epoch = Some(checkpoint.pane_epoch);
         self.terminal_seq = checkpoint.base_seq;
-        self.terminal.feed(&checkpoint.data);
+        // Checkpoints contain capture row separators; replay segments remain raw application VT.
+        self.terminal
+            .feed(&normalize_checkpoint_line_endings(&checkpoint.data));
         for segment in &replay.segments {
             self.feed_segment(segment)?;
         }
@@ -265,6 +280,41 @@ mod tests {
             emulator.rebuild(&checkpoint, &gap),
             Err(PaneEmulatorError::ReplayGap)
         );
+    }
+
+    #[test]
+    fn checkpoint_capture_lines_rebuild_at_the_left_margin() {
+        let epoch = [8; 16];
+        let checkpoint = PaneScreenCheckpoint {
+            pane_id: "%1".to_owned(),
+            pane_epoch: epoch,
+            base_seq: 0,
+            rows: 4,
+            cols: 12,
+            modes: 0,
+            data: b"\x1b[2J\x1b[Hone\r\ntwo\nthree".to_vec(),
+            history_cursor: None,
+            captured_at_ms: 0,
+        };
+        let replay = PaneReplayPlan {
+            pane_id: "%1".to_owned(),
+            pane_epoch: epoch,
+            segments: Vec::new(),
+            gap: None,
+            needs_screen: false,
+        };
+        let mut emulator = PaneEmulator::new(
+            "%1",
+            HeadlessTerminalOptions {
+                cols: 12,
+                rows: 4,
+                scrollback_lines: 0,
+            },
+        );
+
+        emulator.rebuild(&checkpoint, &replay).unwrap();
+
+        assert_eq!(emulator.viewport_text(), "one\ntwo\nthree");
     }
 
     #[test]
