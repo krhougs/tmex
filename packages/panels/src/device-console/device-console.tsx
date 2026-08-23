@@ -20,11 +20,7 @@ import {
   hostAppPath,
 } from '@tmex/stores';
 import { useRuntime, useSiteStore, useTmuxStore, useUIStore } from '@tmex/stores/react';
-import {
-  Terminal as TerminalComponent,
-  type TerminalRef,
-  terminalShortcutToSemanticKey,
-} from '@tmex/terminal-ui';
+import { Terminal as TerminalComponent, type TerminalRef } from '@tmex/terminal-ui';
 import { SplitTerminalArea } from '@tmex/terminal-ui';
 import { XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '@tmex/terminal-ui';
 import { shouldApplyRemotePaneSize } from '@tmex/terminal-ui';
@@ -1094,24 +1090,12 @@ export function DeviceConsole({
   }, [paneEditorDraft]);
 
   const handleSendShortcut = useCallback(
-    (item: TerminalShortcutItem) => {
-      if (!deviceId || !resolvedPaneId || !canInteractWithPane || !item.payload) {
+    (payload: string) => {
+      if (!deviceId || !resolvedPaneId || !canInteractWithPane) {
         return;
       }
 
-      const store = runtime.stores.tmux.getState();
-      const semantic = store.semanticKeyInput ? terminalShortcutToSemanticKey(item) : null;
-      if (semantic) {
-        store.sendKeyInput(
-          deviceId,
-          resolvedPaneId,
-          semantic.key,
-          semantic.modifiers,
-          semantic.action
-        );
-      } else {
-        store.sendInput(deviceId, resolvedPaneId, item.payload, false);
-      }
+      runtime.stores.tmux.getState().sendInput(deviceId, resolvedPaneId, payload, false);
     },
     [canInteractWithPane, deviceId, resolvedPaneId, runtime]
   );
@@ -1130,7 +1114,9 @@ export function DeviceConsole({
         }
       }
       if (item.type === 'send') {
-        handleSendShortcut(item);
+        if (item.payload) {
+          handleSendShortcut(item.payload);
+        }
         return;
       }
       // 需要有效设备 / pane 的动作（paste / newAgentSession）

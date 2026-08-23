@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_TERMINAL_SHORTCUTS, wsBorsh } from '@tmex/shared';
-import { keyboardEventToSemanticKey, terminalShortcutToSemanticKey } from './terminalSemanticKey';
+import { wsBorsh } from '@tmex/shared';
+import { keyboardEventToSemanticKey } from './terminalSemanticKey';
 
 describe('keyboardEventToSemanticKey', () => {
   test('preserves Shift+Enter as key identity plus modifier bit', () => {
@@ -77,14 +77,5 @@ describe('keyboardEventToSemanticKey', () => {
     ).toBeNull();
     expect(keyboardEventToSemanticKey({ key: 'Dead', code: 'Quote' })).toBeNull();
     expect(keyboardEventToSemanticKey({ key: 'Process', keyCode: 229 })).toBeNull();
-  });
-  test('maps unchanged default shortcut buttons and preserves custom payloads', () => {
-    const shiftEnter = DEFAULT_TERMINAL_SHORTCUTS.find((item) => item.id === 'shift-enter')!;
-    expect(terminalShortcutToSemanticKey(shiftEnter)).toEqual({
-      key: { Enter: {} },
-      modifiers: wsBorsh.TERMINAL_KEY_MOD_SHIFT,
-      action: { Press: {} },
-    });
-    expect(terminalShortcutToSemanticKey({ ...shiftEnter, payload: 'custom macro' })).toBeNull();
   });
 });

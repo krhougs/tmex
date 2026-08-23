@@ -1,4 +1,4 @@
-import { type TerminalShortcutItem, wsBorsh } from '@tmex/shared';
+import { wsBorsh } from '@tmex/shared';
 
 export interface TerminalKeyboardEventLike {
   key: string;
@@ -17,78 +17,6 @@ export interface TerminalSemanticKeyInput {
   key: wsBorsh.TerminalKey;
   modifiers: number;
   action: wsBorsh.TerminalKeyAction;
-}
-
-interface SemanticShortcut {
-  payload: string;
-  input: TerminalSemanticKeyInput;
-}
-
-const SEMANTIC_SHORTCUT_BY_ID: Readonly<Record<string, SemanticShortcut>> = {
-  enter: {
-    payload: '\r',
-    input: { key: { Enter: {} }, modifiers: 0, action: { Press: {} } },
-  },
-  'shift-tab': {
-    payload: '\x1b[Z',
-    input: {
-      key: { Tab: {} },
-      modifiers: wsBorsh.TERMINAL_KEY_MOD_SHIFT,
-      action: { Press: {} },
-    },
-  },
-  esc: {
-    payload: '\x1b',
-    input: { key: { Escape: {} }, modifiers: 0, action: { Press: {} } },
-  },
-  'ctrl-c': {
-    payload: '\x03',
-    input: {
-      key: { Unicode: 99 },
-      modifiers: wsBorsh.TERMINAL_KEY_MOD_CTRL,
-      action: { Press: {} },
-    },
-  },
-  'ctrl-d': {
-    payload: '\x04',
-    input: {
-      key: { Unicode: 100 },
-      modifiers: wsBorsh.TERMINAL_KEY_MOD_CTRL,
-      action: { Press: {} },
-    },
-  },
-  'arrow-up': {
-    payload: '\x1b[A',
-    input: { key: { ArrowUp: {} }, modifiers: 0, action: { Press: {} } },
-  },
-  'arrow-down': {
-    payload: '\x1b[B',
-    input: { key: { ArrowDown: {} }, modifiers: 0, action: { Press: {} } },
-  },
-  'arrow-left': {
-    payload: '\x1b[D',
-    input: { key: { ArrowLeft: {} }, modifiers: 0, action: { Press: {} } },
-  },
-  'arrow-right': {
-    payload: '\x1b[C',
-    input: { key: { ArrowRight: {} }, modifiers: 0, action: { Press: {} } },
-  },
-  'shift-enter': {
-    payload: '\x1b[13;2u',
-    input: {
-      key: { Enter: {} },
-      modifiers: wsBorsh.TERMINAL_KEY_MOD_SHIFT,
-      action: { Press: {} },
-    },
-  },
-};
-
-export function terminalShortcutToSemanticKey(
-  item: TerminalShortcutItem
-): TerminalSemanticKeyInput | null {
-  if (item.type !== 'send') return null;
-  const shortcut = SEMANTIC_SHORTCUT_BY_ID[item.id];
-  return shortcut && shortcut.payload === item.payload ? shortcut.input : null;
 }
 
 const MODIFIER_ONLY: Readonly<Record<string, true>> = {
