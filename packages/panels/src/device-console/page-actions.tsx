@@ -33,6 +33,7 @@ import { type ComponentType, useCallback, useEffect, useMemo, useState } from 'r
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { WatchDialog } from '../watch/watch-dialog';
+import { resolveCanInteractWithPane } from './interaction';
 
 export interface DeviceConsoleActionsProps {
   deviceId?: string;
@@ -42,6 +43,7 @@ export interface DeviceConsoleActionsProps {
   hideRefresh?: boolean;
   /** 覆盖终端设置入口：提供时点击不再打开内置 Sheet，改由宿主接管（如跳转独立设置页）。 */
   onOpenTerminalSettings?: () => void;
+  hostInteractionReady?: boolean;
 }
 
 type TerminalSettingsSheetComponent = ComponentType<{
@@ -118,6 +120,7 @@ export function DeviceConsoleActions({
   paneId,
   hideRefresh = false,
   onOpenTerminalSettings,
+  hostInteractionReady,
 }: DeviceConsoleActionsProps) {
   const { t } = useTranslation();
   const runtime = useRuntime();
@@ -168,7 +171,11 @@ export function DeviceConsoleActions({
   const [showWatchDialog, setShowWatchDialog] = useState(false);
   const [showTerminalSettings, setShowTerminalSettings] = useState(false);
 
-  const canInteract = Boolean(resolvedPaneId && deviceConnected);
+  const canInteract = resolveCanInteractWithPane({
+    deviceConnected,
+    resolvedPaneId,
+    hostInteractionReady,
+  });
   const watchUi = runtime.features.watchUi;
 
   const watchRulesQuery = useQuery({

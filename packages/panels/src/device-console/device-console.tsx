@@ -42,6 +42,10 @@ import { useNavigate } from 'react-router';
 import { DeviceStatusBadge } from '../device-status-badge';
 import { ShortcutButtonRow } from '../settings/ShortcutButtonRow';
 import {
+  resolveCanInteractWithPane,
+  shouldShowTerminalReconnectOverlay,
+} from './interaction';
+import {
   resolveDeviceDefaultSelection,
   resolveSettledMissingWindowFallback,
 } from './selection-recovery';
@@ -105,6 +109,10 @@ export interface DeviceConsoleProps {
   formatBrowserTitle?: (label: string | null) => string;
   prepareTerminalResources?: (fontId: string, fontSize: number) => Promise<void>;
   rootRef?: Ref<HTMLDivElement>;
+  /** When omitted, interaction follows device projection only. */
+  hostInteractionReady?: boolean;
+  /** When omitted, the in-terminal reconnect overlay stays visible. */
+  showReconnectOverlay?: boolean;
 }
 
 export function DeviceConsole({
@@ -115,6 +123,8 @@ export function DeviceConsole({
   formatBrowserTitle,
   prepareTerminalResources,
   rootRef,
+  hostInteractionReady,
+  showReconnectOverlay,
 }: DeviceConsoleProps) {
   const { t } = useTranslation();
   const runtime = useRuntime();
@@ -259,7 +269,12 @@ export function DeviceConsole({
         : null;
 
   const isSelectionInvalid = Boolean(invalidSelectionMessage);
-  const canInteractWithPane = Boolean(deviceConnected && resolvedPaneId && !isSelectionInvalid);
+  const canInteractWithPane = resolveCanInteractWithPane({
+    deviceConnected,
+    resolvedPaneId,
+    isSelectionInvalid,
+    hostInteractionReady,
+  });
 
   // PC 分屏：≥768px 且当前 window 多 pane 且 layout 可用
   const isSplitView = Boolean(
@@ -1412,7 +1427,10 @@ export function DeviceConsole({
             </div>
           )}
           {/* 重连指示：非遮挡、置顶居中，保持已有终端内容可见 */}
-          {isReconnecting && (
+          {shouldShowTerminalReconnectOverlay({
+            isReconnecting,
+            showReconnectOverlay,
+          }) && (
             <div
               className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
               data-testid="terminal-reconnecting-indicator"

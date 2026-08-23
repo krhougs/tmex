@@ -4,3 +4,7 @@
 export { DeviceConsole, type DeviceConsoleProps } from './device-console';
 export { DeviceConsoleActions, type DeviceConsoleActionsProps } from './page-actions';
 export { DeviceConsolePageTitle, type DeviceConsolePageTitleProps } from './page-title';
+export {
+  resolveCanInteractWithPane,
+  shouldShowTerminalReconnectOverlay,
+} from './interaction';
