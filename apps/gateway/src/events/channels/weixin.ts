@@ -101,7 +101,12 @@ export class WeixinChannel implements NotificationChannel {
 
   private formatNotificationMessage(event: WebhookEvent): string {
     const title = typeof event.payload?.title === 'string' ? event.payload.title : '';
-    const body = typeof event.payload?.message === 'string' ? event.payload.message : '';
+    const body =
+      typeof event.payload?.body === 'string'
+        ? event.payload.body
+        : typeof event.payload?.message === 'string'
+          ? event.payload.message
+          : '';
 
     const lines: string[] = [];
     if (title) {

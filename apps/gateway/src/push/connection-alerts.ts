@@ -224,7 +224,7 @@ export class ConnectionAlertNotifier {
         device: { id: device.id, name: device.name, type: device.type, host: device.host },
         // 与连接类的 session 名解析口径一致（未配置时缺省 'tmex'），便于消费端跨事件关联
         tmux: { sessionName: device.session?.trim() || 'tmex' },
-        payload: { message: friendlyMessage },
+        payload: { message: friendlyMessage, errorType, errorDetail: friendlyMessage },
       });
     } catch (emitErr) {
       console.error('[conn-alert] event emit failed:', emitErr);

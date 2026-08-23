@@ -48,10 +48,13 @@ export class EventNotifier {
     eventType: EventType,
     event: Omit<WebhookEvent, 'eventType' | 'timestamp'>
   ): Promise<void> {
+    const settings = getSiteSettings();
     const fullEvent: WebhookEvent = {
       ...event,
       eventType,
       timestamp: new Date().toISOString(),
+      locale: settings.language,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
 
     if (eventType === 'terminal_bell') {
@@ -64,7 +67,7 @@ export class EventNotifier {
       }
     }
 
-    const disabled = new Set(getSiteSettings().disabledNotificationChannels);
+    const disabled = new Set(settings.disabledNotificationChannels);
     const active = [...this.channels.values()].filter((channel) => !disabled.has(channel.id));
     await Promise.all(active.map((channel) => channel.notify(eventType, fullEvent)));
   }

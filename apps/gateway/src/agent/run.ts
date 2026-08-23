@@ -796,6 +796,7 @@ export class AgentRun {
     this.broadcast(wsBorsh.AGENT_EVENT_ERROR, { message });
     void this.safeNotify('agent_error', session, {
       message: t('notification.agent.error', { title: session.title, message }),
+      errorDetail: message,
     });
     return 'error';
   }
