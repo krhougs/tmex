@@ -57,10 +57,11 @@ export class ConnectionLifecycleEmitter {
       return;
     }
     this.sessionClosedEmittedFlag = true;
+    const reason = message.split(/\r?\n/)[0]?.trim();
     this.emit(
       'session_closed',
       { sessionName: this.ctx.getSessionName() },
-      { message: message.split(/\r?\n/)[0]?.trim() }
+      { message: reason, reason }
     );
   }
 

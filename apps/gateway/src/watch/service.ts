@@ -144,7 +144,9 @@ function truncateScreen(screen: string): string {
   return screen.slice(-SCREEN_PROMPT_CHAR_LIMIT);
 }
 
-export function effectiveIntervalSeconds(rule: Pick<WatchRuleRecord, 'triggerType' | 'intervalSeconds'>): number {
+export function effectiveIntervalSeconds(
+  rule: Pick<WatchRuleRecord, 'triggerType' | 'intervalSeconds'>
+): number {
   const min = rule.triggerType === 'llm' ? MIN_LLM_INTERVAL_SECONDS : MIN_INTERVAL_SECONDS;
   return Math.max(min, rule.intervalSeconds);
 }
@@ -156,15 +158,23 @@ function screenBlock(screen: string): string[] {
   return [SCREEN_UNTRUSTED_NOTE, '<<<SCREEN>>>', truncateScreen(screen), '<<<END_SCREEN>>>'];
 }
 
-function buildConfirmPrompt(rule: WatchRuleRecord, output: WatchEvalOutput, screen: string): string {
+function buildConfirmPrompt(
+  rule: WatchRuleRecord,
+  output: WatchEvalOutput,
+  screen: string
+): string {
   const lines = [
     'You are verifying whether a terminal watch rule really fired, to reduce false positives.',
     `Rule name: ${rule.name}`,
     `Rule type: ${rule.triggerType}`,
     rule.pattern ? `Regex pattern: ${rule.pattern}` : null,
-    output.matchedText !== undefined ? `Matched text (last occurrence on screen): ${output.matchedText}` : null,
+    output.matchedText !== undefined
+      ? `Matched text (last occurrence on screen): ${output.matchedText}`
+      : null,
     output.value !== undefined ? `Extracted value: ${output.value}` : null,
-    output.stuckMinutes !== undefined ? `Value unchanged for ${output.stuckMinutes} minutes.` : null,
+    output.stuckMinutes !== undefined
+      ? `Value unchanged for ${output.stuckMinutes} minutes.`
+      : null,
     rule.conditionPrompt ? `User intent: ${rule.conditionPrompt}` : null,
     '',
     ...screenBlock(screen),
@@ -173,12 +183,18 @@ function buildConfirmPrompt(rule: WatchRuleRecord, output: WatchEvalOutput, scre
   return lines.filter((line) => line !== null).join('\n');
 }
 
-function buildSummaryPrompt(rule: WatchRuleRecord, output: WatchEvalOutput, screen: string): string {
+function buildSummaryPrompt(
+  rule: WatchRuleRecord,
+  output: WatchEvalOutput,
+  screen: string
+): string {
   const lines = [
     'Summarize in one short sentence what is happening on this terminal screen, for a watch-rule notification.',
     `Rule name: ${rule.name}`,
     output.matchedText !== undefined ? `Matched text: ${output.matchedText}` : null,
-    output.stuckMinutes !== undefined ? `Value unchanged for ${output.stuckMinutes} minutes.` : null,
+    output.stuckMinutes !== undefined
+      ? `Value unchanged for ${output.stuckMinutes} minutes.`
+      : null,
     '',
     ...screenBlock(screen),
   ];
@@ -628,7 +644,9 @@ export class WatchService {
     if (rule.fireMode === 'once') {
       return true;
     }
-    const lastTriggeredAtMs = state?.lastTriggeredAt ? Date.parse(state.lastTriggeredAt) : Number.NaN;
+    const lastTriggeredAtMs = state?.lastTriggeredAt
+      ? Date.parse(state.lastTriggeredAt)
+      : Number.NaN;
     if (Number.isNaN(lastTriggeredAtMs)) {
       return true;
     }
@@ -669,6 +687,7 @@ export class WatchService {
         message,
         ruleId: rule.id,
         ruleName: rule.name,
+        errorDetail: message,
         paneGone: true,
       },
       { paneId: rule.paneId }
@@ -693,6 +712,7 @@ export class WatchService {
       message,
       ruleId: rule.id,
       ruleName: rule.name,
+      errorDetail: detail,
       consecutiveErrors: errorCount,
     });
     this.broadcastSafe(rule, wsBorsh.WATCH_EVENT_RULE_ERROR, { message });
@@ -715,6 +735,7 @@ export class WatchService {
       message,
       ruleId: rule.id,
       ruleName: rule.name,
+      errorDetail: toErrorMessage(error),
     });
     this.broadcastSafe(rule, wsBorsh.WATCH_EVENT_MODEL_UNAVAILABLE, { message });
     return true;

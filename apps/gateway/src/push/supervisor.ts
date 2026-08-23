@@ -112,7 +112,7 @@ const defaultDeps: PushSupervisorDeps = {
       payload: {
         source: notification.source,
         title: notification.title,
-        message: notification.body,
+        body: notification.body,
       },
     });
   },

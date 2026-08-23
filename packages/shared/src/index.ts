@@ -564,10 +564,28 @@ export interface WebhookEndpoint {
   createdAt: string;
   updatedAt: string;
 }
+export interface WebhookEventPayload {
+  source?: 'osc9' | 'osc777' | 'osc1337';
+  title?: string;
+  body?: string;
+  message?: string;
+  agentSessionId?: string;
+  agentSessionTitle?: string;
+  toolName?: string;
+  ruleId?: string;
+  ruleName?: string;
+  errorType?: string;
+  errorDetail?: string;
+  reason?: string;
+  windowName?: string;
+  [key: string]: unknown;
+}
 
 export interface WebhookEvent {
   eventType: EventType;
   timestamp: string;
+  locale?: string;
+  timezone?: string;
   site: {
     name: string;
     url: string;
@@ -589,7 +607,7 @@ export interface WebhookEvent {
     paneCurrentCommand?: string;
     paneCurrentPath?: string;
   };
-  payload?: Record<string, unknown>;
+  payload?: WebhookEventPayload;
 }
 
 // ==================== REST API ====================
