@@ -1295,6 +1295,7 @@ async fn fetch_terminal_history_via(
     )
     .await?;
     let screen = parse_pane_screen_info(&screen.stdout);
+    // Terminal replay needs physical rows and their padded cells; `-J` is only for text scraping.
     let normal = checked_command(
         transport,
         &strings([
@@ -1306,7 +1307,6 @@ async fn fetch_terminal_history_via(
             "-E",
             "-",
             "-e",
-            "-J",
             "-N",
             "-p",
         ]),
@@ -1327,7 +1327,6 @@ async fn fetch_terminal_history_via(
             "-E",
             "-",
             "-e",
-            "-J",
             "-N",
             "-p",
             "-q",
@@ -2644,7 +2643,7 @@ impl RuntimeActor {
             let text = strip_capture_command_terminator(
                 checked_command(
                     &self.transport,
-                    &super::capture_pane_text_command(
+                    &super::capture_pane_screen_command(
                         pane_id,
                         (!info.alternate_screen).then_some(history_lines),
                     ),

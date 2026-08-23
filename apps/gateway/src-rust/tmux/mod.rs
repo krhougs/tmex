@@ -149,11 +149,11 @@ pub use terminfo::{build_ensure_ghostty_terminfo_script, XTERM_GHOSTTY_TERMINFO_
 pub use theme_broadcaster::ThemeBroadcaster;
 pub use theme_subscriptions::ThemeSubscriptionTracker;
 pub use tmux_commands::{
-    capture_history_range_command, capture_pane_text_command, configure_window_style_commands,
-    create_window_command, ensure_session_commands, move_pane_command, pane_history_info_command,
-    pane_info_command, pane_screen_info_command, parse_state_snapshot, resize_pane_command,
-    resize_window_command, send_input_commands, session_configuration_commands, snapshot_commands,
-    split_pane_command, SESSION_SNAPSHOT_FORMAT,
+    capture_history_range_command, capture_pane_screen_command, capture_pane_text_command,
+    configure_window_style_commands, create_window_command, ensure_session_commands,
+    move_pane_command, pane_history_info_command, pane_info_command, pane_screen_info_command,
+    parse_state_snapshot, resize_pane_command, resize_window_command, send_input_commands,
+    session_configuration_commands, snapshot_commands, split_pane_command, SESSION_SNAPSHOT_FORMAT,
 };
 pub use tmux_version::{
     is_control_mode_supported, normalize_tmux_version_output, parse_tmux_version,

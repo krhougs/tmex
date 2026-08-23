@@ -221,6 +221,15 @@ pub fn capture_pane_text_command(pane_id: &str, history_lines: Option<usize>) ->
     command
 }
 
+pub fn capture_pane_screen_command(pane_id: &str, history_lines: Option<usize>) -> Vec<String> {
+    // `-J` removes padded physical cells even together with `-N`; checkpoints need those cells.
+    let mut command = strings(["capture-pane", "-t", pane_id, "-p", "-e", "-N"]);
+    if let Some(lines) = history_lines.filter(|lines| *lines > 0) {
+        command.extend(["-S".to_owned(), format!("-{lines}")]);
+    }
+    command
+}
+
 pub fn pane_info_command(pane_id: &str) -> Vec<String> {
     strings(["display-message", "-p", "-t", pane_id, PANE_META_FORMAT])
 }
@@ -415,6 +424,28 @@ mod tests {
         assert_eq!(
             move_pane_command("%1", "%2", MovePanePosition::Left),
             ["move-pane", "-h", "-b", "-s", "%1", "-t", "%2"]
+        );
+    }
+
+    #[test]
+    fn screen_capture_preserves_physical_rows_while_text_capture_joins_them() {
+        assert_eq!(
+            capture_pane_screen_command("%1", Some(50)),
+            ["capture-pane", "-t", "%1", "-p", "-e", "-N", "-S", "-50"]
+        );
+        assert_eq!(
+            capture_pane_text_command("%1", Some(50)),
+            [
+                "capture-pane",
+                "-t",
+                "%1",
+                "-p",
+                "-e",
+                "-J",
+                "-N",
+                "-S",
+                "-50"
+            ]
         );
     }
 

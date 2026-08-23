@@ -581,7 +581,7 @@ where
         options,
         parse_pane_frame_info,
     );
-    let visible_command = format!("capture-pane -p -e -J -N -t {pane_id}");
+    let visible_command = super::capture_pane_screen_command(pane_id, None).join(" ");
     let text_command = queue.execute(
         &mut write,
         visible_command.clone(),
@@ -838,7 +838,7 @@ mod tests {
         )));
         assert_eq!(
             writes.lock().unwrap()[2],
-            "capture-pane -p -e -J -N -t %1 -S -50 -E -1\n"
+            "capture-pane -t %1 -p -e -N -S -50 -E -1\n"
         );
         queue.dispose("test complete");
     }
