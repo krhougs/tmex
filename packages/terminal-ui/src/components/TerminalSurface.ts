@@ -8,6 +8,7 @@ import type {
 
 const MAX_SURFACE_HISTORY_BYTES = 8 * 1024 * 1024;
 const MAX_SURFACE_HISTORY_PAGES = 64;
+export const MAX_SURFACE_PENDING_LIVE_BYTES = 2 * 1024 * 1024;
 
 export interface TerminalSurfaceTarget {
   dispose(): void;
@@ -37,11 +38,21 @@ export interface TerminalSurfaceOptions<Target extends TerminalSurfaceTarget> {
   /** 历史页前插：离屏解析后拼接展示，不重建终端（replace 是终端重建的唯一入口）。 */
   prependHistory(target: Target, page: GatewayPaneHistoryPage): void;
   writeLive(target: Target, data: Uint8Array): void;
-  activate(target: Target): void;
+  waitForFirstRender?(target: Target): Promise<void>;
+  activate(target: Target, previous: Target | null): void;
   onRecoveryRequired(reason: GatewayRebaseReason): void;
   onSnapshotApplied?(target: Target, snapshot: GatewayPaneScreenSnapshot | null): void;
   maxHistoryBytes?: number;
   maxHistoryPages?: number;
+  maxPendingLiveBytes?: number;
+}
+
+interface PendingReplacement<Target> {
+  id: number;
+  target: Target | null;
+  bufferedLive: Uint8Array[];
+  bufferedLiveBytes: number;
+  acceptsDirectLive: boolean;
 }
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
@@ -80,30 +91,34 @@ function copyHistoryPage(page: GatewayPaneHistoryPage): GatewayPaneHistoryPage {
 }
 
 /**
- * 单终端渲染面：字节直通，不做 seq/epoch 判定，也不缓存 live 用于重建。
+ * 终端渲染面：字节直通，不做 seq/epoch 判定，也不持有长期 replay ring。
  *
  * 缺口只认链路上报的 rebase —— 服务端（gateway/relay/companion）已经在做这件事，
  * 渲染层再判定一遍的唯一效果是：快照尚未落地时 visibleCursor 为空，
  * 于是所有 live 被静默丢弃，终端一片空白。
  *
- * 重取首屏时直接在当前终端上重写，用户可见一次闪屏（已拍板接受），
- * 换掉原先的离屏双缓冲与客户端 replay ring。
+ * snapshot 在隐藏候选终端完成解析和首次绘制后原子切换；候选创建期间只暂存有界的
+ * 后续 live 字节，避免在可见终端上完整重放。
  */
 export class TerminalSurface<Target extends TerminalSurfaceTarget> {
   private readonly maxHistoryBytes: number;
   private readonly maxHistoryPages: number;
+  private readonly maxPendingLiveBytes: number;
   private target: Target | null = null;
+  private pending: PendingReplacement<Target> | null = null;
   private latestSnapshot: GatewayPaneScreenSnapshot | null = null;
   private historyPages: GatewayPaneHistoryPage[] = [];
   private historyBytes = 0;
   private nextHistoryCursor: GatewayHistoryCursor | null = null;
   private recoveryRequested = false;
   private recoveryReason: GatewayRebaseReason | null = null;
+  private replacementId = 0;
   private disposed = false;
 
   constructor(private readonly options: TerminalSurfaceOptions<Target>) {
     this.maxHistoryBytes = options.maxHistoryBytes ?? MAX_SURFACE_HISTORY_BYTES;
     this.maxHistoryPages = options.maxHistoryPages ?? MAX_SURFACE_HISTORY_PAGES;
+    this.maxPendingLiveBytes = options.maxPendingLiveBytes ?? MAX_SURFACE_PENDING_LIVE_BYTES;
   }
 
   async initialize(): Promise<Target> {
@@ -115,7 +130,7 @@ export class TerminalSurface<Target extends TerminalSurfaceTarget> {
       throw new Error('terminal surface disposed');
     }
     this.target = target;
-    this.options.activate(target);
+    this.options.activate(target, null);
     this.options.onSnapshotApplied?.(target, null);
     return target;
   }
@@ -139,9 +154,11 @@ export class TerminalSurface<Target extends TerminalSurfaceTarget> {
         ? 'disposed'
         : this.recoveryRequested
           ? 'recovering'
-          : this.target
-            ? 'live'
-            : 'initializing',
+          : this.pending
+            ? 'recovering'
+            : this.target
+              ? 'live'
+              : 'initializing',
       recoveryReason: this.recoveryReason,
       historyBytes: this.historyBytes,
       historyBytesLimit: this.maxHistoryBytes,
@@ -153,19 +170,33 @@ export class TerminalSurface<Target extends TerminalSurfaceTarget> {
   write(frame: GatewayTerminalData): void {
     if (this.disposed || !this.target) return;
     this.options.writeLive(this.target, frame.data);
+    const pending = this.pending;
+    if (!pending) return;
+    if (pending.acceptsDirectLive && pending.target) {
+      try {
+        this.options.writeLive(pending.target, frame.data);
+      } catch {
+        this.cancelPending();
+        this.requestRecovery('resource_exhausted');
+      }
+      return;
+    }
+    if (pending.bufferedLiveBytes + frame.data.byteLength > this.maxPendingLiveBytes) {
+      this.cancelPending();
+      this.requestRecovery('resource_exhausted');
+      return;
+    }
+    const data = Uint8Array.from(frame.data);
+    pending.bufferedLive.push(data);
+    pending.bufferedLiveBytes += data.byteLength;
   }
 
   replace(snapshot: GatewayPaneScreenSnapshot): void {
     if (this.disposed || !this.target) return;
     const owned = copySnapshot(snapshot);
-    this.latestSnapshot = owned;
-    this.historyPages = [];
-    this.historyBytes = 0;
-    this.nextHistoryCursor = copyHistoryCursor(owned.historyCursor);
     this.recoveryRequested = false;
     this.recoveryReason = null;
-    this.options.writeSnapshot(this.target, owned, []);
-    this.options.onSnapshotApplied?.(this.target, owned);
+    this.startReplacement(owned);
   }
 
   applyHistoryPage(page: GatewayPaneHistoryPage): boolean {
@@ -214,17 +245,104 @@ export class TerminalSurface<Target extends TerminalSurfaceTarget> {
 
   rebase(reason: GatewayRebaseReason): void {
     if (this.disposed) return;
+    this.cancelPending();
     this.requestRecovery(reason);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.replacementId += 1;
+    this.cancelPending(false);
     this.target?.dispose();
     this.target = null;
     this.latestSnapshot = null;
     this.historyPages = [];
     this.historyBytes = 0;
+  }
+
+  private startReplacement(snapshot: GatewayPaneScreenSnapshot): void {
+    const id = ++this.replacementId;
+    this.cancelPending(false);
+    const pending: PendingReplacement<Target> = {
+      id,
+      target: null,
+      bufferedLive: [],
+      bufferedLiveBytes: 0,
+      acceptsDirectLive: false,
+    };
+    this.pending = pending;
+    void this.buildReplacement(pending, snapshot);
+  }
+
+  private async buildReplacement(
+    pending: PendingReplacement<Target>,
+    snapshot: GatewayPaneScreenSnapshot
+  ): Promise<void> {
+    let target: Target;
+    try {
+      target = await this.options.createTarget();
+    } catch {
+      if (!this.disposed && this.pending === pending) {
+        this.pending = null;
+        this.requestRecovery('resource_exhausted');
+      }
+      return;
+    }
+    if (this.disposed || this.pending !== pending || pending.id !== this.replacementId) {
+      target.dispose();
+      return;
+    }
+    pending.target = target;
+    try {
+      this.options.writeSnapshot(target, snapshot, []);
+      for (const data of pending.bufferedLive) this.options.writeLive(target, data);
+      pending.bufferedLive = [];
+      pending.bufferedLiveBytes = 0;
+      pending.acceptsDirectLive = true;
+      await this.options.waitForFirstRender?.(target);
+    } catch {
+      if (this.pending === pending) this.pending = null;
+      if (pending.target === target) {
+        pending.target = null;
+        target.dispose();
+      }
+      if (!this.disposed && pending.id === this.replacementId) {
+        this.requestRecovery('resource_exhausted');
+      }
+      return;
+    }
+    if (this.disposed || this.pending !== pending || pending.id !== this.replacementId) {
+      if (pending.target === target) {
+        pending.target = null;
+        target.dispose();
+      }
+      return;
+    }
+
+    const previous = this.target;
+    this.options.activate(target, previous);
+    this.target = target;
+    this.pending = null;
+    this.latestSnapshot = snapshot;
+    this.historyPages = [];
+    this.historyBytes = 0;
+    this.nextHistoryCursor = copyHistoryCursor(snapshot.historyCursor);
+    this.recoveryRequested = false;
+    this.recoveryReason = null;
+    this.options.onSnapshotApplied?.(target, snapshot);
+    if (previous && previous !== target) previous.dispose();
+  }
+
+  private cancelPending(incrementId = true): void {
+    if (incrementId) this.replacementId += 1;
+    const pending = this.pending;
+    this.pending = null;
+    if (pending?.target) {
+      const target = pending.target;
+      pending.target = null;
+      target.dispose();
+    }
   }
 
   private requestRecovery(reason: GatewayRebaseReason): void {

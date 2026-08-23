@@ -116,6 +116,12 @@ function writeCanonicalSnapshot(
   target.terminal.forceFullRepaint?.();
 }
 
+function afterNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
 // history 重建时恢复的终端模式：来自 gateway 随 TermHistory 下发的 tmux 权威位图
 // （capture 快照本身不含 DECSET 序列，tmux 的 mouse_*_flag 是唯一可靠来源）。
 // 1016/1015/9 无 tmux format 变量、pane 内程序也从未在 tmux 下拿到过这些形态，恒
@@ -485,7 +491,15 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             target.liveOutputEndedWithCR = normalized.endedWithCR;
             target.terminal.write(normalized.normalized);
           },
-          activate(target) {
+          waitForFirstRender(target) {
+            target.terminal.forceFullRepaint?.();
+            return afterNextPaint();
+          },
+          activate(target, previous) {
+            if (previous) {
+              previous.mount.style.visibility = 'hidden';
+              previous.mount.style.pointerEvents = 'none';
+            }
             target.mount.style.visibility = 'visible';
             target.mount.style.pointerEvents = 'auto';
             target.terminal.scrollToBottom();

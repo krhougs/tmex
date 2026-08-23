@@ -5,9 +5,11 @@ use super::PaneModeFlags;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 pub const PANE_SCREEN_INFO_FORMAT: &str = concat!(
-    "#{alternate_on} #{cursor_x} #{cursor_y} #{pane_height}",
-    " #{mouse_standard_flag} #{mouse_button_flag} #{mouse_all_flag}",
-    " #{mouse_sgr_flag} #{mouse_utf8_flag}"
+    "#{pane_width}|#{pane_height}|#{alternate_on}|#{cursor_x}|#{cursor_y}|#{history_size}",
+    "|#{mouse_standard_flag}|#{mouse_button_flag}|#{mouse_all_flag}",
+    "|#{mouse_sgr_flag}|#{mouse_utf8_flag}",
+    "|#{scroll_region_upper}|#{scroll_region_lower}|#{origin_flag}|#{insert_flag}",
+    "|#{wrap_flag}|#{cursor_flag}|#{keypad_cursor_flag}|#{keypad_flag}"
 );
 pub const PANE_META_FORMAT: &str =
     "#{pane_width} #{pane_height} #{alternate_on} #{cursor_x} #{cursor_y} #{pane_current_command}";
@@ -15,11 +17,26 @@ pub const PANE_HISTORY_CAPTURE_INFO_FORMAT: &str = "#{history_size}|#{pane_width
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaneScreenInfo {
+    pub cols: usize,
+    pub rows: usize,
     pub alternate_screen: bool,
     pub cursor_x: Option<usize>,
     pub cursor_y: Option<usize>,
-    pub pane_height: Option<usize>,
+    pub history_size: usize,
     pub modes: PaneModeFlags,
+    pub continuation: PaneContinuationModes,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaneContinuationModes {
+    pub scroll_region_upper: usize,
+    pub scroll_region_lower: usize,
+    pub origin: bool,
+    pub insert: bool,
+    pub wrap: bool,
+    pub cursor_visible: bool,
+    pub application_cursor: bool,
+    pub application_keypad: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,24 +78,62 @@ impl fmt::Display for ParsePaneHistoryCaptureInfoError {
 impl std::error::Error for ParsePaneHistoryCaptureInfoError {}
 
 pub fn parse_pane_screen_info(stdout: &str) -> PaneScreenInfo {
-    let parts = stdout.split_whitespace().collect::<Vec<_>>();
+    let parts = stdout
+        .trim_end_matches(['\r', '\n'])
+        .split('|')
+        .collect::<Vec<_>>();
+    let cols = parts
+        .first()
+        .and_then(|value| parse_nonnegative_prefix(value))
+        .unwrap_or(0);
+    let rows = parts
+        .get(1)
+        .and_then(|value| parse_nonnegative_prefix(value))
+        .unwrap_or(0);
+    let default_lower = rows.saturating_sub(1);
+    let upper = parts
+        .get(11)
+        .and_then(|value| parse_nonnegative_prefix(value))
+        .unwrap_or(0);
+    let lower = parts
+        .get(12)
+        .and_then(|value| parse_nonnegative_prefix(value))
+        .unwrap_or(default_lower);
+    let (scroll_region_upper, scroll_region_lower) = if rows > 0 && upper <= lower && lower < rows {
+        (upper, lower)
+    } else {
+        (0, default_lower)
+    };
     PaneScreenInfo {
-        alternate_screen: parts.first() == Some(&"1"),
+        cols,
+        rows,
+        alternate_screen: parts.get(2) == Some(&"1"),
         cursor_x: parts
-            .get(1)
-            .and_then(|value| parse_nonnegative_prefix(value)),
-        cursor_y: parts
-            .get(2)
-            .and_then(|value| parse_nonnegative_prefix(value)),
-        pane_height: parts
             .get(3)
             .and_then(|value| parse_nonnegative_prefix(value)),
+        cursor_y: parts
+            .get(4)
+            .and_then(|value| parse_nonnegative_prefix(value)),
+        history_size: parts
+            .get(5)
+            .and_then(|value| parse_nonnegative_prefix(value))
+            .unwrap_or(0),
         modes: PaneModeFlags {
-            mouse_standard: parts.get(4) == Some(&"1"),
-            mouse_button: parts.get(5) == Some(&"1"),
-            mouse_all: parts.get(6) == Some(&"1"),
-            mouse_sgr: parts.get(7) == Some(&"1"),
-            mouse_utf8: parts.get(8) == Some(&"1"),
+            mouse_standard: parts.get(6) == Some(&"1"),
+            mouse_button: parts.get(7) == Some(&"1"),
+            mouse_all: parts.get(8) == Some(&"1"),
+            mouse_sgr: parts.get(9) == Some(&"1"),
+            mouse_utf8: parts.get(10) == Some(&"1"),
+        },
+        continuation: PaneContinuationModes {
+            scroll_region_upper,
+            scroll_region_lower,
+            origin: parts.get(13) == Some(&"1"),
+            insert: parts.get(14) == Some(&"1"),
+            wrap: parts.get(15).is_none_or(|value| *value == "1"),
+            cursor_visible: parts.get(16).is_none_or(|value| *value == "1"),
+            application_cursor: parts.get(17) == Some(&"1"),
+            application_keypad: parts.get(18) == Some(&"1"),
         },
     }
 }
@@ -134,11 +189,10 @@ pub fn parse_pane_meta(stdout: &str) -> PaneInfo {
 }
 
 pub fn append_cursor_restore(history: &str, info: &PaneScreenInfo) -> String {
-    let (Some(cursor_x), Some(cursor_y), Some(pane_height)) =
-        (info.cursor_x, info.cursor_y, info.pane_height)
-    else {
+    let (Some(cursor_x), Some(cursor_y)) = (info.cursor_x, info.cursor_y) else {
         return history.to_owned();
     };
+    let pane_height = info.rows;
     if pane_height == 0 {
         return history.to_owned();
     }
@@ -183,16 +237,18 @@ mod tests {
 
     #[test]
     fn parses_screen_modes_and_restores_main_or_alternate_cursor() {
-        let alternate = parse_pane_screen_info("1 8 3 40 0 1 0 1 0\n");
+        let alternate = parse_pane_screen_info("80|40|1|8|3|0|0|1|0|1|0|2|37|1|1|0|0|1|1\n");
         assert!(alternate.alternate_screen);
         assert!(alternate.modes.mouse_button);
         assert!(alternate.modes.mouse_sgr);
+        assert_eq!(alternate.continuation.scroll_region_upper, 2);
+        assert_eq!(alternate.continuation.scroll_region_lower, 37);
         assert_eq!(
             append_cursor_restore("TUI SCREEN\n", &alternate),
             "TUI SCREEN\x1b[4;9H"
         );
 
-        let main = parse_pane_screen_info("0 4 1 3 0 0 0 0 0\n");
+        let main = parse_pane_screen_info("80|3|0|4|1|0|0|0|0|0|0|0|2|0|0|1|1|0|0\n");
         assert_eq!(
             append_cursor_restore("line1\nline2\nline3\n", &main),
             "line1\nline2\nline3\x1b[1A\x1b[5G"
@@ -201,7 +257,19 @@ mod tests {
 
     #[test]
     fn missing_cursor_preserves_capture_verbatim() {
-        let info = parse_pane_screen_info("0\n");
+        let info = parse_pane_screen_info("0|0|0|||||||||||||||||\n");
         assert_eq!(append_cursor_restore("line\n", &info), "line\n");
+    }
+
+    #[test]
+    fn invalid_region_falls_back_without_emitting_out_of_bounds_state() {
+        let info = parse_pane_screen_info("10|4|0|0|0|0|0|0|0|0|0|3|9|0|0|1|1|0|0\n");
+        assert_eq!(
+            (
+                info.continuation.scroll_region_upper,
+                info.continuation.scroll_region_lower
+            ),
+            (0, 3)
+        );
     }
 }
