@@ -248,6 +248,11 @@ export function useTerminalResize({
     }
   }, [clearPostSelectResizeTimers, scheduleResize]);
 
+  const forceResize = useCallback(() => {
+    lastReportedSize.current = null;
+    scheduleResize('sync', { immediate: true, force: true });
+  }, [scheduleResize]);
+
   // 断连时清空上报基线：重连后 tmux 尺寸可能已被其他客户端改写，
   // 首次上报必须真实发出（去重基线只在连接内有效）
   useEffect(() => {
@@ -365,6 +370,7 @@ export function useTerminalResize({
   return {
     scheduleResize,
     runPostSelectResize,
+    forceResize,
     clearPostSelectResizeTimers,
     setFitAddon,
     setTerminal,

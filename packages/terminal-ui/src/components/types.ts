@@ -39,6 +39,8 @@ export interface TerminalRef {
   getTerminal: () => CompatibleTerminalLike | null;
   getSize: () => { cols: number; rows: number } | null;
   runPostSelectResize: () => void;
+  /** 用户显式请求按当前容器重新上报尺寸，即使尺寸与上次上报相同。 */
+  forceResize: () => void;
   scheduleResize: (
     kind: 'resize' | 'sync',
     options?: { immediate?: boolean; force?: boolean }

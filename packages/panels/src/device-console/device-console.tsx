@@ -1080,6 +1080,19 @@ export function DeviceConsole({
     };
   }, []);
 
+  useEffect(() => {
+    const handler = () => {
+      if (!isSplitViewRef.current) {
+        terminalRef.current?.forceResize();
+      }
+    };
+
+    window.addEventListener('tmex:force-terminal-resize', handler as EventListener);
+    return () => {
+      window.removeEventListener('tmex:force-terminal-resize', handler as EventListener);
+    };
+  }, []);
+
   // Listen for user-initiated selection from sidebar
   useEffect(() => {
     const handler = (

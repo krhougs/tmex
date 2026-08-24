@@ -43,6 +43,7 @@
       "openSidebar": "打开侧边栏",
       "closeSidebar": "关闭侧边栏",
       "jumpToLatest": "跳转到最新",
+      "forceTerminalResize": "强制调整终端大小",
       "switchToEditor": "切换到编辑器输入",
       "switchToDirect": "切换到直接输入",
       "refreshPage": "刷新页面",

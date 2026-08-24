@@ -301,6 +301,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       pendingLocalSize,
       scheduleResize,
       runPostSelectResize,
+      forceResize,
       setFitAddon,
       setTerminal,
       clearPendingLocalSize,
@@ -1022,6 +1023,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           return { cols: Math.max(2, instance.cols), rows: Math.max(2, instance.rows) };
         },
         runPostSelectResize: () => runPostSelectResize(),
+        forceResize: () => forceResize(),
         scheduleResize: (kind, options) => scheduleResize(kind, options),
         calculateSizeFromContainer: () => {
           const container = containerRef.current;
@@ -1066,7 +1068,14 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           return { width: cell.width, height: cell.height };
         },
       }),
-      [clearPendingLocalSize, instance, pendingLocalSize, runPostSelectResize, scheduleResize]
+      [
+        clearPendingLocalSize,
+        forceResize,
+        instance,
+        pendingLocalSize,
+        runPostSelectResize,
+        scheduleResize,
+      ]
     );
 
     return (

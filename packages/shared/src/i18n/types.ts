@@ -57,6 +57,7 @@ export type TranslationKey =
   | 'nav.openSidebar'
   | 'nav.closeSidebar'
   | 'nav.jumpToLatest'
+  | 'nav.forceTerminalResize'
   | 'nav.switchToEditor'
   | 'nav.switchToDirect'
   | 'nav.refreshPage'

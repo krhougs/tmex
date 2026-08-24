@@ -43,6 +43,7 @@
       "openSidebar": "サイドバーを開く",
       "closeSidebar": "サイドバーを閉じる",
       "jumpToLatest": "最新にジャンプ",
+      "forceTerminalResize": "ターミナルサイズを強制調整",
       "switchToEditor": "エディタ入力に切り替え",
       "switchToDirect": "直接入力に切り替え",
       "refreshPage": "ページを更新",

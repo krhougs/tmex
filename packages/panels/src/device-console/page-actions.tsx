@@ -1,4 +1,4 @@
-// 控制台操作区：输入模式切换、分屏、跳到最新、watch、终端设置、刷新页面。
+// 控制台操作区：输入模式切换、分屏、强制调整尺寸、跳到最新、watch、终端设置、刷新页面。
 // 路由参数由宿主显式传入；paneId 为路由段原值（React Router 已 decode 一次），包内做归一；
 // 包内构造的应用内路径经 hostAppPath 映射宿主路由形状。
 
@@ -24,6 +24,7 @@ import {
   Keyboard,
   Radar,
   RefreshCw,
+  Scaling,
   Settings2,
   Smartphone,
   SquareSplitHorizontal,
@@ -195,6 +196,10 @@ export function DeviceConsoleActions({
     window.dispatchEvent(new CustomEvent('tmex:jump-to-latest'));
   };
 
+  const handleForceTerminalResize = () => {
+    window.dispatchEvent(new CustomEvent('tmex:force-terminal-resize'));
+  };
+
   const handleRefreshClick = () => {
     setShowRefreshConfirm(true);
   };
@@ -251,6 +256,17 @@ export function DeviceConsoleActions({
           <RefreshCw className="h-4 w-4" />
         </Button>
       )}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={handleForceTerminalResize}
+        disabled={!deviceId || !resolvedPaneId}
+        data-testid="terminal-force-resize"
+        aria-label={t('nav.forceTerminalResize')}
+        title={t('nav.forceTerminalResize')}
+      >
+        <Scaling className="h-4 w-4" />
+      </Button>
       <Button
         variant="ghost"
         size="icon-sm"

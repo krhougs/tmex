@@ -43,6 +43,7 @@
       "openSidebar": "Open Sidebar",
       "closeSidebar": "Close Sidebar",
       "jumpToLatest": "Jump to Latest",
+      "forceTerminalResize": "Force terminal resize",
       "switchToEditor": "Switch to Editor Input",
       "switchToDirect": "Switch to Direct Input",
       "refreshPage": "Refresh Page",

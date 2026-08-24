@@ -368,6 +368,16 @@ export function SplitTerminalArea({
     reportWindowSizeRef.current = reportWindowSize;
   }, [reportWindowSize]);
 
+  useEffect(() => {
+    const handler = () => {
+      reportWindowSizeRef.current();
+    };
+    window.addEventListener('tmex:force-terminal-resize', handler as EventListener);
+    return () => {
+      window.removeEventListener('tmex:force-terminal-resize', handler as EventListener);
+    };
+  }, []);
+
   // 多端仲裁夺回：tmux window 被其他客户端（移动 stacked/其他端）改成别的
   // 尺寸时，容器 RO 与堆叠深度均不变，本端会永久静默错位。收敛时零流量。
   const reclaimWindowSize = useCallback(() => {
