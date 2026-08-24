@@ -4,7 +4,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 
 use crate::crypto::{CryptoContext, MasterKey};
-use crate::database::repository::Repository;
+use crate::database::repository::{now_iso, DeviceRuntimeStatusUpdate, Repository};
 use crate::entity::devices;
 
 use super::connection_types::{DeviceSessionConfig, LocalTmuxConfig, TmuxTransportConfig};
@@ -251,18 +251,37 @@ impl TmuxRuntimeFactory<DeviceSessionRuntime> for RepositoryTmuxRuntimeFactory {
         let factory = self.clone();
         Box::pin(async move {
             let config = factory.load_session_config(&device_id).await?;
-            DeviceSessionRuntime::start_with_lifecycle_sink(
+            let runtime = DeviceSessionRuntime::start_with_lifecycle_sink(
                 config,
                 factory.transport_factory.clone(),
                 factory.lifecycle_sink.clone(),
             )
             .await
-            .map(Arc::new)
             .map_err(|error| {
                 RuntimeRegistryError::new(format!(
                     "tmux_runtime_start_failed: failed to start device `{device_id}`: {error}"
                 ))
-            })
+            })?;
+            if let Err(error) = factory
+                .repository
+                .update_device_runtime_status(
+                    &device_id,
+                    DeviceRuntimeStatusUpdate {
+                        last_seen_at: Some(Some(now_iso())),
+                        tmux_available: Some(true),
+                        last_error: Some(None),
+                        last_error_type: Some(None),
+                    },
+                )
+                .await
+            {
+                tracing::warn!(
+                    device_id,
+                    %error,
+                    "failed to persist tmux runtime readiness"
+                );
+            }
+            Ok(Arc::new(runtime))
         })
     }
 }
@@ -291,6 +310,7 @@ fn normalized(value: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
+    use std::time::Duration;
 
     use async_trait::async_trait;
     use tmex_db::DbConfig;
@@ -298,7 +318,10 @@ mod tests {
     use crate::database::DatabaseBootstrap;
 
     use super::*;
-    use crate::tmux::{DeviceSessionRuntimeError, SpawnIsolation};
+    use crate::tmux::{
+        ControlClient, DeviceSessionRuntimeError, SpawnIsolation, TmuxCommandResult, TmuxTransport,
+        TmuxTransportError,
+    };
 
     #[derive(Default)]
     struct CapturingTransportFactory {
@@ -313,6 +336,58 @@ mod tests {
         ) -> Result<Arc<dyn super::super::TmuxTransport>, DeviceSessionRuntimeError> {
             self.configs.lock().unwrap().push(config.clone());
             Err(DeviceSessionRuntimeError::Closed)
+        }
+    }
+
+    struct ReadyTransport;
+
+    #[async_trait]
+    impl TmuxTransport for ReadyTransport {
+        async fn run_tmux(
+            &self,
+            args: &[String],
+            _deadline: Duration,
+            _output_limit: usize,
+        ) -> Result<TmuxCommandResult, TmuxTransportError> {
+            let stdout = match args.first().map(String::as_str) {
+                Some("-V") => "tmux 3.4\n",
+                Some("display-message") => "$0|tmex-runtime-factory-test\n",
+                Some("list-windows") => "@1|0|1|layout|term\n",
+                Some("show-options") => "00000000000000000000000000000000\n",
+                _ => "",
+            };
+            Ok(TmuxCommandResult {
+                exit_code: 0,
+                stdout: stdout.to_owned(),
+                stderr: String::new(),
+            })
+        }
+
+        async fn open_control(
+            &self,
+            _session_name: &str,
+        ) -> Result<ControlClient, TmuxTransportError> {
+            Err(TmuxTransportError::Closed)
+        }
+
+        fn home_dir(&self) -> Option<&str> {
+            Some("/tmp")
+        }
+
+        fn tmux_bin(&self) -> &str {
+            "unused"
+        }
+    }
+
+    struct ReadyTransportFactory;
+
+    #[async_trait]
+    impl TmuxTransportFactory for ReadyTransportFactory {
+        async fn create(
+            &self,
+            _config: &DeviceSessionConfig,
+        ) -> Result<Arc<dyn TmuxTransport>, DeviceSessionRuntimeError> {
+            Ok(Arc::new(ReadyTransport))
         }
     }
 
@@ -372,6 +447,49 @@ mod tests {
             enable_control_mode: false,
             environment: BTreeMap::from([("HOME".to_owned(), "/home/test".to_owned())]),
         }
+    }
+
+    #[tokio::test]
+    async fn successful_start_clears_persisted_runtime_error() {
+        let repository = test_repository().await;
+        repository
+            .create_device(device("local-device", "local", "auto"))
+            .await
+            .unwrap();
+        repository
+            .update_device_runtime_status(
+                "local-device",
+                DeviceRuntimeStatusUpdate {
+                    last_seen_at: Some(Some("2026-08-21T00:00:00.000Z".to_owned())),
+                    tmux_available: Some(false),
+                    last_error: Some(Some("tmux_runtime_start_failed".to_owned())),
+                    last_error_type: Some(Some("unknown".to_owned())),
+                },
+            )
+            .await
+            .unwrap();
+
+        let factory = RepositoryTmuxRuntimeFactory::with_transport_factory(
+            repository.clone(),
+            MasterKey::development_default(),
+            Arc::new(TestSpawnPolicy),
+            factory_config(),
+            Arc::new(ReadyTransportFactory),
+        );
+        let runtime = TmuxRuntimeFactory::create(&factory, "local-device".to_owned())
+            .await
+            .unwrap();
+
+        let status = repository
+            .get_device_runtime_status("local-device")
+            .await
+            .unwrap();
+        assert_eq!(status.tmux_available, 1);
+        assert!(status.last_seen_at.is_some());
+        assert_eq!(status.last_error, None);
+        assert_eq!(status.last_error_type, None);
+
+        runtime.shutdown().await;
     }
 
     #[tokio::test]
