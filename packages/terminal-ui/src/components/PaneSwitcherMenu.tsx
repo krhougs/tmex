@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@tmex/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@tmex/ui/tooltip';
 import { Columns2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -22,17 +23,23 @@ export function PaneSwitcherMenu({ window, currentPaneId, onSelectPane }: PaneSw
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        data-testid="pane-switcher-button"
-        aria-label={t('window.switchPane')}
-        title={t('window.switchPane')}
-        className="relative inline-flex size-7 items-center justify-center rounded-[min(var(--radius-md),12px)] text-sm hover:bg-muted hover:text-foreground data-popup-open:bg-muted"
-      >
-        <Columns2 className="h-4 w-4" />
-        <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-medium leading-none text-primary-foreground">
-          {window.panes.length}
-        </span>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              data-testid="pane-switcher-button"
+              aria-label={t('window.switchPane')}
+              className="relative inline-flex size-7 items-center justify-center rounded-[min(var(--radius-md),12px)] text-sm hover:bg-muted hover:text-foreground data-popup-open:bg-muted"
+            />
+          }
+        >
+          <Columns2 className="h-4 w-4" />
+          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-medium leading-none text-primary-foreground">
+            {window.panes.length}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{t('window.switchPane')}</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         align="end"
         backdrop

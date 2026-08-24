@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from '@tmex/ui/alert-dialog';
 import { Button } from '@tmex/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@tmex/ui/tooltip';
 import {
   ArrowDownToLine,
   Keyboard,
@@ -30,7 +31,14 @@ import {
   SquareSplitHorizontal,
   SquareSplitVertical,
 } from 'lucide-react';
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ComponentType,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { WatchDialog } from '../watch/watch-dialog';
@@ -51,6 +59,15 @@ type TerminalSettingsSheetComponent = ComponentType<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }>;
+
+function ActionIconTooltip({ label, children }: { label: string; children: ReactElement }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function DeferredTerminalSettingsSheet({
   open,
@@ -209,7 +226,7 @@ export function DeviceConsoleActions({
   };
 
   return (
-    <>
+    <TooltipProvider>
       {/* 移动端单 pane 展示：多 pane window 时提供切换入口（标题栏样式不变） */}
       {isMobileViewport && resolvedPaneId && selectedWindow && selectedWindow.panes.length > 1 && (
         <PaneSwitcherMenu
@@ -221,109 +238,119 @@ export function DeviceConsoleActions({
       {/* 桌面端：对当前焦点 pane 分屏 */}
       {!isMobileViewport && (
         <>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => handleSplitPane('right')}
-            disabled={!canInteract}
-            data-testid="split-right-button"
-            aria-label={t('window.splitRight')}
-            title={t('window.splitRight')}
-          >
-            <SquareSplitHorizontal className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => handleSplitPane('down')}
-            disabled={!canInteract}
-            data-testid="split-down-button"
-            aria-label={t('window.splitDown')}
-            title={t('window.splitDown')}
-          >
-            <SquareSplitVertical className="h-4 w-4" />
-          </Button>
+          <ActionIconTooltip label={t('window.splitRight')}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => handleSplitPane('right')}
+              disabled={!canInteract}
+              data-testid="split-right-button"
+              aria-label={t('window.splitRight')}
+            >
+              <SquareSplitHorizontal className="h-4 w-4" />
+            </Button>
+          </ActionIconTooltip>
+          <ActionIconTooltip label={t('window.splitDown')}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => handleSplitPane('down')}
+              disabled={!canInteract}
+              data-testid="split-down-button"
+              aria-label={t('window.splitDown')}
+            >
+              <SquareSplitVertical className="h-4 w-4" />
+            </Button>
+          </ActionIconTooltip>
         </>
       )}
       {!hideRefresh && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={handleRefreshClick}
-          aria-label={t('nav.refreshPage')}
-          title={t('nav.refreshPage')}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <ActionIconTooltip label={t('nav.refreshPage')}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleRefreshClick}
+            aria-label={t('nav.refreshPage')}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </ActionIconTooltip>
       )}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={handleForceTerminalResize}
-        disabled={!deviceId || !resolvedPaneId}
-        data-testid="terminal-force-resize"
-        aria-label={t('nav.forceTerminalResize')}
-        title={t('nav.forceTerminalResize')}
-      >
-        <Scaling className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={handleToggleInputMode}
-        disabled={!canInteract}
-        data-testid="terminal-input-mode-toggle"
-        aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
-        title={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
-      >
-        {inputMode === 'direct' ? (
-          <Keyboard className="h-4 w-4" />
-        ) : (
-          <Smartphone className="h-4 w-4" />
-        )}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={handleJumpToLatest}
-        disabled={!canInteract}
-        aria-label={t('nav.jumpToLatest')}
-        title={t('nav.jumpToLatest')}
-      >
-        <ArrowDownToLine className="h-4 w-4" />
-      </Button>
-      {watchUi && (
+      <ActionIconTooltip label={t('nav.forceTerminalResize')}>
         <Button
           variant="ghost"
           size="icon-sm"
-          className="relative"
-          onClick={() => setShowWatchDialog(true)}
-          disabled={!resolvedPaneId}
-          data-testid="watch-open-button"
-          aria-label={t('watch.title')}
-          title={t('watch.title')}
+          onClick={handleForceTerminalResize}
+          disabled={!deviceId || !resolvedPaneId}
+          data-testid="terminal-force-resize"
+          aria-label={t('nav.forceTerminalResize')}
         >
-          <Radar className="h-4 w-4" />
-          {hasEnabledWatchRule && (
-            <span
-              className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary"
-              data-testid="watch-active-indicator"
-            />
+          <Scaling className="h-4 w-4" />
+        </Button>
+      </ActionIconTooltip>
+      <ActionIconTooltip
+        label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+      >
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleToggleInputMode}
+          disabled={!canInteract}
+          data-testid="terminal-input-mode-toggle"
+          aria-label={inputMode === 'direct' ? t('nav.switchToEditor') : t('nav.switchToDirect')}
+        >
+          {inputMode === 'direct' ? (
+            <Keyboard className="h-4 w-4" />
+          ) : (
+            <Smartphone className="h-4 w-4" />
           )}
         </Button>
+      </ActionIconTooltip>
+      <ActionIconTooltip label={t('nav.jumpToLatest')}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleJumpToLatest}
+          disabled={!canInteract}
+          aria-label={t('nav.jumpToLatest')}
+        >
+          <ArrowDownToLine className="h-4 w-4" />
+        </Button>
+      </ActionIconTooltip>
+      {watchUi && (
+        <ActionIconTooltip label={t('watch.title')}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="relative"
+            onClick={() => setShowWatchDialog(true)}
+            disabled={!resolvedPaneId}
+            data-testid="watch-open-button"
+            aria-label={t('watch.title')}
+          >
+            <Radar className="h-4 w-4" />
+            {hasEnabledWatchRule && (
+              <span
+                className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary"
+                data-testid="watch-active-indicator"
+              />
+            )}
+          </Button>
+        </ActionIconTooltip>
       )}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={() =>
-          onOpenTerminalSettings ? onOpenTerminalSettings() : setShowTerminalSettings(true)
-        }
-        data-testid="keyboard-behavior-open-button"
-        aria-label={t('settings.terminal.title')}
-        title={t('settings.terminal.title')}
-      >
-        <Settings2 className="h-4 w-4" />
-      </Button>
+      <ActionIconTooltip label={t('settings.terminal.title')}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() =>
+            onOpenTerminalSettings ? onOpenTerminalSettings() : setShowTerminalSettings(true)
+          }
+          data-testid="keyboard-behavior-open-button"
+          aria-label={t('settings.terminal.title')}
+        >
+          <Settings2 className="h-4 w-4" />
+        </Button>
+      </ActionIconTooltip>
 
       {!onOpenTerminalSettings && (
         <DeferredTerminalSettingsSheet
@@ -357,6 +384,6 @@ export function DeviceConsoleActions({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </TooltipProvider>
   );
 }
