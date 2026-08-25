@@ -1,8 +1,9 @@
-import type {
-  CreateFileRootRequest,
-  FileErrorCode,
-  FileRootDto,
-  UpdateFileRootRequest,
+import {
+  PASTE_IMAGE_MAX_BYTES,
+  type CreateFileRootRequest,
+  type FileErrorCode,
+  type FileRootDto,
+  type UpdateFileRootRequest,
 } from '@tmex/shared';
 import { config } from '../config';
 import { getDeviceById } from '../db';
@@ -215,7 +216,7 @@ async function handleRaw(url: URL): Promise<Response> {
 
 // 上传第一步：校验目标目录 + 大小上限，建会话与临时文件。
 async function handleUploadInit(req: Request): Promise<Response> {
-  let body: { rootId?: unknown; path?: unknown; name?: unknown; size?: unknown };
+  let body: { rootId?: unknown; path?: unknown; name?: unknown; size?: unknown; kind?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -225,12 +226,22 @@ async function handleUploadInit(req: Request): Promise<Response> {
   const destDir = typeof body.path === 'string' ? body.path : '';
   const rawName = typeof body.name === 'string' ? body.name : '';
   const size = typeof body.size === 'number' && Number.isFinite(body.size) ? body.size : -1;
-  if (!rootId || !destDir || !rawName || size < 0) {
+  const kind = body.kind === undefined ? 'file' : body.kind;
+  if (
+    !rootId ||
+    !destDir ||
+    !rawName ||
+    size < 0 ||
+    (kind !== 'file' && kind !== 'paste-image')
+  ) {
     return json({ error: t('apiError.invalidRequest') }, 400);
   }
   const name = sanitizeUploadName(rawName);
   if (!name) return codeError('invalid');
   if (size > config.transferMaxBytes) return codeError('too_large');
+  if (kind === 'paste-image' && size > PASTE_IMAGE_MAX_BYTES) {
+    return codeError('too_large', 'paste image exceeds the 4 MiB limit');
+  }
 
   // fail-fast：上传前确认 destDir 落在 root 内且为已存在目录
   const stat = await statFile(rootId, destDir);

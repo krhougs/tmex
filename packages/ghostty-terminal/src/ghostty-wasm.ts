@@ -33,6 +33,7 @@ const GHOSTTY_TERMINAL_DATA_ROWS = 2;
 const GHOSTTY_TERMINAL_DATA_SCROLLBAR = 9;
 const GHOSTTY_POINT_TAG_VIEWPORT = 1;
 
+
 const GHOSTTY_SCROLL_VIEWPORT_TOP = 0;
 const GHOSTTY_SCROLL_VIEWPORT_BOTTOM = 1;
 const GHOSTTY_SCROLL_VIEWPORT_DELTA = 2;
@@ -520,7 +521,6 @@ export class GhosttyBindings {
     this.setField(options.view, 'GhosttyTerminalOptions', 'max_scrollback', scrollback);
 
     const termPtrPtr = this.allocOpaque();
-
     try {
       assertResult(
         this.exports.ghostty_terminal_new(0, termPtrPtr, options.ptr),
@@ -1415,7 +1415,9 @@ export class GhosttyBindings {
       this.freeUsize(requiredPtr);
     }
   }
+
 }
+
 
 async function loadGhosttyWasmBytes(source: string): Promise<ArrayBuffer> {
   const isFileUrl = source.startsWith('file://');

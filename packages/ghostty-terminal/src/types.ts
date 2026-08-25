@@ -130,6 +130,7 @@ export interface GhosttyRenderCell {
   style: GhosttyRenderCellStyle;
   fgColor: GhosttyColorRgb | null;
   bgColor: GhosttyColorRgb | null;
+  underlineColor?: GhosttyColorRgb | null;
   // 颜色来源：调色板色给出索引（0–255），SGR 真彩色与「未指定」都是 null。
   // fgColor/bgColor 只有解析后的 RGB，palette 196 与 38;2;255;0;0 完全同值，
   // 靠 RGB 无法区分，可读性兜底要据此把真彩色排除在外。
@@ -158,6 +159,39 @@ export interface GhosttyRenderSnapshotMeta {
   dirty: GhosttyRenderDirtyState;
   colors: GhosttyRenderColors;
   cursor: GhosttyRenderCursor;
+}
+
+export interface GhosttyKittyImageSnapshot {
+  id: number;
+  generation: bigint;
+  width: number;
+  height: number;
+  format: number;
+  data: Uint8Array;
+}
+
+export interface GhosttyKittyPlacementSnapshot {
+  imageId: number;
+  placementId: number;
+  z: number;
+  xOffset: number;
+  yOffset: number;
+  pixelWidth: number;
+  pixelHeight: number;
+  viewportCol: number;
+  viewportRow: number;
+  viewportVisible: boolean;
+  sourceX: number;
+  sourceY: number;
+  sourceWidth: number;
+  sourceHeight: number;
+}
+
+export interface GhosttyKittyGraphicsSnapshot {
+  generation: bigint;
+  imageIds: number[];
+  images: GhosttyKittyImageSnapshot[];
+  placements: GhosttyKittyPlacementSnapshot[];
 }
 
 export interface TerminalDisposable {

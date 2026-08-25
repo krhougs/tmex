@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   devicesQueryKey as defaultDevicesQueryKey,
   fetchDevices,
+  fetchFileRoots,
   fetchTerminalShortcuts,
   terminalShortcutsQueryKey,
 } from '@tmex/api-client';
@@ -32,19 +33,22 @@ import {
   shouldTrackPendingRouteSelection,
 } from '@tmex/terminal-ui';
 import { isIOSMobileBrowser } from '@tmex/terminal-ui';
+import {
+  pasteImageExtension,
+  reportTerminalImageTooLarge,
+  resolveTerminalImagePasteTarget,
+  uploadTerminalImage,
+} from '@tmex/terminal-ui/image-paste';
 import { Button } from '@tmex/ui/button';
 import { Switch } from '@tmex/ui/switch';
 import { toast } from '@tmex/ui/toast';
 import { AlertTriangle, Loader2, RotateCw, SearchX, Send, Trash2 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import { type Ref, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { DeviceStatusBadge } from '../device-status-badge';
 import { ShortcutButtonRow } from '../settings/ShortcutButtonRow';
-import {
-  resolveCanInteractWithPane,
-  shouldShowTerminalReconnectOverlay,
-} from './interaction';
+import { resolveCanInteractWithPane, shouldShowTerminalReconnectOverlay } from './interaction';
 import {
   resolveDeviceDefaultSelection,
   resolveSettledMissingWindowFallback,
@@ -1153,15 +1157,40 @@ export function DeviceConsole({
       }
       switch (item.action) {
         case 'paste': {
-          // 非安全上下文 / 宿主 clipboard 不可用时给出明确错误而非静默
-          void runtime.host
-            .readClipboardText()
-            .then((text) => {
-              if (text) {
-                runtime.stores.tmux.getState().paste(deviceId, resolvedPaneId, text);
+          void (async () => {
+            const image = runtime.host.readClipboardImage
+              ? await runtime.host.readClipboardImage().catch(() => null)
+              : null;
+            if (image) {
+              if (!image.blob) {
+                reportTerminalImageTooLarge(runtime, t, image.size);
+                return;
               }
-            })
-            .catch(() => toast.error(t('terminal.pasteFailed')));
+              const roots = runtime.terminalFileLinks
+                ? await runtime.terminalFileLinks.listRoots(deviceId)
+                : (await fetchFileRoots(runtime.apiClient)).roots
+                    .filter((root) => root.enabled && root.deviceId === deviceId)
+                    .map((root) => ({ id: root.id, path: root.path }));
+              await uploadTerminalImage({
+                source: new File([image.blob], `clipboard.${pasteImageExtension(image.mimeType)}`, {
+                  type: image.mimeType,
+                }),
+                target: resolveTerminalImagePasteTarget(selectedPane?.currentPath, roots),
+                runtime,
+                t,
+                injectPath: (path) => {
+                  const state = runtime.stores.tmux.getState();
+                  const active = state.activePaneFromEvent[deviceId];
+                  if (active && active.paneId !== resolvedPaneId) return false;
+                  state.paste(deviceId, resolvedPaneId, path);
+                  return true;
+                },
+              });
+              return;
+            }
+            const text = await runtime.host.readClipboardText();
+            if (text) runtime.stores.tmux.getState().paste(deviceId, resolvedPaneId, text);
+          })().catch(() => toast.error(t('terminal.pasteFailed')));
           break;
         }
         case 'newAgentSession':
@@ -1177,7 +1206,16 @@ export function DeviceConsole({
           break;
       }
     },
-    [canInteractWithPane, deviceId, handleSendShortcut, inputMode, resolvedPaneId, runtime, t]
+    [
+      canInteractWithPane,
+      deviceId,
+      handleSendShortcut,
+      inputMode,
+      resolvedPaneId,
+      runtime,
+      selectedPane?.currentPath,
+      t,
+    ]
   );
 
   const handleEditorSend = useCallback(() => {

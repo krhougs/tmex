@@ -50,7 +50,7 @@ import {
   sendPathToAgent,
   triggerRsyncInstall,
 } from './rsync-install-flow';
-import { startTransferToast } from './transfer-toast';
+import { startTransferToast } from '@tmex/terminal-ui';
 
 const DEFAULT_TRANSFER_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 

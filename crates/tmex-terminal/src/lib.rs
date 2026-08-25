@@ -13,6 +13,7 @@
 
 mod control_mode;
 mod keyboard_modes;
+mod kitty_graphics;
 mod pane_stream;
 
 pub use control_mode::{
@@ -22,6 +23,10 @@ pub use control_mode::{
 pub use keyboard_modes::{
     apply_sequence, detect_keyboard_sequence, encode_pane_option_value, parse_pane_option_value,
     KbdSequence, KeyboardModeState, KittySetMode, KITTY_STACK_DEPTH,
+};
+pub use kitty_graphics::{
+    KittyGraphicsEvent, KITTY_APC_MAX_BYTES, KITTY_GRAPHICS_MAX_BYTES,
+    KITTY_IMAGE_STORAGE_LIMIT,
 };
 pub use pane_stream::{
     PaneStreamEvent, PaneStreamFragment, PaneStreamNotification, PaneStreamNotificationSource,

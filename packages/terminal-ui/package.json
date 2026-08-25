@@ -21,6 +21,7 @@
     "@tmex/ui": "workspace:*",
     "@tmex/ws-client": "workspace:*",
     "ghostty-terminal": "workspace:*",
+    "i18next": "^25.0.0",
     "lucide-react": "^0.564.0"
   },
   "peerDependencies": {

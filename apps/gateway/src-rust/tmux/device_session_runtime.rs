@@ -12,7 +12,7 @@ use tmex_protocol::{
 };
 use tmex_terminal::{
     apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminal,
-    HeadlessTerminalOptions, KeyboardModeState, TerminalContinuationState,
+    HeadlessTerminalOptions, KeyboardModeState, KittyGraphicsEvent, TerminalContinuationState,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -2404,6 +2404,16 @@ impl RuntimeActor {
                 }
                 let _ = run_allow_failure(&self.transport, &command, self.config.kind()).await;
             }
+            ControlModeSubscriptionEvent::Graphics { pane_id, event } => match event {
+                KittyGraphicsEvent::Reply(bytes) => {
+                    if let Err(error) = self.send_input(&pane_id, &bytes).await {
+                        self.emit_error(error.to_string());
+                    }
+                }
+                KittyGraphicsEvent::Error { message, .. } => {
+                    self.emit_error(format!("Kitty graphics: {message}"));
+                }
+            },
             ControlModeSubscriptionEvent::Pause { .. }
             | ControlModeSubscriptionEvent::Continue { .. }
             | ControlModeSubscriptionEvent::UnhandledBlock(_)
@@ -3660,6 +3670,30 @@ mod tests {
                     .last()
                     .map(|args| args.contains(&"-u".to_owned()))
                     .unwrap_or(false)
+        })
+        .await;
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn kitty_graphics_reply_is_injected_into_the_source_pane() {
+        let (factory, _close_started, _close_finished, commands) = recording_fake_factory(None);
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        let reply = b"\x1b_Gi=31;OK\x1b\\".to_vec();
+
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
+                pane_id: "%1".to_owned(),
+                event: KittyGraphicsEvent::Reply(reply.clone()),
+            })
+            .await;
+        let expected = send_input_commands("%1", &reply);
+        wait_until(|| {
+            let commands = commands.lock().unwrap();
+            expected.iter().all(|command| commands.contains(command))
         })
         .await;
 

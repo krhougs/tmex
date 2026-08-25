@@ -1,3 +1,6 @@
 export { FilesTab, type FilesTabProps } from './files-tab';
-export { startTransferToast } from './transfer-toast';
-export type { TransferDirection, TransferToast } from './transfer-toast';
+export {
+  startTransferToast,
+  type TransferDirection,
+  type TransferToast,
+} from '@tmex/terminal-ui';

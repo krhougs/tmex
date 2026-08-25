@@ -158,6 +158,12 @@
       "copiedPreview": "コピーしました:{{preview}}",
       "copyFailed": "コピーに失敗しました",
       "pasteFailed": "クリップボードを読み取れません。ブラウザの権限を確認してください",
+      "pasteTooLarge": "貼り付け内容が大きすぎます（{{size}} MiB）。上限は {{limit}} MiB です",
+      "imagePasteTooLarge": "画像が大きすぎます（{{size}}）。上限は {{limit}} です",
+      "imagePasteNoRoot": "現在のペインのディレクトリは書き込み可能なファイルルートに含まれていません",
+      "imagePasteUploaded": "画像をアップロードしてパスを挿入しました：{{path}}",
+      "imagePastePathCopied": "画像をアップロードしました。直接入力できないためパスをコピーしました：{{path}}",
+      "imagePasteFailed": "画像の貼り付けに失敗しました：{{message}}",
       "clearSelection": "選択を解除",
       "fileLinkNotFound": "ファイルが存在しないかアクセスできません",
       "linkOpenFailed": "リンクを開けませんでした"

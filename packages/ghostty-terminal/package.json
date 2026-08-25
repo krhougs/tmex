@@ -18,6 +18,9 @@
     "verify:wasm": "bun ./scripts/ghostty-wasm.ts verify",
     "test": "bun test"
   },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
   "devDependencies": {
     "@napi-rs/canvas": "^1.0.3",
     "typescript": "^5.7.3"

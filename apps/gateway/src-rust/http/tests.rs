@@ -770,6 +770,8 @@ impl HttpRuntime for TestRuntime {
             can_self_update,
             service_name: None,
             transfer_max_bytes: 2_147_483_648.0,
+            terminal_paste_max_bytes: 1024 * 1024,
+            paste_image_max_bytes: 4 * 1024 * 1024,
             management_mode: "none".to_owned(),
             update_owner: "self".to_owned(),
         })

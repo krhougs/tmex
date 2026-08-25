@@ -1,7 +1,11 @@
 /**
  * 系统信息公共面：不依赖 update-check / upgrade 模块，可供 managed 与开源路径共用。
  */
-import type { SystemInfo } from '@tmex/shared';
+import {
+  PASTE_IMAGE_MAX_BYTES,
+  TERMINAL_PASTE_MAX_BYTES,
+  type SystemInfo,
+} from '@tmex/shared';
 import { config } from '../config';
 import { getInstallInfo } from './install-info';
 import {
@@ -39,6 +43,8 @@ export function getSystemInfo(): SystemInfo {
     canSelfUpdate,
     serviceName: install.serviceName,
     transferMaxBytes: config.transferMaxBytes,
+    terminalPasteMaxBytes: TERMINAL_PASTE_MAX_BYTES,
+    pasteImageMaxBytes: PASTE_IMAGE_MAX_BYTES,
     managementMode: getManagementMode(),
     updateOwner: getUpdateOwner(),
   };

@@ -90,6 +90,8 @@ pub struct SystemInfo {
     pub service_name: Option<String>,
     #[serde(serialize_with = "serialize_js_number")]
     pub transfer_max_bytes: f64,
+    pub terminal_paste_max_bytes: u64,
+    pub paste_image_max_bytes: u64,
     pub management_mode: String,
     pub update_owner: String,
 }

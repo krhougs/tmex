@@ -2,10 +2,12 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tmex_protocol::TERMINAL_PASTE_MAX_BYTES;
 
 use crate::config::{
     GatewayConfig, GatewayEntryMode, ManagementMode, UpdateOwner, GATEWAY_VERSION,
 };
+use crate::files::PASTE_IMAGE_MAX_BYTES;
 use crate::http::SystemInfo;
 
 use super::ports::{GatewayRuntimePortError, GatewaySystemInfoProvider};
@@ -151,6 +153,8 @@ impl GatewaySystemInfoProvider for ProductionGatewaySystemInfoProvider {
             can_self_update,
             service_name: install.service_name,
             transfer_max_bytes: self.config.transfer_max_bytes,
+            terminal_paste_max_bytes: TERMINAL_PASTE_MAX_BYTES as u64,
+            paste_image_max_bytes: PASTE_IMAGE_MAX_BYTES,
             management_mode: management_mode(self.config.management_mode).to_owned(),
             update_owner: update_owner(self.config.update_owner).to_owned(),
         })

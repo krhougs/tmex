@@ -18,7 +18,8 @@ use crate::database::repository::{CreateFileRootInput, RepositoryError, UpdateFi
 use crate::entity::file_roots;
 use crate::files::{
     AppendUploadError, DownloadSession, FileCancellation, FileError, FileErrorCode, PulledFile,
-    RsyncProgress, TransferManager, RAW_MAX_BYTES, UPLOAD_CHUNK_BODY_LIMIT, UPLOAD_CHUNK_SIZE,
+    RsyncProgress, TransferManager, PASTE_IMAGE_MAX_BYTES, RAW_MAX_BYTES, UPLOAD_CHUNK_BODY_LIMIT,
+    UPLOAD_CHUNK_SIZE,
 };
 
 use super::dto::SettingsNamespace;
@@ -494,18 +495,26 @@ async fn handle_upload_init(handler: &HttpHandler, request: Request<Body>) -> Fi
     let Some(size) = body.get("size").and_then(json_u64) else {
         return Ok(invalid_request(handler));
     };
+    let kind = body
+        .get("kind")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("file");
+    if !matches!(kind, "file" | "paste-image") {
+        return Ok(invalid_request(handler));
+    }
     if root_id.is_empty() || destination.is_empty() || raw_name.is_empty() {
         return Ok(invalid_request(handler));
     }
     let Some(name) = crate::files::sanitize_upload_name(raw_name) else {
         return Ok(code_error(FileError::code(FileErrorCode::Invalid)));
     };
-    if size as f64 > handler.config.transfer_max_bytes {
-        return Ok(code_error(FileError::code(FileErrorCode::TooLarge)));
+    if let Err(error) = validate_upload_size(kind, size, handler.config.transfer_max_bytes) {
+        return Ok(code_error(error));
     }
     match handler.files.stat_file(root_id, destination).await {
         Ok(stat) if stat.entry_type == crate::files::FileEntryType::Dir => {}
         Ok(_) => return Ok(code_error(FileError::code(FileErrorCode::NotADirectory))),
+
         Err(error) => return Ok(code_error(error)),
     }
     let id = handler
@@ -518,6 +527,19 @@ async fn handle_upload_init(handler: &HttpHandler, request: Request<Body>) -> Fi
         StatusCode::OK,
         &json_value!({ "uploadId": id, "chunkSize": UPLOAD_CHUNK_SIZE }),
     ))
+}
+
+fn validate_upload_size(kind: &str, size: u64, transfer_max_bytes: f64) -> Result<(), FileError> {
+    if size as f64 > transfer_max_bytes {
+        return Err(FileError::code(FileErrorCode::TooLarge));
+    }
+    if kind == "paste-image" && size > PASTE_IMAGE_MAX_BYTES {
+        return Err(FileError::detailed(
+            FileErrorCode::TooLarge,
+            "paste image exceeds the 4 MiB limit",
+        ));
+    }
+    Ok(())
 }
 
 async fn handle_upload_chunk(
@@ -1161,5 +1183,23 @@ mod tests {
         assert!(cancellation.is_cancelled());
         assert!(!path.exists());
         assert!(manager.begin_upload_commit(&id).await.is_err());
+    }
+
+    #[test]
+    fn paste_image_size_limit_is_stricter_than_regular_file_uploads() {
+        let transfer_limit = (2_u64 * 1024 * 1024 * 1024) as f64;
+        assert!(validate_upload_size("paste-image", PASTE_IMAGE_MAX_BYTES, transfer_limit).is_ok());
+        let error =
+            validate_upload_size("paste-image", PASTE_IMAGE_MAX_BYTES + 1, transfer_limit)
+                .expect_err("paste image over 4 MiB must be rejected");
+        assert_eq!(error.code, FileErrorCode::TooLarge);
+        assert_eq!(
+            error.detail.as_deref(),
+            Some("paste image exceeds the 4 MiB limit")
+        );
+        assert!(
+            validate_upload_size("file", PASTE_IMAGE_MAX_BYTES + 1, transfer_limit).is_ok(),
+            "regular file uploads keep the configured transfer limit"
+        );
     }
 }

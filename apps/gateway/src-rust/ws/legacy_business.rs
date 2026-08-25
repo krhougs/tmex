@@ -11,6 +11,7 @@ use tmex_protocol::{
     TmuxRenameWindow, TmuxReorderPanes, TmuxReorderWindows, TmuxResizePane, TmuxSelect,
     TmuxSelectWindow, TmuxSetWindowStyle, TmuxSplitPane, TmuxSubscribePanes, TmuxWindowCreated,
     WatchEvent, WireToken, AGENT_EVENT_SYNC, SITE_THEME_DARK, SITE_THEME_LIGHT,
+    TERMINAL_INPUT_MAX_BYTES, TERMINAL_PASTE_MAX_BYTES,
 };
 
 use super::{
@@ -1067,6 +1068,16 @@ impl LegacyBusinessSession {
             }
             MessageKind::TermInput => {
                 let command = decode!(TermInput);
+                if command.data.len() > TERMINAL_INPUT_MAX_BYTES {
+                    self.send_error(
+                        Some(ref_seq),
+                        ProtocolErrorCode::FrameTooLarge,
+                        "Terminal input exceeds the 1 MiB limit".to_owned(),
+                        false,
+                        sink,
+                    )?;
+                    return Ok(Vec::new());
+                }
                 if !command.is_composing && self.attached_devices.contains(&command.device_id) {
                     runtime.dispatch(LegacyRuntimeCommand::SendInput {
                         device_id: command.device_id,
@@ -1089,6 +1100,16 @@ impl LegacyBusinessSession {
             }
             MessageKind::TermPaste => {
                 let command = decode!(TermPaste);
+                if command.data.len() > TERMINAL_PASTE_MAX_BYTES {
+                    self.send_error(
+                        Some(ref_seq),
+                        ProtocolErrorCode::FrameTooLarge,
+                        "Terminal paste exceeds the 1 MiB limit".to_owned(),
+                        false,
+                        sink,
+                    )?;
+                    return Ok(Vec::new());
+                }
                 if self.attached_devices.contains(&command.device_id) {
                     let text = String::from_utf8_lossy(&command.data);
                     let chunks = js_string_chunks(&text, 1_024);
@@ -1750,6 +1771,58 @@ mod tests {
         assert_eq!(error.ref_seq, Some(77));
         assert_eq!(error.code, ProtocolErrorCode::PayloadDecodeFailed as u16);
         assert!(!error.retryable);
+    }
+
+    #[test]
+    fn oversized_terminal_input_and_paste_return_frame_too_large_without_dispatch() {
+        let cases = [
+            (
+                MessageKind::TermInput,
+                encode_payload(&TermInput {
+                    device_id: "device".into(),
+                    pane_id: "%1".into(),
+                    encoding: 2,
+                    data: vec![b'x'; TERMINAL_INPUT_MAX_BYTES + 1],
+                    is_composing: false,
+                })
+                .expect("encode input"),
+            ),
+            (
+                MessageKind::TermPaste,
+                encode_payload(&TermPaste {
+                    device_id: "device".into(),
+                    pane_id: "%1".into(),
+                    encoding: 2,
+                    data: vec![b'x'; TERMINAL_PASTE_MAX_BYTES + 1],
+                    is_composing: false,
+                })
+                .expect("encode paste"),
+            ),
+        ];
+
+        for (index, (kind, payload)) in cases.into_iter().enumerate() {
+            let mut session = LegacyBusinessSession::new(SessionConfig::default(), 0);
+            let mut runtime = Runtime::default();
+            let mut sink = Sink::new();
+            negotiate(&mut session, &mut runtime, &mut sink);
+            let seq = u32::try_from(index + 2).expect("test sequence fits u32");
+            session
+                .dispatch_business(
+                    inbound(kind, seq, payload),
+                    1,
+                    &mut runtime,
+                    &mut sink,
+                )
+                .expect("oversized input handled");
+
+            let error_frame = sink.envelopes().last().expect("error envelope");
+            let error: ErrorPayload =
+                decode_payload(&error_frame.payload).expect("decode error payload");
+            assert_eq!(error.ref_seq, Some(seq));
+            assert_eq!(error.code, ProtocolErrorCode::FrameTooLarge as u16);
+            assert!(!error.retryable);
+            assert!(runtime.commands.is_empty());
+        }
     }
 
     #[test]

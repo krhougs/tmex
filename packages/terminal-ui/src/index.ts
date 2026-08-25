@@ -32,6 +32,11 @@ export type {
 export { PaneSwitcherMenu } from './components/PaneSwitcherMenu';
 export { SelectionToolbar } from './components/SelectionToolbar';
 export {
+  startTransferToast,
+  type TransferDirection,
+  type TransferToast,
+} from './components/transfer-toast';
+export {
   XTERM_THEME_DARK,
   XTERM_THEME_LIGHT,
   XTERM_THEME_MIDNIGHT_AMETHYST,

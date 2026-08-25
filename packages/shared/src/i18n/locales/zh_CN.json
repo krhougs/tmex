@@ -158,6 +158,12 @@
       "copiedPreview": "已复制:{{preview}}",
       "copyFailed": "复制失败",
       "pasteFailed": "无法读取剪贴板，请检查浏览器权限",
+      "pasteTooLarge": "粘贴内容过大（{{size}} MiB），上限为 {{limit}} MiB",
+      "imagePasteTooLarge": "图片过大（{{size}}），上限为 {{limit}}",
+      "imagePasteNoRoot": "当前 pane 目录未配置可写文件根，无法上传图片",
+      "imagePasteUploaded": "图片已上传并插入路径：{{path}}",
+      "imagePastePathCopied": "图片已上传；当前不可直接输入，路径已复制：{{path}}",
+      "imagePasteFailed": "图片粘贴失败：{{message}}",
       "clearSelection": "取消选择",
       "fileLinkNotFound": "文件不存在或无法访问",
       "linkOpenFailed": "无法打开链接"

@@ -5,6 +5,8 @@ import { ensureMinimumContrast, isFallbackEligible } from './minimum-contrast';
 import type {
   GhosttyCellDimensions,
   GhosttyColorRgb,
+  GhosttyKittyGraphicsSnapshot,
+  GhosttyKittyImageSnapshot,
   GhosttyRenderRow,
   GhosttyRenderSnapshotMeta,
   GhosttySelectionRect,
@@ -18,6 +20,7 @@ type CanvasRendererOptions = {
   fontSize: number;
   ligatures?: boolean;
   minimumContrast?: boolean;
+  onInvalidate?: () => void;
 };
 
 type CanvasRendererFrame = {
@@ -26,6 +29,8 @@ type CanvasRendererFrame = {
   cellDimensions: GhosttyCellDimensions;
   selectionRects?: GhosttySelectionRect[];
   selectionColor?: string;
+  graphics?: GhosttyKittyGraphicsSnapshot;
+  graphicsRowOffset?: number;
   // canvas 在上次 render 后被 resize 清空了位图（HTML5 canvas.width 赋值副作用），
   // 或 terminal 显式请求全画（forceFullRepaint）：两种情形都必须忽略 dirty='clean'
   // 早退、强制按 'full' 重画所有行，否则屏幕空白（issue #45 bug 3）。
@@ -103,22 +108,92 @@ function ensureContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   return context;
 }
 
+type KittyTexture = {
+  generation: bigint;
+  source: CanvasImageSource;
+  fallbackCanvas: HTMLCanvasElement | null;
+  bitmap: ImageBitmap | null;
+};
+
+function kittyRgbaPixels(image: GhosttyKittyImageSnapshot): Uint8ClampedArray | null {
+  const pixels = image.width * image.height;
+  if (!Number.isSafeInteger(pixels) || pixels <= 0) return null;
+  const rgba = new Uint8ClampedArray(pixels * 4);
+  const source = image.data;
+  let sourceStride: number;
+  switch (image.format) {
+    case 0:
+      sourceStride = 3;
+      break;
+    case 1:
+      sourceStride = 4;
+      break;
+    case 3:
+      sourceStride = 2;
+      break;
+    case 4:
+      sourceStride = 1;
+      break;
+    default:
+      return null;
+  }
+  if (source.byteLength !== pixels * sourceStride) return null;
+  for (let index = 0; index < pixels; index += 1) {
+    const sourceOffset = index * sourceStride;
+    const targetOffset = index * 4;
+    switch (image.format) {
+      case 0:
+        rgba[targetOffset] = source[sourceOffset];
+        rgba[targetOffset + 1] = source[sourceOffset + 1];
+        rgba[targetOffset + 2] = source[sourceOffset + 2];
+        rgba[targetOffset + 3] = 255;
+        break;
+      case 1:
+        rgba.set(source.subarray(sourceOffset, sourceOffset + 4), targetOffset);
+        break;
+      case 3:
+        rgba[targetOffset] = source[sourceOffset];
+        rgba[targetOffset + 1] = source[sourceOffset];
+        rgba[targetOffset + 2] = source[sourceOffset];
+        rgba[targetOffset + 3] = source[sourceOffset + 1];
+        break;
+      case 4:
+        rgba[targetOffset] = source[sourceOffset];
+        rgba[targetOffset + 1] = source[sourceOffset];
+        rgba[targetOffset + 2] = source[sourceOffset];
+        rgba[targetOffset + 3] = 255;
+        break;
+    }
+  }
+  return rgba;
+}
+
 export class CanvasRenderer {
   readonly kind = 'canvas';
 
+  private readonly screenElement: HTMLElement;
   private readonly mainCanvas: HTMLCanvasElement;
+  private imageOverCanvas: HTMLCanvasElement | null = null;
   private readonly linkCanvas: HTMLCanvasElement;
   private readonly selectionCanvas: HTMLCanvasElement;
   private readonly cursorCanvas: HTMLCanvasElement;
+  private imageTopCanvas: HTMLCanvasElement | null = null;
   private readonly mainContext: CanvasRenderingContext2D;
+  private imageOverContext: CanvasRenderingContext2D | null = null;
   private readonly linkContext: CanvasRenderingContext2D;
   private readonly selectionContext: CanvasRenderingContext2D;
   private readonly cursorContext: CanvasRenderingContext2D;
+  private imageTopContext: CanvasRenderingContext2D | null = null;
   private theme: GhosttyTheme;
   private readonly fontFamily: string;
   private readonly fontSize: number;
   private readonly ligatures: boolean;
   private readonly minimumContrast: boolean;
+  private readonly onInvalidate: (() => void) | undefined;
+  private readonly kittyTextures = new Map<number, KittyTexture>();
+  private kittySnapshot: GhosttyKittyGraphicsSnapshot | undefined;
+  private kittyRowOffset = 0;
+  private hadKittyUnder = false;
   private cellDimensions: GhosttyCellDimensions = { width: 9, height: 17 };
   // 设备像素整数 cell。所有绘制坐标必须落在整数物理像素上：相邻 fillRect 在
   // 小数边界各自抗锯齿半覆盖，叠加后边界像素覆盖不满，会在大面积色块中透出
@@ -158,6 +233,8 @@ export class CanvasRenderer {
     this.fontSize = options.fontSize;
     this.ligatures = options.ligatures ?? false;
     this.minimumContrast = options.minimumContrast ?? false;
+    this.onInvalidate = options.onInvalidate;
+    this.screenElement = options.screenElement;
 
     options.screenElement.style.position = 'relative';
     options.screenElement.style.overflow = 'hidden';
@@ -181,6 +258,10 @@ export class CanvasRenderer {
       canvas.style.pointerEvents = 'none';
       options.screenElement.appendChild(canvas);
     }
+    this.mainCanvas.style.zIndex = '0';
+    this.linkCanvas.style.zIndex = '3';
+    this.selectionCanvas.style.zIndex = '4';
+    this.cursorCanvas.style.zIndex = '5';
 
     this.mainContext = ensureContext(this.mainCanvas);
     this.linkContext = ensureContext(this.linkCanvas);
@@ -201,6 +282,10 @@ export class CanvasRenderer {
     this.lastDrawnRows = [];
     this.cellDimensions = frame.cellDimensions;
     const wiped = this.resize(frame.meta.cols, frame.meta.rows);
+    const repaintKittyUnder = this.prepareKittyGraphics(
+      frame.graphics,
+      frame.graphicsRowOffset ?? 0
+    );
     this.drawSelection(
       frame.selectionRects ?? [],
       frame.selectionColor ?? this.theme.selectionBackground
@@ -208,7 +293,8 @@ export class CanvasRenderer {
 
     // canvas 位图被 resize 清空 / 外部强制全画 → 必须忽略 dirty='clean' 早退，
     // 否则屏幕空白（issue #45 bug 3）。
-    const effectiveDirty = wiped || frame.forceFull === true ? 'full' : frame.meta.dirty;
+    const effectiveDirty =
+      wiped || frame.forceFull === true || repaintKittyUnder ? 'full' : frame.meta.dirty;
 
     if (effectiveDirty === 'clean') {
       this.drawCursor(frame.meta, frame.rows);
@@ -240,6 +326,7 @@ export class CanvasRenderer {
     for (const row of renderRows) {
       this.drawRowBackground(row, frame.meta.colors);
     }
+    this.drawKittyUnder();
     for (const row of renderRows) {
       this.drawRowForeground(row, frame.meta.colors);
     }
@@ -269,6 +356,9 @@ export class CanvasRenderer {
   }
 
   dispose(): void {
+    for (const texture of this.kittyTextures.values()) this.disposeKittyTexture(texture);
+    this.kittyTextures.clear();
+    this.releaseKittyLayers();
     this.mainCanvas.remove();
     this.linkCanvas.remove();
     this.selectionCanvas.remove();
@@ -347,24 +437,30 @@ export class CanvasRenderer {
     const width = nextCols * deviceCellWidth;
     const height = nextRows * deviceCellHeight;
 
-    for (const canvas of [
+    const canvases = [
       this.mainCanvas,
+      this.imageOverCanvas,
       this.linkCanvas,
       this.selectionCanvas,
       this.cursorCanvas,
-    ]) {
+      this.imageTopCanvas,
+    ].filter((canvas): canvas is HTMLCanvasElement => canvas !== null);
+    for (const canvas of canvases) {
       canvas.width = width;
       canvas.height = height;
       canvas.style.width = `${width / dpr}px`;
       canvas.style.height = `${height / dpr}px`;
     }
 
-    for (const context of [
+    const contexts = [
       this.mainContext,
+      this.imageOverContext,
       this.linkContext,
       this.selectionContext,
       this.cursorContext,
-    ]) {
+      this.imageTopContext,
+    ].filter((context): context is CanvasRenderingContext2D => context !== null);
+    for (const context of contexts) {
       context.setTransform(1, 0, 0, 1, 0, 0);
       // alphabetic：按真实 baseline 定位，配合 textBaselineY 精确居中字形盒。
       context.textBaseline = 'alphabetic';
@@ -373,6 +469,193 @@ export class CanvasRenderer {
 
     return true;
   }
+
+  private ensureKittyLayers(): void {
+    if (this.imageOverCanvas && this.imageTopCanvas) return;
+    const createLayer = (name: string, zIndex: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.dataset.layer = name;
+      canvas.style.position = 'absolute';
+      canvas.style.inset = '0';
+      canvas.style.width = this.mainCanvas.style.width;
+      canvas.style.height = this.mainCanvas.style.height;
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = String(zIndex);
+      canvas.width = this.mainCanvas.width;
+      canvas.height = this.mainCanvas.height;
+      this.screenElement.appendChild(canvas);
+      const context = ensureContext(canvas);
+      context.imageSmoothingEnabled = false;
+      return { canvas, context };
+    };
+    if (!this.imageOverCanvas) {
+      const layer = createLayer('image-over', 2);
+      this.imageOverCanvas = layer.canvas;
+      this.imageOverContext = layer.context;
+    }
+    if (!this.imageTopCanvas) {
+      const layer = createLayer('image-top', 6);
+      this.imageTopCanvas = layer.canvas;
+      this.imageTopContext = layer.context;
+    }
+  }
+
+  private releaseKittyLayers(): void {
+    this.imageOverCanvas?.remove();
+    this.imageTopCanvas?.remove();
+    this.imageOverCanvas = null;
+    this.imageOverContext = null;
+    this.imageTopCanvas = null;
+    this.imageTopContext = null;
+  }
+
+  private prepareKittyGraphics(
+    snapshot: GhosttyKittyGraphicsSnapshot | undefined,
+    rowOffset: number
+  ): boolean {
+    const hadUnder = this.hadKittyUnder;
+    this.kittySnapshot = snapshot;
+    this.kittyRowOffset = rowOffset;
+    this.hadKittyUnder = false;
+    if (!snapshot && this.kittyTextures.size === 0 && !hadUnder) return false;
+    if (!snapshot) {
+      for (const [imageId, texture] of this.kittyTextures) {
+        this.disposeKittyTexture(texture);
+        this.kittyTextures.delete(imageId);
+      }
+      this.releaseKittyLayers();
+      return hadUnder;
+    }
+
+    const needsOverlayLayers = snapshot.placements.some((placement) => placement.z >= 0);
+    if (needsOverlayLayers) {
+      this.ensureKittyLayers();
+      this.imageOverContext?.clearRect(
+        0,
+        0,
+        this.imageOverCanvas?.width ?? 0,
+        this.imageOverCanvas?.height ?? 0
+      );
+      this.imageTopContext?.clearRect(
+        0,
+        0,
+        this.imageTopCanvas?.width ?? 0,
+        this.imageTopCanvas?.height ?? 0
+      );
+    } else {
+      this.releaseKittyLayers();
+    }
+
+    for (const image of snapshot.images) this.upsertKittyTexture(image);
+    const activeImageIds = new Set(snapshot.imageIds);
+    for (const [imageId, texture] of this.kittyTextures) {
+      if (activeImageIds.has(imageId)) continue;
+      this.disposeKittyTexture(texture);
+      this.kittyTextures.delete(imageId);
+    }
+
+    snapshot.placements.sort((left, right) => left.z - right.z || left.imageId - right.imageId);
+    for (const placement of snapshot.placements) {
+      if (placement.z < 0) {
+        this.hadKittyUnder = true;
+        continue;
+      }
+      const context = placement.z >= 1000 ? this.imageTopContext : this.imageOverContext;
+      if (context) this.drawKittyPlacement(placement, context);
+    }
+    return hadUnder || this.hadKittyUnder;
+  }
+
+  private drawKittyUnder(): void {
+    const snapshot = this.kittySnapshot;
+    if (!snapshot) return;
+    for (const placement of snapshot.placements) {
+      if (placement.z >= 0) break;
+      this.drawKittyPlacement(placement, this.mainContext);
+    }
+  }
+
+  private drawKittyPlacement(
+    placement: GhosttyKittyGraphicsSnapshot['placements'][number],
+    context: CanvasRenderingContext2D
+  ): void {
+    if (!placement.viewportVisible || placement.pixelWidth === 0 || placement.pixelHeight === 0) {
+      return;
+    }
+    const texture = this.kittyTextures.get(placement.imageId);
+    if (!texture) return;
+    const x =
+      placement.viewportCol * this.deviceCellWidth + Math.round(placement.xOffset * this.dpr);
+    const y =
+      (placement.viewportRow + this.kittyRowOffset) * this.deviceCellHeight +
+      Math.round(placement.yOffset * this.dpr);
+    context.drawImage(
+      texture.source,
+      placement.sourceX,
+      placement.sourceY,
+      placement.sourceWidth,
+      placement.sourceHeight,
+      x,
+      y,
+      Math.max(1, Math.round(placement.pixelWidth * this.dpr)),
+      Math.max(1, Math.round(placement.pixelHeight * this.dpr))
+    );
+  }
+
+  private upsertKittyTexture(image: GhosttyKittyImageSnapshot): void {
+    const previous = this.kittyTextures.get(image.id);
+    if (previous?.generation === image.generation) return;
+    if (previous) this.disposeKittyTexture(previous);
+    const pixels = kittyRgbaPixels(image);
+    if (!pixels) {
+      this.kittyTextures.delete(image.id);
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = ensureContext(canvas);
+    const imageData = context.createImageData(image.width, image.height);
+    imageData.data.set(pixels);
+    context.putImageData(imageData, 0, 0);
+    const texture: KittyTexture = {
+      generation: image.generation,
+      source: canvas,
+      fallbackCanvas: canvas,
+      bitmap: null,
+    };
+    this.kittyTextures.set(image.id, texture);
+
+    if (typeof globalThis.createImageBitmap === 'function') {
+      void globalThis
+        .createImageBitmap(canvas)
+        .then((bitmap) => {
+          if (this.kittyTextures.get(image.id) !== texture) {
+            bitmap.close();
+            return;
+          }
+          texture.bitmap = bitmap;
+          texture.source = bitmap;
+          if (texture.fallbackCanvas) {
+            texture.fallbackCanvas.width = 0;
+            texture.fallbackCanvas.height = 0;
+            texture.fallbackCanvas = null;
+          }
+          this.onInvalidate?.();
+        })
+        .catch(() => {});
+    }
+  }
+
+  private disposeKittyTexture(texture: KittyTexture): void {
+    texture.bitmap?.close();
+    if (texture.fallbackCanvas) {
+      texture.fallbackCanvas.width = 0;
+      texture.fallbackCanvas.height = 0;
+    }
+  }
+
 
   // 链接虚线下划线层：独立 canvas，与主画布的按行局部重绘互不干扰。
   // 每次全量重画（段数少、开销可忽略），由 terminal 侧节流调用。
@@ -496,6 +779,7 @@ export class CanvasRenderer {
     }
 
     for (const [index, cell] of row.cells.entries()) {
+      if (cell.codepoints[0] === 0x10eeee) continue;
       if (cell.widthKind === 'spacer-tail' || cell.widthKind === 'spacer-head') {
         continue;
       }

@@ -3,6 +3,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::ProtocolError;
 
 pub type WireToken = [u8; 16];
+pub const TERMINAL_PASTE_MAX_BYTES: usize = 1024 * 1024;
+pub const TERMINAL_INPUT_MAX_BYTES: usize = TERMINAL_PASTE_MAX_BYTES + 64;
+
 
 pub const AGENT_EVENT_SYNC: u8 = 1;
 pub const AGENT_EVENT_STATUS: u8 = 2;

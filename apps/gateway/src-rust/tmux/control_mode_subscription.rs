@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use tmex_terminal::{
     ControlModeBlock, ControlModeEvent, ControlModeNotification, ControlModeParser, KbdSequence,
-    PaneStreamEvent, PaneStreamFragment, PaneStreamNotification, PaneStreamParser, PromptMarker,
+    KittyGraphicsEvent, PaneStreamEvent, PaneStreamFragment, PaneStreamNotification,
+    PaneStreamParser, PromptMarker,
 };
 
 use super::control_mode_capture::ControlModeQueueGuard;
@@ -84,6 +85,10 @@ pub enum ControlModeSubscriptionEvent {
     KeyboardSequence {
         pane_id: String,
         seq: KbdSequence,
+    },
+    Graphics {
+        pane_id: String,
+        event: KittyGraphicsEvent,
     },
     SourceMetadata(SourceMetadataEvent),
     Pause {
@@ -350,6 +355,9 @@ impl ControlModeSubscription {
             }
             PaneStreamEvent::KeyboardSequence(seq) => {
                 projected.push(ControlModeSubscriptionEvent::KeyboardSequence { pane_id, seq });
+            }
+            PaneStreamEvent::Graphics(event) => {
+                projected.push(ControlModeSubscriptionEvent::Graphics { pane_id, event });
             }
         }
     }

@@ -41,6 +41,7 @@ const GHOSTTY_ROW_DATA_WRAP_CONTINUATION = 2;
 // GhosttyStyleColor.tag：0=none（未指定，用默认前景/背景）1=palette 2=rgb（SGR 真彩色）。
 // 实测自 ghostty-vt.wasm：\e[31m→1、\e[38;5;196m→1、\e[38;2;255;0;0m→2、无 SGR→0。
 const GHOSTTY_STYLE_COLOR_PALETTE = 1;
+const GHOSTTY_STYLE_COLOR_RGB = 2;
 
 const GHOSTTY_CELL_DATA_WIDE = 3;
 const GHOSTTY_CELL_DATA_HAS_TEXT = 4;
@@ -288,6 +289,7 @@ function readStyle(resources: GhosttyRenderStateResources): {
   style: GhosttyRenderCellStyle;
   fgPaletteIndex: number | null;
   bgPaletteIndex: number | null;
+  underlineColor: GhosttyColorRgb | null;
 } {
   const slot = scratchSlot(resources, 'style', resources.bindings.typeSize('GhosttyStyle'));
   const style = slotView(resources, slot);
@@ -317,6 +319,17 @@ function readStyle(resources: GhosttyRenderStateResources): {
     return style.getUint8(base + colorField('value'));
   };
 
+  const rgbAt = (base: number): GhosttyColorRgb | null => {
+    const tag = style.getInt32(base + colorField('tag'), true);
+    if (tag !== GHOSTTY_STYLE_COLOR_RGB) return null;
+    const value = base + colorField('value');
+    return {
+      r: style.getUint8(value),
+      g: style.getUint8(value + 1),
+      b: style.getUint8(value + 2),
+    };
+  };
+
   return {
     style: {
       bold: style.getUint8(field('bold')) !== 0,
@@ -331,6 +344,7 @@ function readStyle(resources: GhosttyRenderStateResources): {
     },
     fgPaletteIndex: paletteIndexAt(field('fg_color')),
     bgPaletteIndex: paletteIndexAt(field('bg_color')),
+    underlineColor: rgbAt(field('underline_color')),
   };
 }
 
@@ -589,7 +603,7 @@ function readRow(
         resources.bindings.getRawCellValueResult(rawCell, GHOSTTY_CELL_DATA_WIDE, ptr)
       )
     );
-    const { style, fgPaletteIndex, bgPaletteIndex } = readStyle(resources);
+    const { style, fgPaletteIndex, bgPaletteIndex, underlineColor } = readStyle(resources);
     const cell: GhosttyRenderCell = {
       x,
       text: codepointsToText(codepoints),
@@ -601,6 +615,7 @@ function readRow(
       style,
       fgPaletteIndex,
       bgPaletteIndex,
+      underlineColor,
       fgColor: readOptionalColor(resources, (ptr) =>
         resources.bindings.getRenderStateRowCellValueResult(
           resources.rowCellsHandle,

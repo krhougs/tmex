@@ -48,6 +48,12 @@ export interface SaveFileInput {
   blob: Blob;
 }
 
+export interface ClipboardImage {
+  blob: Blob | null;
+  size: number;
+  mimeType: string;
+}
+
 export interface HostServices {
   /** 应用内跳转（toast/通知点击等），语义等同 navigateToAppUrl */
   navigate(to: string, opts?: { replace?: boolean }): void;
@@ -63,6 +69,8 @@ export interface HostServices {
   writeClipboardText(text: string): Promise<void>;
   /** 读取系统剪贴板文本 */
   readClipboardText(): Promise<string>;
+  /** 读取系统剪贴板图片；宿主不支持时缺省为空。 */
+  readClipboardImage?(): Promise<ClipboardImage | null>;
   /** 打开外部 URL（新标签页/系统浏览器等）；可异步 */
   openExternal(url: string): void | Promise<void>;
   /** 整页/宿主刷新 */
@@ -225,6 +233,18 @@ async function browserReadClipboard(): Promise<string> {
   return navigator.clipboard.readText();
 }
 
+async function browserReadClipboardImage(): Promise<ClipboardImage | null> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.read) return null;
+  const items = await navigator.clipboard.read();
+  for (const item of items) {
+    const mime = item.types.find((type) => type.startsWith('image/'));
+    if (!mime) continue;
+    const blob = await item.getType(mime);
+    return { blob, size: blob.size, mimeType: mime };
+  }
+  return null;
+}
+
 function browserOpenExternal(url: string): void {
   if (typeof window === 'undefined') {
     throw new Error('openExternal unavailable');
@@ -269,6 +289,7 @@ const defaultHost: HostServices = {
   closeMobileSidebar: bridgeCloseMobileSidebar,
   writeClipboardText: browserWriteClipboard,
   readClipboardText: browserReadClipboard,
+  readClipboardImage: browserReadClipboardImage,
   openExternal: browserOpenExternal,
   reload: browserReload,
   saveFile: browserSaveFile,

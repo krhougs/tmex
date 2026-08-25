@@ -82,6 +82,28 @@ class FakeCanvasContext2D {
     });
   }
 
+  createImageData(width: number, height: number): ImageData {
+    return { width, height, data: new Uint8ClampedArray(width * height * 4) } as ImageData;
+  }
+
+  putImageData(imageData: ImageData, x: number, y: number): void {
+    this.operations.push({ type: 'putImageData', x, y, width: imageData.width, height: imageData.height });
+  }
+
+  drawImage(
+    _source: CanvasImageSource,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number
+  ): void {
+    this.operations.push({ type: 'drawImage', sx, sy, sw, sh, dx, dy, dw, dh });
+  }
+
   strokeRect(x: number, y: number, width: number, height: number): void {
     this.operations.push({
       type: 'strokeRect',
@@ -2009,6 +2031,7 @@ describe('CanvasRenderer', () => {
       fontFamily: 'monospace',
       fontSize: 13,
     });
+    renderer.setGlyphRunCacheEnabled(false);
 
     const frame = {
       meta: {
@@ -2136,6 +2159,8 @@ describe('CanvasRenderer', () => {
 
     renderer.render(frame);
     expect(findElementsByTag(screen, 'canvas').length).toBe(4);
+    expect(findCanvasByLayer(screen, 'image-over')).toBeNull();
+    expect(findCanvasByLayer(screen, 'image-top')).toBeNull();
     expect(renderer.getDebugState().lastDrawnRows).toEqual([0, 1]);
 
     const mainCanvas = findCanvasByLayer(screen, 'main');
@@ -2201,6 +2226,49 @@ describe('CanvasRenderer', () => {
         },
       },
     });
+    renderer.render({
+      ...frame,
+      graphics: {
+        generation: 1n,
+        imageIds: [7],
+        images: [
+          {
+            id: 7,
+            generation: 1n,
+            width: 1,
+            height: 1,
+            format: 1,
+            data: Uint8Array.from([255, 0, 0, 255]),
+          },
+        ],
+        placements: [
+          {
+            imageId: 7,
+            placementId: 0,
+            z: 0,
+            xOffset: 0,
+            yOffset: 0,
+            pixelWidth: 10,
+            pixelHeight: 20,
+            viewportCol: 0,
+            viewportRow: 0,
+            viewportVisible: true,
+            sourceX: 0,
+            sourceY: 0,
+            sourceWidth: 1,
+            sourceHeight: 1,
+          },
+        ],
+      },
+    });
+    expect(findElementsByTag(screen, 'canvas').length).toBe(6);
+    expect(
+      findCanvasByLayer(screen, 'image-over')?.context.operations.some(
+        (operation) => operation.type === 'drawImage'
+      )
+    ).toBeTruthy();
+    renderer.render({ ...frame, graphics: undefined });
+    expect(findElementsByTag(screen, 'canvas').length).toBe(4);
     expect(
       mainCanvas?.context.operations.some(
         (operation) => operation.type === 'fillRect' && operation.fillStyle === 'rgb(34 34 34)'
@@ -2372,6 +2440,7 @@ describe('CanvasRenderer', () => {
         fontFamily: 'monospace',
         fontSize: 13,
       });
+      renderer.setGlyphRunCacheEnabled(false);
 
       const cellStyle = {
         bold: false,

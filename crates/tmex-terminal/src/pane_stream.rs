@@ -6,6 +6,10 @@ use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine as _;
+use crate::kitty_graphics::{
+    KittyGraphicsOutput, KittyGraphicsProcessor, KITTY_BASE64_MAX_BYTES,
+    KITTY_CONTROL_MAX_BYTES,
+};
 
 use crate::keyboard_modes::{detect_keyboard_sequence, KbdSequence};
 use crate::{PromptMarker, PromptMarkerKind};
@@ -45,6 +49,7 @@ pub enum PaneStreamEvent {
     ClipboardWrite(String),
     ThemeSubscription(bool),
     KeyboardSequence(KbdSequence),
+    Graphics(crate::KittyGraphicsEvent),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -143,6 +148,14 @@ enum Phase {
     DcsTmuxEsc,
     DcsTmuxIgnore,
     DcsTmuxIgnoreEsc,
+    ApcDetect,
+    ApcControl,
+    ApcPayload,
+    ApcPayloadEsc,
+    ApcPassthrough,
+    ApcPassthroughEsc,
+    ApcIgnore,
+    ApcIgnoreEsc,
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +174,9 @@ pub struct PaneStreamParser {
     dcs_prefix: Vec<u8>,
     dcs_bytes: Vec<u8>,
     csi_bytes: Vec<u8>,
+    apc_control: Vec<u8>,
+    apc_payload: Vec<u8>,
+    kitty_graphics: KittyGraphicsProcessor,
     in_tmux_passthrough: bool,
     kitty_pending: Vec<KittyPending>,
     last_clipboard: Option<(String, Instant)>,
@@ -191,6 +207,17 @@ impl PaneStreamParser {
                 output.terminal_bytes.extend_from_slice(b"\x1bP");
                 output.terminal_bytes.append(&mut self.dcs_prefix);
             }
+            Phase::ApcDetect => output.terminal_bytes.extend_from_slice(b"\x1b_"),
+            Phase::ApcControl
+            | Phase::ApcPayload
+            | Phase::ApcPayloadEsc
+            | Phase::ApcIgnore
+            | Phase::ApcIgnoreEsc => {
+                let graphics = self
+                    .kitty_graphics
+                    .reject(&self.apc_control, "Kitty graphics transfer ended before ST");
+                Self::append_graphics_output(graphics, &mut output);
+            }
             _ => {}
         }
         self.reset();
@@ -205,6 +232,9 @@ impl PaneStreamParser {
         self.dcs_prefix.clear();
         self.dcs_bytes.clear();
         self.csi_bytes.clear();
+        self.apc_control.clear();
+        self.apc_payload.clear();
+        self.kitty_graphics.reset();
         self.in_tmux_passthrough = false;
         self.kitty_pending.clear();
         self.last_clipboard = None;
@@ -213,39 +243,64 @@ impl PaneStreamParser {
     fn process_byte(&mut self, byte: u8, output: &mut PaneStreamOutput) {
         let phase = self.phase;
         match phase {
-            Phase::Normal => match byte {
-                0x1b => self.phase = Phase::Esc,
-                0x07 => output.push_event(PaneStreamEvent::Bell),
-                _ => output.terminal_bytes.push(byte),
-            },
-            Phase::Esc => match byte {
-                b']' => {
-                    self.reset_osc();
-                    self.phase = Phase::OscParams;
+            Phase::Normal => {
+                if byte == 0x1b {
+                    self.phase = Phase::Esc;
+                } else {
+                    if self.kitty_graphics.has_pending() {
+                        let graphics = self
+                            .kitty_graphics
+                            .abort_pending("Kitty graphics transfer was interrupted");
+                        Self::append_graphics_output(graphics, output);
+                    }
+                    if byte == 0x07 {
+                        output.push_event(PaneStreamEvent::Bell);
+                    } else {
+                        output.terminal_bytes.push(byte);
+                    }
                 }
-                b'k' => {
-                    self.title.clear();
-                    self.phase = Phase::ScreenTitle;
+            }
+            Phase::Esc => {
+                if byte != b'_' && self.kitty_graphics.has_pending() {
+                    let graphics = self
+                        .kitty_graphics
+                        .abort_pending("Kitty graphics transfer was interrupted");
+                    Self::append_graphics_output(graphics, output);
                 }
-                b'P' => {
-                    self.dcs_prefix.clear();
-                    self.phase = Phase::DcsDetect;
+                match byte {
+                    b'_' => {
+                        self.apc_control.clear();
+                        self.apc_payload.clear();
+                        self.phase = Phase::ApcDetect;
+                    }
+                    b']' => {
+                        self.reset_osc();
+                        self.phase = Phase::OscParams;
+                    }
+                    b'k' => {
+                        self.title.clear();
+                        self.phase = Phase::ScreenTitle;
+                    }
+                    b'P' => {
+                        self.dcs_prefix.clear();
+                        self.phase = Phase::DcsDetect;
+                    }
+                    b'[' => {
+                        self.csi_bytes.clear();
+                        self.phase = Phase::Csi;
+                    }
+                    b'c' => {
+                        output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
+                        output.push_event(PaneStreamEvent::KeyboardSequence(KbdSequence::ResetAll));
+                        self.kitty_graphics.reset();
+                        self.phase = Phase::Normal;
+                    }
+                    _ => {
+                        output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
+                        self.phase = Phase::Normal;
+                    }
                 }
-                b'[' => {
-                    self.csi_bytes.clear();
-                    self.phase = Phase::Csi;
-                }
-                b'c' => {
-                    // RIS：透传字节并通知键盘模式复位（kitty 栈/MoK/DECCKM/bp）
-                    output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
-                    output.push_event(PaneStreamEvent::KeyboardSequence(KbdSequence::ResetAll));
-                    self.phase = Phase::Normal;
-                }
-                _ => {
-                    output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
-                    self.phase = Phase::Normal;
-                }
-            },
+            }
             Phase::Csi => {
                 if (0x40..=0x7e).contains(&byte) {
                     let theme_subscription = matches!(byte, b'h' | b'l')
@@ -318,6 +373,83 @@ impl PaneStreamParser {
                     self.phase = Phase::Normal;
                 } else if byte != 0x1b {
                     self.phase = Phase::DcsTmuxIgnore;
+                }
+            }
+            Phase::ApcDetect => {
+                if byte == b'G' {
+                    self.phase = Phase::ApcControl;
+                } else {
+                    if self.kitty_graphics.has_pending() {
+                        let graphics = self
+                            .kitty_graphics
+                            .abort_pending("Kitty graphics transfer was interrupted");
+                        Self::append_graphics_output(graphics, output);
+                    }
+                    output.terminal_bytes.extend_from_slice(b"\x1b_");
+                    output.terminal_bytes.push(byte);
+                    self.phase = Phase::ApcPassthrough;
+                }
+            }
+            Phase::ApcControl => match byte {
+                b';' => self.phase = Phase::ApcPayload,
+                0x1b => self.phase = Phase::ApcPayloadEsc,
+                _ if self.apc_control.len() >= KITTY_CONTROL_MAX_BYTES => {
+                    self.phase = Phase::ApcIgnore;
+                }
+                _ => self.apc_control.push(byte),
+            },
+            Phase::ApcPayload => match byte {
+                0x1b => self.phase = Phase::ApcPayloadEsc,
+                _ if self.apc_payload.len() >= KITTY_BASE64_MAX_BYTES => {
+                    self.phase = Phase::ApcIgnore;
+                }
+                _ => self.apc_payload.push(byte),
+            },
+            Phase::ApcPayloadEsc => {
+                if byte == b'\\' {
+                    self.finish_kitty_apc(output);
+                } else if self.apc_payload.len().saturating_add(2)
+                    > KITTY_BASE64_MAX_BYTES
+                {
+                    self.phase = Phase::ApcIgnore;
+                } else {
+                    self.apc_payload.extend_from_slice(&[0x1b, byte]);
+                    self.phase = Phase::ApcPayload;
+                }
+            }
+            Phase::ApcPassthrough => {
+                output.terminal_bytes.push(byte);
+                if byte == 0x1b {
+                    self.phase = Phase::ApcPassthroughEsc;
+                }
+            }
+            Phase::ApcPassthroughEsc => {
+                output.terminal_bytes.push(byte);
+                self.phase = if byte == b'\\' {
+                    Phase::Normal
+                } else if byte == 0x1b {
+                    Phase::ApcPassthroughEsc
+                } else {
+                    Phase::ApcPassthrough
+                };
+            }
+            Phase::ApcIgnore => {
+                if byte == 0x1b {
+                    self.phase = Phase::ApcIgnoreEsc;
+                }
+            }
+            Phase::ApcIgnoreEsc => {
+                if byte == b'\\' {
+                    let graphics = self.kitty_graphics.reject(
+                        &self.apc_control,
+                        "Kitty graphics image exceeds the 16 MiB limit",
+                    );
+                    Self::append_graphics_output(graphics, output);
+                    self.apc_control.clear();
+                    self.apc_payload.clear();
+                    self.phase = Phase::Normal;
+                } else if byte != 0x1b {
+                    self.phase = Phase::ApcIgnore;
                 }
             }
             Phase::OscParams => match byte {
@@ -417,6 +549,24 @@ impl PaneStreamParser {
                     self.phase = Phase::ScreenTitle;
                 }
             }
+        }
+    }
+
+    fn finish_kitty_apc(&mut self, output: &mut PaneStreamOutput) {
+        let control = mem::take(&mut self.apc_control);
+        let payload = mem::take(&mut self.apc_payload);
+        let graphics = self.kitty_graphics.process(&control, &payload);
+        Self::append_graphics_output(graphics, output);
+        self.phase = Phase::Normal;
+    }
+
+    fn append_graphics_output(
+        mut graphics: KittyGraphicsOutput,
+        output: &mut PaneStreamOutput,
+    ) {
+        output.terminal_bytes.append(&mut graphics.terminal_bytes);
+        for event in graphics.events {
+            output.push_event(PaneStreamEvent::Graphics(event));
         }
     }
 
@@ -745,6 +895,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::KittyGraphicsEvent;
 
     const ST: &[u8] = b"\x1b\\";
 
@@ -764,6 +915,10 @@ mod tests {
         let mut bytes = format!("\x1b]{kind};{payload}").into_bytes();
         bytes.extend_from_slice(terminator);
         bytes
+    }
+
+    fn kitty_apc(control: &str, payload: &str) -> Vec<u8> {
+        format!("\x1b_G{control};{payload}\x1b\\").into_bytes()
     }
 
     fn tmux_wrap(content: &[u8]) -> Vec<u8> {
@@ -979,6 +1134,50 @@ mod tests {
             parser.push(&osc("52", "c;d29ybGQ", ST)).events,
             vec![PaneStreamEvent::ClipboardWrite("world".into())]
         );
+    }
+
+    #[test]
+    fn kitty_graphics_direct_and_tmux_passthrough_emit_terminal_bytes_and_replies() {
+        let mut parser = PaneStreamParser::new();
+        let direct = parser.push(&kitty_apc("a=T,f=32,s=1,v=1,i=7", "/wAA/w=="));
+        assert!(direct.terminal_bytes.starts_with(b"\x1b_Ga=T,f=32"));
+        assert_eq!(
+            direct.events,
+            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::Reply(
+                b"\x1b_Gi=7;OK\x1b\\".to_vec()
+            ))]
+        );
+
+        let query = parser.push(&tmux_wrap(&kitty_apc(
+            "a=q,t=d,f=24,s=1,v=1,i=31",
+            "AAAA",
+        )));
+        assert!(query.terminal_bytes.is_empty());
+        assert_eq!(
+            query.events,
+            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::Reply(
+                b"\x1b_Gi=31;OK\x1b\\".to_vec()
+            ))]
+        );
+    }
+
+    #[test]
+    fn kitty_graphics_preserves_non_graphics_apc_and_aborts_interleaved_chunks() {
+        let mut parser = PaneStreamParser::new();
+        let other = b"\x1b_custom payload\x1b\\";
+        assert_eq!(parser.push(other).terminal_bytes, other);
+
+        let first = parser.push(&kitty_apc("a=T,f=32,s=1,v=1,i=9,m=1", "AAAA"));
+        assert!(first.is_empty());
+        let interrupted = parser.push(b"text");
+        assert_eq!(interrupted.terminal_bytes, b"text");
+        assert!(interrupted.events.iter().any(|event| matches!(
+            event,
+            PaneStreamEvent::Graphics(KittyGraphicsEvent::Error {
+                image_id: Some(9),
+                ..
+            })
+        )));
     }
 
     #[test]

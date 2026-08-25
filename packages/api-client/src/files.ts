@@ -30,8 +30,13 @@ async function parseError(res: Response): Promise<FileApiError> {
   let message = `HTTP ${res.status}`;
   let code: FileErrorCode | undefined;
   try {
-    const body = (await res.json()) as { error?: string; code?: FileErrorCode };
-    if (body.error) message = body.error;
+    const body = (await res.json()) as {
+      error?: string;
+      code?: FileErrorCode;
+      detail?: string;
+    };
+    if (body.detail) message = body.detail;
+    else if (body.error) message = body.error;
     code = body.code;
   } catch {
     // 非 JSON 响应
@@ -126,9 +131,10 @@ export interface LegProgress {
 }
 export type OnLeg = (leg: 1 | 2, p: LegProgress) => void;
 
-interface TransferOpts {
+export interface TransferOpts {
   onLeg?: OnLeg;
   signal?: AbortSignal;
+  kind?: UploadInitRequest['kind'];
 }
 
 interface DownloadPrepareEvent {
@@ -152,14 +158,20 @@ export async function uploadFileChunked(
   file: File,
   opts: TransferOpts = {},
   client: ApiClient = defaultApiClient
-): Promise<void> {
-  const { onLeg, signal } = opts;
+): Promise<string> {
+  const { onLeg, signal, kind } = opts;
   const ensureNotAborted = () => {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   };
   const total = file.size;
   const bytes = (n: number) => `${formatBytes(n)} / ${formatBytes(total)}`;
-  const initBody: UploadInitRequest = { rootId, path: destDir, name: file.name, size: total };
+  const initBody: UploadInitRequest = {
+    rootId,
+    path: destDir,
+    name: file.name,
+    size: total,
+    kind,
+  };
   const initRes = await client.fetch('/api/files/upload/init', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -206,6 +218,7 @@ export async function uploadFileChunked(
     const decoder = new TextDecoder();
     let buf = '';
     let done = false;
+    let uploaded: string | null = null;
     for (;;) {
       const { done: rdone, value } = await reader.read();
       if (rdone) break;
@@ -219,13 +232,15 @@ export async function uploadFileChunked(
           onLeg?.(2, { pct: ev.pct, rate: ev.rate, detail: bytes(ev.transferred) });
         } else if (ev.type === 'done') {
           done = true;
+          uploaded = ev.uploaded;
         } else if (ev.type === 'error') {
           throw new FileApiError(500, ev.detail ?? ev.code, ev.code);
         }
       }
     }
-    if (!done) throw new FileApiError(500, 'unknown', 'unknown');
+    if (!done || !uploaded) throw new FileApiError(500, 'unknown', 'unknown');
     onLeg?.(2, { pct: 100, detail: bytes(total) });
+    return uploaded;
   } catch (e) {
     // 失败/取消：通知后端中止 rsync + 清理临时会话（best-effort）
     try {

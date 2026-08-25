@@ -1,8 +1,7 @@
-import { toast } from '@tmex/ui/toast';
-
-import i18next from 'i18next';
 import type { LegProgress } from '@tmex/api-client';
 import { Progress } from '@tmex/ui/progress';
+import { toast } from '@tmex/ui/toast';
+import i18next from 'i18next';
 
 export type TransferDirection = 'upload' | 'download';
 
@@ -36,28 +35,23 @@ function LegRow({ label, leg }: { label: string; leg: LegProgress }) {
   );
 }
 
-// 工作态内容：渲染在统一 toast 卡片内，同时显示两段进度（leg1 / leg2）。
-// 取消按钮用 toast 的 action（右侧区域），不在此自绘。
-function WorkingBody({ m }: { m: ToastModel }) {
+function WorkingBody({ model }: { model: ToastModel }) {
   return (
     <div className="flex w-full flex-col gap-2" data-testid="transfer-toast">
-      <span className="min-w-0 truncate text-sm font-medium">{m.fileName}</span>
-      <LegRow label={legLabel(m.direction, 1)} leg={m.legs[0]} />
-      <LegRow label={legLabel(m.direction, 2)} leg={m.legs[1]} />
+      <span className="min-w-0 truncate text-sm font-medium">{model.fileName}</span>
+      <LegRow label={legLabel(model.direction, 1)} leg={model.legs[0]} />
+      <LegRow label={legLabel(model.direction, 2)} leg={model.legs[1]} />
     </div>
   );
 }
 
 export interface TransferToast {
-  leg: (n: 1 | 2, p: LegProgress) => void;
+  leg: (leg: 1 | 2, progress: LegProgress) => void;
   success: (message: string) => void;
   fail: (message: string) => void;
   cancel: () => void;
 }
 
-// 启动传输进度 Toast，复用 app 统一的 toast 卡片样式，并同时展示两段进度条。
-// 工作态：duration:Infinity + dismissible:false + closeButton:false（不自动消失/不可手动关闭，
-// 仅取消按钮可终止）。完成 success 卡片（短暂后消失）；失败/取消 error 卡片（保留可关闭）。
 export function startTransferToast(
   fileName: string,
   direction: TransferDirection,
@@ -76,23 +70,21 @@ export function startTransferToast(
       ...model,
       legs: [{ ...model.legs[0] }, { ...model.legs[1] }],
     };
-    toast(<WorkingBody m={snapshot} />, {
+    toast(<WorkingBody model={snapshot} />, {
       id,
       duration: Number.POSITIVE_INFINITY,
       dismissible: false,
       closeButton: false,
-      // 取消用 toast 的 action 按钮（位于卡片右侧区域），dismissible:false 下仍可用。
-      action: { label: i18next.t('files.transfer.cancel'), onClick: () => onCancel() },
+      action: { label: i18next.t('files.transfer.cancel'), onClick: onCancel },
     });
   };
   renderWorking();
 
   return {
-    leg(n, p) {
-      model.legs[n - 1] = p;
+    leg(leg, progress) {
+      model.legs[leg - 1] = progress;
       const now = performance.now();
-      // 100% 立即渲染（保证完成段显示满格），否则节流
-      if (p.pct < 100 && now - lastRender < 100) return;
+      if (progress.pct < 100 && now - lastRender < 100) return;
       lastRender = now;
       renderWorking();
     },

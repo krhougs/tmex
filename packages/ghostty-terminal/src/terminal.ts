@@ -52,6 +52,7 @@ import type {
   GhosttyViewportGesture,
   TerminalDisposable,
 } from './types';
+import { type WebKittyCursorContext, WebKittyGraphicsStore } from './web-kitty-graphics';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -233,6 +234,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private readonly keyEncoderHandle: number;
   private readonly mouseEncoderHandle: number;
   private readonly renderState: GhosttyRenderStateResources;
+  private readonly kittyGraphics = new WebKittyGraphicsStore();
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly selectionListeners = new Set<(text: string | null) => void>();
   private readonly linkListeners = new Set<(url: string) => void>();
@@ -470,6 +472,10 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       fontSize: this.options.fontSize,
       ligatures: this.options.ligatures,
       minimumContrast: this.options.minimumContrast,
+      onInvalidate: () => {
+        this.forceFullNext = true;
+        this.scheduleRender();
+      },
     });
 
     this.syncInputState();
@@ -588,16 +594,11 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   write(data: string | Uint8Array): void {
-    if (this.disposed) {
-      return;
-    }
+    if (this.disposed) return;
 
     this.contentDirty = true;
     const hasEsc = typeof data === 'string' ? data.includes('\x1b') : data.includes(0x1b);
-
-    // 无 ESC：alt-screen 与 synchronized-output 状态不可能因本次写入改变，直接用
-    // 上次缓存值，省掉 2~3 次 WASM mode 查询（代价仅一次 contains 扫描）。
-    if (!hasEsc) {
+    if (!hasEsc && !this.kittyGraphics.hasPendingInput()) {
       this.bindings.writeVt(this.terminalHandle, data);
       const syncActive = this.cachedSyncOutput ?? this.isSynchronizedOutputActive();
       this.cachedSyncOutput = syncActive;
@@ -619,14 +620,13 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     }
 
     const prevAltScreen = this.isAltScreenActive();
-    this.bindings.writeVt(this.terminalHandle, data);
+    this.kittyGraphics.process(
+      data,
+      (bytes) => this.bindings.writeVt(this.terminalHandle, bytes),
+      () => this.kittyCursorContext()
+    );
     const nextAltScreen = this.isAltScreenActive();
-    if (prevAltScreen && !nextAltScreen) {
-      this.clearMouseTrackingModes();
-    }
-    // BSU（DECSET 2026）激活期间挂起写触发的渲染：一次原子重绘的字节可能分多个
-    // write 到达，rAF 到点就画会把中间态刷上屏（no-flicker TUI 表现为逐行扫描）。
-    // ESU 到达的那次 write 会走正常 scheduleRender；只留低频兜底防应用悬挂。
+    if (prevAltScreen && !nextAltScreen) this.clearMouseTrackingModes();
     const syncActive = this.isSynchronizedOutputActive();
     this.cachedSyncOutput = syncActive;
     if (syncActive) {
@@ -679,6 +679,20 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     );
   }
 
+  private kittyCursorContext(): WebKittyCursorContext {
+    updateRenderState(this.renderState, this.terminalHandle);
+    const meta = readRenderSnapshotMeta(this.renderState);
+    const scrollbar = this.bindings.readScrollbar(this.terminalHandle);
+    return {
+      col: meta.cursor.x ?? 0,
+      absoluteRow: scrollbar.offset + (meta.cursor.y ?? 0),
+      viewportOffset: scrollbar.offset,
+      viewportRows: this.rows,
+      alternateScreen: this.isAltScreenActive(),
+      cellDimensions: this.cellDimensions(),
+    };
+  }
+
   reset(): void {
     if (this.disposed) {
       return;
@@ -689,6 +703,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     // replace/恢复路径：重建终端，前插的历史行一并清除。
     this.clearPrependedHistory();
     this.bindings.resetTerminal(this.terminalHandle);
+    this.kittyGraphics.reset();
     this.contentDirty = true;
     this.scheduleRender();
   }
@@ -1986,6 +2001,15 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const selectionText = this.cachedSelectionText;
     this.contentDirty = false;
 
+    const graphics = this.kittyGraphics.snapshot(rows, {
+      col: renderMeta.cursor.x ?? 0,
+      absoluteRow: wasmScrollbar.offset + (meta.cursor.y ?? 0),
+      viewportOffset: wasmScrollbar.offset,
+      viewportRows: this.rows,
+      alternateScreen: this.isAltScreenActive(),
+      cellDimensions: this.cellDimensions(),
+      renderRowOffset: virtualScroll,
+    });
     this.renderer.render({
       meta: renderMeta,
       rows,
@@ -1993,6 +2017,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       selectionRects,
       selectionColor: this.options.theme.selectionBackground,
       forceFull: forceFull || mixedViewport,
+      graphics,
+      graphicsRowOffset: 0,
     });
 
     const visibleLines = normalizeVisibleLines(rows, this.rows);

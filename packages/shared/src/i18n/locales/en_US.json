@@ -158,6 +158,12 @@
       "copiedPreview": "Copied: {{preview}}",
       "copyFailed": "Copy failed",
       "pasteFailed": "Could not read clipboard, check browser permissions",
+      "pasteTooLarge": "Paste is too large ({{size}} MiB); the limit is {{limit}} MiB",
+      "imagePasteTooLarge": "Image is too large ({{size}}); the limit is {{limit}}",
+      "imagePasteNoRoot": "The current pane directory is not in a writable file root",
+      "imagePasteUploaded": "Image uploaded and path inserted: {{path}}",
+      "imagePastePathCopied": "Image uploaded; direct input is unavailable, so the path was copied: {{path}}",
+      "imagePasteFailed": "Image paste failed: {{message}}",
       "clearSelection": "Dismiss selection",
       "fileLinkNotFound": "File does not exist or is not accessible",
       "linkOpenFailed": "Could not open link"

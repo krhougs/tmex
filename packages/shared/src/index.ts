@@ -27,6 +27,9 @@ export {
 export { formatDisplayVersion } from './version';
 
 // ==================== System / Update ====================
+export const TERMINAL_PASTE_MAX_BYTES = 1024 * 1024;
+export const PASTE_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+
 
 /** 部署方式：launchd（macOS）/ systemd（Linux）/ none（非 CLI 安装，如 docker/手动/dev） */
 export type GatewayDeployment = 'launchd' | 'systemd' | 'none';
@@ -52,6 +55,10 @@ export interface SystemInfo {
   serviceName: string | null;
   /** 文件传输（上传/下载）单文件字节上限（前端据此做上传前预校验） */
   transferMaxBytes: number;
+  /** 终端文本粘贴的 UTF-8 字节上限。 */
+  terminalPasteMaxBytes: number;
+  /** 终端图片粘贴上传的原始字节上限。 */
+  pasteImageMaxBytes: number;
   /**
    * 管理模式（可选，向后兼容）：
    * - none：开源默认，允许 CLI 自更新路径
@@ -1231,6 +1238,8 @@ export interface UploadInitRequest {
   path: string;
   name: string;
   size: number;
+  /** 缺省为普通文件；paste-image 启用更严格的 4 MiB 服务端限制。 */
+  kind?: 'file' | 'paste-image';
 }
 
 export interface UploadInitResponse {
