@@ -95,6 +95,21 @@ export interface TerminalFileLinksProvider {
   listRoots(deviceId: string): Promise<TerminalFileLinkRoot[]>;
   /** 存在性校验；文件不存在时 reject */
   stat(rootId: string, path: string): Promise<unknown>;
+  /** 上传文件到授权根；Native 宿主提供有界流式实现，Browser 缺省走 Gateway upload API。 */
+  upload?(
+    rootId: string,
+    path: string,
+    body: Blob,
+    options?: {
+      signal?: AbortSignal;
+      onProgress?(progress: {
+        loaded: number;
+        total: number;
+        pct: number;
+        bytesPerSec: number;
+      }): void;
+    }
+  ): Promise<void>;
   /** 打开文件（宿主自行导航） */
   openFile(rootId: string, path: string): void;
 }

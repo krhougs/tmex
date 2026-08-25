@@ -42,6 +42,12 @@ export function quoteTerminalPath(path: string): string {
   return `'${path.split("'").join("'\\''")}'`;
 }
 
+function appendTerminalPath(directory: string, name: string): string {
+  if (directory.endsWith('/') || directory.endsWith('\\')) return `${directory}${name}`;
+  const separator = directory.includes('\\') && !directory.includes('/') ? '\\' : '/';
+  return `${directory}${separator}${name}`;
+}
+
 export function reportTerminalImageTooLarge(
   runtime: RuntimeCore,
   t: Translate,
@@ -79,17 +85,34 @@ export async function uploadTerminalImage(args: {
   controllers?.add(controller);
   const transfer = startTransferToast(file.name, 'upload', () => controller.abort());
   try {
-    const uploaded = await uploadFileChunked(
-      target.rootId,
-      target.directory,
-      file,
-      {
-        kind: 'paste-image',
+    const nativeUpload = runtime.terminalFileLinks?.upload;
+    let uploaded: string;
+    if (nativeUpload) {
+      uploaded = appendTerminalPath(target.directory, file.name);
+      await nativeUpload(target.rootId, uploaded, file, {
         signal: controller.signal,
-        onLeg: transfer.leg,
-      },
-      runtime.apiClient
-    );
+        onProgress: ({ loaded, total, pct }) => {
+          transfer.leg(1, {
+            pct,
+            detail: `${formatBytes(loaded)} / ${formatBytes(total)}`,
+          });
+        },
+      });
+      transfer.leg(1, { pct: 100, detail: formatBytes(file.size) });
+      transfer.leg(2, { pct: 100, detail: formatBytes(file.size) });
+    } else {
+      uploaded = await uploadFileChunked(
+        target.rootId,
+        target.directory,
+        file,
+        {
+          kind: 'paste-image',
+          signal: controller.signal,
+          onLeg: transfer.leg,
+        },
+        runtime.apiClient
+      );
+    }
     if (await injectPath(quoteTerminalPath(uploaded))) {
       transfer.success(t('terminal.imagePasteUploaded', { path: uploaded }));
     } else {
