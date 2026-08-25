@@ -571,7 +571,9 @@ export class WebKittyGraphicsStore {
         if (cell.codepoints[0] !== KITTY_PLACEHOLDER) continue;
         const diacritics = cell.codepoints.slice(1).map((cp) => KITTY_DIACRITIC_INDEX.get(cp));
         let imageId = rgbId(cell.fgColor);
-        if (diacritics[2] !== undefined && diacritics[2] <= 255) imageId |= diacritics[2] << 24;
+        if (diacritics[2] !== undefined && diacritics[2] <= 255) {
+          imageId += diacritics[2] * 0x1000000;
+        }
         const placementId = rgbId(cell.underlineColor);
         const sameRun = imageId === previousImageId && placementId === previousPlacementId;
         const fragmentRow = diacritics[0] ?? (sameRun ? previousRow : 0);

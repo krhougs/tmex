@@ -42,14 +42,15 @@ describe('web Kitty graphics store', () => {
   });
 
   test('resolves Unicode placeholder fragments from cell colors and diacritics', () => {
+    const imageId = 0x8eb462e0;
     const store = new WebKittyGraphicsStore();
     store.process(
-      command('a=t,f=32,s=1,v=1,i=7', '/wAA/w=='),
+      command(`a=t,f=32,s=1,v=1,i=${imageId}`, '/wAA/w=='),
       () => {},
       () => context
     );
     store.process(
-      command('a=p,U=1,i=7,p=2,c=1,r=1,C=1'),
+      command(`a=p,U=1,i=${imageId},p=2,c=1,r=1,C=1`),
       () => {},
       () => context
     );
@@ -64,7 +65,12 @@ describe('web Kitty graphics store', () => {
           {
             x: 0,
             text: '',
-            codepoints: [0x10eeee, KITTY_DIACRITICS[0], KITTY_DIACRITICS[0]],
+            codepoints: [
+              0x10eeee,
+              KITTY_DIACRITICS[0],
+              KITTY_DIACRITICS[0],
+              KITTY_DIACRITICS[0x8e],
+            ],
             widthKind: 'narrow',
             hasText: true,
             style: {
@@ -78,7 +84,7 @@ describe('web Kitty graphics store', () => {
               overline: false,
               underline: 0,
             },
-            fgColor: { r: 0, g: 0, b: 7 },
+            fgColor: { r: 0xb4, g: 0x62, b: 0xe0 },
             bgColor: null,
             underlineColor: { r: 0, g: 0, b: 2 },
             fgPaletteIndex: null,
@@ -91,7 +97,7 @@ describe('web Kitty graphics store', () => {
     const snapshot = store.snapshot(rows, { ...context, viewportOffset: 0 });
     expect(snapshot?.placements).toHaveLength(1);
     expect(snapshot?.placements[0]).toMatchObject({
-      imageId: 7,
+      imageId,
       placementId: 2,
       viewportCol: 0,
       viewportRow: 0,
