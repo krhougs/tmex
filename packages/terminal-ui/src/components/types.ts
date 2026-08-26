@@ -35,6 +35,7 @@ export interface TerminalRef {
   write: (data: string | Uint8Array) => void;
   reset: () => void;
   scrollToBottom: () => void;
+  pasteClipboard: () => void;
   resize: (cols: number, rows: number) => void;
   getTerminal: () => CompatibleTerminalLike | null;
   getSize: () => { cols: number; rows: number } | null;

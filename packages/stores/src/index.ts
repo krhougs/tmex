@@ -7,10 +7,13 @@ export {
   setDefaultNotificationSink,
   type AppRuntimeOptions,
   type HostServices,
+  type HostFileDragDropEvent,
+  type HostFileReference,
   type RuntimeCore,
   type SaveFileInput,
   type TerminalFileLinkRoot,
   type TerminalFileLinksProvider,
+  type TerminalFileUploadOptions,
   type RuntimeFeatures,
 } from './runtime';
 

@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./terminal-diagnostics": "./src/components/terminal-diagnostics.tsx",
+    "./terminal-file-input": "./src/terminal-file-input.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

@@ -54,6 +54,33 @@ export interface ClipboardImage {
   mimeType: string;
 }
 
+export interface HostFileReference {
+  path: string;
+  name: string;
+  size: number;
+}
+
+export type HostFileDragDropEvent =
+  | { type: 'enter'; paths: string[]; position: { x: number; y: number } }
+  | { type: 'over'; paths: string[]; position: { x: number; y: number } }
+  | {
+      type: 'drop';
+      files: HostFileReference[];
+      rejected: number;
+      position: { x: number; y: number };
+    }
+  | { type: 'leave' };
+
+export interface TerminalFileUploadOptions {
+  signal?: AbortSignal;
+  onProgress?(progress: {
+    loaded: number;
+    total: number;
+    pct: number;
+    bytesPerSec: number;
+  }): void;
+}
+
 export interface HostServices {
   /** 应用内跳转（toast/通知点击等），语义等同 navigateToAppUrl */
   navigate(to: string, opts?: { replace?: boolean }): void;
@@ -71,6 +98,10 @@ export interface HostServices {
   readClipboardText(): Promise<string>;
   /** 读取系统剪贴板图片；宿主不支持时缺省为空。 */
   readClipboardImage?(): Promise<ClipboardImage | null>;
+  /** 读取系统剪贴板里的文件引用；仅可信原生宿主提供绝对路径。 */
+  readClipboardFiles?(): Promise<HostFileReference[]>;
+  /** 订阅系统文件拖入；坐标已归一化为 WebView CSS 像素。 */
+  onFileDragDrop?(handler: (event: HostFileDragDropEvent) => void): () => void;
   /** 打开外部 URL（新标签页/系统浏览器等）；可异步 */
   openExternal(url: string): void | Promise<void>;
   /** 整页/宿主刷新 */
@@ -95,20 +126,21 @@ export interface TerminalFileLinksProvider {
   listRoots(deviceId: string): Promise<TerminalFileLinkRoot[]>;
   /** 存在性校验；文件不存在时 reject */
   stat(rootId: string, path: string): Promise<unknown>;
+  /** 当前 runtime 对应本机实例时返回 true；未知状态必须返回 false。 */
+  isLocalInstance?(): boolean;
   /** 上传文件到授权根；Native 宿主提供有界流式实现，Browser 缺省走 Gateway upload API。 */
   upload?(
     rootId: string,
     path: string,
     body: Blob,
-    options?: {
-      signal?: AbortSignal;
-      onProgress?(progress: {
-        loaded: number;
-        total: number;
-        pct: number;
-        bytesPerSec: number;
-      }): void;
-    }
+    options?: TerminalFileUploadOptions
+  ): Promise<void>;
+  /** Native 将已由用户授权的本机路径直接流式上传，不把文件内容复制进 WebView。 */
+  uploadPath?(
+    rootId: string,
+    path: string,
+    sourcePath: string,
+    options?: TerminalFileUploadOptions
   ): Promise<void>;
   /** 打开文件（宿主自行导航） */
   openFile(rootId: string, path: string): void;

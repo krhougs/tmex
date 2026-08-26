@@ -1,11 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchFileRoots, fetchFileStat } from '@tmex/api-client';
-import {
-  PANE_MODE_ALT_SCREEN,
-  PANE_MODE_FLAGS_PRESENT,
-  TERMINAL_PASTE_MAX_BYTES,
-  decodePaneModes,
-} from '@tmex/shared';
+import { PANE_MODE_ALT_SCREEN, PANE_MODE_FLAGS_PRESENT, decodePaneModes } from '@tmex/shared';
 import { type TerminalFileLinksProvider, fileRoute, hostAppPath } from '@tmex/stores';
 import { useRuntime, useTmuxStore, useUIStore } from '@tmex/stores/react';
 import { loadTerminalFonts, resolveFontStack } from '@tmex/theme';
@@ -22,7 +17,6 @@ import {
 } from 'ghostty-terminal';
 import { Loader2 } from 'lucide-react';
 import {
-  type ClipboardEvent as ReactClipboardEvent,
   forwardRef,
   useCallback,
   useEffect,
@@ -33,11 +27,11 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  pasteImageExtension,
-  reportTerminalImageTooLarge,
-  resolveTerminalImagePasteTarget,
-  uploadTerminalImage,
-} from '../image-paste';
+  TerminalFileDropOverlay,
+  TerminalFileRiskDialog,
+  resolveTerminalFilePasteTarget,
+  useTerminalFileInput,
+} from '../terminal-file-input';
 import {
   registerCursorRectGetter,
   unregisterCursorRectGetter,
@@ -242,7 +236,6 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     // reportSize 直接 return，没有任何东西会把它改回来，于是排版一直乱到用户手动 resize。
     const authoritativeSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const sizingModeRef = useRef(sizingMode);
-    const pasteUploadControllersRef = useRef(new Set<AbortController>());
     const runPostSelectResizeRef = useRef<() => void>(() => {});
     const currentDeviceIdRef = useRef(deviceId);
     const currentPaneIdRef = useRef(paneId);
@@ -928,16 +921,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       return undefined;
     });
 
-    const pasteUploadTarget = useMemo(
-      () => resolveTerminalImagePasteTarget(paneCurrentPath, fileLinkRoots),
+    const filePasteTarget = useMemo(
+      () => resolveTerminalFilePasteTarget(paneCurrentPath, fileLinkRoots),
       [fileLinkRoots, paneCurrentPath]
-    );
-    useEffect(
-      () => () => {
-        for (const controller of pasteUploadControllersRef.current) controller.abort();
-        pasteUploadControllersRef.current.clear();
-      },
-      []
     );
 
     useEffect(() => {
@@ -1006,97 +992,46 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         });
     }, [instance, runtime, t]);
 
-    const pasteText = useCallback(
+    const injectTerminalText = useCallback(
       (text: string): boolean => {
-        if (!instance || !text) return false;
-        const bytes = HISTORY_ENCODER.encode(text).byteLength;
-        if (bytes > TERMINAL_PASTE_MAX_BYTES) {
-          runtime.notifications.error(
-            t('terminal.pasteTooLarge', {
-              size: (bytes / (1024 * 1024)).toFixed(1),
-              limit: TERMINAL_PASTE_MAX_BYTES / (1024 * 1024),
-            })
-          );
-          return false;
-        }
+        const canInject =
+          instance !== null &&
+          currentInputModeRef.current === 'direct' &&
+          canWriteRef.current &&
+          currentDeviceIdRef.current === deviceId &&
+          currentPaneIdRef.current === paneId;
+        if (!canInject) return false;
         instance.paste(text);
+        instance.focus();
         return true;
       },
-      [instance, runtime, t]
+      [deviceId, instance, paneId]
     );
-
-    const uploadPastedImage = useCallback(
-      (source: File) =>
-        uploadTerminalImage({
-          source,
-          target: pasteUploadTarget,
-          controllers: pasteUploadControllersRef.current,
-          runtime,
-          t,
-          injectPath: (path) => {
-            const canInject =
-              instance !== null &&
-              currentInputModeRef.current === 'direct' &&
-              canWriteRef.current &&
-              currentDeviceIdRef.current === deviceId &&
-              currentPaneIdRef.current === paneId;
-            if (!canInject) return false;
-            instance.paste(path);
-            instance.focus();
-            return true;
-          },
-        }),
-      [deviceId, instance, paneId, pasteUploadTarget, runtime, t]
-    );
-
-    const handlePasteCapture = useCallback(
-      (event: ReactClipboardEvent<HTMLDivElement>) => {
-        if (inputMode !== 'direct' || !deviceConnected || isSelectionInvalid) return;
-        const image = Array.from(event.clipboardData.items)
-          .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
-          ?.getAsFile();
-        if (image) {
-          event.preventDefault();
-          event.stopPropagation();
-          void uploadPastedImage(image);
-          return;
-        }
-        const text = event.clipboardData.getData('text/plain');
-        if (!text) return;
-        event.preventDefault();
-        event.stopPropagation();
-        pasteText(text);
-      },
-      [deviceConnected, inputMode, isSelectionInvalid, pasteText, uploadPastedImage]
-    );
+    const {
+      cancelRisk: cancelFileRisk,
+      confirmRisk: confirmFileRisk,
+      dropState: fileDropState,
+      handleDragEnter: handleFileDragEnter,
+      handleDragLeave: handleFileDragLeave,
+      handleDragOver: handleFileDragOver,
+      handleDrop: handleFileDrop,
+      handlePasteCapture,
+      pasteFromClipboard,
+      riskPrompt: fileRiskPrompt,
+    } = useTerminalFileInput({
+      runtime,
+      t,
+      enabled: inputMode === 'direct' && deviceConnected && !isSelectionInvalid,
+      target: filePasteTarget,
+      surfaceRef: containerRef,
+      injectText: injectTerminalText,
+    });
 
     const handlePasteClipboard = useCallback(() => {
       if (!instance) return;
-      void (async () => {
-        const image = runtime.host.readClipboardImage
-          ? await runtime.host.readClipboardImage().catch(() => null)
-          : null;
-        if (image) {
-          if (!image.blob) {
-            reportTerminalImageTooLarge(runtime, t, image.size);
-          } else {
-            await uploadPastedImage(
-              new File([image.blob], `clipboard.${pasteImageExtension(image.mimeType)}`, {
-                type: image.mimeType,
-              })
-            );
-          }
-          instance.clearSelection?.();
-          instance.focus();
-          return;
-        }
-        pasteText(await runtime.host.readClipboardText());
-        instance.clearSelection?.();
-        instance.focus();
-      })().catch(() => {
-        runtime.notifications.error(t('terminal.pasteFailed'));
-      });
-    }, [instance, pasteText, runtime, t, uploadPastedImage]);
+      instance.clearSelection?.();
+      void pasteFromClipboard();
+    }, [instance, pasteFromClipboard]);
 
     const handleDismissSelection = useCallback(() => {
       instance?.clearSelection?.();
@@ -1113,6 +1048,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
           if (target) target.liveOutputEndedWithCR = false;
         },
         scrollToBottom: () => instance?.scrollToBottom(),
+        pasteClipboard: () => {
+          void pasteFromClipboard();
+        },
         resize: (cols, rows) => {
           authoritativeSizeRef.current = { cols, rows };
           instance?.resize(cols, rows);
@@ -1173,6 +1111,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         forceResize,
         instance,
         pendingLocalSize,
+        pasteFromClipboard,
         runPostSelectResize,
         scheduleResize,
       ]
@@ -1184,6 +1123,10 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         style={{ backgroundColor: terminalTheme.background }}
         data-terminal-engine={TERMINAL_ENGINE}
         onPasteCapture={handlePasteCapture}
+        onDragEnterCapture={handleFileDragEnter}
+        onDragOverCapture={handleFileDragOver}
+        onDragLeaveCapture={handleFileDragLeave}
+        onDropCapture={handleFileDrop}
       >
         <div ref={containerRef} className="relative min-h-0 w-full flex-1">
           <div
@@ -1218,6 +1161,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
               </div>
             </div>
           )}
+          <TerminalFileDropOverlay state={fileDropState} t={t} />
           <SelectionToolbar
             visible={hasSelection}
             canPaste={inputMode === 'direct' && deviceConnected && !isSelectionInvalid}
@@ -1226,6 +1170,12 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             onDismiss={handleDismissSelection}
           />
         </div>
+        <TerminalFileRiskDialog
+          prompt={fileRiskPrompt}
+          t={t}
+          onCancel={cancelFileRisk}
+          onConfirm={confirmFileRisk}
+        />
         {children}
       </div>
     );

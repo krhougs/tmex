@@ -7,7 +7,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   devicesQueryKey as defaultDevicesQueryKey,
   fetchDevices,
-  fetchFileRoots,
   fetchTerminalShortcuts,
   terminalShortcutsQueryKey,
 } from '@tmex/api-client';
@@ -33,12 +32,6 @@ import {
   shouldTrackPendingRouteSelection,
 } from '@tmex/terminal-ui';
 import { isIOSMobileBrowser } from '@tmex/terminal-ui';
-import {
-  pasteImageExtension,
-  reportTerminalImageTooLarge,
-  resolveTerminalImagePasteTarget,
-  uploadTerminalImage,
-} from '@tmex/terminal-ui/image-paste';
 import { Button } from '@tmex/ui/button';
 import { Switch } from '@tmex/ui/switch';
 import { toast } from '@tmex/ui/toast';
@@ -1156,43 +1149,9 @@ export function DeviceConsole({
         return;
       }
       switch (item.action) {
-        case 'paste': {
-          void (async () => {
-            const image = runtime.host.readClipboardImage
-              ? await runtime.host.readClipboardImage().catch(() => null)
-              : null;
-            if (image) {
-              if (!image.blob) {
-                reportTerminalImageTooLarge(runtime, t, image.size);
-                return;
-              }
-              const roots = runtime.terminalFileLinks
-                ? await runtime.terminalFileLinks.listRoots(deviceId)
-                : (await fetchFileRoots(runtime.apiClient)).roots
-                    .filter((root) => root.enabled && root.deviceId === deviceId)
-                    .map((root) => ({ id: root.id, path: root.path }));
-              await uploadTerminalImage({
-                source: new File([image.blob], `clipboard.${pasteImageExtension(image.mimeType)}`, {
-                  type: image.mimeType,
-                }),
-                target: resolveTerminalImagePasteTarget(selectedPane?.currentPath, roots),
-                runtime,
-                t,
-                injectPath: (path) => {
-                  const state = runtime.stores.tmux.getState();
-                  const active = state.activePaneFromEvent[deviceId];
-                  if (active && active.paneId !== resolvedPaneId) return false;
-                  state.paste(deviceId, resolvedPaneId, path);
-                  return true;
-                },
-              });
-              return;
-            }
-            const text = await runtime.host.readClipboardText();
-            if (text) runtime.stores.tmux.getState().paste(deviceId, resolvedPaneId, text);
-          })().catch(() => toast.error(t('terminal.pasteFailed')));
+        case 'paste':
+          terminalRef.current?.pasteClipboard();
           break;
-        }
         case 'newAgentSession':
           // agent UI 关闭时按钮已在渲染前过滤，这里再兜底一次
           if (!runtime.features.agentUi) {
@@ -1206,16 +1165,7 @@ export function DeviceConsole({
           break;
       }
     },
-    [
-      canInteractWithPane,
-      deviceId,
-      handleSendShortcut,
-      inputMode,
-      resolvedPaneId,
-      runtime,
-      selectedPane?.currentPath,
-      t,
-    ]
+    [canInteractWithPane, deviceId, handleSendShortcut, inputMode, resolvedPaneId, runtime]
   );
 
   const handleEditorSend = useCallback(() => {
