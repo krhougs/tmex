@@ -8,7 +8,7 @@ export {
   type AppRuntimeOptions,
   type HostServices,
   type HostFileDragDropEvent,
-  type HostFileReference,
+  type HostPathReference,
   type RuntimeCore,
   type SaveFileInput,
   type TerminalFileLinkRoot,

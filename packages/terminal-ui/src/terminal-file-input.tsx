@@ -1,6 +1,6 @@
 import { formatBytes, uploadFileChunked } from '@tmex/api-client';
 import { PASTE_IMAGE_MAX_BYTES, TERMINAL_PASTE_MAX_BYTES } from '@tmex/shared';
-import type { HostFileReference, RuntimeCore } from '@tmex/stores';
+import type { HostPathReference, RuntimeCore } from '@tmex/stores';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +39,7 @@ type BrowserFileSource = {
 
 type NativeFileSource = {
   kind: 'native-path';
-  file: HostFileReference;
+  entry: HostPathReference;
 };
 
 type TerminalFileSource = BrowserFileSource | NativeFileSource;
@@ -238,6 +238,34 @@ export function resolveTerminalFileRoute(
   return hasTrustedLocalPath && isLocalInstance ? 'local-path' : 'upload';
 }
 
+export type NativeTerminalPathSelection = {
+  accepted: HostPathReference[];
+  directoryCount: number;
+  unavailableCount: number;
+};
+
+export function selectNativeTerminalPaths(
+  entries: readonly HostPathReference[],
+  isLocalInstance: boolean
+): NativeTerminalPathSelection {
+  if (isLocalInstance) {
+    return { accepted: [...entries], directoryCount: 0, unavailableCount: 0 };
+  }
+  const accepted: HostPathReference[] = [];
+  let directoryCount = 0;
+  let unavailableCount = 0;
+  for (const entry of entries) {
+    if (entry.kind === 'directory') {
+      directoryCount += 1;
+    } else if (entry.kind === 'file' && entry.uploadAllowed) {
+      accepted.push(entry);
+    } else {
+      unavailableCount += 1;
+    }
+  }
+  return { accepted, directoryCount, unavailableCount };
+}
+
 function appendTerminalPath(directory: string, name: string): string {
   if (directory.endsWith('/') || directory.endsWith('\\')) return `${directory}${name}`;
   const separator = directory.includes('\\') && !directory.includes('/') ? '\\' : '/';
@@ -254,7 +282,7 @@ function safeTransferName(name: string): string {
 }
 
 function sourceName(source: TerminalFileSource): string {
-  return source.file.name;
+  return source.kind === 'native-path' ? source.entry.name : source.file.name;
 }
 
 function sourceMimeType(source: TerminalFileSource): string {
@@ -298,14 +326,16 @@ async function uploadTerminalFile(args: {
     const provider = runtime.terminalFileLinks;
     let uploaded: string;
     if (source.kind === 'native-path') {
-      if (!provider?.uploadPath) throw new Error('native path upload is unavailable');
+      if (source.entry.kind !== 'file' || !source.entry.uploadAllowed || !provider?.uploadPath) {
+        throw new Error('native path is not an uploadable file');
+      }
       uploaded = appendTerminalPath(target.directory, name);
-      await provider.uploadPath(target.rootId, uploaded, source.file.path, {
+      await provider.uploadPath(target.rootId, uploaded, source.entry.path, {
         signal: controller.signal,
         onProgress: progress,
       });
-      transfer.leg(1, { pct: 100, detail: formatBytes(source.file.size) });
-      transfer.leg(2, { pct: 100, detail: formatBytes(source.file.size) });
+      transfer.leg(1, { pct: 100, detail: formatBytes(source.entry.size) });
+      transfer.leg(2, { pct: 100, detail: formatBytes(source.entry.size) });
     } else if (provider?.upload) {
       uploaded = appendTerminalPath(target.directory, name);
       await provider.upload(target.rootId, uploaded, source.file, {
@@ -362,7 +392,14 @@ async function processTerminalFiles(args: {
 }): Promise<void> {
   const { sources, target, runtime, t, controllers, injectText } = args;
   const useDirectLocalPaths = runtime.terminalFileLinks?.isLocalInstance?.() === true;
-  const needsUpload = sources.some(
+  const effectiveSources = useDirectLocalPaths
+    ? sources
+    : sources.filter(
+        (source) =>
+          source.kind !== 'native-path' ||
+          (source.entry.kind === 'file' && source.entry.uploadAllowed)
+      );
+  const needsUpload = effectiveSources.some(
     (source) =>
       resolveTerminalFileRoute(source.kind === 'native-path', useDirectLocalPaths) === 'upload'
   );
@@ -372,9 +409,9 @@ async function processTerminalFiles(args: {
   }
 
   const paths: string[] = [];
-  for (const source of sources) {
+  for (const source of effectiveSources) {
     if (source.kind === 'native-path' && useDirectLocalPaths) {
-      paths.push(source.file.path);
+      paths.push(source.entry.path);
       continue;
     }
     if (!target) continue;
@@ -396,6 +433,28 @@ async function processTerminalFiles(args: {
 
 function hasExternalFiles(event: ReactDragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes('Files');
+}
+
+function extractBrowserFiles(dataTransfer: DataTransfer): {
+  files: File[];
+  directoryCount: number;
+} {
+  const items = Array.from(dataTransfer.items).filter((item) => item.kind === 'file');
+  if (items.length === 0) {
+    return { files: Array.from(dataTransfer.files), directoryCount: 0 };
+  }
+  const files: File[] = [];
+  let directoryCount = 0;
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry?.();
+    if (entry?.isDirectory) {
+      directoryCount += 1;
+      continue;
+    }
+    const file = item.getAsFile();
+    if (file) files.push(file);
+  }
+  return { files, directoryCount };
 }
 
 function pointInside(element: HTMLElement | null, position: { x: number; y: number }): boolean {
@@ -458,9 +517,10 @@ export function useTerminalFileInput(args: {
   const requestSources = useCallback(
     (sources: TerminalFileSource[]) => {
       if (!enabled || sources.length === 0 || pendingBatchRef.current) return;
-      const risky = sources.filter((source) =>
-        terminalFileNeedsSafetyConfirmation(sourceName(source), sourceMimeType(source))
-      );
+      const risky = sources.filter((source) => {
+        if (source.kind === 'native-path' && source.entry.kind === 'directory') return false;
+        return terminalFileNeedsSafetyConfirmation(sourceName(source), sourceMimeType(source));
+      });
       if (risky.length === 0) {
         void runSources(sources);
         return;
@@ -476,6 +536,30 @@ export function useTerminalFileInput(args: {
       });
     },
     [enabled, runSources]
+  );
+
+  const requestNativePaths = useCallback(
+    (entries: HostPathReference[], rejected = 0) => {
+      const selection = selectNativeTerminalPaths(
+        entries,
+        runtime.terminalFileLinks?.isLocalInstance?.() === true
+      );
+      if (selection.directoryCount > 0) {
+        runtime.notifications.error(
+          t('terminal.remoteDirectoryPasteUnsupported', {
+            count: selection.directoryCount,
+          })
+        );
+      }
+      const unavailableCount = rejected + selection.unavailableCount;
+      if (unavailableCount > 0) {
+        runtime.notifications.error(
+          t('terminal.pathPasteUnavailable', { count: unavailableCount })
+        );
+      }
+      requestSources(selection.accepted.map((entry) => ({ kind: 'native-path', entry })));
+    },
+    [requestSources, runtime, t]
   );
 
   const confirmRisk = useCallback(() => {
@@ -511,16 +595,15 @@ export function useTerminalFileInput(args: {
   const handlePasteCapture = useCallback(
     (event: ReactClipboardEvent<HTMLElement>) => {
       if (!enabled) return;
-      let files = Array.from(event.clipboardData.files);
-      if (files.length === 0) {
-        files = Array.from(event.clipboardData.items)
-          .filter((item) => item.kind === 'file')
-          .map((item) => item.getAsFile())
-          .filter((file): file is File => file !== null);
-      }
-      if (files.length > 0) {
+      const { files, directoryCount } = extractBrowserFiles(event.clipboardData);
+      if (files.length > 0 || directoryCount > 0) {
         event.preventDefault();
         event.stopPropagation();
+        if (directoryCount > 0) {
+          runtime.notifications.error(
+            t('terminal.remoteDirectoryPasteUnsupported', { count: directoryCount })
+          );
+        }
         requestSources(files.map((file) => ({ kind: 'file', file })));
         return;
       }
@@ -530,15 +613,15 @@ export function useTerminalFileInput(args: {
       event.stopPropagation();
       void pasteText(text);
     },
-    [enabled, pasteText, requestSources]
+    [enabled, pasteText, requestSources, runtime, t]
   );
 
   const pasteFromClipboard = useCallback(async () => {
     if (!enabled) return;
     try {
-      const files = runtime.host.readClipboardFiles ? await runtime.host.readClipboardFiles() : [];
-      if (files.length > 0) {
-        requestSources(files.map((file) => ({ kind: 'native-path', file })));
+      const paths = runtime.host.readClipboardPaths ? await runtime.host.readClipboardPaths() : [];
+      if (paths.length > 0) {
+        requestNativePaths(paths);
         return;
       }
       const image = runtime.host.readClipboardImage
@@ -561,7 +644,7 @@ export function useTerminalFileInput(args: {
     } catch {
       runtime.notifications.error(t('terminal.pasteFailed'));
     }
-  }, [enabled, pasteText, requestSources, runtime, t]);
+  }, [enabled, pasteText, requestNativePaths, requestSources, runtime, t]);
 
   useEffect(() => {
     if (!enabled || !runtime.host.onFileDragDrop) return;
@@ -574,10 +657,7 @@ export function useTerminalFileInput(args: {
       if (event.type === 'drop') {
         setDropState(null);
         if (!inside) return;
-        if (event.rejected > 0) {
-          runtime.notifications.error(t('terminal.filePasteRejected', { count: event.rejected }));
-        }
-        requestSources(event.files.map((file) => ({ kind: 'native-path', file })));
+        requestNativePaths(event.entries, event.rejected);
         return;
       }
       if (!inside) {
@@ -587,7 +667,7 @@ export function useTerminalFileInput(args: {
       const mode = runtime.terminalFileLinks?.isLocalInstance?.() === true ? 'local' : 'upload';
       setDropState({ count: Math.max(1, event.paths.length), mode });
     });
-  }, [enabled, requestSources, runtime, surfaceRef, t]);
+  }, [enabled, requestNativePaths, runtime, surfaceRef]);
 
   const handleDragEnter = useCallback(
     (event: ReactDragEvent<HTMLElement>) => {
@@ -631,10 +711,15 @@ export function useTerminalFileInput(args: {
       event.stopPropagation();
       dragDepthRef.current = 0;
       setDropState(null);
-      const files = Array.from(event.dataTransfer.files);
+      const { files, directoryCount } = extractBrowserFiles(event.dataTransfer);
+      if (directoryCount > 0) {
+        runtime.notifications.error(
+          t('terminal.remoteDirectoryPasteUnsupported', { count: directoryCount })
+        );
+      }
       requestSources(files.map((file) => ({ kind: 'file', file })));
     },
-    [enabled, requestSources, runtime]
+    [enabled, requestSources, runtime, t]
   );
 
   return {

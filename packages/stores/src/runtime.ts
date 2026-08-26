@@ -54,10 +54,12 @@ export interface ClipboardImage {
   mimeType: string;
 }
 
-export interface HostFileReference {
+export interface HostPathReference {
   path: string;
   name: string;
   size: number;
+  kind: 'file' | 'directory' | 'unknown';
+  uploadAllowed: boolean;
 }
 
 export type HostFileDragDropEvent =
@@ -65,7 +67,7 @@ export type HostFileDragDropEvent =
   | { type: 'over'; paths: string[]; position: { x: number; y: number } }
   | {
       type: 'drop';
-      files: HostFileReference[];
+      entries: HostPathReference[];
       rejected: number;
       position: { x: number; y: number };
     }
@@ -98,8 +100,8 @@ export interface HostServices {
   readClipboardText(): Promise<string>;
   /** 读取系统剪贴板图片；宿主不支持时缺省为空。 */
   readClipboardImage?(): Promise<ClipboardImage | null>;
-  /** 读取系统剪贴板里的文件引用；仅可信原生宿主提供绝对路径。 */
-  readClipboardFiles?(): Promise<HostFileReference[]>;
+  /** 读取系统剪贴板里的文件/目录引用；仅可信原生宿主提供绝对路径。 */
+  readClipboardPaths?(): Promise<HostPathReference[]>;
   /** 订阅系统文件拖入；坐标已归一化为 WebView CSS 像素。 */
   onFileDragDrop?(handler: (event: HostFileDragDropEvent) => void): () => void;
   /** 打开外部 URL（新标签页/系统浏览器等）；可异步 */

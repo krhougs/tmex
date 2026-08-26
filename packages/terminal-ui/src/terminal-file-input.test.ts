@@ -3,6 +3,7 @@ import {
   quoteTerminalPath,
   resolveTerminalFilePasteTarget,
   resolveTerminalFileRoute,
+  selectNativeTerminalPaths,
   terminalFileNeedsSafetyConfirmation,
 } from './terminal-file-input';
 
@@ -23,6 +24,50 @@ describe('terminal file input', () => {
     expect(resolveTerminalFileRoute(false, true)).toBe('upload');
     expect(resolveTerminalFileRoute(true, false)).toBe('upload');
     expect(resolveTerminalFileRoute(true, true)).toBe('local-path');
+  });
+
+  test('local terminals accept every path while remote terminals accept uploadable files only', () => {
+    const entries = [
+      {
+        path: '/tmp/readme.txt',
+        name: 'readme.txt',
+        size: 4,
+        kind: 'file',
+        uploadAllowed: true,
+      },
+      {
+        path: '/tmp/folder',
+        name: 'folder',
+        size: 0,
+        kind: 'directory',
+        uploadAllowed: false,
+      },
+      {
+        path: '/tmp/private.bin',
+        name: 'private.bin',
+        size: 8,
+        kind: 'file',
+        uploadAllowed: false,
+      },
+      {
+        path: '/tmp/missing',
+        name: 'missing',
+        size: 0,
+        kind: 'unknown',
+        uploadAllowed: false,
+      },
+    ] as const;
+
+    expect(selectNativeTerminalPaths(entries, true)).toEqual({
+      accepted: [...entries],
+      directoryCount: 0,
+      unavailableCount: 0,
+    });
+    expect(selectNativeTerminalPaths(entries, false)).toEqual({
+      accepted: [entries[0]],
+      directoryCount: 1,
+      unavailableCount: 2,
+    });
   });
 
   test('quotes every path as inert shell input', () => {
