@@ -236,6 +236,20 @@ impl KittyGraphicsProcessor {
                         .push(KittyGraphicsEvent::Reply(reply_bytes(Some(id), placement_id, "OK")));
                 }
             }
+            tracing::info!(
+                target: "tmex_terminal::kitty_graphics",
+                stage = "gateway_emit",
+                action = %char::from(action),
+                image_id = image_id.unwrap_or(0),
+                source_format = format,
+                encoded_bytes = encoded.len(),
+                payload_bytes = decoded.len(),
+                terminal_bytes = output.terminal_bytes.len(),
+                width = parameter_u32(&params, "s").unwrap_or(0),
+                height = parameter_u32(&params, "v").unwrap_or(0),
+                virtual_placement = parameter_u8(&params, "U") == Some(1),
+                "Kitty graphics payload emitted"
+            );
             return output;
         }
 

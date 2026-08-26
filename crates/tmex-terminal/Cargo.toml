@@ -11,3 +11,4 @@ alacritty_terminal.workspace = true
 base64 = "0.22"
 flate2 = "1"
 png = "0.18"
+tracing.workspace = true
