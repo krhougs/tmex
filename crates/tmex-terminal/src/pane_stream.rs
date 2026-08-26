@@ -4,12 +4,11 @@ use std::borrow::Cow;
 use std::mem;
 use std::time::{Duration, Instant};
 
+use crate::kitty_graphics::{
+    KittyGraphicsOutput, KittyGraphicsProcessor, KITTY_BASE64_MAX_BYTES, KITTY_CONTROL_MAX_BYTES,
+};
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine as _;
-use crate::kitty_graphics::{
-    KittyGraphicsOutput, KittyGraphicsProcessor, KITTY_BASE64_MAX_BYTES,
-    KITTY_CONTROL_MAX_BYTES,
-};
 
 use crate::keyboard_modes::{detect_keyboard_sequence, KbdSequence};
 use crate::{PromptMarker, PromptMarkerKind};
@@ -248,9 +247,9 @@ impl PaneStreamParser {
                     self.phase = Phase::Esc;
                 } else {
                     if self.kitty_graphics.has_pending() {
-                        let graphics = self
-                            .kitty_graphics
-                            .abort_pending("Kitty graphics transfer was interrupted by terminal bytes");
+                        let graphics = self.kitty_graphics.abort_pending(
+                            "Kitty graphics transfer was interrupted by terminal bytes",
+                        );
                         Self::append_graphics_output(graphics, output);
                     }
                     if byte == 0x07 {
@@ -262,9 +261,9 @@ impl PaneStreamParser {
             }
             Phase::Esc => {
                 if !matches!(byte, b'_' | b'P') && self.kitty_graphics.has_pending() {
-                    let graphics = self
-                        .kitty_graphics
-                        .abort_pending("Kitty graphics transfer was interrupted by a non-APC escape sequence");
+                    let graphics = self.kitty_graphics.abort_pending(
+                        "Kitty graphics transfer was interrupted by a non-APC escape sequence",
+                    );
                     Self::append_graphics_output(graphics, output);
                 }
                 match byte {
@@ -336,9 +335,9 @@ impl PaneStreamParser {
                     }
                 } else {
                     if self.kitty_graphics.has_pending() {
-                        let graphics = self
-                            .kitty_graphics
-                            .abort_pending("Kitty graphics transfer was interrupted by a non-tmux DCS");
+                        let graphics = self.kitty_graphics.abort_pending(
+                            "Kitty graphics transfer was interrupted by a non-tmux DCS",
+                        );
                         Self::append_graphics_output(graphics, output);
                     }
                     output.terminal_bytes.extend_from_slice(b"\x1bP");
@@ -386,9 +385,9 @@ impl PaneStreamParser {
                     self.phase = Phase::ApcControl;
                 } else {
                     if self.kitty_graphics.has_pending() {
-                        let graphics = self
-                            .kitty_graphics
-                            .abort_pending("Kitty graphics transfer was interrupted by a non-Kitty APC");
+                        let graphics = self.kitty_graphics.abort_pending(
+                            "Kitty graphics transfer was interrupted by a non-Kitty APC",
+                        );
                         Self::append_graphics_output(graphics, output);
                     }
                     output.terminal_bytes.extend_from_slice(b"\x1b_");
@@ -414,9 +413,7 @@ impl PaneStreamParser {
             Phase::ApcPayloadEsc => {
                 if byte == b'\\' {
                     self.finish_kitty_apc(output);
-                } else if self.apc_payload.len().saturating_add(2)
-                    > KITTY_BASE64_MAX_BYTES
-                {
+                } else if self.apc_payload.len().saturating_add(2) > KITTY_BASE64_MAX_BYTES {
                     self.phase = Phase::ApcIgnore;
                 } else {
                     self.apc_payload.extend_from_slice(&[0x1b, byte]);
@@ -566,10 +563,7 @@ impl PaneStreamParser {
         self.phase = Phase::Normal;
     }
 
-    fn append_graphics_output(
-        mut graphics: KittyGraphicsOutput,
-        output: &mut PaneStreamOutput,
-    ) {
+    fn append_graphics_output(mut graphics: KittyGraphicsOutput, output: &mut PaneStreamOutput) {
         output.terminal_bytes.append(&mut graphics.terminal_bytes);
         for event in graphics.events {
             output.push_event(PaneStreamEvent::Graphics(event));
@@ -1154,10 +1148,7 @@ mod tests {
             ))]
         );
 
-        let query = parser.push(&tmux_wrap(&kitty_apc(
-            "a=q,t=d,f=24,s=1,v=1,i=31",
-            "AAAA",
-        )));
+        let query = parser.push(&tmux_wrap(&kitty_apc("a=q,t=d,f=24,s=1,v=1,i=31", "AAAA")));
         assert!(query.terminal_bytes.is_empty());
         assert_eq!(
             query.events,
@@ -1174,12 +1165,15 @@ mod tests {
             "a=T,q=2,f=32,s=1,v=1,i=41,m=1",
             "/wAA",
         )));
-        assert!(first.is_empty());
+        assert_eq!(
+            first.terminal_bytes,
+            b"\x1b_Ga=T,q=2,f=32,s=1,v=1,i=41,m=1;/wAA\x1b\\"
+        );
+        assert!(first.events.is_empty());
 
         let completed = parser.push(&tmux_wrap(&kitty_apc("m=0", "/w==")));
+        assert_eq!(completed.terminal_bytes, b"\x1b_Gm=0;/w==\x1b\\");
         assert!(completed.events.is_empty());
-        assert!(completed.terminal_bytes.starts_with(b"\x1b_Ga=T,q=2,f=32"));
-        assert!(completed.terminal_bytes.ends_with(b"/wAA/w==\x1b\\"));
     }
 
     #[test]
@@ -1201,23 +1195,33 @@ mod tests {
             }
             output
         };
-        assert!(push_in_state_chunks(&first).is_empty());
+        let mut forwarded = Vec::new();
+        let first_output = push_in_state_chunks(&first);
+        assert!(first_output.events.is_empty());
+        assert!(!first_output.terminal_bytes.is_empty());
+        assert!(first_output.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
+        forwarded.extend(first_output.terminal_bytes);
         for _ in 0..11 {
             let wrapped = tmux_wrap(&kitty_apc("a=T,q=2,m=1", &payload));
-            assert!(push_in_state_chunks(&wrapped).is_empty());
+            let output = push_in_state_chunks(&wrapped);
+            assert!(output.events.is_empty());
+            assert!(!output.terminal_bytes.is_empty());
+            assert!(output.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
+            forwarded.extend(output.terminal_bytes);
         }
 
         let final_wrapper = tmux_wrap(&kitty_apc("a=T,q=2", &"A".repeat(19_127)));
         let completed = push_in_state_chunks(&final_wrapper);
-        let text = String::from_utf8_lossy(&completed.terminal_bytes);
         assert!(completed.events.is_empty());
+        assert!(!completed.terminal_bytes.is_empty());
+        assert!(completed.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
+        forwarded.extend(completed.terminal_bytes);
+        let text = String::from_utf8_lossy(&forwarded);
         assert!(text.contains("i=448637964"));
         assert!(text.contains("s=1"));
         assert!(text.contains("v=1"));
         assert!(text.contains("U=1"));
     }
-
-
 
     #[test]
     fn kitty_graphics_preserves_non_graphics_apc_and_aborts_interleaved_chunks() {
@@ -1226,7 +1230,10 @@ mod tests {
         assert_eq!(parser.push(other).terminal_bytes, other);
 
         let first = parser.push(&kitty_apc("a=T,f=32,s=1,v=1,i=9,m=1", "AAAA"));
-        assert!(first.is_empty());
+        assert_eq!(
+            first.terminal_bytes,
+            kitty_apc("a=T,f=32,s=1,v=1,i=9,m=1", "AAAA")
+        );
         let interrupted = parser.push(b"text");
         assert_eq!(interrupted.terminal_bytes, b"text");
         assert!(interrupted.events.iter().any(|event| matches!(

@@ -33,9 +33,16 @@ pub(crate) struct KittyGraphicsOutput {
 }
 
 #[derive(Clone, Debug)]
-struct PendingTransfer {
-    params: Vec<(String, String)>,
-    encoded: Vec<u8>,
+enum PendingTransfer {
+    Buffered {
+        params: Vec<(String, String)>,
+        encoded: Vec<u8>,
+    },
+    Direct {
+        params: Vec<(String, String)>,
+        encoded_bytes: usize,
+        terminal_bytes: usize,
+    },
 }
 
 #[derive(Default)]
@@ -58,8 +65,13 @@ impl KittyGraphicsProcessor {
         let Some(pending) = self.pending.take() else {
             return KittyGraphicsOutput::default();
         };
-        let image_id = parameter_u32(&pending.params, "i").filter(|id| *id != 0);
-        error_output(&pending.params, image_id, message)
+        let params = match &pending {
+            PendingTransfer::Buffered { params, .. } | PendingTransfer::Direct { params, .. } => {
+                params
+            }
+        };
+        let image_id = parameter_u32(params, "i").filter(|id| *id != 0);
+        error_output(params, image_id, message)
     }
 
     pub fn reject(&mut self, control: &[u8], message: &str) -> KittyGraphicsOutput {
@@ -77,20 +89,40 @@ impl KittyGraphicsProcessor {
         let params = parse_parameters(&control);
         let continuation = parameter_u8(&params, "m");
 
-        if let Some(mut pending) = self.pending.take() {
-            if pending.encoded.len().saturating_add(payload.len()) > KITTY_BASE64_MAX_BYTES {
-                return error_output(
-                    &pending.params,
-                    parameter_u32(&pending.params, "i").filter(|id| *id != 0),
-                    "Kitty graphics image exceeds the 16 MiB limit",
-                );
-            }
-            pending.encoded.extend_from_slice(payload);
-            if continuation == Some(1) {
-                self.pending = Some(pending);
-                return KittyGraphicsOutput::default();
-            }
-            return self.process_complete(pending.params, &pending.encoded);
+        if let Some(pending) = self.pending.take() {
+            return match pending {
+                PendingTransfer::Buffered {
+                    params,
+                    mut encoded,
+                } => {
+                    if encoded.len().saturating_add(payload.len()) > KITTY_BASE64_MAX_BYTES {
+                        return error_output(
+                            &params,
+                            parameter_u32(&params, "i").filter(|id| *id != 0),
+                            "Kitty graphics image exceeds the 16 MiB limit",
+                        );
+                    }
+                    encoded.extend_from_slice(payload);
+                    if continuation == Some(1) {
+                        self.pending = Some(PendingTransfer::Buffered { params, encoded });
+                        KittyGraphicsOutput::default()
+                    } else {
+                        self.process_complete(params, &encoded)
+                    }
+                }
+                PendingTransfer::Direct {
+                    params: initial_params,
+                    encoded_bytes,
+                    terminal_bytes,
+                } => self.process_direct_chunk(
+                    initial_params,
+                    encoded_bytes,
+                    terminal_bytes,
+                    params,
+                    payload,
+                    continuation,
+                ),
+            };
         }
 
         if continuation == Some(1) {
@@ -101,7 +133,26 @@ impl KittyGraphicsProcessor {
                     "Kitty graphics image exceeds the 16 MiB limit",
                 );
             }
-            self.pending = Some(PendingTransfer {
+            if is_direct_transmission(&params) {
+                if !valid_stream_base64_chunk(payload, false) {
+                    return error_output(
+                        &params,
+                        parameter_u32(&params, "i").filter(|id| *id != 0),
+                        "EINVAL: invalid Kitty graphics base64 payload",
+                    );
+                }
+                let output = KittyGraphicsOutput {
+                    terminal_bytes: encode_apc(&params, payload),
+                    events: Vec::new(),
+                };
+                self.pending = Some(PendingTransfer::Direct {
+                    params,
+                    encoded_bytes: payload.len(),
+                    terminal_bytes: output.terminal_bytes.len(),
+                });
+                return output;
+            }
+            self.pending = Some(PendingTransfer::Buffered {
                 params,
                 encoded: payload.to_vec(),
             });
@@ -109,6 +160,99 @@ impl KittyGraphicsProcessor {
         }
 
         self.process_complete(params, payload)
+    }
+
+    fn process_direct_chunk(
+        &mut self,
+        initial_params: Vec<(String, String)>,
+        encoded_bytes: usize,
+        terminal_bytes: usize,
+        params: Vec<(String, String)>,
+        payload: &[u8],
+        continuation: Option<u8>,
+    ) -> KittyGraphicsOutput {
+        let final_chunk = continuation != Some(1);
+        if !valid_stream_base64_chunk(payload, final_chunk) {
+            return error_output(
+                &initial_params,
+                parameter_u32(&initial_params, "i").filter(|id| *id != 0),
+                "EINVAL: invalid Kitty graphics base64 payload",
+            );
+        }
+        let encoded_bytes = encoded_bytes.saturating_add(payload.len());
+        if encoded_bytes > KITTY_BASE64_MAX_BYTES {
+            return error_output(
+                &initial_params,
+                parameter_u32(&initial_params, "i").filter(|id| *id != 0),
+                "Kitty graphics image exceeds the 16 MiB limit",
+            );
+        }
+
+        let mut output = KittyGraphicsOutput {
+            terminal_bytes: encode_apc(&params, payload),
+            events: Vec::new(),
+        };
+        let terminal_bytes = terminal_bytes.saturating_add(output.terminal_bytes.len());
+        if !final_chunk {
+            self.pending = Some(PendingTransfer::Direct {
+                params: initial_params,
+                encoded_bytes,
+                terminal_bytes,
+            });
+            return output;
+        }
+        let padding = payload
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'=')
+            .count();
+        let Some(decoded_bytes) = decoded_base64_len(encoded_bytes, padding) else {
+            return error_output(
+                &initial_params,
+                parameter_u32(&initial_params, "i").filter(|id| *id != 0),
+                "EINVAL: invalid Kitty graphics base64 payload",
+            );
+        };
+        if decoded_bytes > KITTY_GRAPHICS_MAX_BYTES {
+            return error_output(
+                &initial_params,
+                parameter_u32(&initial_params, "i").filter(|id| *id != 0),
+                "Kitty graphics image exceeds the 16 MiB limit",
+            );
+        }
+
+        let action = parameter(&initial_params, "a")
+            .and_then(|value| value.as_bytes().first().copied())
+            .unwrap_or(b't');
+        let image_id = parameter_u32(&initial_params, "i").filter(|id| *id != 0);
+        let placement_id = parameter_u32(&initial_params, "p").filter(|id| *id != 0);
+        let quiet = parameter_u8(&initial_params, "q").unwrap_or(0);
+        if let Some(id) = image_id {
+            self.known_images.insert(id);
+            if quiet == 0 {
+                output.events.push(KittyGraphicsEvent::Reply(reply_bytes(
+                    Some(id),
+                    placement_id,
+                    "OK",
+                )));
+            }
+        }
+        tracing::warn!(
+            target: "tmex_terminal::kitty_graphics",
+            stage = "gateway_emit",
+            action = %char::from(action),
+            image_id = image_id.unwrap_or(0),
+            source_format = parameter_u32(&initial_params, "f").unwrap_or(32),
+            encoded_bytes,
+            payload_bytes = decoded_bytes,
+            terminal_bytes,
+            width = parameter_u32(&initial_params, "s").unwrap_or(0),
+            height = parameter_u32(&initial_params, "v").unwrap_or(0),
+            virtual_placement = parameter_u8(&initial_params, "U") == Some(1),
+            streamed = true,
+            "Kitty graphics payload emitted"
+        );
+        output
     }
 
     fn process_complete(
@@ -139,14 +283,7 @@ impl KittyGraphicsProcessor {
             let decoded = match decode_base64(encoded) {
                 Ok(decoded) => decoded,
                 Err(message) => {
-                    return reply_only(
-                        &params,
-                        image_id,
-                        placement_id,
-                        quiet,
-                        false,
-                        &message,
-                    )
+                    return reply_only(&params, image_id, placement_id, quiet, false, &message)
                 }
             };
             if decoded.len() > KITTY_GRAPHICS_MAX_BYTES {
@@ -222,9 +359,11 @@ impl KittyGraphicsProcessor {
             if let Some(id) = image_id {
                 self.known_images.insert(id);
                 if quiet == 0 {
-                    output
-                        .events
-                        .push(KittyGraphicsEvent::Reply(reply_bytes(Some(id), placement_id, "OK")));
+                    output.events.push(KittyGraphicsEvent::Reply(reply_bytes(
+                        Some(id),
+                        placement_id,
+                        "OK",
+                    )));
                 }
             }
             tracing::warn!(
@@ -253,9 +392,11 @@ impl KittyGraphicsProcessor {
             if let Some(id) = image_id {
                 let known = self.known_images.contains(&id);
                 if known && quiet == 0 {
-                    output
-                        .events
-                        .push(KittyGraphicsEvent::Reply(reply_bytes(Some(id), placement_id, "OK")));
+                    output.events.push(KittyGraphicsEvent::Reply(reply_bytes(
+                        Some(id),
+                        placement_id,
+                        "OK",
+                    )));
                 } else if !known && quiet < 2 {
                     output.events.push(KittyGraphicsEvent::Reply(reply_bytes(
                         Some(id),
@@ -279,7 +420,54 @@ impl KittyGraphicsProcessor {
         output
     }
 }
+fn is_direct_transmission(params: &[(String, String)]) -> bool {
+    let action = parameter(params, "a")
+        .and_then(|value| value.as_bytes().first().copied())
+        .unwrap_or(b't');
+    let medium = parameter(params, "t")
+        .and_then(|value| value.as_bytes().first().copied())
+        .unwrap_or(b'd');
+    matches!(action, b't' | b'T' | b'f')
+        && medium == b'd'
+        && parameter_u32(params, "f").unwrap_or(32) != 100
+}
 
+fn valid_stream_base64_chunk(payload: &[u8], final_chunk: bool) -> bool {
+    let mut padding = 0;
+    for byte in payload {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/') {
+            if padding != 0 {
+                return false;
+            }
+        } else if *byte == b'=' && final_chunk {
+            padding += 1;
+            if padding > 2 {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn decoded_base64_len(encoded_bytes: usize, padding: usize) -> Option<usize> {
+    if padding > 2 || padding > encoded_bytes {
+        return None;
+    }
+    if padding != 0 {
+        return (encoded_bytes % 4 == 0)
+            .then(|| encoded_bytes / 4 * 3)
+            .and_then(|length| length.checked_sub(padding));
+    }
+    let complete = encoded_bytes / 4 * 3;
+    match encoded_bytes % 4 {
+        0 => Some(complete),
+        2 => complete.checked_add(1),
+        3 => complete.checked_add(2),
+        _ => None,
+    }
+}
 
 fn parse_parameters(control: &str) -> Vec<(String, String)> {
     control
@@ -420,7 +608,10 @@ fn encode_direct_chunks(params: &[(String, String)], data: &[u8]) -> Vec<u8> {
         return encode_apc(params, encoded.as_bytes());
     }
 
-    let chunks = encoded.as_bytes().chunks(KITTY_CHUNK_BYTES).collect::<Vec<_>>();
+    let chunks = encoded
+        .as_bytes()
+        .chunks(KITTY_CHUNK_BYTES)
+        .collect::<Vec<_>>();
     let mut bytes = Vec::with_capacity(encoded.len().saturating_add(chunks.len() * 16));
     for (index, chunk) in chunks.iter().enumerate() {
         let more = index + 1 < chunks.len();
@@ -546,7 +737,9 @@ mod tests {
         let mut processor = KittyGraphicsProcessor::default();
         let payload = STANDARD.encode(tiny_rgba_png());
         let output = processor.process(b"a=T,f=100,i=7", payload.as_bytes());
-        assert!(output.terminal_bytes.starts_with(b"\x1b_Ga=T,f=32,i=7,s=1,v=1,o=z"));
+        assert!(output
+            .terminal_bytes
+            .starts_with(b"\x1b_Ga=T,f=32,i=7,s=1,v=1,o=z"));
         let separator = output
             .terminal_bytes
             .iter()
@@ -564,11 +757,18 @@ mod tests {
     }
 
     #[test]
-    fn aggregates_chunks_and_rejects_oversize_without_terminal_bytes() {
+    fn streams_direct_chunks_and_rejects_oversize_before_forwarding() {
         let mut processor = KittyGraphicsProcessor::default();
-        let first = processor.process(b"a=T,f=32,i=3,m=1", b"AAAA");
-        assert!(first.terminal_bytes.is_empty());
+        let first = processor.process(b"a=T,q=2,f=32,i=3,m=1", b"AAAA");
+        assert_eq!(
+            first.terminal_bytes,
+            b"\x1b_Ga=T,q=2,f=32,i=3,m=1;AAAA\x1b\\"
+        );
         assert!(first.events.is_empty());
+        let final_chunk = processor.process(b"a=T,q=2", b"AAAA");
+        assert_eq!(final_chunk.terminal_bytes, b"\x1b_Ga=T,q=2;AAAA\x1b\\");
+        assert!(final_chunk.events.is_empty());
+        assert!(!processor.has_pending());
 
         let mut processor = KittyGraphicsProcessor::default();
         let oversized = vec![b'A'; KITTY_BASE64_MAX_BYTES + 1];
@@ -589,9 +789,7 @@ mod tests {
         let direct = processor.process(b"a=q,t=d,f=24,s=1,v=1,i=31", b"AAAA");
         assert_eq!(
             direct.events,
-            vec![KittyGraphicsEvent::Reply(
-                b"\x1b_Gi=31;OK\x1b\\".to_vec()
-            )]
+            vec![KittyGraphicsEvent::Reply(b"\x1b_Gi=31;OK\x1b\\".to_vec())]
         );
 
         let file = processor.process(b"a=q,t=f,f=100,i=32", b"L3RtcC9pbWcucG5n");
