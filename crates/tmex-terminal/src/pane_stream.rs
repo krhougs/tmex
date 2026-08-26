@@ -1193,19 +1193,22 @@ mod tests {
         assert!(first.len() < MAX_DCS_PASSTHROUGH_BYTES);
 
         let mut parser = PaneStreamParser::new();
-        assert!(parser.push(&first).is_empty());
+        let mut push_in_state_chunks = |bytes: &[u8]| {
+            let mut output = PaneStreamOutput::default();
+            for chunk in bytes.chunks(32_139) {
+                assert!(output.is_empty());
+                output = parser.push(chunk);
+            }
+            output
+        };
+        assert!(push_in_state_chunks(&first).is_empty());
         for _ in 0..11 {
-            assert!(
-                parser
-                    .push(&tmux_wrap(&kitty_apc("a=T,q=2,m=1", &payload)))
-                    .is_empty()
-            );
+            let wrapped = tmux_wrap(&kitty_apc("a=T,q=2,m=1", &payload));
+            assert!(push_in_state_chunks(&wrapped).is_empty());
         }
 
-        let completed = parser.push(&tmux_wrap(&kitty_apc(
-            "a=T,q=2",
-            &"A".repeat(19_127),
-        )));
+        let final_wrapper = tmux_wrap(&kitty_apc("a=T,q=2", &"A".repeat(19_127)));
+        let completed = push_in_state_chunks(&final_wrapper);
         let text = String::from_utf8_lossy(&completed.terminal_bytes);
         assert!(completed.events.is_empty());
         assert!(text.contains("i=448637964"));
