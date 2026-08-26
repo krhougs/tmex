@@ -261,7 +261,7 @@ impl PaneStreamParser {
                 }
             }
             Phase::Esc => {
-                if byte != b'_' && self.kitty_graphics.has_pending() {
+                if !matches!(byte, b'_' | b'P') && self.kitty_graphics.has_pending() {
                     let graphics = self
                         .kitty_graphics
                         .abort_pending("Kitty graphics transfer was interrupted");
@@ -335,6 +335,12 @@ impl PaneStreamParser {
                         self.phase = Phase::DcsTmux;
                     }
                 } else {
+                    if self.kitty_graphics.has_pending() {
+                        let graphics = self
+                            .kitty_graphics
+                            .abort_pending("Kitty graphics transfer was interrupted");
+                        Self::append_graphics_output(graphics, output);
+                    }
                     output.terminal_bytes.extend_from_slice(b"\x1bP");
                     output.terminal_bytes.append(&mut self.dcs_prefix);
                     self.phase = Phase::Normal;
@@ -1159,6 +1165,21 @@ mod tests {
                 b"\x1b_Gi=31;OK\x1b\\".to_vec()
             ))]
         );
+    }
+
+    #[test]
+    fn kitty_chunk_transfer_survives_one_tmux_wrapper_per_chunk() {
+        let mut parser = PaneStreamParser::new();
+        let first = parser.push(&tmux_wrap(&kitty_apc(
+            "a=T,q=2,f=32,s=1,v=1,i=41,m=1",
+            "/wAA",
+        )));
+        assert!(first.is_empty());
+
+        let completed = parser.push(&tmux_wrap(&kitty_apc("m=0", "/w==")));
+        assert!(completed.events.is_empty());
+        assert!(completed.terminal_bytes.starts_with(b"\x1b_Ga=T,q=2,f=32"));
+        assert!(completed.terminal_bytes.ends_with(b"/wAA/w==\x1b\\"));
     }
 
     #[test]
