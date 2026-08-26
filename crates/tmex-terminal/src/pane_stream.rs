@@ -17,7 +17,7 @@ use crate::{PromptMarker, PromptMarkerKind};
 const MAX_OSC_KIND_BYTES: usize = 16;
 const MAX_OSC_PAYLOAD_BYTES: usize = 8 * 1024;
 const MAX_TITLE_BYTES: usize = 8 * 1024;
-const MAX_DCS_PASSTHROUGH_BYTES: usize = 64 * 1024;
+const MAX_DCS_PASSTHROUGH_BYTES: usize = 256 * 1024;
 const MAX_KITTY_PENDING_IDS: usize = 16;
 const MAX_CSI_BYTES: usize = 64;
 const TMUX_PASSTHROUGH_PREFIX: &[u8] = b"tmux;";
@@ -1180,6 +1180,33 @@ mod tests {
         assert!(completed.events.is_empty());
         assert!(completed.terminal_bytes.starts_with(b"\x1b_Ga=T,q=2,f=32"));
         assert!(completed.terminal_bytes.ends_with(b"/wAA/w==\x1b\\"));
+    }
+
+    #[test]
+    fn kitten_large_stream_survives_128k_tmux_passthrough_wrapper() {
+        let payload = "A".repeat(4096);
+        let mut content = Vec::new();
+        for index in 0..32 {
+            let control = if index == 0 {
+                "a=T,q=2,f=32,U=1,s=1,v=1,c=1,r=1,i=448637964,m=1"
+            } else if index == 31 {
+                "m=0"
+            } else {
+                "m=1"
+            };
+            content.extend(kitty_apc(control, &payload));
+        }
+        assert!(content.len() > 128 * 1024);
+        assert!(content.len() < MAX_DCS_PASSTHROUGH_BYTES);
+
+        let mut parser = PaneStreamParser::new();
+        let output = parser.push(&tmux_wrap(&content));
+        let text = String::from_utf8_lossy(&output.terminal_bytes);
+        assert!(output.events.is_empty());
+        assert!(text.contains("i=448637964"));
+        assert!(text.contains("s=1"));
+        assert!(text.contains("v=1"));
+        assert!(text.contains("U=1"));
     }
 
     #[test]

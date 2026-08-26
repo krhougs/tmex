@@ -236,7 +236,7 @@ impl KittyGraphicsProcessor {
                         .push(KittyGraphicsEvent::Reply(reply_bytes(Some(id), placement_id, "OK")));
                 }
             }
-            tracing::warn!(
+            tracing::info!(
                 target: "tmex_terminal::kitty_graphics",
                 stage = "gateway_emit",
                 action = %char::from(action),
