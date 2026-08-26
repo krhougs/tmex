@@ -712,14 +712,25 @@ impl LegacyBusinessSession {
         event: CanonicalEvent,
         sink: &mut dyn LegacyFrameSink,
     ) -> Result<bool, SessionProtocolError> {
-        if self.closed {
+        self.send_canonical_events(vec![event], sink)
+    }
+
+    pub fn send_canonical_events(
+        &mut self,
+        events: Vec<CanonicalEvent>,
+        sink: &mut dyn LegacyFrameSink,
+    ) -> Result<bool, SessionProtocolError> {
+        if self.closed || !sink.can_send() || events.is_empty() {
             return Ok(false);
         }
-        self.send_payload(
-            MessageKind::CanonicalEvent,
-            encode_canonical_event(event)?,
-            sink,
-        )
+        let mut frames = Vec::new();
+        for event in events {
+            frames.extend(self.wire.prepare_outbound(
+                MessageKind::CanonicalEvent as u16,
+                encode_canonical_event(event)?,
+            )?);
+        }
+        Ok(sink.send_batch(frames))
     }
 
     pub fn send_protocol_error(
@@ -1807,12 +1818,7 @@ mod tests {
             negotiate(&mut session, &mut runtime, &mut sink);
             let seq = u32::try_from(index + 2).expect("test sequence fits u32");
             session
-                .dispatch_business(
-                    inbound(kind, seq, payload),
-                    1,
-                    &mut runtime,
-                    &mut sink,
-                )
+                .dispatch_business(inbound(kind, seq, payload), 1, &mut runtime, &mut sink)
                 .expect("oversized input handled");
 
             let error_frame = sink.envelopes().last().expect("error envelope");

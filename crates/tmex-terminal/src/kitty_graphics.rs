@@ -24,6 +24,13 @@ pub enum KittyGraphicsEvent {
         image_id: Option<u32>,
         message: String,
     },
+    ReplayStore {
+        image_id: u32,
+        data: Vec<u8>,
+    },
+    ReplayDelete {
+        image_id: Option<u32>,
+    },
 }
 
 #[derive(Default)]
@@ -42,6 +49,7 @@ enum PendingTransfer {
         params: Vec<(String, String)>,
         encoded_bytes: usize,
         terminal_bytes: usize,
+        replay: Option<Vec<u8>>,
     },
 }
 
@@ -114,10 +122,12 @@ impl KittyGraphicsProcessor {
                     params: initial_params,
                     encoded_bytes,
                     terminal_bytes,
+                    replay,
                 } => self.process_direct_chunk(
                     initial_params,
                     encoded_bytes,
                     terminal_bytes,
+                    replay,
                     params,
                     payload,
                     continuation,
@@ -145,10 +155,12 @@ impl KittyGraphicsProcessor {
                     terminal_bytes: encode_apc(&params, payload),
                     events: Vec::new(),
                 };
+                let replay = is_virtual_replay(&params).then(|| output.terminal_bytes.clone());
                 self.pending = Some(PendingTransfer::Direct {
                     params,
                     encoded_bytes: payload.len(),
                     terminal_bytes: output.terminal_bytes.len(),
+                    replay,
                 });
                 return output;
             }
@@ -167,6 +179,7 @@ impl KittyGraphicsProcessor {
         initial_params: Vec<(String, String)>,
         encoded_bytes: usize,
         terminal_bytes: usize,
+        mut replay: Option<Vec<u8>>,
         params: Vec<(String, String)>,
         payload: &[u8],
         continuation: Option<u8>,
@@ -192,12 +205,16 @@ impl KittyGraphicsProcessor {
             terminal_bytes: encode_apc(&params, payload),
             events: Vec::new(),
         };
+        if let Some(bytes) = &mut replay {
+            bytes.extend_from_slice(&output.terminal_bytes);
+        }
         let terminal_bytes = terminal_bytes.saturating_add(output.terminal_bytes.len());
         if !final_chunk {
             self.pending = Some(PendingTransfer::Direct {
                 params: initial_params,
                 encoded_bytes,
                 terminal_bytes,
+                replay,
             });
             return output;
         }
@@ -237,7 +254,12 @@ impl KittyGraphicsProcessor {
                 )));
             }
         }
-        tracing::warn!(
+        if let (Some(id), Some(data)) = (image_id, replay) {
+            output
+                .events
+                .push(KittyGraphicsEvent::ReplayStore { image_id: id, data });
+        }
+        tracing::info!(
             target: "tmex_terminal::kitty_graphics",
             stage = "gateway_emit",
             action = %char::from(action),
@@ -366,7 +388,13 @@ impl KittyGraphicsProcessor {
                     )));
                 }
             }
-            tracing::warn!(
+            if let Some(id) = image_id.filter(|_| is_virtual_replay(&params)) {
+                output.events.push(KittyGraphicsEvent::ReplayStore {
+                    image_id: id,
+                    data: output.terminal_bytes.clone(),
+                });
+            }
+            tracing::info!(
                 target: "tmex_terminal::kitty_graphics",
                 stage = "gateway_emit",
                 action = %char::from(action),
@@ -408,10 +436,18 @@ impl KittyGraphicsProcessor {
         } else if action == b'd' {
             match parameter(&params, "d") {
                 Some("A") => self.known_images.clear(),
-                Some("I") => {
+                Some("i" | "I") => {
                     if let Some(id) = image_id {
                         self.known_images.remove(&id);
+                        output
+                            .events
+                            .push(KittyGraphicsEvent::ReplayDelete { image_id: Some(id) });
                     }
+                }
+                Some("r" | "R" | "n" | "N") => {
+                    output
+                        .events
+                        .push(KittyGraphicsEvent::ReplayDelete { image_id: None });
                 }
                 _ => {}
             }
@@ -430,6 +466,10 @@ fn is_direct_transmission(params: &[(String, String)]) -> bool {
     matches!(action, b't' | b'T' | b'f')
         && medium == b'd'
         && parameter_u32(params, "f").unwrap_or(32) != 100
+}
+
+fn is_virtual_replay(params: &[(String, String)]) -> bool {
+    parameter_u8(params, "U") == Some(1) && parameter_u32(params, "i").is_some_and(|id| id != 0)
 }
 
 fn valid_stream_base64_chunk(payload: &[u8], final_chunk: bool) -> bool {
@@ -736,10 +776,10 @@ mod tests {
     fn transcodes_png_to_chunkable_rgba_zlib() {
         let mut processor = KittyGraphicsProcessor::default();
         let payload = STANDARD.encode(tiny_rgba_png());
-        let output = processor.process(b"a=T,f=100,i=7", payload.as_bytes());
+        let output = processor.process(b"a=T,f=100,i=7,U=1", payload.as_bytes());
         assert!(output
             .terminal_bytes
-            .starts_with(b"\x1b_Ga=T,f=32,i=7,s=1,v=1,o=z"));
+            .starts_with(b"\x1b_Ga=T,f=32,i=7,U=1,s=1,v=1,o=z"));
         let separator = output
             .terminal_bytes
             .iter()
@@ -754,6 +794,10 @@ mod tests {
         assert!(output
             .events
             .contains(&KittyGraphicsEvent::Reply(b"\x1b_Gi=7;OK\x1b\\".to_vec())));
+        assert!(output.events.contains(&KittyGraphicsEvent::ReplayStore {
+            image_id: 7,
+            data: output.terminal_bytes.clone(),
+        }));
     }
 
     #[test]
@@ -781,6 +825,28 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn virtual_direct_stream_emits_one_complete_replay_and_delete_event() {
+        let mut processor = KittyGraphicsProcessor::default();
+        let first = processor.process(b"a=T,q=2,f=32,U=1,i=3,m=1", b"AAAA");
+        assert!(first.events.is_empty());
+        let final_chunk = processor.process(b"a=T,q=2", b"AAAA");
+        let mut replay = first.terminal_bytes;
+        replay.extend_from_slice(&final_chunk.terminal_bytes);
+        assert_eq!(
+            final_chunk.events,
+            vec![KittyGraphicsEvent::ReplayStore {
+                image_id: 3,
+                data: replay,
+            }]
+        );
+
+        let deleted = processor.process(b"a=d,d=I,i=3,q=2", b"");
+        assert!(deleted
+            .events
+            .contains(&KittyGraphicsEvent::ReplayDelete { image_id: Some(3) }));
     }
 
     #[test]

@@ -2277,7 +2277,7 @@ impl GatewaySessionActor {
         let options = CanonicalFeedSessionOptions {
             max_frame_bytes: maximum,
             gateway_epoch: rand::random(),
-            send_event: Arc::new(move |event: CanonicalEvent| {
+            send_events: Arc::new(move |events: Vec<CanonicalEvent>| {
                 let mut business = business
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -2287,7 +2287,7 @@ impl GatewaySessionActor {
                     maximum,
                 };
                 business
-                    .send_canonical_event(event, &mut sink)
+                    .send_canonical_events(events, &mut sink)
                     .unwrap_or_else(|_| {
                         abort.cancel();
                         false
@@ -5724,6 +5724,25 @@ mod tests {
         assert!(!actor.snapshots.contains_key("snapshot-device"));
         actor.cleanup().await;
         hub.stop_all().await;
+    }
+
+    #[tokio::test]
+    async fn outbound_queue_accepts_one_large_atomic_screen_batch() {
+        let queued_bytes = Arc::new(AtomicUsize::new(64 * 1024));
+        let abort = SessionAbort::new();
+        let (outbound, mut receiver) = OutboundQueue::new(
+            2,
+            BackpressureConfig::default(),
+            abort.clone(),
+            Arc::clone(&queued_bytes),
+        );
+        let frames = (0..192)
+            .map(|_| GatewayFrame::Binary(Bytes::from(vec![0_u8; 32 * 1024])))
+            .collect::<Vec<_>>();
+        assert!(outbound.enqueue_frames(frames, 64 * 1024));
+        let queued = receiver.try_recv().expect("one atomic queued batch");
+        assert_eq!(queued.frames.len(), 192);
+        assert!(!abort.is_cancelled());
     }
 
     #[tokio::test]

@@ -30,13 +30,13 @@ use super::runtime::{
     PaneSubscriptionRejectionReason, PaneSubscriptionRequest, RuntimeFuture,
 };
 
-pub const CANONICAL_MAX_SCREEN_BYTES: u32 = 512 * 1024;
+pub const CANONICAL_MAX_SCREEN_BYTES: u32 = 6 * 1024 * 1024;
 pub const CANONICAL_MAX_HISTORY_PAGE_BYTES: u32 = 256 * 1024;
 pub const CANONICAL_MAX_PENDING_PANE_GAPS: usize = 256;
 pub const CANONICAL_MAX_INPUT_DEDUP_IDS: usize = 1_024;
 pub const CANONICAL_MAX_SCREEN_WAITERS_PER_PANE: usize = 2;
 pub const CANONICAL_MAX_HISTORY_JOBS: usize = 64;
-pub const CANONICAL_MAX_SCREEN_FANOUT_BYTES: usize = 960 * 1024;
+pub const CANONICAL_MAX_SCREEN_FANOUT_BYTES: usize = 8 * 1024 * 1024;
 pub const CANONICAL_PENDING_SWEEP_MS: u64 = 250;
 pub const CANONICAL_RUNTIME_REQUEST_DEADLINE_MS: u64 = 35_000;
 pub const CANONICAL_RUNTIME_EVENT_QUEUE_CAPACITY: usize = 1_024;
@@ -56,7 +56,7 @@ pub type RuntimeResolver = Arc<
         > + Send
         + Sync,
 >;
-pub type CanonicalEventSender = Arc<dyn Fn(CanonicalEvent) -> bool + Send + Sync>;
+pub type CanonicalEventSender = Arc<dyn Fn(Vec<CanonicalEvent>) -> bool + Send + Sync>;
 pub type CanonicalTaskSpawner = Arc<dyn Fn(CanonicalTask) + Send + Sync>;
 pub type CanonicalClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 pub type EpochFactory = Arc<dyn Fn() -> WireToken + Send + Sync>;
@@ -66,7 +66,7 @@ pub type DeviceRuntimeCallback = Arc<dyn Fn(&str, Arc<dyn CanonicalFeedRuntime>)
 pub struct CanonicalFeedSessionOptions {
     pub max_frame_bytes: usize,
     pub gateway_epoch: WireToken,
-    pub send_event: CanonicalEventSender,
+    pub send_events: CanonicalEventSender,
     pub resolve_runtime: RuntimeResolver,
     pub spawn_task: CanonicalTaskSpawner,
     pub request_poll: CanonicalPollRequester,
@@ -1606,7 +1606,13 @@ impl CanonicalFeedSession {
         );
         let mut completed = 0usize;
         for request_id in request_ids {
-            if !self.send(CanonicalEvent::ScreenBegin(CanonicalScreenBegin {
+            let Some(chunks) =
+                self.content_chunk_events(ContentKind::Screen, *request_id, &checkpoint.data)
+            else {
+                break;
+            };
+            let mut events = Vec::with_capacity(chunks.len() + 2);
+            events.push(CanonicalEvent::ScreenBegin(CanonicalScreenBegin {
                 request_id: *request_id,
                 pane: CanonicalPaneTarget {
                     device_id: device_id.to_owned(),
@@ -1619,13 +1625,14 @@ impl CanonicalFeedSession {
                 cols: checkpoint.cols,
                 modes: checkpoint.modes,
                 total_bytes: checkpoint.data.len() as u32,
-            })) || !self.send_content_chunks(ContentKind::Screen, *request_id, &checkpoint.data)
-                || !self.send(CanonicalEvent::ScreenCommit(CanonicalScreenCommit {
-                    request_id: *request_id,
-                    total_bytes: checkpoint.data.len() as u32,
-                    history_cursor: checkpoint.history_cursor.clone(),
-                }))
-            {
+            }));
+            events.extend(chunks);
+            events.push(CanonicalEvent::ScreenCommit(CanonicalScreenCommit {
+                request_id: *request_id,
+                total_bytes: checkpoint.data.len() as u32,
+                history_cursor: checkpoint.history_cursor.clone(),
+            }));
+            if !self.send_batch(events) {
                 break;
             }
             completed += 1;
@@ -1679,31 +1686,39 @@ impl CanonicalFeedSession {
         }))
     }
 
-    fn send_content_chunks(
-        &mut self,
+    fn content_chunk_events(
+        &self,
         kind: ContentKind,
         request_id: WireToken,
         data: &[u8],
-    ) -> bool {
+    ) -> Option<Vec<CanonicalEvent>> {
         let max_data_bytes = self.max_content_chunk_bytes(kind, request_id);
         if max_data_bytes == 0 {
-            return false;
+            return None;
         }
+        let mut events = Vec::with_capacity(data.len().div_ceil(max_data_bytes));
         for offset in (0..data.len()).step_by(max_data_bytes) {
             let chunk = CanonicalContentChunk {
                 request_id,
                 offset: offset as u32,
                 data: data[offset..(offset + max_data_bytes).min(data.len())].to_vec(),
             };
-            let event = match kind {
+            events.push(match kind {
                 ContentKind::Screen => CanonicalEvent::ScreenChunk(chunk),
                 ContentKind::History => CanonicalEvent::HistoryChunk(chunk),
-            };
-            if !self.send(event) {
-                return false;
-            }
+            });
         }
-        true
+        Some(events)
+    }
+
+    fn send_content_chunks(
+        &mut self,
+        kind: ContentKind,
+        request_id: WireToken,
+        data: &[u8],
+    ) -> bool {
+        self.content_chunk_events(kind, request_id, data)
+            .is_some_and(|events| events.into_iter().all(|event| self.send(event)))
     }
 
     fn send_metadata_snapshot(&mut self, device_id: &str) -> bool {
@@ -1859,10 +1874,14 @@ impl CanonicalFeedSession {
     }
 
     fn send(&self, event: CanonicalEvent) -> bool {
-        if self.closed || !self.event_fits(&event) {
+        self.send_batch(vec![event])
+    }
+
+    fn send_batch(&self, events: Vec<CanonicalEvent>) -> bool {
+        if self.closed || events.is_empty() || events.iter().any(|event| !self.event_fits(event)) {
             return false;
         }
-        (self.options.send_event)(event)
+        (self.options.send_events)(events)
     }
 
     fn send_error(&self, request_id: Option<WireToken>, code: u16, message: &str, retryable: bool) {
@@ -2441,6 +2460,7 @@ mod tests {
         events: Arc<Mutex<Vec<CanonicalEvent>>>,
         now_ms: Arc<AtomicU64>,
         poll_requests: Arc<AtomicU64>,
+        batch_sizes: Arc<Mutex<Vec<usize>>>,
     }
 
     impl Harness {
@@ -2455,6 +2475,8 @@ mod tests {
             let resolver_runtimes = Arc::clone(&runtimes);
             let events = Arc::new(Mutex::new(Vec::new()));
             let sent_events = Arc::clone(&events);
+            let batch_sizes = Arc::new(Mutex::new(Vec::new()));
+            let sent_batch_sizes = Arc::clone(&batch_sizes);
             let now_ms = Arc::new(AtomicU64::new(0));
             let clock = Arc::clone(&now_ms);
             let poll_requests = Arc::new(AtomicU64::new(0));
@@ -2462,14 +2484,22 @@ mod tests {
             let session = CanonicalFeedSession::new(CanonicalFeedSessionOptions {
                 max_frame_bytes,
                 gateway_epoch: [0x77; 16],
-                send_event: Arc::new(move |event| {
-                    if reject_pane_data && matches!(event, CanonicalEvent::PaneData(_)) {
+                send_events: Arc::new(move |events| {
+                    sent_batch_sizes
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(events.len());
+                    if reject_pane_data
+                        && events
+                            .iter()
+                            .any(|event| matches!(event, CanonicalEvent::PaneData(_)))
+                    {
                         return false;
                     }
                     sent_events
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .push(event);
+                        .extend(events);
                     true
                 }),
                 resolve_runtime: Arc::new(move |device_id| {
@@ -2493,6 +2523,7 @@ mod tests {
             })
             .expect("valid options");
             Self {
+                batch_sizes,
                 session,
                 events,
                 now_ms,
@@ -2664,6 +2695,16 @@ mod tests {
         let stats = harness.session.snapshot_stats();
         assert_eq!(stats.screen_transactions_started, 1);
         assert_eq!(stats.screen_transactions_completed, 1);
+        assert_eq!(
+            harness
+                .batch_sizes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .last()
+                .copied(),
+            Some(3),
+            "screen begin/chunks/commit must enter the outbound queue atomically"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

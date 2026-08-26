@@ -25,7 +25,7 @@ import {
   GATEWAY_TERM_OUTPUT_BATCH_MAX_BYTES,
 } from './terminal-output-batcher';
 
-export const CANONICAL_MAX_SCREEN_BYTES = 512 * 1024;
+export const CANONICAL_MAX_SCREEN_BYTES = 6 * 1024 * 1024;
 export const CANONICAL_MAX_HISTORY_PAGE_BYTES = 256 * 1024;
 export const CANONICAL_MAX_PENDING_PANE_GAPS = 256;
 export const CANONICAL_MAX_INPUT_DEDUP_IDS = 1_024;
@@ -52,7 +52,7 @@ export interface CanonicalFeedRuntime
 
 export interface CanonicalFeedSessionOptions {
   maxFrameBytes: number;
-  sendEvent: (event: CanonicalEvent) => boolean;
+  sendEvents: (events: CanonicalEvent[]) => boolean;
   resolveRuntime: (deviceId: string) => Promise<CanonicalFeedRuntime | null>;
   initialDeviceIds?: () => Iterable<string>;
   onDeviceAttached?: (deviceId: string, runtime: CanonicalFeedRuntime) => void;
@@ -989,15 +989,19 @@ export class CanonicalFeedSession {
         totalBytes: checkpoint.data.byteLength,
       },
     };
-    if (!this.send(begin)) return false;
-    if (!this.sendContentChunks('screen', requestId, checkpoint.data)) return false;
-    const committed = this.send({
-      ScreenCommit: {
-        requestId,
-        totalBytes: checkpoint.data.byteLength,
-        historyCursor: checkpoint.historyCursor,
+    const chunks = this.contentChunkEvents('screen', requestId, checkpoint.data);
+    if (!chunks) return false;
+    const committed = this.sendBatch([
+      begin,
+      ...chunks,
+      {
+        ScreenCommit: {
+          requestId,
+          totalBytes: checkpoint.data.byteLength,
+          historyCursor: checkpoint.historyCursor,
+        },
       },
-    });
+    ]);
     if (committed && heldLive) this.sendPaneData(deviceId, heldLive);
     return committed;
   }
@@ -1034,25 +1038,35 @@ export class CanonicalFeedSession {
     });
   }
 
+  private contentChunkEvents(
+    kind: 'screen' | 'history',
+    requestId: Uint8Array,
+    data: Uint8Array
+  ): CanonicalEvent[] | null {
+    const maxDataBytes = this.maxContentChunkBytes(kind, requestId);
+    if (maxDataBytes <= 0) return null;
+    const events: CanonicalEvent[] = [];
+    for (let offset = 0; offset < data.byteLength; offset += maxDataBytes) {
+      events.push(
+        kind === 'screen'
+          ? {
+              ScreenChunk: { requestId, offset, data: data.slice(offset, offset + maxDataBytes) },
+            }
+          : {
+              HistoryChunk: { requestId, offset, data: data.slice(offset, offset + maxDataBytes) },
+            }
+      );
+    }
+    return events;
+  }
+
   private sendContentChunks(
     kind: 'screen' | 'history',
     requestId: Uint8Array,
     data: Uint8Array
   ): boolean {
-    const maxDataBytes = this.maxContentChunkBytes(kind, requestId);
-    if (maxDataBytes <= 0) return false;
-    for (let offset = 0; offset < data.byteLength; offset += maxDataBytes) {
-      const event =
-        kind === 'screen'
-          ? ({
-              ScreenChunk: { requestId, offset, data: data.slice(offset, offset + maxDataBytes) },
-            } satisfies CanonicalEvent)
-          : ({
-              HistoryChunk: { requestId, offset, data: data.slice(offset, offset + maxDataBytes) },
-            } satisfies CanonicalEvent);
-      if (!this.send(event)) return false;
-    }
-    return true;
+    const events = this.contentChunkEvents(kind, requestId, data);
+    return events !== null && events.every((event) => this.send(event));
   }
 
   private sendMetadataSnapshot(device: AttachedDevice): boolean {
@@ -1179,8 +1193,14 @@ export class CanonicalFeedSession {
   }
 
   private send(event: CanonicalEvent): boolean {
-    if (this.closed || !this.eventFits(event)) return false;
-    return this.options.sendEvent(event);
+    return this.sendBatch([event]);
+  }
+
+  private sendBatch(events: CanonicalEvent[]): boolean {
+    if (this.closed || events.length === 0 || events.some((event) => !this.eventFits(event))) {
+      return false;
+    }
+    return this.options.sendEvents(events);
   }
 
   private sendError(

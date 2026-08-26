@@ -5,7 +5,8 @@ use std::mem;
 use std::time::{Duration, Instant};
 
 use crate::kitty_graphics::{
-    KittyGraphicsOutput, KittyGraphicsProcessor, KITTY_BASE64_MAX_BYTES, KITTY_CONTROL_MAX_BYTES,
+    KittyGraphicsEvent, KittyGraphicsOutput, KittyGraphicsProcessor, KITTY_BASE64_MAX_BYTES,
+    KITTY_CONTROL_MAX_BYTES,
 };
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine as _;
@@ -291,6 +292,9 @@ impl PaneStreamParser {
                     b'c' => {
                         output.terminal_bytes.extend_from_slice(&[0x1b, byte]);
                         output.push_event(PaneStreamEvent::KeyboardSequence(KbdSequence::ResetAll));
+                        output.push_event(PaneStreamEvent::Graphics(
+                            KittyGraphicsEvent::ReplayDelete { image_id: None },
+                        ));
                         self.kitty_graphics.reset();
                         self.phase = Phase::Normal;
                     }
@@ -1015,6 +1019,7 @@ mod tests {
             vec![
                 PaneStreamEvent::KeyboardSequence(KbdSequence::PushKittyFlags(7)),
                 PaneStreamEvent::KeyboardSequence(KbdSequence::ResetAll),
+                PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayDelete { image_id: None }),
             ]
         );
     }
@@ -1212,10 +1217,16 @@ mod tests {
 
         let final_wrapper = tmux_wrap(&kitty_apc("a=T,q=2", &"A".repeat(19_127)));
         let completed = push_in_state_chunks(&final_wrapper);
-        assert!(completed.events.is_empty());
         assert!(!completed.terminal_bytes.is_empty());
         assert!(completed.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
-        forwarded.extend(completed.terminal_bytes);
+        forwarded.extend_from_slice(&completed.terminal_bytes);
+        assert_eq!(
+            completed.events,
+            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayStore {
+                image_id: 448637964,
+                data: forwarded.clone(),
+            })]
+        );
         let text = String::from_utf8_lossy(&forwarded);
         assert!(text.contains("i=448637964"));
         assert!(text.contains("s=1"));

@@ -330,7 +330,7 @@ export class WebSocketServer {
     if (existing) return existing;
     const session = new CanonicalFeedSession({
       maxFrameBytes: ws.data.borshState.maxFrameBytes,
-      sendEvent: (event) => this.sendCanonicalEvent(ws, event),
+      sendEvents: (events) => this.sendCanonicalEvents(ws, events),
       resolveRuntime: async (deviceId) => {
         const entry = await this.getOrCreateConnectionEntry(deviceId, ws);
         if (!entry) return null;
@@ -361,29 +361,34 @@ export class WebSocketServer {
     return session;
   }
 
-  private sendCanonicalEvent(
+  private sendCanonicalEvents(
     ws: ServerWebSocket<ClientState>,
-    event: wsBorsh.CanonicalEvent
+    events: wsBorsh.CanonicalEvent[]
   ): boolean {
-    const terminalBytes = 'PaneData' in event ? event.PaneData.data.byteLength : null;
+    const terminalBytes = events.flatMap((event) =>
+      'PaneData' in event ? [event.PaneData.data.byteLength] : []
+    );
     try {
-      const frame = encodeCanonicalEvent(
-        event,
-        ws.data.borshState.seqGen(),
-        ws.data.borshState.maxFrameBytes
+      const frames = events.map((event) =>
+        encodeCanonicalEvent(
+          event,
+          ws.data.borshState.seqGen(),
+          ws.data.borshState.maxFrameBytes
+        )
       );
-      const delivered = gatewayWebSocketSendGuard.sendFrames(ws as ServerWebSocket<unknown>, [
-        frame as unknown as BufferSource,
-      ]);
-      if (terminalBytes !== null) {
-        this.terminalOutputMetrics.recordCanonicalRecipient(terminalBytes, delivered);
+      const delivered = gatewayWebSocketSendGuard.sendFrames(
+        ws as ServerWebSocket<unknown>,
+        frames as unknown as BufferSource[]
+      );
+      for (const bytes of terminalBytes) {
+        this.terminalOutputMetrics.recordCanonicalRecipient(bytes, delivered);
       }
       return delivered;
     } catch (error) {
-      if (terminalBytes !== null) {
-        this.terminalOutputMetrics.recordCanonicalRecipient(terminalBytes, false);
+      for (const bytes of terminalBytes) {
+        this.terminalOutputMetrics.recordCanonicalRecipient(bytes, false);
       }
-      console.error('[ws] failed to encode canonical event:', error);
+      console.error('[ws] failed to encode canonical event batch:', error);
       return false;
     }
   }

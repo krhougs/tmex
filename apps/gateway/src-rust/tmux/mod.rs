@@ -9,6 +9,7 @@ mod control_stream_metrics;
 mod device_session_runtime;
 mod input_encoder;
 mod key_input;
+mod kitty_screen_cache;
 mod lifecycle_emitter;
 mod local_shell_path;
 mod metadata_projection;

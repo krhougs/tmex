@@ -3348,6 +3348,7 @@ dependencies = [
  "base64",
  "flate2",
  "png",
+ "tracing",
 ]
 
 [[package]]

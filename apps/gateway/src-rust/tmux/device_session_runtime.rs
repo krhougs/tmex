@@ -19,6 +19,7 @@ use tokio::task::JoinSet;
 use tokio::time::{interval, sleep};
 
 use super::canonical_runtime::DeviceCanonicalState;
+use super::kitty_screen_cache::KittyScreenCache;
 use super::metadata_projection::parse_layout_leaves;
 use super::{
     append_cursor_restore, capture_history_range_command, configure_window_style_commands,
@@ -49,6 +50,7 @@ use super::{
 
 const DEFAULT_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 const PANE_MODE_ALT_SCREEN: u8 = 1 << 5;
+const KITTY_SCREEN_TEXT_RESERVE_BYTES: usize = 512 * 1024;
 const PANE_MODE_FLAGS_PRESENT: u8 = 1 << 7;
 
 #[derive(Debug)]
@@ -1169,6 +1171,7 @@ struct RuntimeActor {
     history: PaneHistoryReader,
     emulators: HashMap<String, PaneEmulator>,
     keyboard_modes: HashMap<String, KeyboardModeState>,
+    kitty_screen_cache: KittyScreenCache,
     theme_subscriptions: ThemeSubscriptionTracker,
     snapshot: Option<StateSnapshot>,
     snapshot_refresh: SnapshotRefreshCoordinator,
@@ -1390,6 +1393,7 @@ async fn run_actor(
         history: PaneHistoryReader::new(history_source),
         emulators: HashMap::new(),
         keyboard_modes: HashMap::new(),
+        kitty_screen_cache: KittyScreenCache::default(),
         theme_subscriptions: ThemeSubscriptionTracker::new(),
         snapshot: None,
         snapshot_refresh: SnapshotRefreshCoordinator::new(),
@@ -2413,6 +2417,18 @@ impl RuntimeActor {
                 KittyGraphicsEvent::Error { message, .. } => {
                     self.emit_error(format!("Kitty graphics: {message}"));
                 }
+                KittyGraphicsEvent::ReplayStore { image_id, data } => {
+                    if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
+                        self.kitty_screen_cache
+                            .store(&pane_id, pane_epoch, image_id, data);
+                    }
+                }
+                KittyGraphicsEvent::ReplayDelete { image_id } => {
+                    if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
+                        self.kitty_screen_cache
+                            .delete(&pane_id, pane_epoch, image_id);
+                    }
+                }
             },
             ControlModeSubscriptionEvent::Pause { .. }
             | ControlModeSubscriptionEvent::Continue { .. }
@@ -2557,6 +2573,7 @@ impl RuntimeActor {
             for pane_id in snapshot_pane_ids(&previous) {
                 if !current.contains(&pane_id) {
                     self.history.invalidate_pane(&pane_id, None);
+                    self.kitty_screen_cache.clear_pane(&pane_id);
                 }
             }
             let old = snapshot_windows(&previous);
@@ -2727,11 +2744,17 @@ impl RuntimeActor {
             frame.cursor_y,
             terminal_state.as_ref(),
         );
-        let fixed_overhead = prefix.len() + continuation.len();
-        if fixed_overhead > max_bytes {
+        let base_overhead = prefix.len() + continuation.len();
+        if base_overhead > max_bytes {
             return Ok(None);
         }
-        let text_budget = max_bytes.saturating_sub(fixed_overhead);
+        let graphics_budget = max_bytes
+            .saturating_sub(base_overhead)
+            .saturating_sub(KITTY_SCREEN_TEXT_RESERVE_BYTES.min(max_bytes));
+        let graphics =
+            self.kitty_screen_cache
+                .replay_prefix(pane_id, identity.pane_epoch, graphics_budget);
+        let text_budget = max_bytes.saturating_sub(base_overhead + graphics.len());
         let history_bytes = if !frame.alternate_screen && frame.history_size > 0 {
             frame
                 .history_text
@@ -2747,9 +2770,11 @@ impl RuntimeActor {
             exact_viewport.as_deref(),
             text_budget,
         );
-        let mut data =
-            Vec::with_capacity(prefix.len() + encoded_text.data.len() + continuation.len());
+        let mut data = Vec::with_capacity(
+            prefix.len() + graphics.len() + encoded_text.data.len() + continuation.len(),
+        );
         data.extend_from_slice(prefix);
+        data.extend_from_slice(&graphics);
         data.extend_from_slice(&encoded_text.data);
         data.extend_from_slice(&continuation);
         let Some(current_identity) = self.pane_identity(pane_id) else {
@@ -3975,6 +4000,75 @@ mod tests {
             .expect("canonical screen");
         let data = String::from_utf8(checkpoint.data).expect("ANSI snapshot is UTF-8");
         assert!(data.contains("\x1b[0;48;5;240m"));
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn canonical_screen_prefixes_cached_virtual_kitty_image_and_honors_delete() {
+        let close_started = Arc::new(AtomicBool::new(false));
+        let close_finished = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(StdMutex::new(Vec::new()));
+        let transport = Arc::new(FakeTransport {
+            close_gate: None,
+            select_gate: None,
+            close_started,
+            close_finished,
+            commands,
+            has_session_exit_code: 0,
+            reject_default_path: false,
+            panic_snapshot: None,
+            pane_snapshot_line: Some("%1|@1|0|1|40|12|0|0|1|term|bash|/tmp".to_owned()),
+            pane_screen_info: Some("40|12|0|0|0|0|0|0|0|0|0|0|11|0|0|1|1|0|0\n".to_owned()),
+            capture_text: Some("visible".to_owned()),
+        });
+        let factory: Arc<dyn TmuxTransportFactory> = Arc::new(FakeTransportFactory { transport });
+        let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
+            .await
+            .unwrap();
+        let replay = b"\x1b_Ga=T,q=2,f=32,U=1,s=1,v=1,c=1,r=1,i=7;/wAA/w==\x1b\\".to_vec();
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
+                pane_id: "%1".to_owned(),
+                event: KittyGraphicsEvent::ReplayStore {
+                    image_id: 7,
+                    data: replay.clone(),
+                },
+            })
+            .await;
+
+        let checkpoint = runtime
+            .capture_canonical_screen("%1", 6 * 1024 * 1024)
+            .await
+            .unwrap()
+            .expect("canonical screen with graphics");
+        let replay_at = checkpoint
+            .data
+            .windows(replay.len())
+            .position(|window| window == replay)
+            .expect("cached Kitty replay prefix");
+        let text_at = checkpoint
+            .data
+            .windows(b"visible".len())
+            .position(|window| window == b"visible")
+            .expect("captured terminal text");
+        assert!(replay_at < text_at);
+
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
+                pane_id: "%1".to_owned(),
+                event: KittyGraphicsEvent::ReplayDelete { image_id: Some(7) },
+            })
+            .await;
+        let deleted = runtime
+            .capture_canonical_screen("%1", 6 * 1024 * 1024)
+            .await
+            .unwrap()
+            .expect("canonical screen after graphics delete");
+        assert!(!deleted
+            .data
+            .windows(replay.len())
+            .any(|window| window == replay));
 
         runtime.shutdown().await;
     }

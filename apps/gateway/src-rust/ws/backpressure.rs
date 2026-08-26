@@ -119,7 +119,15 @@ impl BackpressureGuard {
         if queued_bytes == 0 {
             return None;
         }
-        self.observe_buffered_amount(queued_bytes.saturating_add(batch_bytes))
+        let buffered_limit = if batch_bytes > self.config.queued_bytes_limit {
+            self.config.atomic_batch_bytes_limit
+        } else {
+            self.config.queued_bytes_limit
+        };
+        if queued_bytes.saturating_add(batch_bytes) >= buffered_limit {
+            return self.abort(BackpressureTermination::BackpressureLimit);
+        }
+        None
     }
 
     pub fn record_send(
@@ -278,6 +286,21 @@ mod tests {
             guard.observe_buffered_batch(0, GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES + 1),
             None,
             "one bounded chunk batch must remain usable on an empty queue"
+        );
+
+        guard.forget();
+        assert_eq!(
+            guard.observe_buffered_batch(64 * 1024, 6 * 1024 * 1024),
+            None,
+            "a bounded first-screen transaction may share the atomic queue budget"
+        );
+
+        guard.forget();
+        assert_eq!(
+            guard.observe_buffered_batch(2 * 1024 * 1024, 7 * 1024 * 1024),
+            Some(BackpressureAction::AbortTransport(
+                BackpressureTermination::BackpressureLimit
+            ))
         );
 
         guard.forget();

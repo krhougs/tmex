@@ -129,10 +129,12 @@ describe('canonical feed session', () => {
   test('subscription only acks and passes live through; first screen is client-driven', async () => {
     const runtime = new FakeRuntime();
     const events: wsBorsh.CanonicalEvent[] = [];
+    const batchSizes: number[] = [];
     const session = new CanonicalFeedSession({
       maxFrameBytes: wsBorsh.CANONICAL_STATE_MAX_FRAME_BYTES,
-      sendEvent: (event) => {
-        events.push(event);
+      sendEvents: (batch) => {
+        batchSizes.push(batch.length);
+        events.push(...batch);
         return true;
       },
       resolveRuntime: async () => runtime,
@@ -183,6 +185,7 @@ describe('canonical feed session', () => {
       'ScreenChunk',
       'ScreenCommit',
     ]);
+    expect(batchSizes.at(-1)).toBe(3);
     expect(session.snapshotStats()).toMatchObject({
       screenTransactionsStarted: 1,
       screenTransactionsCompleted: 1,
@@ -196,8 +199,8 @@ describe('canonical feed session', () => {
     const events: wsBorsh.CanonicalEvent[] = [];
     const session = new CanonicalFeedSession({
       maxFrameBytes: 512,
-      sendEvent: (event) => {
-        events.push(event);
+      sendEvents: (batch) => {
+        events.push(...batch);
         return true;
       },
       resolveRuntime: async () => runtime,
@@ -224,8 +227,8 @@ describe('canonical feed session', () => {
     const events: wsBorsh.CanonicalEvent[] = [];
     const session = new CanonicalFeedSession({
       maxFrameBytes: 32 * 1024,
-      sendEvent: (event) => {
-        events.push(event);
+      sendEvents: (batch) => {
+        events.push(...batch);
         return true;
       },
       resolveRuntime: async () => runtime,
@@ -267,8 +270,8 @@ describe('canonical feed session', () => {
     const events: wsBorsh.CanonicalEvent[] = [];
     const session = new CanonicalFeedSession({
       maxFrameBytes: wsBorsh.CANONICAL_STATE_MAX_FRAME_BYTES,
-      sendEvent: (event) => {
-        events.push(event);
+      sendEvents: (batch) => {
+        events.push(...batch);
         return true;
       },
       resolveRuntime: async () => runtime,
@@ -321,9 +324,9 @@ describe('canonical feed session', () => {
     const session = new CanonicalFeedSession({
       maxFrameBytes: 32 * 1024,
       maxPendingPaneGaps: 1,
-      sendEvent: (event) => {
-        if ('PaneData' in event) return false;
-        events.push(event);
+      sendEvents: (batch) => {
+        if (batch.some((event) => 'PaneData' in event)) return false;
+        events.push(...batch);
         return true;
       },
       resolveRuntime: async (deviceId) => runtimes.get(deviceId) ?? null,

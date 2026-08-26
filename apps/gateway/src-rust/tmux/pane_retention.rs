@@ -13,7 +13,7 @@ pub const DEFAULT_ROUTE_GRACE_MS: u64 = 2_000;
 pub const DEFAULT_HOT_TTL_MS: u64 = 60_000;
 pub const DEFAULT_REPLAY_TTL_MS: u64 = 15_000;
 pub const DEFAULT_MAX_REPLAY_BYTES_PER_PANE: usize = 2 * 1024 * 1024;
-pub const DEFAULT_MAX_CHECKPOINT_BYTES_PER_PANE: usize = 512 * 1024;
+pub const DEFAULT_MAX_CHECKPOINT_BYTES_PER_PANE: usize = 6 * 1024 * 1024;
 pub const DEFAULT_MAX_RETENTION_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
