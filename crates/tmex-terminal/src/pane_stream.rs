@@ -1146,12 +1146,20 @@ mod tests {
         let mut parser = PaneStreamParser::new();
         let direct = parser.push(&kitty_apc("a=T,f=32,s=1,v=1,i=7", "/wAA/w=="));
         assert!(direct.terminal_bytes.starts_with(b"\x1b_Ga=T,f=32"));
-        assert_eq!(
-            direct.events,
-            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::Reply(
+        assert_eq!(direct.events.len(), 2);
+        assert!(direct
+            .events
+            .contains(&PaneStreamEvent::Graphics(KittyGraphicsEvent::Reply(
                 b"\x1b_Gi=7;OK\x1b\\".to_vec()
-            ))]
-        );
+            ))));
+        assert!(matches!(
+            &direct.events[1],
+            PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
+                image_id: 7,
+                virtual_placement: false,
+                ..
+            })
+        ));
 
         let query = parser.push(&tmux_wrap(&kitty_apc("a=q,t=d,f=24,s=1,v=1,i=31", "AAAA")));
         assert!(query.terminal_bytes.is_empty());
@@ -1178,7 +1186,14 @@ mod tests {
 
         let completed = parser.push(&tmux_wrap(&kitty_apc("m=0", "/w==")));
         assert_eq!(completed.terminal_bytes, b"\x1b_Gm=0;/w==\x1b\\");
-        assert!(completed.events.is_empty());
+        assert!(matches!(
+            completed.events.as_slice(),
+            [PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
+                image_id: 41,
+                virtual_placement: false,
+                ..
+            })]
+        ));
     }
 
     #[test]
@@ -1222,8 +1237,9 @@ mod tests {
         forwarded.extend_from_slice(&completed.terminal_bytes);
         assert_eq!(
             completed.events,
-            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayStore {
+            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
                 image_id: 448637964,
+                virtual_placement: true,
                 data: forwarded.clone(),
             })]
         );

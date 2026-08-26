@@ -2417,10 +2417,34 @@ impl RuntimeActor {
                 KittyGraphicsEvent::Error { message, .. } => {
                     self.emit_error(format!("Kitty graphics: {message}"));
                 }
-                KittyGraphicsEvent::ReplayStore { image_id, data } => {
+                KittyGraphicsEvent::ReplayImage {
+                    image_id,
+                    virtual_placement,
+                    data,
+                } => {
                     if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
-                        self.kitty_screen_cache
-                            .store(&pane_id, pane_epoch, image_id, data);
+                        self.kitty_screen_cache.store_image(
+                            &pane_id,
+                            pane_epoch,
+                            image_id,
+                            virtual_placement,
+                            data,
+                        );
+                    }
+                }
+                KittyGraphicsEvent::ReplayPlacement {
+                    image_id,
+                    placement_id,
+                    data,
+                } => {
+                    if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
+                        self.kitty_screen_cache.store_placement(
+                            &pane_id,
+                            pane_epoch,
+                            image_id,
+                            placement_id,
+                            data,
+                        );
                     }
                 }
                 KittyGraphicsEvent::ReplayDelete { image_id } => {
@@ -4030,8 +4054,9 @@ mod tests {
         runtime
             .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
                 pane_id: "%1".to_owned(),
-                event: KittyGraphicsEvent::ReplayStore {
+                event: KittyGraphicsEvent::ReplayImage {
                     image_id: 7,
+                    virtual_placement: true,
                     data: replay.clone(),
                 },
             })
@@ -4069,6 +4094,45 @@ mod tests {
             .data
             .windows(replay.len())
             .any(|window| window == replay));
+
+        let image = b"\x1b_Ga=t,q=2,f=32,s=1,v=1,i=8;/wAA/w==\x1b\\".to_vec();
+        let placement = b"\x1b_Ga=p,q=2,U=1,i=8,p=4,c=1,r=1,C=1;\x1b\\".to_vec();
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
+                pane_id: "%1".to_owned(),
+                event: KittyGraphicsEvent::ReplayImage {
+                    image_id: 8,
+                    virtual_placement: false,
+                    data: image.clone(),
+                },
+            })
+            .await;
+        runtime
+            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
+                pane_id: "%1".to_owned(),
+                event: KittyGraphicsEvent::ReplayPlacement {
+                    image_id: 8,
+                    placement_id: 4,
+                    data: placement.clone(),
+                },
+            })
+            .await;
+        let separated = runtime
+            .capture_canonical_screen("%1", 6 * 1024 * 1024)
+            .await
+            .unwrap()
+            .expect("canonical screen with separate virtual placement");
+        let image_at = separated
+            .data
+            .windows(image.len())
+            .position(|window| window == image)
+            .expect("cached image transmission");
+        let placement_at = separated
+            .data
+            .windows(placement.len())
+            .position(|window| window == placement)
+            .expect("cached virtual placement");
+        assert!(image_at < placement_at);
 
         runtime.shutdown().await;
     }

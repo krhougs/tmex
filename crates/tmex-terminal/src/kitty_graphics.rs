@@ -24,8 +24,14 @@ pub enum KittyGraphicsEvent {
         image_id: Option<u32>,
         message: String,
     },
-    ReplayStore {
+    ReplayImage {
         image_id: u32,
+        virtual_placement: bool,
+        data: Vec<u8>,
+    },
+    ReplayPlacement {
+        image_id: u32,
+        placement_id: u32,
         data: Vec<u8>,
     },
     ReplayDelete {
@@ -155,7 +161,7 @@ impl KittyGraphicsProcessor {
                     terminal_bytes: encode_apc(&params, payload),
                     events: Vec::new(),
                 };
-                let replay = is_virtual_replay(&params).then(|| output.terminal_bytes.clone());
+                let replay = is_replayable_image(&params).then(|| output.terminal_bytes.clone());
                 self.pending = Some(PendingTransfer::Direct {
                     params,
                     encoded_bytes: payload.len(),
@@ -255,9 +261,11 @@ impl KittyGraphicsProcessor {
             }
         }
         if let (Some(id), Some(data)) = (image_id, replay) {
-            output
-                .events
-                .push(KittyGraphicsEvent::ReplayStore { image_id: id, data });
+            output.events.push(KittyGraphicsEvent::ReplayImage {
+                image_id: id,
+                virtual_placement: parameter_u8(&initial_params, "U") == Some(1),
+                data,
+            });
         }
         tracing::info!(
             target: "tmex_terminal::kitty_graphics",
@@ -388,9 +396,10 @@ impl KittyGraphicsProcessor {
                     )));
                 }
             }
-            if let Some(id) = image_id.filter(|_| is_virtual_replay(&params)) {
-                output.events.push(KittyGraphicsEvent::ReplayStore {
+            if let Some(id) = image_id {
+                output.events.push(KittyGraphicsEvent::ReplayImage {
                     image_id: id,
+                    virtual_placement: parameter_u8(&params, "U") == Some(1),
                     data: output.terminal_bytes.clone(),
                 });
             }
@@ -432,6 +441,13 @@ impl KittyGraphicsProcessor {
                         "ENOENT: image id was not found",
                     )));
                 }
+                if parameter_u8(&params, "U") == Some(1) {
+                    output.events.push(KittyGraphicsEvent::ReplayPlacement {
+                        image_id: id,
+                        placement_id: parameter_u32(&params, "p").unwrap_or(0),
+                        data: output.terminal_bytes.clone(),
+                    });
+                }
             }
         } else if action == b'd' {
             match parameter(&params, "d") {
@@ -468,8 +484,8 @@ fn is_direct_transmission(params: &[(String, String)]) -> bool {
         && parameter_u32(params, "f").unwrap_or(32) != 100
 }
 
-fn is_virtual_replay(params: &[(String, String)]) -> bool {
-    parameter_u8(params, "U") == Some(1) && parameter_u32(params, "i").is_some_and(|id| id != 0)
+fn is_replayable_image(params: &[(String, String)]) -> bool {
+    parameter_u32(params, "i").is_some_and(|id| id != 0)
 }
 
 fn valid_stream_base64_chunk(payload: &[u8], final_chunk: bool) -> bool {
@@ -794,8 +810,9 @@ mod tests {
         assert!(output
             .events
             .contains(&KittyGraphicsEvent::Reply(b"\x1b_Gi=7;OK\x1b\\".to_vec())));
-        assert!(output.events.contains(&KittyGraphicsEvent::ReplayStore {
+        assert!(output.events.contains(&KittyGraphicsEvent::ReplayImage {
             image_id: 7,
+            virtual_placement: true,
             data: output.terminal_bytes.clone(),
         }));
     }
@@ -811,7 +828,14 @@ mod tests {
         assert!(first.events.is_empty());
         let final_chunk = processor.process(b"a=T,q=2", b"AAAA");
         assert_eq!(final_chunk.terminal_bytes, b"\x1b_Ga=T,q=2;AAAA\x1b\\");
-        assert!(final_chunk.events.is_empty());
+        assert!(matches!(
+            final_chunk.events.as_slice(),
+            [KittyGraphicsEvent::ReplayImage {
+                image_id: 3,
+                virtual_placement: false,
+                ..
+            }]
+        ));
         assert!(!processor.has_pending());
 
         let mut processor = KittyGraphicsProcessor::default();
@@ -837,8 +861,9 @@ mod tests {
         replay.extend_from_slice(&final_chunk.terminal_bytes);
         assert_eq!(
             final_chunk.events,
-            vec![KittyGraphicsEvent::ReplayStore {
+            vec![KittyGraphicsEvent::ReplayImage {
                 image_id: 3,
+                virtual_placement: true,
                 data: replay,
             }]
         );
@@ -847,6 +872,25 @@ mod tests {
         assert!(deleted
             .events
             .contains(&KittyGraphicsEvent::ReplayDelete { image_id: Some(3) }));
+    }
+
+    #[test]
+    fn separate_virtual_placement_replays_after_its_image() {
+        let mut processor = KittyGraphicsProcessor::default();
+        let image = processor.process(b"a=t,q=2,f=32,i=9", b"/wAA/w==");
+        assert!(image.events.contains(&KittyGraphicsEvent::ReplayImage {
+            image_id: 9,
+            virtual_placement: false,
+            data: image.terminal_bytes.clone(),
+        }));
+        let placement = processor.process(b"a=p,q=2,U=1,i=9,p=4,c=1,r=1,C=1", b"");
+        assert!(placement
+            .events
+            .contains(&KittyGraphicsEvent::ReplayPlacement {
+                image_id: 9,
+                placement_id: 4,
+                data: placement.terminal_bytes.clone(),
+            }));
     }
 
     #[test]
