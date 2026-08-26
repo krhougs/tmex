@@ -78,15 +78,6 @@ impl KittyGraphicsProcessor {
         let continuation = parameter_u8(&params, "m");
 
         if let Some(mut pending) = self.pending.take() {
-            if continuation.is_none() {
-                let mut output = error_output(
-                    &pending.params,
-                    parameter_u32(&pending.params, "i").filter(|id| *id != 0),
-                    "Kitty graphics transfer was interrupted",
-                );
-                output.append(self.process_complete(params, payload));
-                return output;
-            }
             if pending.encoded.len().saturating_add(payload.len()) > KITTY_BASE64_MAX_BYTES {
                 return error_output(
                     &pending.params,
@@ -289,12 +280,6 @@ impl KittyGraphicsProcessor {
     }
 }
 
-impl KittyGraphicsOutput {
-    fn append(&mut self, mut other: Self) {
-        self.terminal_bytes.append(&mut other.terminal_bytes);
-        self.events.append(&mut other.events);
-    }
-}
 
 fn parse_parameters(control: &str) -> Vec<(String, String)> {
     control

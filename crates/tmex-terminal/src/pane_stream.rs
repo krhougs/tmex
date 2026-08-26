@@ -250,7 +250,7 @@ impl PaneStreamParser {
                     if self.kitty_graphics.has_pending() {
                         let graphics = self
                             .kitty_graphics
-                            .abort_pending("Kitty graphics transfer was interrupted");
+                            .abort_pending("Kitty graphics transfer was interrupted by terminal bytes");
                         Self::append_graphics_output(graphics, output);
                     }
                     if byte == 0x07 {
@@ -264,7 +264,7 @@ impl PaneStreamParser {
                 if !matches!(byte, b'_' | b'P') && self.kitty_graphics.has_pending() {
                     let graphics = self
                         .kitty_graphics
-                        .abort_pending("Kitty graphics transfer was interrupted");
+                        .abort_pending("Kitty graphics transfer was interrupted by a non-APC escape sequence");
                     Self::append_graphics_output(graphics, output);
                 }
                 match byte {
@@ -338,7 +338,7 @@ impl PaneStreamParser {
                     if self.kitty_graphics.has_pending() {
                         let graphics = self
                             .kitty_graphics
-                            .abort_pending("Kitty graphics transfer was interrupted");
+                            .abort_pending("Kitty graphics transfer was interrupted by a non-tmux DCS");
                         Self::append_graphics_output(graphics, output);
                     }
                     output.terminal_bytes.extend_from_slice(b"\x1bP");
@@ -388,7 +388,7 @@ impl PaneStreamParser {
                     if self.kitty_graphics.has_pending() {
                         let graphics = self
                             .kitty_graphics
-                            .abort_pending("Kitty graphics transfer was interrupted");
+                            .abort_pending("Kitty graphics transfer was interrupted by a non-Kitty APC");
                         Self::append_graphics_output(graphics, output);
                     }
                     output.terminal_bytes.extend_from_slice(b"\x1b_");
@@ -1183,31 +1183,38 @@ mod tests {
     }
 
     #[test]
-    fn kitten_large_stream_survives_128k_tmux_passthrough_wrapper() {
-        let payload = "A".repeat(4096);
-        let mut content = Vec::new();
-        for index in 0..32 {
-            let control = if index == 0 {
-                "a=T,q=2,f=32,U=1,s=1,v=1,c=1,r=1,i=448637964,m=1"
-            } else if index == 31 {
-                "m=0"
-            } else {
-                "m=1"
-            };
-            content.extend(kitty_apc(control, &payload));
-        }
-        assert!(content.len() > 128 * 1024);
-        assert!(content.len() < MAX_DCS_PASSTHROUGH_BYTES);
+    fn kitten_stream_survives_128k_tmux_wrappers_and_implicit_final_chunk() {
+        let payload = "A".repeat(128 * 1024);
+        let first = tmux_wrap(&kitty_apc(
+            "a=T,q=2,f=32,U=1,s=1,v=1,c=1,r=1,i=448637964,m=1",
+            &payload,
+        ));
+        assert!(first.len() > 128 * 1024);
+        assert!(first.len() < MAX_DCS_PASSTHROUGH_BYTES);
 
         let mut parser = PaneStreamParser::new();
-        let output = parser.push(&tmux_wrap(&content));
-        let text = String::from_utf8_lossy(&output.terminal_bytes);
-        assert!(output.events.is_empty());
+        assert!(parser.push(&first).is_empty());
+        for _ in 0..11 {
+            assert!(
+                parser
+                    .push(&tmux_wrap(&kitty_apc("a=T,q=2,m=1", &payload)))
+                    .is_empty()
+            );
+        }
+
+        let completed = parser.push(&tmux_wrap(&kitty_apc(
+            "a=T,q=2",
+            &"A".repeat(19_127),
+        )));
+        let text = String::from_utf8_lossy(&completed.terminal_bytes);
+        assert!(completed.events.is_empty());
         assert!(text.contains("i=448637964"));
         assert!(text.contains("s=1"));
         assert!(text.contains("v=1"));
         assert!(text.contains("U=1"));
     }
+
+
 
     #[test]
     fn kitty_graphics_preserves_non_graphics_apc_and_aborts_interleaved_chunks() {
