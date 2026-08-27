@@ -193,6 +193,8 @@ export class CanvasRenderer {
   private readonly kittyTextures = new Map<number, KittyTexture>();
   private kittySnapshot: GhosttyKittyGraphicsSnapshot | undefined;
   private kittyRowOffset = 0;
+  /** createImageBitmap(ImageData) 能力（探测失败后永久回落 canvas 路径）。 */
+  private imageDataBitmapSupported: boolean | null = null;
   private hadKittyUnder = false;
   private cellDimensions: GhosttyCellDimensions = { width: 9, height: 17 };
   // 设备像素整数 cell。所有绘制坐标必须落在整数物理像素上：相邻 fillRect 在
@@ -612,6 +614,64 @@ export class CanvasRenderer {
       return;
     }
 
+    // 像素上传异步化：createImageBitmap(ImageData) 在位图管线里解码上传，
+    // 主线程只留一次 data.set() 拷贝；占位 canvas 与最终纹理同尺寸防布局跳变。
+    // 不支持该输入的旧环境回落同步 canvas putImageData 路径。
+    const canOffload =
+      typeof globalThis.createImageBitmap === 'function' &&
+      this.imageDataBitmapSupported !== false;
+    if (canOffload) {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = ensureContext(canvas);
+      const imageData = context.createImageData(image.width, image.height);
+      imageData.data.set(pixels);
+      const texture: KittyTexture = {
+        generation: image.generation,
+        source: canvas,
+        fallbackCanvas: null,
+        bitmap: null,
+      };
+      this.kittyTextures.set(image.id, texture);
+      globalThis
+        .createImageBitmap(imageData)
+        .then((result) => {
+          if (this.kittyTextures.get(image.id) !== texture) {
+            result.close();
+            return;
+          }
+          texture.bitmap = result;
+          texture.source = result;
+          this.onInvalidate?.();
+        })
+        .catch(() => {
+          this.imageDataBitmapSupported = false;
+          // 回落：同步 canvas 路径补上这块纹理。
+          const fallback = this.syncTextureFromPixels(pixels, image);
+          if (fallback) {
+            const current = this.kittyTextures.get(image.id);
+            if (current === texture) {
+              this.disposeKittyTexture(texture);
+              this.kittyTextures.set(image.id, fallback);
+              this.onInvalidate?.();
+            } else {
+              this.disposeKittyTexture(fallback);
+            }
+          }
+        });
+      return;
+    }
+
+    const fallback = this.syncTextureFromPixels(pixels, image);
+    if (fallback) this.kittyTextures.set(image.id, fallback);
+    else this.kittyTextures.delete(image.id);
+  }
+
+  private syncTextureFromPixels(
+    pixels: Uint8ClampedArray,
+    image: GhosttyKittyImageSnapshot
+  ): KittyTexture | null {
     const canvas = document.createElement('canvas');
     canvas.width = image.width;
     canvas.height = image.height;
@@ -625,18 +685,16 @@ export class CanvasRenderer {
       fallbackCanvas: canvas,
       bitmap: null,
     };
-    this.kittyTextures.set(image.id, texture);
-
     if (typeof globalThis.createImageBitmap === 'function') {
       void globalThis
         .createImageBitmap(canvas)
-        .then((bitmap) => {
+        .then((result) => {
           if (this.kittyTextures.get(image.id) !== texture) {
-            bitmap.close();
+            result.close();
             return;
           }
-          texture.bitmap = bitmap;
-          texture.source = bitmap;
+          texture.bitmap = result;
+          texture.source = result;
           if (texture.fallbackCanvas) {
             texture.fallbackCanvas.width = 0;
             texture.fallbackCanvas.height = 0;
@@ -646,6 +704,7 @@ export class CanvasRenderer {
         })
         .catch(() => {});
     }
+    return texture;
   }
 
   private disposeKittyTexture(texture: KittyTexture): void {

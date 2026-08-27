@@ -3,7 +3,10 @@ use super::{
     MAX_CHUNK_STREAM_BYTES,
 };
 
-pub const GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES: usize = 1_048_576;
+/// 出站排队字节上限。kitty graphics 突发（单次重渲染数 MB APC 输出）是合法负载，
+/// 进程内 companion 消费者吞吐极高；1 MiB 会误杀正常图像会话，取 8 MiB 对齐
+/// MAX_CHUNK_STREAM_BYTES 量级。超限仍会 abort 会话（带 warn 日志）防慢消费者膨胀。
+pub const GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES: usize = 8 * 1_048_576;
 pub const GATEWAY_WS_BACKPRESSURE_TIMEOUT_MS: u64 = 5_000;
 pub const GATEWAY_WS_MAX_ATOMIC_BATCH_BYTES: usize = MAX_CHUNK_STREAM_BYTES
     + MAX_CHUNKS_PER_MESSAGE as usize * (ENVELOPE_OVERHEAD_BYTES + CHUNK_PAYLOAD_OVERHEAD_BYTES);

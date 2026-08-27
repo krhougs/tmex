@@ -1282,6 +1282,23 @@ impl OutboundQueue {
                 .is_some()
             || self.sender.capacity() == 0
         {
+            let reason = if !guard.can_send() {
+                "closed"
+            } else if lengths.iter().any(|length| *length > maximum) {
+                "oversized_frame"
+            } else if total > 0 && self.sender.capacity() == 0 {
+                "mailbox_full"
+            } else {
+                "backpressure_limit"
+            };
+            tracing::warn!(
+                reason,
+                frames = frames.len(),
+                batch_bytes = total,
+                queued_bytes = currently_queued,
+                max_frame_bytes = maximum,
+                "gateway ws session outbound aborted"
+            );
             self.abort.cancel();
             return false;
         }
@@ -1351,6 +1368,20 @@ async fn run_outbound_pump(
                         Duration::from_millis(timeout_ms),
                         sender.send_precounted(frame),
                     ).await;
+                    if let Err(error) = &result {
+                        tracing::warn!(
+                            error = %error,
+                            unsent_bytes,
+                            timeout_ms,
+                            "gateway ws outbound pump send failed"
+                        );
+                    } else if matches!(result, Ok(Err(_))) {
+                        tracing::warn!(
+                            unsent_bytes,
+                            timeout_ms,
+                            "gateway ws outbound pump send rejected"
+                        );
+                    }
                     if !matches!(result, Ok(Ok(()))) {
                         queued_bytes.fetch_sub(unsent_bytes, Ordering::AcqRel);
                         sent = false;

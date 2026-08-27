@@ -146,9 +146,11 @@ export class WebKittyGraphicsStore {
   private readonly main = screenState();
   private readonly alternate = screenState();
   private phase: ParserPhase = 'normal';
-  private readonly passBytes: number[] = [];
+  // bulk 扫描：普通输出与图片 payload 按 chunk 累积（零装箱），转义序列小段仍走字节路径。
+  private readonly passChunks: Uint8Array[] = [];
   private readonly controlBytes: number[] = [];
-  private readonly payloadBytes: number[] = [];
+  private readonly payloadChunks: Uint8Array[] = [];
+  private payloadLength = 0;
   private pending: PendingTransfer | null = null;
 
   hasPendingInput(): boolean {
@@ -161,8 +163,103 @@ export class WebKittyGraphicsStore {
     cursorContext: () => WebKittyCursorContext
   ): void {
     const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-    for (const byte of bytes) this.processByte(byte, writeTerminal, cursorContext);
+    let i = 0;
+    while (i < bytes.length) {
+      switch (this.phase) {
+        // 高吞吐相位：bulk 扫描到下一个 ESC（或上限），整段 memcpy，避免逐字节状态机。
+        case 'normal': {
+          const esc = bytes.indexOf(ESC, i);
+          const end = esc === -1 ? bytes.length : esc;
+          if (end > i) this.pushPass(bytes, i, end);
+          if (esc === -1) {
+            i = bytes.length;
+          } else {
+            this.flushPass(writeTerminal);
+            this.phase = 'esc';
+            i = esc + 1;
+          }
+          break;
+        }
+        case 'kitty-payload': {
+          const esc = bytes.indexOf(ESC, i);
+          const end = esc === -1 ? bytes.length : esc;
+          const room = MAX_ENCODED_BYTES - this.payloadLength;
+          const take = Math.min(end - i, room);
+          if (take > 0) this.pushPayload(bytes, i, i + take);
+          i += take;
+          if (i < bytes.length && bytes[i] === ESC) {
+            this.phase = 'kitty-payload-esc';
+            i += 1;
+          } else if (this.payloadLength >= MAX_ENCODED_BYTES) {
+            this.phase = 'kitty-ignore';
+          }
+          break;
+        }
+        case 'apc-pass': {
+          const esc = bytes.indexOf(ESC, i);
+          const end = esc === -1 ? bytes.length : esc;
+          if (end > i) this.pushPass(bytes, i, end);
+          i = end;
+          if (esc !== -1) {
+            // apc-pass 相位里 ESC 本身也属于透传字节。
+            this.pushPass(bytes, esc, esc + 1);
+            this.phase = 'apc-pass-esc';
+            i = esc + 1;
+          }
+          break;
+        }
+        case 'kitty-ignore': {
+          const esc = bytes.indexOf(ESC, i);
+          i = esc === -1 ? bytes.length : esc + 1;
+          if (esc !== -1) this.phase = 'kitty-ignore-esc';
+          break;
+        }
+        default:
+          this.processByte(bytes[i], writeTerminal, cursorContext);
+          i += 1;
+      }
+    }
     if (this.phase === 'normal') this.flushPass(writeTerminal);
+  }
+
+  private pushPass(bytes: Uint8Array, start: number, end: number): void {
+    if (end > start) this.passChunks.push(bytes.subarray(start, end));
+  }
+
+  private pushPassBytes(...values: number[]): void {
+    this.passChunks.push(Uint8Array.from(values));
+  }
+
+  private pushPayload(bytes: Uint8Array, start: number, end: number): void {
+    if (end > start) {
+      this.payloadChunks.push(bytes.subarray(start, end));
+      this.payloadLength += end - start;
+    }
+  }
+
+  private pushPayloadBytes(...values: number[]): void {
+    if (values.length === 0) return;
+    this.payloadChunks.push(Uint8Array.from(values));
+    this.payloadLength += values.length;
+  }
+
+  private takePayload(): Uint8Array {
+    if (this.payloadChunks.length === 0) return new Uint8Array(0);
+    if (this.payloadChunks.length === 1) {
+      const only = this.payloadChunks[0];
+      this.payloadChunks.length = 0;
+      this.payloadLength = 0;
+      return only;
+    }
+    const out = new Uint8Array(this.payloadLength);
+    let offset = 0;
+    for (const chunk of this.payloadChunks) {
+      out.set(chunk, offset);
+      offset += chunk.length;
+    }
+    this.payloadChunks.length = 0;
+    this.payloadLength = 0;
+    return out;
   }
 
   reset(): void {
@@ -170,9 +267,10 @@ export class WebKittyGraphicsStore {
     this.clearState(this.alternate);
     this.pending = null;
     this.phase = 'normal';
-    this.passBytes.length = 0;
+    this.passChunks.length = 0;
     this.controlBytes.length = 0;
-    this.payloadBytes.length = 0;
+    this.payloadChunks.length = 0;
+    this.payloadLength = 0;
   }
 
   snapshot(
@@ -216,14 +314,14 @@ export class WebKittyGraphicsStore {
           this.flushPass(writeTerminal);
           this.phase = 'esc';
         } else {
-          this.passBytes.push(byte);
+          this.pushPassBytes(byte);
         }
         return;
       case 'esc':
         if (byte === 0x5f) {
           this.phase = 'apc-detect';
         } else {
-          this.passBytes.push(ESC, byte);
+          this.pushPassBytes(ESC, byte);
           if (byte === 0x63) this.resetScreensOnly();
           this.phase = 'normal';
         }
@@ -231,10 +329,11 @@ export class WebKittyGraphicsStore {
       case 'apc-detect':
         if (byte === 0x47) {
           this.controlBytes.length = 0;
-          this.payloadBytes.length = 0;
+          this.payloadChunks.length = 0;
+          this.payloadLength = 0;
           this.phase = 'kitty-control';
         } else {
-          this.passBytes.push(ESC, 0x5f, byte);
+          this.pushPassBytes(ESC, 0x5f, byte);
           this.phase = 'apc-pass';
         }
         return;
@@ -252,29 +351,29 @@ export class WebKittyGraphicsStore {
       case 'kitty-payload':
         if (byte === ESC) {
           this.phase = 'kitty-payload-esc';
-        } else if (this.payloadBytes.length >= MAX_ENCODED_BYTES) {
+        } else if (this.payloadLength >= MAX_ENCODED_BYTES) {
           this.phase = 'kitty-ignore';
         } else {
-          this.payloadBytes.push(byte);
+          this.pushPayloadBytes(byte);
         }
         return;
       case 'kitty-payload-esc':
         if (byte === 0x5c) {
           this.finishCommand(writeTerminal, cursorContext);
           this.phase = 'normal';
-        } else if (this.payloadBytes.length + 2 > MAX_ENCODED_BYTES) {
+        } else if (this.payloadLength + 2 > MAX_ENCODED_BYTES) {
           this.phase = 'kitty-ignore';
         } else {
-          this.payloadBytes.push(ESC, byte);
+          this.pushPayloadBytes(ESC, byte);
           this.phase = 'kitty-payload';
         }
         return;
       case 'apc-pass':
-        this.passBytes.push(byte);
+        this.pushPassBytes(byte);
         if (byte === ESC) this.phase = 'apc-pass-esc';
         return;
       case 'apc-pass-esc':
-        this.passBytes.push(byte);
+        this.pushPassBytes(byte);
         this.phase = byte === 0x5c ? 'normal' : byte === ESC ? 'apc-pass-esc' : 'apc-pass';
         return;
       case 'kitty-ignore':
@@ -295,9 +394,8 @@ export class WebKittyGraphicsStore {
     cursorContext: () => WebKittyCursorContext
   ): void {
     const params = parseParameters(Uint8Array.from(this.controlBytes));
-    const payload = Uint8Array.from(this.payloadBytes);
+    const payload = this.takePayload();
     this.controlBytes.length = 0;
-    this.payloadBytes.length = 0;
     const more = numberParameter(params, 'm', 0);
     if (this.pending) {
       this.pending.chunks.push(payload);
@@ -681,9 +779,21 @@ export class WebKittyGraphicsStore {
   }
 
   private flushPass(writeTerminal: (bytes: Uint8Array) => void): void {
-    if (this.passBytes.length === 0) return;
-    writeTerminal(Uint8Array.from(this.passBytes));
-    this.passBytes.length = 0;
+    if (this.passChunks.length === 0) return;
+    if (this.passChunks.length === 1) {
+      writeTerminal(this.passChunks[0]);
+    } else {
+      let total = 0;
+      for (const chunk of this.passChunks) total += chunk.length;
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of this.passChunks) {
+        out.set(chunk, offset);
+        offset += chunk.length;
+      }
+      writeTerminal(out);
+    }
+    this.passChunks.length = 0;
   }
 
   private clearState(state: ScreenState): void {
