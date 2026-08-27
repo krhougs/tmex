@@ -1,4 +1,4 @@
-import { formatBytes, uploadFileChunked } from '@tmex/api-client';
+import { formatBytes, formatRate, uploadFileChunked } from '@tmex/api-client';
 import { PASTE_IMAGE_MAX_BYTES, TERMINAL_PASTE_MAX_BYTES } from '@tmex/shared';
 import type { HostPathReference, RuntimeCore } from '@tmex/stores';
 import {
@@ -170,6 +170,19 @@ const SAFE_TEXT_MIME_TYPES = new Set([
   'application/yaml',
 ]);
 
+export type TerminalFileRootRef = { id: string; path: string; temp?: boolean };
+
+/// 粘贴/拖放上传落点：无条件取内置 temp root（目录固定、必然可写）；
+/// 无 temp root 的宿主（如旧版 companion / tmex gateway）回落 pane cwd 前缀匹配。
+export function resolveTerminalPasteUploadTarget(
+  currentPath: string | null | undefined,
+  roots: readonly TerminalFileRootRef[]
+): TerminalFilePasteTarget | null {
+  const tempRoot = roots.find((root) => root.temp);
+  if (tempRoot) return { rootId: tempRoot.id, directory: tempRoot.path };
+  return resolveTerminalFilePasteTarget(currentPath, roots);
+}
+
 export function resolveTerminalFilePasteTarget(
   currentPath: string | null | undefined,
   roots: readonly { id: string; path: string }[]
@@ -298,26 +311,81 @@ function reportClipboardImageTooLarge(runtime: RuntimeCore, t: Translate, size: 
   );
 }
 
+type TerminalUploadToast = {
+  progress(p: { pct: number; rate?: string; detail?: string }): void;
+  leg?(leg: 1 | 2, p: { pct: number; rate?: string; detail?: string }): void;
+  success(message: string): void;
+  fail(message: string): void;
+  cancel(): void;
+};
+
+function startUploadToast(
+  runtime: RuntimeCore,
+  name: string,
+  onCancel: () => void
+): TerminalUploadToast {
+  const factory = runtime.terminalFileLinks?.createTransferToast;
+  if (factory) {
+    const toast = factory(name, onCancel);
+    return {
+      progress: (p) => toast.progress(p),
+      success: toast.success,
+      fail: toast.fail,
+      cancel: toast.cancel,
+    };
+  }
+  const legacy = startTransferToast(name, 'upload', onCancel);
+  return {
+    progress: (p) => legacy.leg(1, p),
+    leg: legacy.leg,
+    success: legacy.success,
+    fail: legacy.fail,
+    cancel: legacy.cancel,
+  };
+}
+
 async function uploadTerminalFile(args: {
   source: TerminalFileSource;
   target: TerminalFilePasteTarget;
   runtime: RuntimeCore;
   t: Translate;
   controllers: Set<AbortController>;
+  uploadLimitBytes?: number | null;
 }): Promise<string | null> {
-  const { source, target, runtime, t, controllers } = args;
+  const { source, target, runtime, t, controllers, uploadLimitBytes } = args;
   if (source.kind === 'clipboard-image' && source.file.size > PASTE_IMAGE_MAX_BYTES) {
     reportClipboardImageTooLarge(runtime, t, source.file.size);
+    return null;
+  }
+  const size = source.kind === 'native-path' ? source.entry.size : source.file.size;
+  if (uploadLimitBytes != null && size > uploadLimitBytes) {
+    runtime.notifications.error(
+      t('terminal.filePasteTooLarge', {
+        size: formatBytes(size),
+        limit: formatBytes(uploadLimitBytes),
+      })
+    );
     return null;
   }
 
   const name = safeTransferName(sourceName(source));
   const controller = new AbortController();
   controllers.add(controller);
-  const transfer = startTransferToast(name, 'upload', () => controller.abort());
-  const progress = ({ loaded, total, pct }: { loaded: number; total: number; pct: number }) => {
-    transfer.leg(1, {
+  const transfer = startUploadToast(runtime, name, () => controller.abort());
+  const progress = ({
+    loaded,
+    total,
+    pct,
+    bytesPerSec,
+  }: {
+    loaded: number;
+    total: number;
+    pct: number;
+    bytesPerSec: number;
+  }) => {
+    transfer.progress({
       pct,
+      rate: bytesPerSec > 0 ? formatRate(bytesPerSec) : undefined,
       detail: `${formatBytes(loaded)} / ${formatBytes(total)}`,
     });
   };
@@ -334,16 +402,14 @@ async function uploadTerminalFile(args: {
         signal: controller.signal,
         onProgress: progress,
       });
-      transfer.leg(1, { pct: 100, detail: formatBytes(source.entry.size) });
-      transfer.leg(2, { pct: 100, detail: formatBytes(source.entry.size) });
+      transfer.progress({ pct: 100, detail: formatBytes(source.entry.size) });
     } else if (provider?.upload) {
       uploaded = appendTerminalPath(target.directory, name);
       await provider.upload(target.rootId, uploaded, source.file, {
         signal: controller.signal,
         onProgress: progress,
       });
-      transfer.leg(1, { pct: 100, detail: formatBytes(source.file.size) });
-      transfer.leg(2, { pct: 100, detail: formatBytes(source.file.size) });
+      transfer.progress({ pct: 100, detail: formatBytes(source.file.size) });
     } else {
       const file =
         source.file.name === name
@@ -359,7 +425,10 @@ async function uploadTerminalFile(args: {
         {
           kind: source.kind === 'clipboard-image' ? 'paste-image' : 'file',
           signal: controller.signal,
-          onLeg: transfer.leg,
+          onLeg: (leg, legProgress) => {
+            if (transfer.leg) transfer.leg(leg, legProgress);
+            else if (leg === 1) transfer.progress(legProgress);
+          },
         },
         runtime.apiClient
       );
@@ -407,6 +476,10 @@ async function processTerminalFiles(args: {
     runtime.notifications.error(t('terminal.filePasteNoRoot'));
     return;
   }
+  const uploadLimitBytes =
+    needsUpload && target
+      ? ((await runtime.terminalFileLinks?.uploadLimitBytes?.(target.directory)) ?? null)
+      : null;
 
   const paths: string[] = [];
   for (const source of effectiveSources) {
@@ -415,7 +488,14 @@ async function processTerminalFiles(args: {
       continue;
     }
     if (!target) continue;
-    const uploaded = await uploadTerminalFile({ source, target, runtime, t, controllers });
+    const uploaded = await uploadTerminalFile({
+      source,
+      target,
+      runtime,
+      t,
+      controllers,
+      uploadLimitBytes,
+    });
     if (uploaded) paths.push(uploaded);
   }
   if (paths.length === 0) return;

@@ -116,6 +116,8 @@ export interface HostServices {
 export interface TerminalFileLinkRoot {
   id: string;
   path: string;
+  /** 内置临时粘贴目录标记（宿主文件子系统提供；粘贴上传无条件落该 root） */
+  temp?: boolean;
 }
 
 /**
@@ -146,6 +148,24 @@ export interface TerminalFileLinksProvider {
   ): Promise<void>;
   /** 打开文件（宿主自行导航） */
   openFile(rootId: string, path: string): void;
+  /**
+   * 宿主自带上传传输 Toast（单段进度：pct/rate/detail）；提供时终端上传用它
+   * 替代缺省的两段（用户↔tmex↔服务器）toast。
+   */
+  createTransferToast?(
+    fileName: string,
+    onCancel: () => void
+  ): {
+    progress(p: { pct: number; rate?: string; detail?: string }): void;
+    success(message: string): void;
+    fail(message: string): void;
+    cancel(): void;
+  };
+  /**
+   * 上传大小上限（字节）。目录在临时粘贴目录内时返回粘贴上限，否则常规上限；
+   * 未知（宿主不上报）返回 null。终端上传用它做传输前预检。
+   */
+  uploadLimitBytes?(directory: string): Promise<number | null>;
 }
 
 /** pane 输出路由面（默认绑模块级注册表，多实例绑各自 PaneSinkRegistry） */

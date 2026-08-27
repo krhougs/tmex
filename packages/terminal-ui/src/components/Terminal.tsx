@@ -29,7 +29,7 @@ import { useTranslation } from 'react-i18next';
 import {
   TerminalFileDropOverlay,
   TerminalFileRiskDialog,
-  resolveTerminalFilePasteTarget,
+  resolveTerminalPasteUploadTarget,
   useTerminalFileInput,
 } from '../terminal-file-input';
 import {
@@ -896,7 +896,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             const res = await fetchFileRoots(runtime.apiClient);
             return res.roots
               .filter((root) => root.enabled && root.deviceId === forDeviceId)
-              .map((root) => ({ id: root.id, path: root.path }));
+              .map((root) => ({ id: root.id, path: root.path, temp: root.temp }));
           },
           stat: (rootId, path) => fetchFileStat(rootId, path, runtime.apiClient),
           openFile: (rootId, path) =>
@@ -922,7 +922,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
     });
 
     const filePasteTarget = useMemo(
-      () => resolveTerminalFilePasteTarget(paneCurrentPath, fileLinkRoots),
+      () => resolveTerminalPasteUploadTarget(paneCurrentPath, fileLinkRoots),
       [fileLinkRoots, paneCurrentPath]
     );
 

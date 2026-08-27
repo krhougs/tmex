@@ -171,6 +171,7 @@ export type TranslationKey =
   | 'terminal.pasteFailed'
   | 'terminal.pasteTooLarge'
   | 'terminal.imagePasteTooLarge'
+  | 'terminal.filePasteTooLarge'
   | 'terminal.filePasteNoRoot'
   | 'terminal.filePasteUploaded'
   | 'terminal.filePastePathCopied'

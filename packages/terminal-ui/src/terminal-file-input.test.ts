@@ -3,6 +3,7 @@ import {
   quoteTerminalPath,
   resolveTerminalFilePasteTarget,
   resolveTerminalFileRoute,
+  resolveTerminalPasteUploadTarget,
   selectNativeTerminalPaths,
   terminalFileNeedsSafetyConfirmation,
 } from './terminal-file-input';
@@ -18,6 +19,33 @@ describe('terminal file input', () => {
     expect(resolveTerminalFilePasteTarget('/outside', [{ id: 'root', path: '/workspace' }])).toBe(
       null
     );
+  });
+
+  test('paste upload always lands on the temp root when available', () => {
+    expect(
+      resolveTerminalPasteUploadTarget('/any/cwd', [
+        { id: 'workspace', path: '/workspace' },
+        { id: 'local', path: '/var/folders/zz/vibex-paste', temp: true },
+      ])
+    ).toEqual({ rootId: 'local', directory: '/var/folders/zz/vibex-paste' });
+    // cwd 恰好在普通 root 内也一样优先 temp root（无条件临时目录）。
+    expect(
+      resolveTerminalPasteUploadTarget('/workspace/project', [
+        { id: 'workspace', path: '/workspace' },
+        { id: 'local', path: '/tmp/vibex-paste', temp: true },
+      ])
+    ).toEqual({ rootId: 'local', directory: '/tmp/vibex-paste' });
+  });
+
+  test('paste upload falls back to cwd matching without a temp root', () => {
+    expect(
+      resolveTerminalPasteUploadTarget('/workspace/project/src', [
+        { id: 'workspace', path: '/workspace' },
+      ])
+    ).toEqual({ rootId: 'workspace', directory: '/workspace/project/src' });
+    expect(
+      resolveTerminalPasteUploadTarget('/outside', [{ id: 'root', path: '/workspace' }])
+    ).toBe(null);
   });
 
   test('uses a direct path only for trusted native files on the local instance', () => {

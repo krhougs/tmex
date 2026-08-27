@@ -1161,6 +1161,8 @@ export interface FileRootDto {
   /** 是否启用 */
   enabled: boolean;
   sortOrder: number;
+  /** 内置临时粘贴目录标记（宿主文件子系统可提供；gateway 缺省不带） */
+  temp?: boolean;
 }
 
 export interface CreateFileRootRequest {
