@@ -105,6 +105,54 @@ describe('web Kitty graphics store', () => {
     });
   });
 
+  test('ingests protocol-level pixels and placement without base64 parsing', () => {
+    const store = new WebKittyGraphicsStore();
+    let invalidations = 0;
+    const invalidate = () => invalidations++;
+    store.ingestGraphicsMessage(
+      { kind: 'begin', imageId: 42, width: 1, height: 1, format: 0 },
+      () => context,
+      invalidate
+    );
+    store.ingestGraphicsMessage(
+      { kind: 'chunk', imageId: 42, offset: 0n, pixels: Uint8Array.of(1, 2, 3, 4) },
+      () => context,
+      invalidate
+    );
+    store.ingestGraphicsMessage(
+      { kind: 'end', imageId: 42, generation: 1n },
+      () => context,
+      invalidate
+    );
+    store.ingestGraphicsMessage(
+      {
+        kind: 'placement',
+        imageId: 42,
+        placementId: 8,
+        col: 0,
+        row: 0,
+        cols: 1,
+        rows: 1,
+        z: 0,
+        action: 0,
+        cursorPolicy: 0,
+      },
+      () => context,
+      invalidate
+    );
+
+    const snapshot = store.snapshot([], context);
+    expect(snapshot?.images[0]).toMatchObject({
+      id: 42,
+      width: 1,
+      height: 1,
+      format: 1,
+    });
+    expect(snapshot?.images[0].data).toEqual(Uint8Array.of(1, 2, 3, 4));
+    expect(snapshot?.placements[0]).toMatchObject({ imageId: 42, placementId: 8 });
+    expect(invalidations).toBe(2);
+  });
+
   test('preserves non-graphics APC and aggregates graphics chunks', () => {
     const store = new WebKittyGraphicsStore();
     const terminalBytes: number[] = [];

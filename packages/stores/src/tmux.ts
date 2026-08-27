@@ -480,7 +480,7 @@ export function createTmuxStore(
           });
           return;
         case 'kitty-graphics':
-          core.paneSinks.dispatchKittyGraphics?.(event.message);
+          core.paneSinks.dispatchKittyGraphics?.(event.deviceId, event.paneId, event.message);
           return;
         case 'terminal-data':
           if (event.frame.seqStart === undefined) {

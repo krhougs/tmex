@@ -225,7 +225,10 @@ export class WebKittyGraphicsStore {
   // ---- 协议级分流输入（state.graphics.v1；companion 已解码像素，零 base64/逐字节解析）----
 
   /** 分片像素缓冲（Graphics lane 的 chunk 到达顺序即 offset 顺序）。 */
-  private readonly ingestBuffers = new Map<number, { parts: Uint8Array[]; bytes: number }>();
+  private readonly ingestBuffers = new Map<
+    number,
+    { parts: Uint8Array[]; bytes: number; width: number; height: number; format: number }
+  >();
 
   ingestGraphicsMessage(
     message:
@@ -252,7 +255,13 @@ export class WebKittyGraphicsStore {
     const state = context.alternateScreen ? this.alternate : this.main;
     switch (message.kind) {
       case 'begin': {
-        this.ingestBuffers.set(message.imageId, { parts: [], bytes: 0 });
+        this.ingestBuffers.set(message.imageId, {
+          parts: [],
+          bytes: 0,
+          width: message.width,
+          height: message.height,
+          format: message.format,
+        });
         return;
       }
       case 'chunk': {
@@ -291,9 +300,10 @@ export class WebKittyGraphicsStore {
         state.images.set(message.imageId, {
           id: message.imageId,
           generation: state.generation,
-          width: previous?.width ?? 0,
-          height: previous?.height ?? 0,
-          format: previous?.format ?? 0,
+          width: buffer.width,
+          height: buffer.height,
+          // companion: 0=RGBA8 / 1=RGB8；web store: 1=RGBA / 0=RGB。
+          format: buffer.format === 0 ? 1 : 0,
           data,
         });
         state.storageBytes += data.byteLength;

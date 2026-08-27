@@ -174,11 +174,13 @@ export class PaneSinkRegistry {
     this.dispatchPaneTerminalData({ deviceId, paneId, data });
   }
 
-  /** kitty graphics 消息面向该实例全部挂载终端（图片库是实例级，不是 pane 级）。 */
-  dispatchKittyGraphics(message: GatewayKittyGraphicsMessage): void {
-    for (const sink of this.sinks.values()) {
-      sink.onKittyGraphics?.(message);
-    }
+  /** kitty graphics 消息按 pane 权威路由；绝不广播到同实例其它终端。 */
+  dispatchKittyGraphics(
+    deviceId: string,
+    paneId: string,
+    message: GatewayKittyGraphicsMessage
+  ): void {
+    this.sinks.get(paneKey(deviceId, paneId))?.onKittyGraphics?.(message);
   }
 
   dispatchPaneTerminalData(frame: GatewayTerminalData): void {

@@ -133,7 +133,12 @@ export type GatewayTransportEvent =
     }
   | { type: 'live-resume'; deviceId: string; selectToken: Uint8Array }
   | { type: 'terminal-data'; frame: GatewayTerminalData }
-  | { type: 'kitty-graphics'; message: GatewayKittyGraphicsMessage }
+  | {
+      type: 'kitty-graphics';
+      deviceId: string;
+      paneId: string;
+      message: GatewayKittyGraphicsMessage;
+    }
   | { type: 'screen-snapshot'; snapshot: GatewayPaneScreenSnapshot }
   | { type: 'history-page'; page: GatewayPaneHistoryPage }
   | {

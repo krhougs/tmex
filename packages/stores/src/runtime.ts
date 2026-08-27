@@ -183,7 +183,7 @@ export interface PaneSinkRouting {
   ): void;
   dispatchPaneOutput(deviceId: string, paneId: string, data: Uint8Array): void;
   dispatchPaneTerminalData(frame: GatewayTerminalData): void;
-  dispatchKittyGraphics?(message: GatewayKittyGraphicsMessage): void;
+  dispatchKittyGraphics?(deviceId: string, paneId: string, message: GatewayKittyGraphicsMessage): void;
   dispatchPaneScreenSnapshot(snapshot: GatewayPaneScreenSnapshot): void;
   dispatchPaneHistoryPage(page: GatewayPaneHistoryPage): void;
   dispatchPaneRebase(deviceId: string, paneId: string, reason: GatewayRebaseReason): void;
@@ -430,8 +430,8 @@ export function resolveRuntimeCore(options: AppRuntimeOptions = {}): RuntimeCore
             conn.paneSinks.dispatchPaneApplyHistory(d, p, data, alt, m),
           dispatchPaneOutput: (d, p, data) => conn.paneSinks.dispatchPaneOutput(d, p, data),
           dispatchPaneTerminalData: (frame) => conn.paneSinks.dispatchPaneTerminalData(frame),
-          dispatchKittyGraphics: (message) =>
-            conn.paneSinks.dispatchKittyGraphics?.(message),
+          dispatchKittyGraphics: (deviceId, paneId, message) =>
+            conn.paneSinks.dispatchKittyGraphics?.(deviceId, paneId, message),
           dispatchPaneScreenSnapshot: (snapshot) =>
             conn.paneSinks.dispatchPaneScreenSnapshot(snapshot),
           dispatchPaneHistoryPage: (page) => conn.paneSinks.dispatchPaneHistoryPage(page),
