@@ -679,6 +679,16 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     );
   }
 
+  /** 协议级 kitty 图片分流输入（state.graphics.v1）：companion 已解码像素直存。 */
+  ingestKittyGraphics(message: Parameters<WebKittyGraphicsStore['ingestGraphicsMessage']>[0]): void {
+    if (this.disposed) return;
+    this.kittyGraphics.ingestGraphicsMessage(
+      message,
+      () => this.kittyCursorContext(),
+      () => this.scheduleRender()
+    );
+  }
+
   private kittyCursorContext(): WebKittyCursorContext {
     updateRenderState(this.renderState, this.terminalHandle);
     const meta = readRenderSnapshotMeta(this.renderState);

@@ -479,6 +479,9 @@ export function createTmuxStore(
             selectToken: event.selectToken,
           });
           return;
+        case 'kitty-graphics':
+          core.paneSinks.dispatchKittyGraphics?.(event.message);
+          return;
         case 'terminal-data':
           if (event.frame.seqStart === undefined) {
             sm.dispatch({

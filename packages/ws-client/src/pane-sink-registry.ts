@@ -14,6 +14,7 @@ import type {
   GatewayPaneScreenSnapshot,
   GatewayRebaseReason,
   GatewayTerminalData,
+  GatewayKittyGraphicsMessage,
 } from './transport';
 
 export type PaneResetOrigin = 'select' | 'history-refresh';
@@ -22,6 +23,8 @@ export interface PaneSink {
   onReset(origin: PaneResetOrigin): void;
   onApplyHistory(data: string, alternateScreen: boolean, modes: number): void;
   onOutput(data: Uint8Array, frame?: GatewayTerminalData): void;
+  /** kitty 图片协议级分流事件（state.graphics.v1；未实现表示走内联 APC 老路径）。 */
+  onKittyGraphics?(message: GatewayKittyGraphicsMessage): void;
   onScreenSnapshot?(snapshot: GatewayPaneScreenSnapshot): void;
   onHistoryPage?(page: GatewayPaneHistoryPage): void;
   onRebase?(reason: GatewayRebaseReason): void;
@@ -169,6 +172,13 @@ export class PaneSinkRegistry {
 
   dispatchPaneOutput(deviceId: string, paneId: string, data: Uint8Array): void {
     this.dispatchPaneTerminalData({ deviceId, paneId, data });
+  }
+
+  /** kitty graphics 消息面向该实例全部挂载终端（图片库是实例级，不是 pane 级）。 */
+  dispatchKittyGraphics(message: GatewayKittyGraphicsMessage): void {
+    for (const sink of this.sinks.values()) {
+      sink.onKittyGraphics?.(message);
+    }
   }
 
   dispatchPaneTerminalData(frame: GatewayTerminalData): void {

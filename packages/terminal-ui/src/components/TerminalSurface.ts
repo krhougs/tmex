@@ -1,4 +1,5 @@
 import type {
+  GatewayKittyGraphicsMessage,
   GatewayHistoryCursor,
   GatewayPaneHistoryPage,
   GatewayPaneScreenSnapshot,
@@ -38,6 +39,8 @@ export interface TerminalSurfaceOptions<Target extends TerminalSurfaceTarget> {
   /** 历史页前插：离屏解析后拼接展示，不重建终端（replace 是终端重建的唯一入口）。 */
   prependHistory(target: Target, page: GatewayPaneHistoryPage): void;
   writeLive(target: Target, data: Uint8Array): void;
+  /** 协议级 kitty 图片分流（可选；未提供走内联 APC 老路径）。 */
+  ingestKittyGraphics?(target: Target, message: GatewayKittyGraphicsMessage): void;
   waitForFirstRender?(target: Target): Promise<void>;
   activate(target: Target, previous: Target | null): void;
   onRecoveryRequired(reason: GatewayRebaseReason): void;
@@ -165,6 +168,11 @@ export class TerminalSurface<Target extends TerminalSurfaceTarget> {
       historyPages: this.historyPages.length,
       historyPagesLimit: this.maxHistoryPages,
     };
+  }
+
+  ingestKittyGraphics(message: GatewayKittyGraphicsMessage): void {
+    if (this.disposed || !this.target) return;
+    this.options.ingestKittyGraphics?.(this.target, message);
   }
 
   write(frame: GatewayTerminalData): void {

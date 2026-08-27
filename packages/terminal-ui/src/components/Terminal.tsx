@@ -498,6 +498,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             target.liveOutputEndedWithCR = normalized.endedWithCR;
             target.terminal.write(normalized.normalized);
           },
+          ingestKittyGraphics(target, message) {
+            target.terminal.ingestKittyGraphics?.(message);
+          },
           waitForFirstRender(target) {
             target.terminal.forceFullRepaint?.();
             return afterNextPaint();
@@ -696,6 +699,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         },
         onOutput: (data, frame) => {
           generationRef.current?.write(frame ?? { deviceId, paneId, data });
+        },
+        onKittyGraphics: (message) => {
+          generationRef.current?.ingestKittyGraphics?.(message);
         },
         onScreenSnapshot: (snapshot) => generationRef.current?.replace(snapshot),
         onHistoryPage: (page) => {

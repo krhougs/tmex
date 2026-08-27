@@ -222,6 +222,142 @@ export class WebKittyGraphicsStore {
     if (this.phase === 'normal') this.flushPass(writeTerminal);
   }
 
+  // ---- 协议级分流输入（state.graphics.v1；companion 已解码像素，零 base64/逐字节解析）----
+
+  /** 分片像素缓冲（Graphics lane 的 chunk 到达顺序即 offset 顺序）。 */
+  private readonly ingestBuffers = new Map<number, { parts: Uint8Array[]; bytes: number }>();
+
+  ingestGraphicsMessage(
+    message:
+      | { kind: 'begin'; imageId: number; width: number; height: number; format: number }
+      | { kind: 'chunk'; imageId: number; offset: bigint; pixels: Uint8Array }
+      | { kind: 'end'; imageId: number; generation: bigint }
+      | {
+          kind: 'placement';
+          imageId: number;
+          placementId: number;
+          col: number;
+          row: number;
+          cols: number;
+          rows: number;
+          z: number;
+          action: number;
+          cursorPolicy: number;
+        }
+      | { kind: 'delete'; target: number; imageId: number; placementId: number; range: number },
+    cursorContext: () => WebKittyCursorContext,
+    onInvalidate: () => void
+  ): void {
+    const context = cursorContext();
+    const state = context.alternateScreen ? this.alternate : this.main;
+    switch (message.kind) {
+      case 'begin': {
+        this.ingestBuffers.set(message.imageId, { parts: [], bytes: 0 });
+        return;
+      }
+      case 'chunk': {
+        const buffer = this.ingestBuffers.get(message.imageId);
+        if (buffer) {
+          buffer.parts.push(message.pixels);
+          buffer.bytes += message.pixels.byteLength;
+        }
+        return;
+      }
+      case 'end': {
+        const buffer = this.ingestBuffers.get(message.imageId);
+        this.ingestBuffers.delete(message.imageId);
+        if (!buffer || buffer.parts.length === 0) return;
+        const data =
+          buffer.parts.length === 1
+            ? buffer.parts[0]
+            : (() => {
+                const merged = new Uint8Array(buffer.bytes);
+                let offset = 0;
+                for (const part of buffer.parts) {
+                  merged.set(part, offset);
+                  offset += part.byteLength;
+                }
+                return merged;
+              })();
+        const previous = state.images.get(message.imageId);
+        if (previous) {
+          state.storageBytes -= previous.data.byteLength;
+          state.images.delete(message.imageId);
+          for (const [key, placement] of state.placements) {
+            if (placement.imageId === message.imageId) state.placements.delete(key);
+          }
+        }
+        state.generation += 1n;
+        state.images.set(message.imageId, {
+          id: message.imageId,
+          generation: state.generation,
+          width: previous?.width ?? 0,
+          height: previous?.height ?? 0,
+          format: previous?.format ?? 0,
+          data,
+        });
+        state.storageBytes += data.byteLength;
+        this.evictImages(state);
+        onInvalidate();
+        return;
+      }
+      case 'placement': {
+        const image = state.images.get(message.imageId);
+        if (!image) return;
+        // begin/end 只带像素时尺寸未知：由 placement 首次补全（cols/rows 是单元格尺寸）。
+        const pixelWidth = message.cols * context.cellDimensions.width;
+        const pixelHeight = message.rows * context.cellDimensions.height;
+        if (image.width === 0 || image.height === 0) {
+          image.width = Math.max(1, Math.round(pixelWidth));
+          image.height = Math.max(1, Math.round(pixelHeight));
+        }
+        const sequence = state.nextPlacementSequence++;
+        const key = message.placementId
+          ? virtualKey(message.imageId, message.placementId)
+          : message.imageId + ':0:' + sequence;
+        state.placements.set(key, {
+          key,
+          imageId: message.imageId,
+          placementId: message.placementId,
+          anchorCol: message.col > 0 ? message.col : context.col,
+          anchorRow: message.row > 0 ? message.row : context.absoluteRow,
+          z: message.z,
+          xOffset: 0,
+          yOffset: 0,
+          sourceX: 0,
+          sourceY: 0,
+          sourceWidth: image.width,
+          sourceHeight: image.height,
+          columns: message.cols,
+          rows: message.rows,
+          cursorColumns: Math.max(1, message.cols),
+          cursorRows: Math.max(1, message.rows),
+        });
+        state.generation += 1n;
+        onInvalidate();
+        return;
+      }
+      case 'delete': {
+        if (message.target === 3) {
+          this.clearState(state);
+          this.ingestBuffers.clear();
+        } else if (message.target === 0 && message.imageId !== 0) {
+          const image = state.images.get(message.imageId);
+          if (image) {
+            state.storageBytes -= image.data.byteLength;
+            state.images.delete(message.imageId);
+            for (const [key, placement] of state.placements) {
+              if (placement.imageId === message.imageId) state.placements.delete(key);
+            }
+            state.generation += 1n;
+          }
+        }
+        onInvalidate();
+        return;
+      }
+    }
+  }
+
   private pushPass(bytes: Uint8Array, start: number, end: number): void {
     if (end > start) this.passChunks.push(bytes.subarray(start, end));
   }

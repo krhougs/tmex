@@ -29,6 +29,7 @@ export {
   createSharedGatewayTransport,
   encodeGatewayTransportCommand,
   type GatewayHistoryCursor,
+  type GatewayKittyGraphicsMessage,
   type GatewayPaneHistoryPage,
   type GatewayPaneScreenSnapshot,
   type GatewayRebaseReason,

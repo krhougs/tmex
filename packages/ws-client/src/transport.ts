@@ -71,6 +71,25 @@ export interface GatewayPaneHistoryPage {
   nextCursor: GatewayHistoryCursor | null;
 }
 
+/** kitty 图片协议级分流（state.graphics.v1）：companion 解码后的像素/放置事件。 */
+export type GatewayKittyGraphicsMessage =
+  | { kind: 'begin'; imageId: number; width: number; height: number; format: number }
+  | { kind: 'chunk'; imageId: number; offset: bigint; pixels: Uint8Array }
+  | { kind: 'end'; imageId: number; generation: bigint }
+  | {
+      kind: 'placement';
+      imageId: number;
+      placementId: number;
+      col: number;
+      row: number;
+      cols: number;
+      rows: number;
+      z: number;
+      action: number;
+      cursorPolicy: number;
+    }
+  | { kind: 'delete'; target: number; imageId: number; placementId: number; range: number };
+
 export interface GatewayTerminalData {
   deviceId: string;
   paneId: string;
@@ -114,6 +133,7 @@ export type GatewayTransportEvent =
     }
   | { type: 'live-resume'; deviceId: string; selectToken: Uint8Array }
   | { type: 'terminal-data'; frame: GatewayTerminalData }
+  | { type: 'kitty-graphics'; message: GatewayKittyGraphicsMessage }
   | { type: 'screen-snapshot'; snapshot: GatewayPaneScreenSnapshot }
   | { type: 'history-page'; page: GatewayPaneHistoryPage }
   | {
