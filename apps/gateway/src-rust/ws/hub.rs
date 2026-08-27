@@ -1273,6 +1273,24 @@ impl OutboundQueue {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let currently_queued = self.queued_bytes.load(Ordering::Acquire);
+        // mailbox 满是可恢复的瞬态背压：canonical feed 的 send(false) 会记录 pane drop
+        // 并排队 SourceGap，让消费者走 snapshot/rebase。绝不能 abort 整条 session——
+        // kitty 图片突发会把 128 帧 mailbox 填满，但 terminal/control 仍应保持在线。
+        if self.sender.capacity() == 0 {
+            guard.mark_stream_gap();
+            tracing::warn!(
+                reason = "mailbox_full",
+                frames = frames.len(),
+                batch_bytes = total,
+                queued_bytes = currently_queued,
+                max_frame_bytes = maximum,
+                "gateway ws outbound batch dropped; session kept alive"
+            );
+            if let Some(completion) = completion.take() {
+                let _ = completion.send(false);
+            }
+            return false;
+        }
         if !guard.can_send()
             || guard
                 .validate_frame_lengths(lengths.iter().copied(), maximum)
@@ -1280,14 +1298,11 @@ impl OutboundQueue {
             || guard
                 .observe_buffered_batch(currently_queued, total)
                 .is_some()
-            || self.sender.capacity() == 0
         {
             let reason = if !guard.can_send() {
                 "closed"
             } else if lengths.iter().any(|length| *length > maximum) {
                 "oversized_frame"
-            } else if total > 0 && self.sender.capacity() == 0 {
-                "mailbox_full"
             } else {
                 "backpressure_limit"
             };
@@ -5755,6 +5770,30 @@ mod tests {
         assert!(!actor.snapshots.contains_key("snapshot-device"));
         actor.cleanup().await;
         hub.stop_all().await;
+    }
+
+    #[tokio::test]
+    async fn full_outbound_mailbox_drops_batch_without_aborting_session() {
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let abort = SessionAbort::new();
+        let (outbound, mut receiver) = OutboundQueue::new(
+            1,
+            BackpressureConfig::default(),
+            abort.clone(),
+            Arc::clone(&queued_bytes),
+        );
+        assert!(outbound.enqueue_frames(
+            vec![GatewayFrame::Binary(Bytes::from_static(b"first"))],
+            64 * 1024,
+        ));
+        // channel capacity = 1，第二批被可恢复地丢弃；session 保持存活。
+        assert!(!outbound.enqueue_frames(
+            vec![GatewayFrame::Binary(Bytes::from_static(b"dropped"))],
+            64 * 1024,
+        ));
+        assert!(!abort.is_cancelled());
+        let queued = receiver.try_recv().expect("first batch retained");
+        assert_eq!(queued.frames.len(), 1);
     }
 
     #[tokio::test]
