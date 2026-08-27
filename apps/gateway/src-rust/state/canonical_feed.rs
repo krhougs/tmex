@@ -169,6 +169,11 @@ enum RuntimeEvent {
         device_id: String,
         gap: PaneReplayGap,
     },
+    KittyAsset {
+        device_id: String,
+        received_at_ms: u64,
+        asset: crate::state::KittyGraphicsAsset,
+    },
     MetadataPatch {
         device_id: String,
         patch: SourceMetadataPatch,
@@ -428,6 +433,11 @@ impl CanonicalFeedSession {
         let gap_request_poll = Arc::clone(&self.options.request_poll);
         let gap_overflow = Arc::clone(&self.runtime_event_overflow);
         let gap_device_id = device_id.clone();
+        let asset_sender = self.runtime_events_tx.clone();
+        let asset_request_poll = Arc::clone(&self.options.request_poll);
+        let asset_overflow = Arc::clone(&self.runtime_event_overflow);
+        let asset_device_id = device_id.clone();
+        let asset_clock = Arc::clone(&self.options.now_ms);
         let lease = runtime.attach_pane_consumer(PaneRetentionConsumerCallbacks {
             on_data: Arc::new(move |segment| {
                 enqueue_runtime_event(
@@ -449,6 +459,18 @@ impl CanonicalFeedSession {
                     RuntimeEvent::PaneGap {
                         device_id: gap_device_id.clone(),
                         gap,
+                    },
+                );
+            }),
+            on_kitty_asset: Arc::new(move |asset| {
+                enqueue_runtime_event(
+                    &asset_sender,
+                    &asset_overflow,
+                    &asset_request_poll,
+                    RuntimeEvent::KittyAsset {
+                        device_id: asset_device_id.clone(),
+                        received_at_ms: asset_clock(),
+                        asset: asset.clone(),
                     },
                 );
             }),
@@ -1366,6 +1388,70 @@ impl CanonicalFeedSession {
         self.send_pane_gap(device_id, gap);
     }
 
+    fn handle_kitty_asset(
+        &mut self,
+        device_id: String,
+        _received_at_ms: u64,
+        asset: crate::state::KittyGraphicsAsset,
+    ) {
+        use crate::state::KittyGraphicsAsset;
+        let Some(server_epoch) = self
+            .devices
+            .get(&device_id)
+            .and_then(|device| device.runtime.get_server_epoch())
+        else {
+            return;
+        };
+        let (pane_id, _pane_epoch) = match &asset {
+            KittyGraphicsAsset::Image { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+            KittyGraphicsAsset::Placement { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+            KittyGraphicsAsset::Delete { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+        };
+        let pane = CanonicalPaneTarget {
+            device_id,
+            server_epoch,
+            pane_id: pane_id.clone(),
+        };
+        let event = match asset {
+            KittyGraphicsAsset::Image { image_id, width, height, format, data, .. } => {
+                CanonicalEvent::KittyImageAsset(tmex_protocol::KittyImageAsset {
+                    pane,
+                    image_id,
+                    width,
+                    height,
+                    format,
+                    data,
+                })
+            }
+            KittyGraphicsAsset::Placement {
+                placement_id, image_id, src_x, src_y, src_width, src_height,
+                columns, rows, x_offset, y_offset, z_index, ..
+            } => {
+                CanonicalEvent::KittyPlacementAsset(tmex_protocol::KittyPlacementAsset {
+                    pane,
+                    placement_id,
+                    image_id,
+                    src_x,
+                    src_y,
+                    src_width,
+                    src_height,
+                    columns,
+                    rows,
+                    x_offset,
+                    y_offset,
+                    z_index,
+                })
+            }
+            KittyGraphicsAsset::Delete { image_id, .. } => {
+                CanonicalEvent::KittyDeleteAsset(tmex_protocol::KittyDeleteAsset {
+                    pane,
+                    image_id,
+                })
+            }
+        };
+        self.send(event);
+    }
+
     fn send_pane_data(&mut self, device_id: &str, segment: &PaneDataSegment) -> bool {
         let Some(server_epoch) = self
             .devices
@@ -1954,6 +2040,11 @@ impl CanonicalFeedSession {
                 segment,
             } => self.handle_pane_data(device_id, received_at_ms, segment),
             RuntimeEvent::PaneGap { device_id, gap } => self.handle_pane_gap(&device_id, &gap),
+            RuntimeEvent::KittyAsset {
+                device_id,
+                received_at_ms,
+                asset,
+            } => self.handle_kitty_asset(device_id, received_at_ms, asset),
             RuntimeEvent::MetadataPatch { device_id, patch } => {
                 if !self.devices.contains_key(&device_id) {
                     return;
@@ -2611,6 +2702,9 @@ mod tests {
             CanonicalEvent::HistoryChunk(_) => "HistoryChunk",
             CanonicalEvent::HistoryCommit(_) => "HistoryCommit",
             CanonicalEvent::SourceGap(_) => "SourceGap",
+            CanonicalEvent::KittyImageAsset(_) => "KittyImageAsset",
+            CanonicalEvent::KittyPlacementAsset(_) => "KittyPlacementAsset",
+            CanonicalEvent::KittyDeleteAsset(_) => "KittyDeleteAsset",
             CanonicalEvent::Error(_) => "Error",
         }
     }

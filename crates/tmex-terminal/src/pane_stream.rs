@@ -1240,6 +1240,9 @@ mod tests {
             vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
                 image_id: 448637964,
                 virtual_placement: true,
+                width: 1,
+                height: 1,
+                format: crate::kitty_graphics::KITTY_FORMAT_RAW,
                 data: forwarded.clone(),
             })]
         );

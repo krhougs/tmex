@@ -27,17 +27,33 @@ pub enum KittyGraphicsEvent {
     ReplayImage {
         image_id: u32,
         virtual_placement: bool,
+        width: u32,
+        height: u32,
+        format: u8,
         data: Vec<u8>,
     },
     ReplayPlacement {
         image_id: u32,
         placement_id: u32,
+        src_x: u32,
+        src_y: u32,
+        src_width: u32,
+        src_height: u32,
+        columns: u16,
+        rows: u16,
+        x_offset: u16,
+        y_offset: u16,
+        z_index: i32,
         data: Vec<u8>,
     },
     ReplayDelete {
         image_id: Option<u32>,
     },
 }
+
+pub const KITTY_FORMAT_PNG: u8 = 100;
+pub const KITTY_FORMAT_ZLIB: u8 = 122;
+pub const KITTY_FORMAT_RAW: u8 = 0;
 
 #[derive(Default)]
 pub(crate) struct KittyGraphicsOutput {
@@ -261,9 +277,21 @@ impl KittyGraphicsProcessor {
             }
         }
         if let (Some(id), Some(data)) = (image_id, replay) {
+            let format_code = parameter_u32(&initial_params, "f").unwrap_or(32);
+            let compression = parameter(&initial_params, "o");
+            let format = if format_code == 100 {
+                KITTY_FORMAT_PNG
+            } else if compression == Some("z") {
+                KITTY_FORMAT_ZLIB
+            } else {
+                KITTY_FORMAT_RAW
+            };
             output.events.push(KittyGraphicsEvent::ReplayImage {
                 image_id: id,
                 virtual_placement: parameter_u8(&initial_params, "U") == Some(1),
+                width: parameter_u32(&initial_params, "s").unwrap_or(0),
+                height: parameter_u32(&initial_params, "v").unwrap_or(0),
+                format,
                 data,
             });
         }
@@ -397,9 +425,21 @@ impl KittyGraphicsProcessor {
                 }
             }
             if let Some(id) = image_id {
+                let format_code = parameter_u32(&params, "f").unwrap_or(32);
+                let compression = parameter(&params, "o");
+                let format = if format_code == 100 {
+                    KITTY_FORMAT_PNG
+                } else if compression == Some("z") {
+                    KITTY_FORMAT_ZLIB
+                } else {
+                    KITTY_FORMAT_RAW
+                };
                 output.events.push(KittyGraphicsEvent::ReplayImage {
                     image_id: id,
                     virtual_placement: parameter_u8(&params, "U") == Some(1),
+                    width: parameter_u32(&params, "s").unwrap_or(0),
+                    height: parameter_u32(&params, "v").unwrap_or(0),
+                    format,
                     data: output.terminal_bytes.clone(),
                 });
             }
@@ -445,6 +485,15 @@ impl KittyGraphicsProcessor {
                     output.events.push(KittyGraphicsEvent::ReplayPlacement {
                         image_id: id,
                         placement_id: parameter_u32(&params, "p").unwrap_or(0),
+                        src_x: parameter_u32(&params, "x").unwrap_or(0),
+                        src_y: parameter_u32(&params, "y").unwrap_or(0),
+                        src_width: parameter_u32(&params, "w").unwrap_or(0),
+                        src_height: parameter_u32(&params, "h").unwrap_or(0),
+                        columns: parameter_u32(&params, "c").unwrap_or(0) as u16,
+                        rows: parameter_u32(&params, "r").unwrap_or(0) as u16,
+                        x_offset: parameter_u32(&params, "X").unwrap_or(0) as u16,
+                        y_offset: parameter_u32(&params, "Y").unwrap_or(0) as u16,
+                        z_index: parameter_i32(&params, "z").unwrap_or(0),
                         data: output.terminal_bytes.clone(),
                     });
                 }
@@ -547,6 +596,10 @@ fn parameter_u32(params: &[(String, String)], key: &str) -> Option<u32> {
 }
 
 fn parameter_u8(params: &[(String, String)], key: &str) -> Option<u8> {
+    parameter(params, key)?.parse().ok()
+}
+
+fn parameter_i32(params: &[(String, String)], key: &str) -> Option<i32> {
     parameter(params, key)?.parse().ok()
 }
 
@@ -813,6 +866,9 @@ mod tests {
         assert!(output.events.contains(&KittyGraphicsEvent::ReplayImage {
             image_id: 7,
             virtual_placement: true,
+            width: 1,
+            height: 1,
+            format: KITTY_FORMAT_ZLIB,
             data: output.terminal_bytes.clone(),
         }));
     }
@@ -864,6 +920,9 @@ mod tests {
             vec![KittyGraphicsEvent::ReplayImage {
                 image_id: 3,
                 virtual_placement: true,
+                width: 0,
+                height: 0,
+                format: KITTY_FORMAT_RAW,
                 data: replay,
             }]
         );
@@ -881,6 +940,9 @@ mod tests {
         assert!(image.events.contains(&KittyGraphicsEvent::ReplayImage {
             image_id: 9,
             virtual_placement: false,
+            width: 0,
+            height: 0,
+            format: KITTY_FORMAT_RAW,
             data: image.terminal_bytes.clone(),
         }));
         let placement = processor.process(b"a=p,q=2,U=1,i=9,p=4,c=1,r=1,C=1", b"");
@@ -889,6 +951,15 @@ mod tests {
             .contains(&KittyGraphicsEvent::ReplayPlacement {
                 image_id: 9,
                 placement_id: 4,
+                src_x: 0,
+                src_y: 0,
+                src_width: 0,
+                src_height: 0,
+                columns: 1,
+                rows: 1,
+                x_offset: 0,
+                y_offset: 0,
+                z_index: 0,
                 data: placement.terminal_bytes.clone(),
             }));
     }

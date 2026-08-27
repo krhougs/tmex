@@ -370,7 +370,46 @@ pub enum CanonicalEvent {
     HistoryCommit(CanonicalHistoryCommit),
     SourceGap(CanonicalSourceGap),
     Error(CanonicalError),
+    KittyImageAsset(KittyImageAsset),
+    KittyPlacementAsset(KittyPlacementAsset),
+    KittyDeleteAsset(KittyDeleteAsset),
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct KittyImageAsset {
+    pub pane: CanonicalPaneTarget,
+    pub image_id: u32,
+    pub width: u32,
+    pub height: u32,
+    pub format: u8,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct KittyPlacementAsset {
+    pub pane: CanonicalPaneTarget,
+    pub placement_id: u32,
+    pub image_id: u32,
+    pub src_x: u32,
+    pub src_y: u32,
+    pub src_width: u32,
+    pub src_height: u32,
+    pub columns: u16,
+    pub rows: u16,
+    pub x_offset: u16,
+    pub y_offset: u16,
+    pub z_index: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct KittyDeleteAsset {
+    pub pane: CanonicalPaneTarget,
+    pub image_id: Option<u32>,
+}
+
+pub const KITTY_IMAGE_FORMAT_PNG: u8 = 100;
+pub const KITTY_IMAGE_FORMAT_ZLIB: u8 = 122;
+pub const KITTY_IMAGE_FORMAT_RAW: u8 = 0;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct CanonicalEventEnvelope {

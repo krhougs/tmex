@@ -2420,6 +2420,9 @@ impl RuntimeActor {
                 KittyGraphicsEvent::ReplayImage {
                     image_id,
                     virtual_placement,
+                    width,
+                    height,
+                    format,
                     data,
                 } => {
                     if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
@@ -2428,13 +2431,34 @@ impl RuntimeActor {
                             pane_epoch,
                             image_id,
                             virtual_placement,
-                            data,
+                            data.clone(),
+                        );
+                        use crate::state::KittyGraphicsAsset;
+                        self.canonical.retention().notify_kitty_asset(
+                            &KittyGraphicsAsset::Image {
+                                pane_id: pane_id.clone(),
+                                pane_epoch,
+                                image_id,
+                                width,
+                                height,
+                                format,
+                                data,
+                            },
                         );
                     }
                 }
                 KittyGraphicsEvent::ReplayPlacement {
                     image_id,
                     placement_id,
+                    src_x,
+                    src_y,
+                    src_width,
+                    src_height,
+                    columns,
+                    rows,
+                    x_offset,
+                    y_offset,
+                    z_index,
                     data,
                 } => {
                     if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
@@ -2443,7 +2467,25 @@ impl RuntimeActor {
                             pane_epoch,
                             image_id,
                             placement_id,
-                            data,
+                            data.clone(),
+                        );
+                        use crate::state::KittyGraphicsAsset;
+                        self.canonical.retention().notify_kitty_asset(
+                            &KittyGraphicsAsset::Placement {
+                                pane_id: pane_id.clone(),
+                                pane_epoch,
+                                placement_id,
+                                image_id,
+                                src_x,
+                                src_y,
+                                src_width,
+                                src_height,
+                                columns,
+                                rows,
+                                x_offset,
+                                y_offset,
+                                z_index,
+                            },
                         );
                     }
                 }
@@ -2451,6 +2493,14 @@ impl RuntimeActor {
                     if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
                         self.kitty_screen_cache
                             .delete(&pane_id, pane_epoch, image_id);
+                        use crate::state::KittyGraphicsAsset;
+                        self.canonical.retention().notify_kitty_asset(
+                            &KittyGraphicsAsset::Delete {
+                                pane_id: pane_id.clone(),
+                                pane_epoch,
+                                image_id,
+                            },
+                        );
                     }
                 }
             },
@@ -4057,6 +4107,9 @@ mod tests {
                 event: KittyGraphicsEvent::ReplayImage {
                     image_id: 7,
                     virtual_placement: true,
+                    width: 0,
+                    height: 0,
+                    format: tmex_terminal::KITTY_FORMAT_RAW,
                     data: replay.clone(),
                 },
             })
@@ -4103,6 +4156,9 @@ mod tests {
                 event: KittyGraphicsEvent::ReplayImage {
                     image_id: 8,
                     virtual_placement: false,
+                    width: 1,
+                    height: 1,
+                    format: tmex_terminal::KITTY_FORMAT_RAW,
                     data: image.clone(),
                 },
             })
@@ -4113,6 +4169,15 @@ mod tests {
                 event: KittyGraphicsEvent::ReplayPlacement {
                     image_id: 8,
                     placement_id: 4,
+                    src_x: 0,
+                    src_y: 0,
+                    src_width: 0,
+                    src_height: 0,
+                    columns: 1,
+                    rows: 1,
+                    x_offset: 0,
+                    y_offset: 0,
+                    z_index: 0,
                     data: placement.clone(),
                 },
             })
@@ -4602,6 +4667,7 @@ mod tests {
                     delivered_for_callback.lock().unwrap().push(segment.data);
                 }),
                 on_gap: Arc::new(|_| {}),
+                on_kitty_asset: Arc::new(|_| {}),
             })
             .unwrap();
         lease
@@ -4627,6 +4693,7 @@ mod tests {
             .attach_pane_consumer(CanonicalRetentionCallbacks {
                 on_data: Arc::new(|_| {}),
                 on_gap: Arc::new(|_| {}),
+                on_kitty_asset: Arc::new(|_| {}),
             })
             .is_err());
     }

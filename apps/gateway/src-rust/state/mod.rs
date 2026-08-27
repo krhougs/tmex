@@ -12,9 +12,9 @@ pub use canonical_feed::{
 };
 pub use runtime::{
     CanonicalDetachHandle, CanonicalFeedRuntime, CanonicalFeedRuntimeListener,
-    CanonicalRuntimeError, CanonicalTask, MetadataProjectionSnapshot, PaneDataSegment,
-    PaneHistoryCursorError, PaneHistoryCursorErrorReason, PaneHistoryPage, PaneIdentity,
-    PaneReplayGap, PaneReplayGapReason, PaneReplayPlan, PaneRetentionConsumer,
+    CanonicalRuntimeError, CanonicalTask, KittyGraphicsAsset, MetadataProjectionSnapshot,
+    PaneDataSegment, PaneHistoryCursorError, PaneHistoryCursorErrorReason, PaneHistoryPage,
+    PaneIdentity, PaneReplayGap, PaneReplayGapReason, PaneReplayPlan, PaneRetentionConsumer,
     PaneRetentionConsumerCallbacks, PaneRetentionLease, PaneScreenCheckpoint,
     PaneSubscriptionApplyResult, PaneSubscriptionRejection, PaneSubscriptionRejectionReason,
     PaneSubscriptionRequest, RuntimeFuture,

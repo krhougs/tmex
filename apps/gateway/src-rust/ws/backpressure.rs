@@ -5,7 +5,8 @@ use super::{
 
 /// 出站排队字节上限。kitty graphics 突发（单次重渲染数 MB APC 输出）是合法负载，
 /// 进程内 companion 消费者吞吐极高；1 MiB 会误杀正常图像会话，取 8 MiB 对齐
-/// MAX_CHUNK_STREAM_BYTES 量级。超限仍会 abort 会话（带 warn 日志）防慢消费者膨胀。
+/// MAX_CHUNK_STREAM_BYTES 量级。超限是瞬态背压：丢弃当批并标记 stream gap，由
+/// canonical feed 的 snapshot/rebase 恢复；真正的死连接由发送超时兜底终止。
 pub const GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES: usize = 8 * 1_048_576;
 pub const GATEWAY_WS_BACKPRESSURE_TIMEOUT_MS: u64 = 5_000;
 pub const GATEWAY_WS_MAX_ATOMIC_BATCH_BYTES: usize = MAX_CHUNK_STREAM_BYTES
@@ -111,26 +112,26 @@ impl BackpressureGuard {
         None
     }
 
-    pub fn observe_buffered_batch(
-        &mut self,
-        queued_bytes: usize,
-        batch_bytes: usize,
-    ) -> Option<BackpressureAction> {
+    /// 单批超过 atomic 上限是确定性协议违规（永远发不出去），保持 abort fail-loud。
+    pub fn observe_oversized_batch(&mut self, batch_bytes: usize) -> Option<BackpressureAction> {
         if batch_bytes > self.config.atomic_batch_bytes_limit {
             return self.abort(BackpressureTermination::BackpressureLimit);
         }
+        None
+    }
+
+    /// 排队字节 + 当批是否超出瞬态背压预算。超出时调用方丢弃当批并标记 stream gap，
+    /// 不 abort——kitty 图片突发会合法地把队列顶到上限，abort 会把整个实例打下线。
+    pub fn transient_buffered_overflow(&self, queued_bytes: usize, batch_bytes: usize) -> bool {
         if queued_bytes == 0 {
-            return None;
+            return false;
         }
         let buffered_limit = if batch_bytes > self.config.queued_bytes_limit {
             self.config.atomic_batch_bytes_limit
         } else {
             self.config.queued_bytes_limit
         };
-        if queued_bytes.saturating_add(batch_bytes) >= buffered_limit {
-            return self.abort(BackpressureTermination::BackpressureLimit);
-        }
-        None
+        queued_bytes.saturating_add(batch_bytes) >= buffered_limit
     }
 
     pub fn record_send(
@@ -286,29 +287,29 @@ mod tests {
 
         guard.forget();
         assert_eq!(
-            guard.observe_buffered_batch(0, GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES + 1),
+            guard.observe_oversized_batch(GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES + 1),
             None,
             "one bounded chunk batch must remain usable on an empty queue"
         );
+        assert!(!guard.transient_buffered_overflow(0, GATEWAY_WS_BACKPRESSURE_LIMIT_BYTES + 1));
 
-        guard.forget();
-        assert_eq!(
-            guard.observe_buffered_batch(64 * 1024, 6 * 1024 * 1024),
-            None,
+        assert!(
+            !guard.transient_buffered_overflow(64 * 1024, 6 * 1024 * 1024),
             "a bounded first-screen transaction may share the atomic queue budget"
         );
 
-        guard.forget();
-        assert_eq!(
-            guard.observe_buffered_batch(2 * 1024 * 1024, 7 * 1024 * 1024),
-            Some(BackpressureAction::AbortTransport(
-                BackpressureTermination::BackpressureLimit
-            ))
+        assert!(
+            guard.transient_buffered_overflow(2 * 1024 * 1024, 7 * 1024 * 1024),
+            "queued + batch beyond the budget is transient backpressure, dropped without abort"
+        );
+        assert!(
+            guard.can_send(),
+            "transient overflow probing must not poison the guard"
         );
 
         guard.forget();
         assert_eq!(
-            guard.observe_buffered_batch(0, GATEWAY_WS_MAX_ATOMIC_BATCH_BYTES + 1),
+            guard.observe_oversized_batch(GATEWAY_WS_MAX_ATOMIC_BATCH_BYTES + 1),
             Some(BackpressureAction::AbortTransport(
                 BackpressureTermination::BackpressureLimit
             ))

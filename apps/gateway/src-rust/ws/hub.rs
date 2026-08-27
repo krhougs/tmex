@@ -1295,16 +1295,14 @@ impl OutboundQueue {
             || guard
                 .validate_frame_lengths(lengths.iter().copied(), maximum)
                 .is_some()
-            || guard
-                .observe_buffered_batch(currently_queued, total)
-                .is_some()
+            || guard.observe_oversized_batch(total).is_some()
         {
             let reason = if !guard.can_send() {
                 "closed"
             } else if lengths.iter().any(|length| *length > maximum) {
                 "oversized_frame"
             } else {
-                "backpressure_limit"
+                "oversized_batch"
             };
             tracing::warn!(
                 reason,
@@ -1317,18 +1315,46 @@ impl OutboundQueue {
             self.abort.cancel();
             return false;
         }
+        // 排队字节超预算与 mailbox 满同为瞬态背压：丢当批 + stream gap，绝不 abort。
+        if guard.transient_buffered_overflow(currently_queued, total) {
+            guard.mark_stream_gap();
+            tracing::warn!(
+                reason = "backpressure_limit",
+                frames = frames.len(),
+                batch_bytes = total,
+                queued_bytes = currently_queued,
+                max_frame_bytes = maximum,
+                "gateway ws outbound batch dropped; session kept alive"
+            );
+            if let Some(completion) = completion.take() {
+                let _ = completion.send(false);
+            }
+            return false;
+        }
         self.queued_bytes.fetch_add(total, Ordering::AcqRel);
-        if self
-            .sender
-            .try_send(QueuedBatch {
-                frames: frames.into_iter().zip(lengths).collect(),
-                bytes: total,
-                completion: completion.take(),
-            })
-            .is_err()
-        {
+        if let Err(error) = self.sender.try_send(QueuedBatch {
+            frames: frames.into_iter().zip(lengths).collect(),
+            bytes: total,
+            completion: completion.take(),
+        }) {
+            // 容量检查与 try_send 之间的并发抢占：与 mailbox_full 同语义丢批。
+            // 此前这里静默 abort，正是图片突发下 session 无日志断线的来源。
             self.queued_bytes.fetch_sub(total, Ordering::AcqRel);
-            self.abort.cancel();
+            guard.mark_stream_gap();
+            tracing::warn!(
+                reason = "mailbox_race",
+                batch_bytes = total,
+                queued_bytes = currently_queued,
+                max_frame_bytes = maximum,
+                "gateway ws outbound batch dropped; session kept alive"
+            );
+            let batch = match error {
+                mpsc::error::TrySendError::Full(batch)
+                | mpsc::error::TrySendError::Closed(batch) => batch,
+            };
+            if let Some(completion) = batch.completion {
+                let _ = completion.send(false);
+            }
             return false;
         }
         drop(guard);
@@ -5794,6 +5820,31 @@ mod tests {
         assert!(!abort.is_cancelled());
         let queued = receiver.try_recv().expect("first batch retained");
         assert_eq!(queued.frames.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn buffered_byte_overflow_drops_batch_without_aborting_session() {
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let abort = SessionAbort::new();
+        let (outbound, mut receiver) = OutboundQueue::new(
+            8,
+            BackpressureConfig::default(),
+            abort.clone(),
+            Arc::clone(&queued_bytes),
+        );
+        assert!(outbound.enqueue_frames(
+            vec![GatewayFrame::Binary(Bytes::from(vec![0u8; 4 * 1024 * 1024]))],
+            8 * 1024 * 1024,
+        ));
+        // 排队 4 MiB + 当批 5 MiB 超出 8 MiB 预算：丢当批、session 存活、首批完好。
+        assert!(!outbound.enqueue_frames(
+            vec![GatewayFrame::Binary(Bytes::from(vec![0u8; 5 * 1024 * 1024]))],
+            8 * 1024 * 1024,
+        ));
+        assert!(!abort.is_cancelled());
+        let queued = receiver.try_recv().expect("first batch retained");
+        assert_eq!(queued.frames.len(), 1);
+        assert!(receiver.try_recv().is_err(), "overflow batch must be dropped");
     }
 
     #[tokio::test]

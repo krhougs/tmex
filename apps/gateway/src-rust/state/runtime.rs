@@ -55,6 +55,39 @@ pub struct PaneDataSegment {
     pub data: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+pub enum KittyGraphicsAsset {
+    Image {
+        pane_id: String,
+        pane_epoch: WireToken,
+        image_id: u32,
+        width: u32,
+        height: u32,
+        format: u8,
+        data: Vec<u8>,
+    },
+    Placement {
+        pane_id: String,
+        pane_epoch: WireToken,
+        placement_id: u32,
+        image_id: u32,
+        src_x: u32,
+        src_y: u32,
+        src_width: u32,
+        src_height: u32,
+        columns: u16,
+        rows: u16,
+        x_offset: u16,
+        y_offset: u16,
+        z_index: i32,
+    },
+    Delete {
+        pane_id: String,
+        pane_epoch: WireToken,
+        image_id: Option<u32>,
+    },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaneReplayGapReason {
     PaneGap,
@@ -170,6 +203,7 @@ impl Error for PaneHistoryCursorError {}
 pub struct PaneRetentionConsumerCallbacks {
     pub on_data: Arc<dyn Fn(PaneDataSegment) + Send + Sync>,
     pub on_gap: Arc<dyn Fn(PaneReplayGap) + Send + Sync>,
+    pub on_kitty_asset: Arc<dyn Fn(KittyGraphicsAsset) + Send + Sync>,
 }
 
 pub trait PaneRetentionConsumer: Send {

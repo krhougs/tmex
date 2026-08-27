@@ -194,11 +194,13 @@ pub struct PaneRetentionStats {
 
 type DataCallback = Arc<dyn Fn(&PaneDataSegment) + Send + Sync + 'static>;
 type GapCallback = Arc<dyn Fn(&PaneReplayGap) + Send + Sync + 'static>;
+type AssetCallback = Arc<dyn Fn(&crate::state::KittyGraphicsAsset) + Send + Sync + 'static>;
 
 #[derive(Clone)]
 pub struct PaneRetentionConsumerCallbacks {
     on_data: DataCallback,
     on_gap: Option<GapCallback>,
+    on_asset: Option<AssetCallback>,
 }
 
 impl PaneRetentionConsumerCallbacks {
@@ -209,6 +211,7 @@ impl PaneRetentionConsumerCallbacks {
         Self {
             on_data: Arc::new(on_data),
             on_gap: None,
+            on_asset: None,
         }
     }
 
@@ -217,6 +220,14 @@ impl PaneRetentionConsumerCallbacks {
         Gap: Fn(&PaneReplayGap) + Send + Sync + 'static,
     {
         self.on_gap = Some(Arc::new(on_gap));
+        self
+    }
+
+    pub fn with_asset<Asset>(mut self, on_asset: Asset) -> Self
+    where
+        Asset: Fn(&crate::state::KittyGraphicsAsset) + Send + Sync + 'static,
+    {
+        self.on_asset = Some(Arc::new(on_asset));
         self
     }
 }
@@ -524,6 +535,28 @@ impl PaneRetention {
             pane_epoch: pane.pane_epoch,
             terminal_seq: pane.latest_seq,
         })
+    }
+
+    pub fn notify_kitty_asset(&self, asset: &crate::state::KittyGraphicsAsset) {
+        let (pane_id, pane_epoch) = match asset {
+            crate::state::KittyGraphicsAsset::Image { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+            crate::state::KittyGraphicsAsset::Placement { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+            crate::state::KittyGraphicsAsset::Delete { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+        };
+        let state = lock(&self.shared);
+        let callbacks = state
+            .consumers
+            .values()
+            .filter_map(|consumer| {
+                let request = consumer.active.get(pane_id).or_else(|| consumer.hot.get(pane_id))?;
+                (request.pane_epoch == pane_epoch).then(|| consumer.callbacks.on_asset.clone())
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        drop(state);
+        for callback in callbacks {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(asset)));
+        }
     }
 
     pub fn is_pane_retained(&self, pane_id: &str) -> bool {
