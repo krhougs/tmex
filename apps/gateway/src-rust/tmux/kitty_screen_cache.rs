@@ -103,7 +103,7 @@ impl KittyScreenCache {
         data: Vec<u8>,
     ) -> bool {
         let key = (pane_id.to_owned(), pane_epoch, image_id);
-        let previous = self.take(&key);
+        self.remove(&key);
         self.remove_other_epochs(pane_id, pane_epoch);
         if image_id == 0 || data.is_empty() {
             return false;
@@ -115,11 +115,8 @@ impl KittyScreenCache {
                 width,
                 height,
                 format,
-                combined_virtual: virtual_placement
-                    || previous
-                        .as_ref()
-                        .is_some_and(|asset| asset.combined_virtual),
-                placements: previous.map_or_else(BTreeMap::new, |asset| asset.placements),
+                combined_virtual: virtual_placement,
+                placements: BTreeMap::new(),
             },
         )
     }
@@ -323,6 +320,21 @@ mod tests {
         assert_eq!(
             cache.replay_prefix("%1", [1; 16], 64),
             b"combinedimageplacement"
+        );
+    }
+
+    #[test]
+    fn replacing_image_discards_old_placements() {
+        let mut cache = KittyScreenCache::with_limits(64, 128);
+        assert!(cache.store_image("%1", [1; 16], 1, false, b"old".to_vec()));
+        assert!(cache.store_placement("%1", [1; 16], 1, 7, b"placement".to_vec()));
+        assert_eq!(cache.replay_prefix("%1", [1; 16], 64), b"oldplacement");
+
+        assert!(cache.store_image("%1", [1; 16], 1, false, b"new".to_vec()));
+        assert!(cache.replay_prefix("%1", [1; 16], 64).is_empty());
+        assert_eq!(
+            cache.images_for_pane("%1", [1; 16]),
+            vec![(1, 0, 0, 0, b"new".to_vec())]
         );
     }
 

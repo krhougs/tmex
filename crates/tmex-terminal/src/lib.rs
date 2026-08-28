@@ -26,8 +26,9 @@ pub use keyboard_modes::{
 };
 pub use kitty_graphics::{
     prepare_kitty_replay_payload, strip_kitty_graphics_sequences, KittyGraphicsEvent,
-    KITTY_APC_MAX_BYTES, KITTY_FORMAT_PNG, KITTY_FORMAT_RAW, KITTY_FORMAT_ZLIB,
-    KITTY_GRAPHICS_MAX_BYTES, KITTY_IMAGE_STORAGE_LIMIT,
+    KITTY_APC_MAX_BYTES, KITTY_FORMAT_PNG, KITTY_FORMAT_RGB, KITTY_FORMAT_RGBA,
+    KITTY_FORMAT_ZLIB_RGB, KITTY_FORMAT_ZLIB_RGBA, KITTY_GRAPHICS_MAX_BYTES,
+    KITTY_IMAGE_STORAGE_LIMIT,
 };
 pub use pane_stream::{
     PaneStreamEvent, PaneStreamFragment, PaneStreamNotification, PaneStreamNotificationSource,

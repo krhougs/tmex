@@ -551,6 +551,8 @@ impl CanonicalFeedSession {
             return;
         }
         self.flush_pane_data_batches_for_device(device_id);
+        self.pending_kitty_assets
+            .retain(|(pending_device_id, _)| pending_device_id != device_id);
         let Some(mut attached) = self.devices.remove(device_id) else {
             return;
         };
@@ -1421,10 +1423,33 @@ impl CanonicalFeedSession {
         asset: crate::state::KittyGraphicsAsset,
     ) {
         use crate::state::KittyGraphicsAsset;
-        let pane_id = match &asset {
-            KittyGraphicsAsset::Image { pane_id, .. } => pane_id.clone(),
+        let (pane_id, image_id) = match &asset {
+            KittyGraphicsAsset::Image {
+                pane_id, image_id, ..
+            } => (pane_id.clone(), *image_id),
             _ => return,
         };
+        // 同一 image id 的新传输按 Kitty 规范替换旧图并删除旧 placement；屏幕事务
+        // 阻塞期间只保留最新版本，避免动画重绘把过时大图排进后台队列。
+        self.pending_kitty_assets
+            .retain(|(pending_device, pending_asset)| {
+                if pending_device != &device_id {
+                    return true;
+                }
+                !match pending_asset {
+                    KittyGraphicsAsset::Image {
+                        pane_id: pending_pane,
+                        image_id: pending_image,
+                        ..
+                    }
+                    | KittyGraphicsAsset::Placement {
+                        pane_id: pending_pane,
+                        image_id: pending_image,
+                        ..
+                    } => pending_pane == &pane_id && *pending_image == image_id,
+                    KittyGraphicsAsset::Delete { .. } => false,
+                }
+            });
         let pending_for_pane = self
             .pending_kitty_assets
             .iter()
@@ -1438,19 +1463,39 @@ impl CanonicalFeedSession {
             })
             .count();
         if pending_for_pane >= 5 {
-            if let Some(index) =
+            let oldest =
                 self.pending_kitty_assets
                     .iter()
-                    .position(|(pending_device, pending_asset)| {
-                        pending_device == &device_id
-                            && matches!(
-                                pending_asset,
-                                KittyGraphicsAsset::Image { pane_id: pending_pane, .. }
-                                    if pending_pane == &pane_id
-                            )
-                    })
-            {
-                self.pending_kitty_assets.remove(index);
+                    .find_map(|(pending_device, pending_asset)| match pending_asset {
+                        KittyGraphicsAsset::Image {
+                            pane_id: pending_pane,
+                            image_id: pending_image,
+                            ..
+                        } if pending_device == &device_id && pending_pane == &pane_id => {
+                            Some(*pending_image)
+                        }
+                        _ => None,
+                    });
+            if let Some(oldest) = oldest {
+                self.pending_kitty_assets
+                    .retain(|(pending_device, pending_asset)| {
+                        if pending_device != &device_id {
+                            return true;
+                        }
+                        !match pending_asset {
+                            KittyGraphicsAsset::Image {
+                                pane_id: pending_pane,
+                                image_id: pending_image,
+                                ..
+                            }
+                            | KittyGraphicsAsset::Placement {
+                                pane_id: pending_pane,
+                                image_id: pending_image,
+                                ..
+                            } => pending_pane == &pane_id && *pending_image == oldest,
+                            KittyGraphicsAsset::Delete { .. } => false,
+                        }
+                    });
             }
         }
         self.pending_kitty_assets.push_back((device_id, asset));
@@ -1469,45 +1514,54 @@ impl CanonicalFeedSession {
             self.schedule_pending_sweep((self.options.now_ms)());
             return;
         }
+        let mut sent_image = false;
         while let Some((device_id, asset)) = self.pending_kitty_assets.pop_front() {
-            if !self.send_kitty_asset(device_id.clone(), asset) {
+            let is_image = matches!(&asset, crate::state::KittyGraphicsAsset::Image { .. });
+            if sent_image && is_image {
+                self.pending_kitty_assets.push_front((device_id, asset));
                 break;
             }
+            if !self.send_kitty_asset(&device_id, &asset) {
+                self.pending_kitty_assets.push_front((device_id, asset));
+                break;
+            }
+            sent_image |= is_image;
         }
+        self.schedule_pending_sweep((self.options.now_ms)());
     }
 
     fn send_kitty_asset(
         &mut self,
-        device_id: String,
-        asset: crate::state::KittyGraphicsAsset,
+        device_id: &str,
+        asset: &crate::state::KittyGraphicsAsset,
     ) -> bool {
         use crate::state::KittyGraphicsAsset;
         let Some(server_epoch) = self
             .devices
-            .get(&device_id)
+            .get(device_id)
             .and_then(|device| device.runtime.get_server_epoch())
         else {
             return false;
         };
-        let (pane_id, _pane_epoch) = match &asset {
+        let (pane_id, pane_epoch) = match asset {
             KittyGraphicsAsset::Image {
                 pane_id,
                 pane_epoch,
                 ..
-            } => (pane_id, *pane_epoch),
-            KittyGraphicsAsset::Placement {
+            }
+            | KittyGraphicsAsset::Placement {
                 pane_id,
                 pane_epoch,
                 ..
-            } => (pane_id, *pane_epoch),
-            KittyGraphicsAsset::Delete {
+            }
+            | KittyGraphicsAsset::Delete {
                 pane_id,
                 pane_epoch,
                 ..
             } => (pane_id, *pane_epoch),
         };
         let pane = CanonicalPaneTarget {
-            device_id,
+            device_id: device_id.to_owned(),
             server_epoch,
             pane_id: pane_id.clone(),
         };
@@ -1520,42 +1574,45 @@ impl CanonicalFeedSession {
                 data,
                 ..
             } => {
-                let total = data.len() as u32;
+                let Ok(total) = u32::try_from(data.len()) else {
+                    return false;
+                };
                 let chunk_size = self.max_variable_data_bytes(|chunk| {
                     CanonicalEvent::KittyImageAsset(tmex_protocol::KittyImageAsset {
                         pane: pane.clone(),
-                        image_id,
-                        width,
-                        height,
-                        format,
+                        pane_epoch,
+                        image_id: *image_id,
+                        width: *width,
+                        height: *height,
+                        format: *format,
                         offset: 0,
                         total,
                         data: chunk,
                     })
                 });
-                if chunk_size == 0 {
+                if chunk_size == 0 || data.is_empty() {
                     return false;
                 }
-                let mut offset = 0u32;
-                while (offset as usize) < data.len() {
-                    let end = (offset as usize).saturating_add(chunk_size).min(data.len());
-                    if !self.send(CanonicalEvent::KittyImageAsset(
+                let mut offset = 0usize;
+                let mut events = Vec::with_capacity(data.len().div_ceil(chunk_size));
+                while offset < data.len() {
+                    let end = offset.saturating_add(chunk_size).min(data.len());
+                    events.push(CanonicalEvent::KittyImageAsset(
                         tmex_protocol::KittyImageAsset {
                             pane: pane.clone(),
-                            image_id,
-                            width,
-                            height,
-                            format,
-                            offset,
+                            pane_epoch,
+                            image_id: *image_id,
+                            width: *width,
+                            height: *height,
+                            format: *format,
+                            offset: offset as u32,
                             total,
-                            data: data[offset as usize..end].to_vec(),
+                            data: data[offset..end].to_vec(),
                         },
-                    )) {
-                        return false;
-                    }
-                    offset = end as u32;
+                    ));
+                    offset = end;
                 }
-                true
+                self.send_batch(events)
             }
             KittyGraphicsAsset::Placement {
                 placement_id,
@@ -1569,28 +1626,33 @@ impl CanonicalFeedSession {
                 x_offset,
                 y_offset,
                 z_index,
+                cursor_policy,
                 ..
             } => self.send(CanonicalEvent::KittyPlacementAsset(
                 tmex_protocol::KittyPlacementAsset {
                     pane,
-                    placement_id,
-                    image_id,
-                    src_x,
-                    src_y,
-                    src_width,
-                    src_height,
-                    columns,
-                    rows,
-                    x_offset,
-                    y_offset,
-                    z_index,
+                    pane_epoch,
+                    placement_id: *placement_id,
+                    image_id: *image_id,
+                    src_x: *src_x,
+                    src_y: *src_y,
+                    src_width: *src_width,
+                    src_height: *src_height,
+                    columns: *columns,
+                    rows: *rows,
+                    x_offset: *x_offset,
+                    y_offset: *y_offset,
+                    z_index: *z_index,
+                    cursor_policy: *cursor_policy,
                 },
             )),
-            KittyGraphicsAsset::Delete { image_id, .. } => {
-                self.send(CanonicalEvent::KittyDeleteAsset(
-                    tmex_protocol::KittyDeleteAsset { pane, image_id },
-                ))
-            }
+            KittyGraphicsAsset::Delete { image_id, .. } => self.send(
+                CanonicalEvent::KittyDeleteAsset(tmex_protocol::KittyDeleteAsset {
+                    pane,
+                    pane_epoch,
+                    image_id: *image_id,
+                }),
+            ),
         }
     }
 
@@ -2364,7 +2426,7 @@ fn concatenate_chunks(chunks: Vec<Vec<u8>>, length: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use tmex_protocol::{
@@ -2697,6 +2759,7 @@ mod tests {
         now_ms: Arc<AtomicU64>,
         poll_requests: Arc<AtomicU64>,
         batch_sizes: Arc<Mutex<Vec<usize>>>,
+        reject_kitty: Arc<AtomicBool>,
     }
 
     impl Harness {
@@ -2713,6 +2776,8 @@ mod tests {
             let sent_events = Arc::clone(&events);
             let batch_sizes = Arc::new(Mutex::new(Vec::new()));
             let sent_batch_sizes = Arc::clone(&batch_sizes);
+            let reject_kitty = Arc::new(AtomicBool::new(false));
+            let reject_kitty_batches = Arc::clone(&reject_kitty);
             let now_ms = Arc::new(AtomicU64::new(0));
             let clock = Arc::clone(&now_ms);
             let poll_requests = Arc::new(AtomicU64::new(0));
@@ -2729,6 +2794,18 @@ mod tests {
                         && events
                             .iter()
                             .any(|event| matches!(event, CanonicalEvent::PaneData(_)))
+                    {
+                        return false;
+                    }
+                    if reject_kitty_batches.load(Ordering::SeqCst)
+                        && events.iter().any(|event| {
+                            matches!(
+                                event,
+                                CanonicalEvent::KittyImageAsset(_)
+                                    | CanonicalEvent::KittyPlacementAsset(_)
+                                    | CanonicalEvent::KittyDeleteAsset(_)
+                            )
+                        })
                     {
                         return false;
                     }
@@ -2764,6 +2841,7 @@ mod tests {
                 events,
                 now_ms,
                 poll_requests,
+                reject_kitty,
             }
         }
 
@@ -3612,6 +3690,7 @@ mod tests {
                 x_offset: 0,
                 y_offset: 0,
                 z_index: 0,
+                cursor_policy: 1,
             },
         );
         assert!(!harness.events().iter().any(|event| matches!(
@@ -3657,6 +3736,95 @@ mod tests {
             ),
             "unexpected Kitty event order: {kitty_events:?}"
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn backpressured_image_batch_stays_ahead_of_its_placement() {
+        let runtime = Arc::new(FakeRuntime::new("device-a"));
+        let mut harness = Harness::new(
+            HashMap::from([("device-a".to_owned(), Arc::clone(&runtime))]),
+            CANONICAL_STATE_MAX_FRAME_BYTES,
+            None,
+            vec!["device-a".to_owned()],
+            false,
+        );
+        harness.poll_tasks().await;
+        harness
+            .session
+            .handle_command(subscribe_command(&["device-a"], 1))
+            .await
+            .expect("subscription admitted");
+        harness.poll_tasks().await;
+        harness.reject_kitty.store(true, Ordering::SeqCst);
+        harness.session.handle_kitty_asset(
+            "device-a".to_owned(),
+            0,
+            crate::state::KittyGraphicsAsset::Image {
+                pane_id: "%1".to_owned(),
+                pane_epoch: PANE_EPOCH,
+                image_id: 7,
+                width: 256,
+                height: 256,
+                format: 100,
+                data: vec![1; CANONICAL_STATE_MAX_FRAME_BYTES * 2],
+            },
+        );
+        harness.session.handle_kitty_asset(
+            "device-a".to_owned(),
+            0,
+            crate::state::KittyGraphicsAsset::Placement {
+                pane_id: "%1".to_owned(),
+                pane_epoch: PANE_EPOCH,
+                placement_id: 0,
+                image_id: 7,
+                src_x: 0,
+                src_y: 0,
+                src_width: 0,
+                src_height: 0,
+                columns: 4,
+                rows: 3,
+                x_offset: 0,
+                y_offset: 0,
+                z_index: 0,
+                cursor_policy: 1,
+            },
+        );
+        assert_eq!(harness.session.pending_kitty_assets.len(), 2);
+        let batch_sizes = harness
+            .batch_sizes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        assert!(
+            batch_sizes.iter().any(|size| *size > 1),
+            "image chunks must be submitted as one atomic batch: {batch_sizes:?}"
+        );
+        assert!(!harness.events().iter().any(|event| matches!(
+            event,
+            CanonicalEvent::KittyImageAsset(_) | CanonicalEvent::KittyPlacementAsset(_)
+        )));
+
+        harness.reject_kitty.store(false, Ordering::SeqCst);
+        harness.session.on_drain_at(0);
+        assert!(harness.session.pending_kitty_assets.is_empty());
+        let kitty_events = harness
+            .events()
+            .into_iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    CanonicalEvent::KittyImageAsset(_) | CanonicalEvent::KittyPlacementAsset(_)
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            kitty_events.as_slice(),
+            [
+                CanonicalEvent::KittyImageAsset(..),
+                ..,
+                CanonicalEvent::KittyPlacementAsset(_)
+            ]
+        ));
     }
 
     #[tokio::test(flavor = "current_thread")]

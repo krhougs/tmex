@@ -300,10 +300,12 @@ export class WebKittyGraphicsStore {
       }
       case 'chunk': {
         const buffer = this.ingestBuffers.get(message.imageId);
-        if (buffer) {
-          buffer.parts.push(message.pixels);
-          buffer.bytes += message.pixels.byteLength;
+        if (!buffer || message.offset !== BigInt(buffer.bytes)) {
+          this.ingestBuffers.delete(message.imageId);
+          return;
         }
+        buffer.parts.push(message.pixels);
+        buffer.bytes += message.pixels.byteLength;
         return;
       }
       case 'end': {

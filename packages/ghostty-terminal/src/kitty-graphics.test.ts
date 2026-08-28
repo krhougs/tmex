@@ -153,6 +153,29 @@ describe('web Kitty graphics store', () => {
     expect(invalidations).toBe(2);
   });
 
+  test('rejects out-of-order graphics chunks', () => {
+    const store = new WebKittyGraphicsStore();
+    let invalidations = 0;
+    const invalidate = () => invalidations++;
+    store.ingestGraphicsMessage(
+      { kind: 'begin', imageId: 42, width: 1, height: 1, format: 0 },
+      () => context,
+      invalidate
+    );
+    store.ingestGraphicsMessage(
+      { kind: 'chunk', imageId: 42, offset: 1n, pixels: Uint8Array.of(1, 2, 3, 4) },
+      () => context,
+      invalidate
+    );
+    store.ingestGraphicsMessage(
+      { kind: 'end', imageId: 42, generation: 1n },
+      () => context,
+      invalidate
+    );
+    expect(store.snapshot([], context)).toBeUndefined();
+    expect(invalidations).toBe(0);
+  });
+
   test('preserves non-graphics APC and aggregates graphics chunks', () => {
     const store = new WebKittyGraphicsStore();
     const terminalBytes: number[] = [];

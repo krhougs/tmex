@@ -71,6 +71,7 @@ pub enum KittyGraphicsEvent {
         x_offset: u16,
         y_offset: u16,
         z_index: i32,
+        cursor_policy: u8,
         data: Vec<u8>,
     },
     ReplayDelete {
@@ -78,9 +79,20 @@ pub enum KittyGraphicsEvent {
     },
 }
 
+pub const KITTY_FORMAT_RGBA: u8 = 0;
+pub const KITTY_FORMAT_RGB: u8 = 1;
 pub const KITTY_FORMAT_PNG: u8 = 100;
-pub const KITTY_FORMAT_ZLIB: u8 = 122;
-pub const KITTY_FORMAT_RAW: u8 = 0;
+pub const KITTY_FORMAT_ZLIB_RGBA: u8 = 122;
+pub const KITTY_FORMAT_ZLIB_RGB: u8 = 123;
+
+fn replay_format(source_format: u32, compressed: bool) -> u8 {
+    match (source_format, compressed) {
+        (24, false) => KITTY_FORMAT_RGB,
+        (24, true) => KITTY_FORMAT_ZLIB_RGB,
+        (_, false) => KITTY_FORMAT_RGBA,
+        (_, true) => KITTY_FORMAT_ZLIB_RGBA,
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct KittyGraphicsOutput {
@@ -102,22 +114,37 @@ enum PendingTransfer {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ImageFingerprint {
+    data_len: usize,
+    data_hash: u64,
+    width: u32,
+    height: u32,
+    format: u8,
+}
+
 #[derive(Default)]
 pub(crate) struct KittyGraphicsProcessor {
     pending: Option<PendingTransfer>,
     known_images: HashSet<u32>,
-    /// 已下发过的图片内容指纹（image_id → (长度, FNV-1a)）：omp 等客户端每秒重发同一批
-    /// 图片，字节不变时跳过 ReplayImage，避免上游按渲染频率重收整个像素负载。
-    emitted_fingerprints: HashMap<u32, (usize, u64)>,
+    /// 已下发过的图片内容与解码元数据指纹：omp 等客户端重复发送完全相同的图片时
+    /// 跳过 ReplayImage；格式或尺寸变化必须视为替换。
+    emitted_fingerprints: HashMap<u32, ImageFingerprint>,
 }
 
-fn content_fingerprint(data: &[u8]) -> (usize, u64) {
+fn image_fingerprint(data: &[u8], width: u32, height: u32, format: u8) -> ImageFingerprint {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in data {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    (data.len(), hash)
+    ImageFingerprint {
+        data_len: data.len(),
+        data_hash: hash,
+        width,
+        height,
+        format,
+    }
 }
 
 fn virtual_replay_placement(
@@ -132,11 +159,20 @@ fn virtual_replay_placement(
         src_y: parameter_u32(params, "y").unwrap_or(0),
         src_width: parameter_u32(params, "w").unwrap_or(0),
         src_height: parameter_u32(params, "h").unwrap_or(0),
-        columns: parameter_u32(params, "c").unwrap_or(0) as u16,
-        rows: parameter_u32(params, "r").unwrap_or(0) as u16,
-        x_offset: parameter_u32(params, "X").unwrap_or(0) as u16,
-        y_offset: parameter_u32(params, "Y").unwrap_or(0) as u16,
+        columns: parameter_u32(params, "c")
+            .unwrap_or(0)
+            .min(u32::from(u16::MAX)) as u16,
+        rows: parameter_u32(params, "r")
+            .unwrap_or(0)
+            .min(u32::from(u16::MAX)) as u16,
+        x_offset: parameter_u32(params, "X")
+            .unwrap_or(0)
+            .min(u32::from(u16::MAX)) as u16,
+        y_offset: parameter_u32(params, "Y")
+            .unwrap_or(0)
+            .min(u32::from(u16::MAX)) as u16,
         z_index: parameter_i32(params, "z").unwrap_or(0),
+        cursor_policy: parameter_u8(params, "C").unwrap_or(0),
         data,
     })
 }
@@ -338,28 +374,25 @@ impl KittyGraphicsProcessor {
             }
         }
         if let (Some(id), Some(encoded)) = (image_id, replay) {
-            if let Ok(data) = decode_base64(&encoded) {
-                let fingerprint = content_fingerprint(&data);
-                if self.emitted_fingerprints.get(&id) != Some(&fingerprint) {
-                    let format_code = parameter_u32(&initial_params, "f").unwrap_or(32);
-                    let compression = parameter(&initial_params, "o");
-                    let format = if format_code == 100 {
-                        KITTY_FORMAT_PNG
-                    } else if compression == Some("z") {
-                        KITTY_FORMAT_ZLIB
-                    } else {
-                        KITTY_FORMAT_RAW
-                    };
-                    output.events.push(KittyGraphicsEvent::ReplayImage {
-                        image_id: id,
-                        virtual_placement: parameter_u8(&initial_params, "U") == Some(1),
-                        width: parameter_u32(&initial_params, "s").unwrap_or(0),
-                        height: parameter_u32(&initial_params, "v").unwrap_or(0),
-                        format,
-                        data,
-                    });
-                    self.emitted_fingerprints.insert(id, fingerprint);
-                }
+            let data = match decode_base64(&encoded) {
+                Ok(data) => data,
+                Err(message) => return error_output(&initial_params, image_id, &message),
+            };
+            let source_format = parameter_u32(&initial_params, "f").unwrap_or(32);
+            let format = replay_format(source_format, parameter(&initial_params, "o") == Some("z"));
+            let width = parameter_u32(&initial_params, "s").unwrap_or(0);
+            let height = parameter_u32(&initial_params, "v").unwrap_or(0);
+            let fingerprint = image_fingerprint(&data, width, height, format);
+            if self.emitted_fingerprints.get(&id) != Some(&fingerprint) {
+                output.events.push(KittyGraphicsEvent::ReplayImage {
+                    image_id: id,
+                    virtual_placement: parameter_u8(&initial_params, "U") == Some(1),
+                    width,
+                    height,
+                    format,
+                    data,
+                });
+                self.emitted_fingerprints.insert(id, fingerprint);
             }
         }
         if let Some(placement) =
@@ -457,7 +490,21 @@ impl KittyGraphicsProcessor {
                     Err(message) => return error_output(&params, image_id, &message),
                 };
             }
-            let fingerprint = content_fingerprint(&decoded);
+            let (width, height, format) = if source_format == 100 {
+                let (width, height) = match png_dimensions(&decoded) {
+                    Ok(dimensions) => dimensions,
+                    Err(message) => return error_output(&params, image_id, &message),
+                };
+                (width, height, KITTY_FORMAT_PNG)
+            } else {
+                let format = replay_format(source_format, parameter(&params, "o") == Some("z"));
+                (
+                    parameter_u32(&params, "s").unwrap_or(0),
+                    parameter_u32(&params, "v").unwrap_or(0),
+                    format,
+                )
+            };
+            let fingerprint = image_fingerprint(&decoded, width, height, format);
             let unchanged =
                 image_id.is_some_and(|id| self.emitted_fingerprints.get(&id) == Some(&fingerprint));
             let mut output = KittyGraphicsOutput {
@@ -480,25 +527,6 @@ impl KittyGraphicsProcessor {
                     return output;
                 }
             }
-
-            let (width, height, format) = if source_format == 100 {
-                let (width, height) = match png_dimensions(&decoded) {
-                    Ok(dimensions) => dimensions,
-                    Err(message) => return error_output(&params, image_id, &message),
-                };
-                (width, height, KITTY_FORMAT_PNG)
-            } else {
-                let format = if parameter(&params, "o") == Some("z") {
-                    KITTY_FORMAT_ZLIB
-                } else {
-                    KITTY_FORMAT_RAW
-                };
-                (
-                    parameter_u32(&params, "s").unwrap_or(0),
-                    parameter_u32(&params, "v").unwrap_or(0),
-                    format,
-                )
-            };
             if let Some(id) = image_id {
                 output.events.push(KittyGraphicsEvent::ReplayImage {
                     image_id: id,
@@ -559,16 +587,18 @@ impl KittyGraphicsProcessor {
             }
         } else if action == b'd' {
             match parameter(&params, "d") {
-                Some("A") => self.known_images.clear(),
-                Some("i" | "I") => {
+                Some("i" | "I") if placement_id.is_none() => {
                     if let Some(id) = image_id {
                         self.known_images.remove(&id);
+                        self.emitted_fingerprints.remove(&id);
                         output
                             .events
                             .push(KittyGraphicsEvent::ReplayDelete { image_id: Some(id) });
                     }
                 }
                 Some("r" | "R" | "n" | "N") => {
+                    self.known_images.clear();
+                    self.emitted_fingerprints.clear();
                     output
                         .events
                         .push(KittyGraphicsEvent::ReplayDelete { image_id: None });
@@ -701,12 +731,17 @@ fn encode_zlib(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 pub fn prepare_kitty_replay_payload(format: u8, data: Vec<u8>) -> (u8, Vec<u8>) {
-    if format != KITTY_FORMAT_RAW || data.is_empty() {
+    let compressed_format = match format {
+        KITTY_FORMAT_RGBA => KITTY_FORMAT_ZLIB_RGBA,
+        KITTY_FORMAT_RGB => KITTY_FORMAT_ZLIB_RGB,
+        _ => return (format, data),
+    };
+    if data.is_empty() {
         return (format, data);
     }
     match encode_zlib(&data) {
         Ok(compressed) if compressed.len() <= KITTY_GRAPHICS_MAX_BYTES => {
-            (KITTY_FORMAT_ZLIB, compressed)
+            (compressed_format, compressed)
         }
         _ => (format, data),
     }
@@ -880,6 +915,7 @@ mod tests {
                 x_offset: 0,
                 y_offset: 0,
                 z_index: 0,
+                cursor_policy: 0,
                 data: Vec::new(),
             }));
     }
@@ -916,6 +952,22 @@ mod tests {
     }
 
     #[test]
+    fn preserves_zlib_rgb_format_for_direct_image() {
+        let mut processor = KittyGraphicsProcessor::default();
+        let compressed = encode_zlib(&[255, 0, 0]).expect("compress RGB pixel");
+        let payload = STANDARD.encode(&compressed);
+        let output = processor.process(b"a=T,q=2,f=24,s=1,v=1,i=3,o=z", payload.as_bytes());
+        assert!(output.events.contains(&KittyGraphicsEvent::ReplayImage {
+            image_id: 3,
+            virtual_placement: false,
+            width: 1,
+            height: 1,
+            format: KITTY_FORMAT_ZLIB_RGB,
+            data: compressed,
+        }));
+    }
+
+    #[test]
     fn virtual_direct_stream_emits_one_complete_replay_and_delete_event() {
         let mut processor = KittyGraphicsProcessor::default();
         let first = processor.process(b"a=T,q=2,f=32,U=1,c=2,r=3,i=3,m=1", b"AAAA");
@@ -930,7 +982,7 @@ mod tests {
                     virtual_placement: true,
                     width: 0,
                     height: 0,
-                    format: KITTY_FORMAT_RAW,
+                    format: KITTY_FORMAT_RGBA,
                     data: decoded,
                 },
                 KittyGraphicsEvent::ReplayPlacement {
@@ -945,6 +997,7 @@ mod tests {
                     x_offset: 0,
                     y_offset: 0,
                     z_index: 0,
+                    cursor_policy: 0,
                     data: Vec::new(),
                 },
             ]
@@ -957,6 +1010,41 @@ mod tests {
     }
 
     #[test]
+    fn delete_then_reuse_of_image_id_reemits_pixels() {
+        let mut processor = KittyGraphicsProcessor::default();
+        let image = b"/wAA/w==";
+        assert!(processor
+            .process(b"a=t,q=2,f=32,s=1,v=1,i=3", image)
+            .events
+            .iter()
+            .any(|event| matches!(event, KittyGraphicsEvent::ReplayImage { image_id: 3, .. })));
+        processor.process(b"a=d,d=I,i=3,q=2", b"");
+        assert!(processor
+            .process(b"a=t,q=2,f=32,s=1,v=1,i=3", image)
+            .events
+            .iter()
+            .any(|event| matches!(event, KittyGraphicsEvent::ReplayImage { image_id: 3, .. })));
+    }
+
+    #[test]
+    fn changed_image_metadata_is_not_deduplicated() {
+        let mut processor = KittyGraphicsProcessor::default();
+        let image = b"AQIDBA==";
+        processor.process(b"a=t,q=2,f=32,s=1,v=1,i=3", image);
+        let changed = processor.process(b"a=t,q=2,f=24,s=2,v=1,i=3", image);
+        assert!(changed.events.iter().any(|event| matches!(
+            event,
+            KittyGraphicsEvent::ReplayImage {
+                image_id: 3,
+                width: 2,
+                height: 1,
+                format: KITTY_FORMAT_RGB,
+                ..
+            }
+        )));
+    }
+
+    #[test]
     fn separate_virtual_placement_replays_after_its_image() {
         let mut processor = KittyGraphicsProcessor::default();
         let image = processor.process(b"a=t,q=2,f=32,i=9", b"/wAA/w==");
@@ -965,7 +1053,7 @@ mod tests {
             virtual_placement: false,
             width: 0,
             height: 0,
-            format: KITTY_FORMAT_RAW,
+            format: KITTY_FORMAT_RGBA,
             data: STANDARD.decode(b"/wAA/w==").expect("raw rgba"),
         }));
         let placement = processor.process(b"a=p,q=2,U=1,i=9,p=4,c=1,r=1,C=1", b"");
@@ -983,6 +1071,7 @@ mod tests {
                 x_offset: 0,
                 y_offset: 0,
                 z_index: 0,
+                cursor_policy: 1,
                 data: placement.terminal_bytes.clone(),
             }));
     }

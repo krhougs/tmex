@@ -378,6 +378,7 @@ pub enum CanonicalEvent {
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct KittyImageAsset {
     pub pane: CanonicalPaneTarget,
+    pub pane_epoch: WireToken,
     pub image_id: u32,
     pub width: u32,
     pub height: u32,
@@ -390,6 +391,7 @@ pub struct KittyImageAsset {
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct KittyPlacementAsset {
     pub pane: CanonicalPaneTarget,
+    pub pane_epoch: WireToken,
     pub placement_id: u32,
     pub image_id: u32,
     pub src_x: u32,
@@ -401,17 +403,21 @@ pub struct KittyPlacementAsset {
     pub x_offset: u16,
     pub y_offset: u16,
     pub z_index: i32,
+    pub cursor_policy: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct KittyDeleteAsset {
     pub pane: CanonicalPaneTarget,
+    pub pane_epoch: WireToken,
     pub image_id: Option<u32>,
 }
 
+pub const KITTY_IMAGE_FORMAT_RGBA: u8 = 0;
+pub const KITTY_IMAGE_FORMAT_RGB: u8 = 1;
 pub const KITTY_IMAGE_FORMAT_PNG: u8 = 100;
-pub const KITTY_IMAGE_FORMAT_ZLIB: u8 = 122;
-pub const KITTY_IMAGE_FORMAT_RAW: u8 = 0;
+pub const KITTY_IMAGE_FORMAT_ZLIB_RGBA: u8 = 122;
+pub const KITTY_IMAGE_FORMAT_ZLIB_RGB: u8 = 123;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct CanonicalEventEnvelope {

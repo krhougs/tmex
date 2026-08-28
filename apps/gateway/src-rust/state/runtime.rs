@@ -80,6 +80,7 @@ pub enum KittyGraphicsAsset {
         x_offset: u16,
         y_offset: u16,
         z_index: i32,
+        cursor_policy: u8,
     },
     Delete {
         pane_id: String,
