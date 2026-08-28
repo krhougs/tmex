@@ -1405,13 +1405,14 @@ impl CanonicalFeedSession {
         _received_at_ms: u64,
         asset: crate::state::KittyGraphicsAsset,
     ) {
-        use crate::state::KittyGraphicsAsset;
-        if matches!(asset, KittyGraphicsAsset::Image { .. }) {
+        if matches!(asset, crate::state::KittyGraphicsAsset::Image { .. }) {
             self.enqueue_pending_kitty_image(device_id, asset);
-            self.drain_pending_kitty_assets();
-            return;
+        } else {
+            // Placement/Delete 与图片共用 FIFO：screen job 或 commit grace 期间图片
+            // 被延后时，后继控制也必须一起延后，避免 placement 先到消费者后被丢弃。
+            self.pending_kitty_assets.push_back((device_id, asset));
         }
-        self.send_kitty_asset(device_id, asset);
+        self.drain_pending_kitty_assets();
     }
 
     fn enqueue_pending_kitty_image(
@@ -2286,6 +2287,7 @@ impl CanonicalFeedSession {
         if self.stream_gap_pending_reason.is_none()
             && self.pane_send_gaps.is_empty()
             && !metadata_pending
+            && self.pending_kitty_assets.is_empty()
         {
             return;
         }
@@ -3547,6 +3549,113 @@ mod tests {
                 .filter(|event| matches!(event, CanonicalEvent::SourceMetadataSnapshot(_)))
                 .count(),
             2
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn virtual_placement_waits_behind_its_image_until_screen_commit() {
+        let runtime = Arc::new(FakeRuntime::new("device-a"));
+        let gate = Arc::new(Semaphore::new(0));
+        runtime.state().screen_capture_gate = Some(gate.clone());
+        let mut harness = Harness::new(
+            HashMap::from([("device-a".to_owned(), Arc::clone(&runtime))]),
+            CANONICAL_STATE_MAX_FRAME_BYTES,
+            None,
+            vec!["device-a".to_owned()],
+            false,
+        );
+        harness.poll_tasks().await;
+        harness
+            .session
+            .handle_command(subscribe_command(&["device-a"], 1))
+            .await
+            .expect("subscription admitted");
+        harness.poll_tasks().await;
+        harness
+            .session
+            .handle_command(CanonicalCommand::RequestScreen(CanonicalRequestScreen {
+                request_id: REQUEST_ID,
+                pane: target("device-a"),
+                byte_limit: CANONICAL_MAX_SCREEN_BYTES,
+            }))
+            .await
+            .expect("screen request admitted");
+        assert_eq!(harness.session.snapshot_stats().screen_jobs, 1);
+
+        harness.session.handle_kitty_asset(
+            "device-a".to_owned(),
+            0,
+            crate::state::KittyGraphicsAsset::Image {
+                pane_id: "%1".to_owned(),
+                pane_epoch: PANE_EPOCH,
+                image_id: 7,
+                width: 1,
+                height: 1,
+                format: 100,
+                data: vec![1, 2, 3, 4],
+            },
+        );
+        harness.session.handle_kitty_asset(
+            "device-a".to_owned(),
+            0,
+            crate::state::KittyGraphicsAsset::Placement {
+                pane_id: "%1".to_owned(),
+                pane_epoch: PANE_EPOCH,
+                placement_id: 0,
+                image_id: 7,
+                src_x: 0,
+                src_y: 0,
+                src_width: 0,
+                src_height: 0,
+                columns: 4,
+                rows: 3,
+                x_offset: 0,
+                y_offset: 0,
+                z_index: 0,
+            },
+        );
+        assert!(!harness.events().iter().any(|event| matches!(
+            event,
+            CanonicalEvent::KittyImageAsset(_) | CanonicalEvent::KittyPlacementAsset(_)
+        )));
+
+        gate.add_permits(1);
+        harness.poll_tasks().await;
+        assert_eq!(harness.session.snapshot_stats().screen_jobs, 0);
+        assert_eq!(harness.session.pending_kitty_assets.len(), 2);
+        assert_eq!(
+            harness.session.asset_resume_at_ms,
+            Some(KITTY_ASSET_RESUME_DELAY_MS)
+        );
+        harness.now_ms.store(
+            KITTY_ASSET_RESUME_DELAY_MS,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        harness.poll_tasks().await;
+        assert!(
+            harness.session.pending_kitty_assets.is_empty(),
+            "pending assets after resume: {:?}",
+            harness.session.pending_kitty_assets
+        );
+        let kitty_events = harness
+            .events()
+            .into_iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    CanonicalEvent::KittyImageAsset(_) | CanonicalEvent::KittyPlacementAsset(_)
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(
+                kitty_events.as_slice(),
+                [
+                    CanonicalEvent::KittyImageAsset(_),
+                    CanonicalEvent::KittyPlacementAsset(_)
+                ]
+            ),
+            "unexpected Kitty event order: {kitty_events:?}"
         );
     }
 
