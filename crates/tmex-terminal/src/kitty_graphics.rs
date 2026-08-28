@@ -109,7 +109,6 @@ enum PendingTransfer {
     Direct {
         params: Vec<(String, String)>,
         encoded_bytes: usize,
-        terminal_bytes: usize,
         replay: Option<Vec<u8>>,
     },
 }
@@ -240,12 +239,10 @@ impl KittyGraphicsProcessor {
                 PendingTransfer::Direct {
                     params: initial_params,
                     encoded_bytes,
-                    terminal_bytes,
                     replay,
                 } => self.process_direct_chunk(
                     initial_params,
                     encoded_bytes,
-                    terminal_bytes,
                     replay,
                     params,
                     payload,
@@ -278,7 +275,6 @@ impl KittyGraphicsProcessor {
                 self.pending = Some(PendingTransfer::Direct {
                     params,
                     encoded_bytes: payload.len(),
-                    terminal_bytes: output.terminal_bytes.len(),
                     replay,
                 });
                 return output;
@@ -297,7 +293,6 @@ impl KittyGraphicsProcessor {
         &mut self,
         initial_params: Vec<(String, String)>,
         encoded_bytes: usize,
-        terminal_bytes: usize,
         mut replay: Option<Vec<u8>>,
         _params: Vec<(String, String)>,
         payload: &[u8],
@@ -327,12 +322,10 @@ impl KittyGraphicsProcessor {
         if let Some(bytes) = &mut replay {
             bytes.extend_from_slice(payload);
         }
-        let terminal_bytes = terminal_bytes.saturating_add(output.terminal_bytes.len());
         if !final_chunk {
             self.pending = Some(PendingTransfer::Direct {
                 params: initial_params,
                 encoded_bytes,
-                terminal_bytes,
                 replay,
             });
             return output;
@@ -357,9 +350,6 @@ impl KittyGraphicsProcessor {
             );
         }
 
-        let action = parameter(&initial_params, "a")
-            .and_then(|value| value.as_bytes().first().copied())
-            .unwrap_or(b't');
         let image_id = parameter_u32(&initial_params, "i").filter(|id| *id != 0);
         let placement_id = parameter_u32(&initial_params, "p").filter(|id| *id != 0);
         let quiet = parameter_u8(&initial_params, "q").unwrap_or(0);
@@ -400,21 +390,6 @@ impl KittyGraphicsProcessor {
         {
             output.events.push(placement);
         }
-        tracing::info!(
-            target: "tmex_terminal::kitty_graphics",
-            stage = "gateway_emit",
-            action = %char::from(action),
-            image_id = image_id.unwrap_or(0),
-            source_format = parameter_u32(&initial_params, "f").unwrap_or(32),
-            encoded_bytes,
-            payload_bytes = decoded_bytes,
-            terminal_bytes,
-            width = parameter_u32(&initial_params, "s").unwrap_or(0),
-            height = parameter_u32(&initial_params, "v").unwrap_or(0),
-            virtual_placement = parameter_u8(&initial_params, "U") == Some(1),
-            streamed = true,
-            "Kitty graphics payload emitted"
-        );
         output
     }
 
@@ -541,20 +516,6 @@ impl KittyGraphicsProcessor {
                     output.events.push(placement);
                 }
             }
-            tracing::info!(
-                target: "tmex_terminal::kitty_graphics",
-                stage = "gateway_emit",
-                action = %char::from(action),
-                image_id = image_id.unwrap_or(0),
-                source_format,
-                encoded_bytes = encoded.len(),
-                payload_bytes = decoded.len(),
-                terminal_bytes = output.terminal_bytes.len(),
-                width,
-                height,
-                virtual_placement = parameter_u8(&params, "U") == Some(1),
-                "Kitty graphics payload emitted"
-            );
             return output;
         }
 
