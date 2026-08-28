@@ -94,7 +94,7 @@ function createRunStub(
     }
     if (
       isConfigureSessionOptionCommand(command, session) ||
-      command === `set-option -t ${session} default-terminal xterm-ghostty`
+      command === `set-option -t ${session} default-terminal ghostty`
     ) {
       return ok();
     }

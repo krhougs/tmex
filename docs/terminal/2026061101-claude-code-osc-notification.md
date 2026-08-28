@@ -35,19 +35,19 @@ Claude Code 各通知渠道发出的序列（在 tmux 内均经 passthrough 包�
 Claude Code 默认 `preferredNotifChannel: auto` 时按终端探测决定渠道，其检测优先级（逆向自 2.1.170）：
 
 ```js
-if (process.env.TERM === "xterm-ghostty") return "ghostty";   // 优先于 TERM_PROGRAM
+if (process.env.TERM === "ghostty") return "ghostty";         // 优先于 TERM_PROGRAM
 if (process.env.TERM?.includes("kitty")) return "kitty";
 if (process.env.TERM_PROGRAM) return process.env.TERM_PROGRAM; // tmux 3.2+ 强制为 "tmux"
 if (process.env.TMUX) return "tmux";
 ```
 
-tmux 3.2+ 在派生 pane 进程时**强制覆盖** `TERM_PROGRAM=tmux`（会话环境变量无法覆盖），因此唯一可注入的钩子是 `TERM=xterm-ghostty`。tmex 现在默认（`TMEX_TMUX_TERM_PROGRAM=ghostty`）在接管会话时：
+tmux 3.2+ 在派生 pane 进程时**强制覆盖** `TERM_PROGRAM=tmux`（会话环境变量无法覆盖），因此唯一可注入的钩子是 `TERM=ghostty`。tmex 现在默认（`TMEX_TMUX_TERM_PROGRAM=ghostty`）在接管会话时：
 
-1. 检测宿主（本地或 SSH 远端）是否有 `xterm-ghostty` terminfo，缺失则用内置源（`apps/gateway/src/tmux-client/ghostty-terminfo.ts`，自 Ghostty 官方导出）通过 `tic -x` 安装到 `~/.terminfo`；
-2. 成功后把 tmux `default-terminal` 设为 `xterm-ghostty`（注意：这是 **tmux server 级选项**，影响该 server 上所有会话的新 pane）；
+1. 检测宿主（本地或 SSH 远端）是否有 `ghostty` terminfo，缺失则用内置 Ghostty 官方源（同时提供 `xterm-ghostty` 与 `ghostty` 名称）通过 `tic -x` 安装到 `~/.terminfo`；
+2. 成功后把 tmux `default-terminal` 设为 `ghostty`（注意：这是 **tmux server 级选项**，影响该 server 上所有会话的新 pane）；
 3. 同时写入会话环境 `TERM_PROGRAM=ghostty`（对不覆盖该变量的 tmux <3.2 生效）。
 
-之后新开的 pane / window 中 `TERM=xterm-ghostty`，Claude Code auto 渠道即识别为 ghostty 并通过 OSC 777 发送通知。**已存在的 shell 进程不受影响**，需要新开 pane 或重启 shell。
+之后新开的 pane / window 中 `TERM=ghostty`，Claude Code auto 渠道即识别为 ghostty 并通过 OSC 777 发送通知。**已存在的 shell 进程不受影响**，需要新开 pane 或重启 shell。
 
 - tmex 终端引擎本身就是 ghostty-vt（WASM），terminfo 声明的能力与前端真实能力一致。
 - 设 `TMEX_TMUX_TERM_PROGRAM=off` 可完全关闭该行为。

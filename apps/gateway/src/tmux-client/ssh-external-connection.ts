@@ -866,7 +866,7 @@ export class SshExternalTmuxConnection {
           '-t',
           this.sessionName,
           'default-terminal',
-          'xterm-ghostty',
+          'ghostty',
         ]);
       }
     }

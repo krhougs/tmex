@@ -84,12 +84,12 @@ const HEREDOC_MARKER: &str = "TMEX_TERMINFO_EOF";
 
 pub fn build_ensure_ghostty_terminfo_script() -> String {
     format!(
-        "if ! infocmp xterm-ghostty >/dev/null 2>&1; then\n\
+        "if ! infocmp ghostty >/dev/null 2>&1; then\n\
          tic -x - <<'{HEREDOC_MARKER}' >/dev/null 2>&1\n\
          {}\
          {HEREDOC_MARKER}\n\
          fi\n\
-         infocmp xterm-ghostty >/dev/null 2>&1",
+         infocmp ghostty >/dev/null 2>&1",
         XTERM_GHOSTTY_TERMINFO_SOURCE
     )
 }
@@ -105,8 +105,8 @@ mod tests {
         assert!(!XTERM_GHOSTTY_TERMINFO_SOURCE.contains(HEREDOC_MARKER));
 
         let script = build_ensure_ghostty_terminfo_script();
-        assert!(script.starts_with("if ! infocmp xterm-ghostty"));
+        assert!(script.starts_with("if ! infocmp ghostty"));
         assert!(script.contains("tic -x - <<'TMEX_TERMINFO_EOF'"));
-        assert!(script.ends_with("infocmp xterm-ghostty >/dev/null 2>&1"));
+        assert!(script.ends_with("infocmp ghostty >/dev/null 2>&1"));
     }
 }

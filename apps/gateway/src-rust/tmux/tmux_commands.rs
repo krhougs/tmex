@@ -74,7 +74,7 @@ pub fn session_configuration_commands(
                 "-t",
                 session_name,
                 "default-terminal",
-                "xterm-ghostty",
+                "ghostty",
             ]));
         }
     }
@@ -451,18 +451,11 @@ mod tests {
 
     #[test]
     fn ghostty_default_terminal_is_set_only_after_terminfo_is_available() {
+        let expected = strings(["set-option", "-t", "tmex", "default-terminal", "ghostty"]);
         let unavailable = session_configuration_commands("tmex", false, "ghostty", false, "/tmp");
-        assert!(!unavailable
-            .iter()
-            .any(|command| command.iter().any(|value| value == "xterm-ghostty")));
+        assert!(!unavailable.contains(&expected));
 
         let available = session_configuration_commands("tmex", false, "ghostty", true, "/tmp");
-        assert!(available.contains(&strings([
-            "set-option",
-            "-t",
-            "tmex",
-            "default-terminal",
-            "xterm-ghostty",
-        ])));
+        assert!(available.contains(&expected));
     }
 }

@@ -899,7 +899,7 @@ export class LocalExternalTmuxConnection {
           '-t',
           this.sessionName,
           'default-terminal',
-          'xterm-ghostty',
+          'ghostty',
         ]);
       }
     }
