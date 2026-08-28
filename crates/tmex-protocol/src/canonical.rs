@@ -382,6 +382,8 @@ pub struct KittyImageAsset {
     pub width: u32,
     pub height: u32,
     pub format: u8,
+    pub offset: u32,
+    pub total: u32,
     pub data: Vec<u8>,
 }
 

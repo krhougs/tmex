@@ -11,7 +11,8 @@ use tmex_protocol::{
     CanonicalHistoryCursor, StateSnapshot, TerminalKey, TerminalKeyAction, WindowWire, WireToken,
 };
 use tmex_terminal::{
-    apply_sequence, encode_pane_option_value, parse_pane_option_value, HeadlessTerminal,
+    apply_sequence, encode_pane_option_value, parse_pane_option_value,
+    prepare_kitty_replay_payload, strip_kitty_graphics_sequences, HeadlessTerminal,
     HeadlessTerminalOptions, KeyboardModeState, KittyGraphicsEvent, TerminalContinuationState,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -50,7 +51,7 @@ use super::{
 
 const DEFAULT_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 const PANE_MODE_ALT_SCREEN: u8 = 1 << 5;
-const KITTY_SCREEN_TEXT_RESERVE_BYTES: usize = 512 * 1024;
+
 const PANE_MODE_FLAGS_PRESENT: u8 = 1 << 7;
 
 #[derive(Debug)]
@@ -2293,7 +2294,8 @@ impl RuntimeActor {
         match event {
             ControlModeSubscriptionEvent::TerminalOutput { pane_id, data } => {
                 if let Some(epoch) = self.metadata.ensure_pane_epoch(&pane_id) {
-                    match self.retention.ingest(&pane_id, epoch, &data) {
+                    let stripped = strip_kitty_graphics_sequences(&data);
+                    match self.retention.ingest(&pane_id, epoch, &stripped) {
                         Ok(Some(segment)) => {
                             let emulator =
                                 self.emulators.entry(pane_id.clone()).or_insert_with(|| {
@@ -2312,7 +2314,17 @@ impl RuntimeActor {
                             }
                             self.emit(TmuxRuntimeEvent::Terminal(segment));
                         }
-                        Ok(None) => {}
+                        Ok(None) => {
+                            if !stripped.is_empty() {
+                                self.emit(TmuxRuntimeEvent::Terminal(super::PaneDataSegment {
+                                    pane_id: pane_id.clone(),
+                                    pane_epoch: epoch,
+                                    seq_start: 0,
+                                    seq_end: stripped.len() as u64,
+                                    data: stripped,
+                                }));
+                            }
+                        }
                         Err(error) => self.emit_error(error.to_string()),
                     }
                 }
@@ -2426,16 +2438,21 @@ impl RuntimeActor {
                     data,
                 } => {
                     if let Some(pane_epoch) = self.metadata.pane_epoch(&pane_id) {
-                        self.kitty_screen_cache.store_image(
+                        let (format, data) = prepare_kitty_replay_payload(format, data);
+                        self.kitty_screen_cache.store_image_with_meta(
                             &pane_id,
                             pane_epoch,
                             image_id,
+                            width,
+                            height,
+                            format,
                             virtual_placement,
                             data.clone(),
                         );
                         use crate::state::KittyGraphicsAsset;
-                        self.canonical.retention().notify_kitty_asset(
-                            &KittyGraphicsAsset::Image {
+                        self.canonical
+                            .retention()
+                            .notify_kitty_asset(&KittyGraphicsAsset::Image {
                                 pane_id: pane_id.clone(),
                                 pane_epoch,
                                 image_id,
@@ -2443,8 +2460,7 @@ impl RuntimeActor {
                                 height,
                                 format,
                                 data,
-                            },
-                        );
+                            });
                     }
                 }
                 KittyGraphicsEvent::ReplayPlacement {
@@ -2822,13 +2838,7 @@ impl RuntimeActor {
         if base_overhead > max_bytes {
             return Ok(None);
         }
-        let graphics_budget = max_bytes
-            .saturating_sub(base_overhead)
-            .saturating_sub(KITTY_SCREEN_TEXT_RESERVE_BYTES.min(max_bytes));
-        let graphics =
-            self.kitty_screen_cache
-                .replay_prefix(pane_id, identity.pane_epoch, graphics_budget);
-        let text_budget = max_bytes.saturating_sub(base_overhead + graphics.len());
+        let text_budget = max_bytes.saturating_sub(base_overhead);
         let history_bytes = if !frame.alternate_screen && frame.history_size > 0 {
             frame
                 .history_text
@@ -2844,11 +2854,9 @@ impl RuntimeActor {
             exact_viewport.as_deref(),
             text_budget,
         );
-        let mut data = Vec::with_capacity(
-            prefix.len() + graphics.len() + encoded_text.data.len() + continuation.len(),
-        );
+        let mut data =
+            Vec::with_capacity(prefix.len() + encoded_text.data.len() + continuation.len());
         data.extend_from_slice(prefix);
-        data.extend_from_slice(&graphics);
         data.extend_from_slice(&encoded_text.data);
         data.extend_from_slice(&continuation);
         let Some(current_identity) = self.pane_identity(pane_id) else {
@@ -4079,7 +4087,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_screen_prefixes_cached_virtual_kitty_image_and_honors_delete() {
+    async fn canonical_screen_keeps_text_without_kitty_apc() {
         let close_started = Arc::new(AtomicBool::new(false));
         let close_finished = Arc::new(AtomicBool::new(false));
         let commands = Arc::new(StdMutex::new(Vec::new()));
@@ -4100,17 +4108,16 @@ mod tests {
         let runtime = DeviceSessionRuntime::start(runtime_config(), factory)
             .await
             .unwrap();
-        let replay = b"\x1b_Ga=T,q=2,f=32,U=1,s=1,v=1,c=1,r=1,i=7;/wAA/w==\x1b\\".to_vec();
         runtime
             .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
                 pane_id: "%1".to_owned(),
                 event: KittyGraphicsEvent::ReplayImage {
                     image_id: 7,
                     virtual_placement: true,
-                    width: 0,
-                    height: 0,
+                    width: 1,
+                    height: 1,
                     format: tmex_terminal::KITTY_FORMAT_RAW,
-                    data: replay.clone(),
+                    data: vec![255, 0, 0, 255],
                 },
             })
             .await;
@@ -4119,85 +4126,18 @@ mod tests {
             .capture_canonical_screen("%1", 6 * 1024 * 1024)
             .await
             .unwrap()
-            .expect("canonical screen with graphics");
-        let replay_at = checkpoint
-            .data
-            .windows(replay.len())
-            .position(|window| window == replay)
-            .expect("cached Kitty replay prefix");
-        let text_at = checkpoint
-            .data
-            .windows(b"visible".len())
-            .position(|window| window == b"visible")
-            .expect("captured terminal text");
-        assert!(replay_at < text_at);
-
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
-                pane_id: "%1".to_owned(),
-                event: KittyGraphicsEvent::ReplayDelete { image_id: Some(7) },
-            })
-            .await;
-        let deleted = runtime
-            .capture_canonical_screen("%1", 6 * 1024 * 1024)
-            .await
-            .unwrap()
-            .expect("canonical screen after graphics delete");
-        assert!(!deleted
-            .data
-            .windows(replay.len())
-            .any(|window| window == replay));
-
-        let image = b"\x1b_Ga=t,q=2,f=32,s=1,v=1,i=8;/wAA/w==\x1b\\".to_vec();
-        let placement = b"\x1b_Ga=p,q=2,U=1,i=8,p=4,c=1,r=1,C=1;\x1b\\".to_vec();
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
-                pane_id: "%1".to_owned(),
-                event: KittyGraphicsEvent::ReplayImage {
-                    image_id: 8,
-                    virtual_placement: false,
-                    width: 1,
-                    height: 1,
-                    format: tmex_terminal::KITTY_FORMAT_RAW,
-                    data: image.clone(),
-                },
-            })
-            .await;
-        runtime
-            .inject_control_event_for_test(ControlModeSubscriptionEvent::Graphics {
-                pane_id: "%1".to_owned(),
-                event: KittyGraphicsEvent::ReplayPlacement {
-                    image_id: 8,
-                    placement_id: 4,
-                    src_x: 0,
-                    src_y: 0,
-                    src_width: 0,
-                    src_height: 0,
-                    columns: 1,
-                    rows: 1,
-                    x_offset: 0,
-                    y_offset: 0,
-                    z_index: 0,
-                    data: placement.clone(),
-                },
-            })
-            .await;
-        let separated = runtime
-            .capture_canonical_screen("%1", 6 * 1024 * 1024)
-            .await
-            .unwrap()
-            .expect("canonical screen with separate virtual placement");
-        let image_at = separated
-            .data
-            .windows(image.len())
-            .position(|window| window == image)
-            .expect("cached image transmission");
-        let placement_at = separated
-            .data
-            .windows(placement.len())
-            .position(|window| window == placement)
-            .expect("cached virtual placement");
-        assert!(image_at < placement_at);
+            .expect("canonical screen");
+        assert!(
+            checkpoint
+                .data
+                .windows(b"visible".len())
+                .any(|window| window == b"visible"),
+            "captured terminal text"
+        );
+        assert!(
+            !checkpoint.data.windows(3).any(|window| window == b"\x1b_G"),
+            "screen snapshot must not carry Kitty APC"
+        );
 
         runtime.shutdown().await;
     }

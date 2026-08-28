@@ -4,12 +4,16 @@ use tmex_protocol::WireToken;
 
 pub const KITTY_SCREEN_CACHE_BYTES_PER_PANE: usize = 6 * 1024 * 1024;
 pub const KITTY_SCREEN_CACHE_BYTES_TOTAL: usize = 32 * 1024 * 1024;
+pub const KITTY_SCREEN_CACHE_IMAGES_PER_PANE: usize = 5;
 
 type PaneKey = (String, WireToken);
 type AssetKey = (String, WireToken, u32);
 
 struct Asset {
     image: Vec<u8>,
+    width: u32,
+    height: u32,
+    format: u8,
     combined_virtual: bool,
     placements: BTreeMap<u32, Vec<u8>>,
 }
@@ -23,10 +27,12 @@ impl Asset {
             })
     }
 
+    #[allow(dead_code)]
     fn replayable(&self) -> bool {
         self.combined_virtual || !self.placements.is_empty()
     }
 
+    #[allow(dead_code)]
     fn append_to(&self, target: &mut Vec<u8>) {
         target.extend_from_slice(&self.image);
         for placement in self.placements.values() {
@@ -73,6 +79,29 @@ impl KittyScreenCache {
         virtual_placement: bool,
         data: Vec<u8>,
     ) -> bool {
+        self.store_image_with_meta(
+            pane_id,
+            pane_epoch,
+            image_id,
+            0,
+            0,
+            0,
+            virtual_placement,
+            data,
+        )
+    }
+
+    pub fn store_image_with_meta(
+        &mut self,
+        pane_id: &str,
+        pane_epoch: WireToken,
+        image_id: u32,
+        width: u32,
+        height: u32,
+        format: u8,
+        virtual_placement: bool,
+        data: Vec<u8>,
+    ) -> bool {
         let key = (pane_id.to_owned(), pane_epoch, image_id);
         let previous = self.take(&key);
         self.remove_other_epochs(pane_id, pane_epoch);
@@ -83,6 +112,9 @@ impl KittyScreenCache {
             key,
             Asset {
                 image: data,
+                width,
+                height,
+                format,
                 combined_virtual: virtual_placement
                     || previous
                         .as_ref()
@@ -90,6 +122,27 @@ impl KittyScreenCache {
                 placements: previous.map_or_else(BTreeMap::new, |asset| asset.placements),
             },
         )
+    }
+
+    pub fn images_for_pane(
+        &self,
+        pane_id: &str,
+        pane_epoch: WireToken,
+    ) -> Vec<(u32, u32, u32, u8, Vec<u8>)> {
+        self.order
+            .iter()
+            .filter(|key| key.0 == pane_id && key.1 == pane_epoch)
+            .filter_map(|key| {
+                let asset = self.assets.get(key)?;
+                Some((
+                    key.2,
+                    asset.width,
+                    asset.height,
+                    asset.format,
+                    asset.image.clone(),
+                ))
+            })
+            .collect()
     }
 
     pub fn store_placement(
@@ -139,6 +192,7 @@ impl KittyScreenCache {
         }
     }
 
+    #[allow(dead_code)]
     pub fn replay_prefix(
         &self,
         pane_id: &str,
@@ -174,6 +228,23 @@ impl KittyScreenCache {
             return false;
         }
         let pane_key = (key.0.clone(), key.1);
+        while self
+            .order
+            .iter()
+            .filter(|candidate| candidate.0 == key.0 && candidate.1 == key.1)
+            .count()
+            >= KITTY_SCREEN_CACHE_IMAGES_PER_PANE
+        {
+            let Some(oldest) = self
+                .order
+                .iter()
+                .find(|candidate| candidate.0 == key.0 && candidate.1 == key.1)
+                .cloned()
+            else {
+                return false;
+            };
+            self.remove(&oldest);
+        }
         while self
             .pane_bytes
             .get(&pane_key)
@@ -292,5 +363,38 @@ mod tests {
         assert_eq!(cache.replay_prefix("%2", [2; 16], 16), b"other");
         cache.clear_pane("%2");
         assert_eq!(cache.total_bytes, 0);
+    }
+
+    #[test]
+    fn pane_keeps_at_most_five_images() {
+        let mut cache = KittyScreenCache::with_limits(1024, 4096);
+        for image_id in 1..=6 {
+            assert!(cache.store_image(
+                "%1",
+                [1; 16],
+                image_id,
+                true,
+                format!("img{image_id}").into_bytes(),
+            ));
+        }
+        let replay = cache.replay_prefix("%1", [1; 16], 4096);
+        assert!(!replay.windows(4).any(|window| window == b"img1"));
+        for image_id in 2..=6u32 {
+            let needle = format!("img{image_id}").into_bytes();
+            assert!(
+                replay.windows(needle.len()).any(|window| window == needle),
+                "expected img{image_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn images_for_pane_keeps_format_metadata() {
+        let mut cache = KittyScreenCache::with_limits(1024, 4096);
+        assert!(cache.store_image_with_meta("%1", [1; 16], 7, 2, 3, 100, true, b"png".to_vec(),));
+        assert_eq!(
+            cache.images_for_pane("%1", [1; 16]),
+            vec![(7, 2, 3, 100, b"png".to_vec())]
+        );
     }
 }

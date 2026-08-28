@@ -12,6 +12,36 @@ const ESC = 0x1b;
 const KITTY_PLACEHOLDER = 0x10eeee;
 const MAX_ENCODED_BYTES = Math.ceil((16 * 1024 * 1024) / 3) * 4;
 const STORAGE_LIMIT_BYTES = 64 * 1024 * 1024;
+const MAX_IMAGES_PER_PANE = 5;
+
+function decodeGraphicsPayload(
+  wireFormat: number,
+  width: number,
+  height: number,
+  data: Uint8Array
+): { width: number; height: number; format: number; data: Uint8Array } | null {
+  if (wireFormat === 100) {
+    if (data.byteLength === 0) return null;
+    return { width, height, format: 100, data };
+  }
+  const rgb = wireFormat === 1 || wireFormat === 123;
+  const compressed = wireFormat === 122 || wireFormat === 123;
+  const raw = wireFormat === 0 || wireFormat === 1;
+  if (!compressed && !raw) return null;
+  const stride = rgb ? 3 : 4;
+  const expected = width * height * stride;
+  if (!Number.isSafeInteger(expected) || expected <= 0) return null;
+  let pixels = data;
+  if (compressed) {
+    try {
+      pixels = unzlibSync(data, { out: new Uint8Array(expected) });
+    } catch {
+      return null;
+    }
+  }
+  if (pixels.byteLength !== expected) return null;
+  return { width, height, format: rgb ? 0 : 1, data: pixels };
+}
 
 export type WebKittyCursorContext = {
   col: number;
@@ -255,6 +285,10 @@ export class WebKittyGraphicsStore {
     const state = context.alternateScreen ? this.alternate : this.main;
     switch (message.kind) {
       case 'begin': {
+        if (this.ingestBuffers.size >= MAX_IMAGES_PER_PANE) {
+          const oldest = this.ingestBuffers.keys().next().value;
+          if (oldest !== undefined) this.ingestBuffers.delete(oldest);
+        }
         this.ingestBuffers.set(message.imageId, {
           parts: [],
           bytes: 0,
@@ -297,16 +331,17 @@ export class WebKittyGraphicsStore {
           }
         }
         state.generation += 1n;
+        const decoded = decodeGraphicsPayload(buffer.format, buffer.width, buffer.height, data);
+        if (!decoded) return;
         state.images.set(message.imageId, {
           id: message.imageId,
           generation: state.generation,
-          width: buffer.width,
-          height: buffer.height,
-          // companion: 0=RGBA8 / 1=RGB8；web store: 1=RGBA / 0=RGB。
-          format: buffer.format === 0 ? 1 : 0,
-          data,
+          width: decoded.width,
+          height: decoded.height,
+          format: decoded.format,
+          data: decoded.data,
         });
-        state.storageBytes += data.byteLength;
+        state.storageBytes += decoded.data.byteLength;
         this.evictImages(state);
         onInvalidate();
         return;
@@ -314,7 +349,6 @@ export class WebKittyGraphicsStore {
       case 'placement': {
         const image = state.images.get(message.imageId);
         if (!image) return;
-        // begin/end 只带像素时尺寸未知：由 placement 首次补全（cols/rows 是单元格尺寸）。
         const pixelWidth = message.cols * context.cellDimensions.width;
         const pixelHeight = message.rows * context.cellDimensions.height;
         if (image.width === 0 || image.height === 0) {
@@ -325,6 +359,13 @@ export class WebKittyGraphicsStore {
         const key = message.placementId
           ? virtualKey(message.imageId, message.placementId)
           : message.imageId + ':0:' + sequence;
+        state.virtualPlacements.set(virtualKey(message.imageId, message.placementId), {
+          imageId: message.imageId,
+          placementId: message.placementId,
+          z: message.z,
+          columns: message.cols,
+          rows: message.rows,
+        });
         state.placements.set(key, {
           key,
           imageId: message.imageId,
@@ -358,6 +399,9 @@ export class WebKittyGraphicsStore {
             state.images.delete(message.imageId);
             for (const [key, placement] of state.placements) {
               if (placement.imageId === message.imageId) state.placements.delete(key);
+            }
+            for (const [key, placement] of state.virtualPlacements) {
+              if (placement.imageId === message.imageId) state.virtualPlacements.delete(key);
             }
             state.generation += 1n;
           }
@@ -898,7 +942,7 @@ export class WebKittyGraphicsStore {
   }
 
   private evictImages(state: ScreenState): void {
-    while (state.storageBytes > STORAGE_LIMIT_BYTES) {
+    while (state.storageBytes > STORAGE_LIMIT_BYTES || state.images.size > MAX_IMAGES_PER_PANE) {
       const oldest = state.images.keys().next().value as number | undefined;
       if (oldest === undefined) return;
       const image = state.images.get(oldest);

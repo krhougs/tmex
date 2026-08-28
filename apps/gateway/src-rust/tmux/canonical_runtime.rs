@@ -183,11 +183,15 @@ impl CanonicalFeedRuntime for DeviceCanonicalRuntime {
         }
         let on_data = callbacks.on_data;
         let on_gap = callbacks.on_gap;
+        let on_asset = callbacks.on_kitty_asset;
         let callbacks = PaneRetentionConsumerCallbacks::new(move |segment| {
             on_data(canonical_data_segment(segment));
         })
         .with_gap(move |gap| {
             on_gap(canonical_replay_gap(gap));
+        })
+        .with_asset(move |asset| {
+            on_asset(asset.clone());
         });
         let lease = self
             .runtime

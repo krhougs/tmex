@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
@@ -14,8 +14,35 @@ pub(crate) const KITTY_CONTROL_MAX_BYTES: usize = 4 * 1024;
 pub(crate) const KITTY_BASE64_MAX_BYTES: usize =
     (KITTY_GRAPHICS_MAX_BYTES.saturating_add(2) / 3) * 4;
 
-const KITTY_CHUNK_BYTES: usize = 4 * 1024;
 const KITTY_RGBA_MAX_BYTES: usize = KITTY_IMAGE_STORAGE_LIMIT as usize;
+
+/// Remove complete Kitty graphics APC sequences (`ESC _ G ... ESC \\`) from a byte
+/// stream. Other APC sequences and ordinary terminal bytes are kept. Incomplete
+/// trailing `ESC _ G` is dropped so base64 never leaks into the text lane.
+pub fn strip_kitty_graphics_sequences(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == 0x1b
+            && index + 2 < bytes.len()
+            && bytes[index + 1] == b'_'
+            && bytes[index + 2] == b'G'
+        {
+            index += 3;
+            while index < bytes.len() {
+                if bytes[index] == 0x1b && index + 1 < bytes.len() && bytes[index + 1] == b'\\' {
+                    index += 2;
+                    break;
+                }
+                index += 1;
+            }
+            continue;
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    out
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KittyGraphicsEvent {
@@ -79,12 +106,46 @@ enum PendingTransfer {
 pub(crate) struct KittyGraphicsProcessor {
     pending: Option<PendingTransfer>,
     known_images: HashSet<u32>,
+    /// 已下发过的图片内容指纹（image_id → (长度, FNV-1a)）：omp 等客户端每秒重发同一批
+    /// 图片，字节不变时跳过 ReplayImage，避免上游按渲染频率重收整个像素负载。
+    emitted_fingerprints: HashMap<u32, (usize, u64)>,
+}
+
+fn content_fingerprint(data: &[u8]) -> (usize, u64) {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    (data.len(), hash)
+}
+
+fn virtual_replay_placement(
+    params: &[(String, String)],
+    image_id: u32,
+    data: Vec<u8>,
+) -> Option<KittyGraphicsEvent> {
+    (parameter_u8(params, "U") == Some(1)).then(|| KittyGraphicsEvent::ReplayPlacement {
+        image_id,
+        placement_id: parameter_u32(params, "p").unwrap_or(0),
+        src_x: parameter_u32(params, "x").unwrap_or(0),
+        src_y: parameter_u32(params, "y").unwrap_or(0),
+        src_width: parameter_u32(params, "w").unwrap_or(0),
+        src_height: parameter_u32(params, "h").unwrap_or(0),
+        columns: parameter_u32(params, "c").unwrap_or(0) as u16,
+        rows: parameter_u32(params, "r").unwrap_or(0) as u16,
+        x_offset: parameter_u32(params, "X").unwrap_or(0) as u16,
+        y_offset: parameter_u32(params, "Y").unwrap_or(0) as u16,
+        z_index: parameter_i32(params, "z").unwrap_or(0),
+        data,
+    })
 }
 
 impl KittyGraphicsProcessor {
     pub fn reset(&mut self) {
         self.pending = None;
         self.known_images.clear();
+        self.emitted_fingerprints.clear();
     }
 
     pub fn has_pending(&self) -> bool {
@@ -174,10 +235,10 @@ impl KittyGraphicsProcessor {
                     );
                 }
                 let output = KittyGraphicsOutput {
-                    terminal_bytes: encode_apc(&params, payload),
+                    terminal_bytes: Vec::new(),
                     events: Vec::new(),
                 };
-                let replay = is_replayable_image(&params).then(|| output.terminal_bytes.clone());
+                let replay = is_replayable_image(&params).then(|| payload.to_vec());
                 self.pending = Some(PendingTransfer::Direct {
                     params,
                     encoded_bytes: payload.len(),
@@ -202,7 +263,7 @@ impl KittyGraphicsProcessor {
         encoded_bytes: usize,
         terminal_bytes: usize,
         mut replay: Option<Vec<u8>>,
-        params: Vec<(String, String)>,
+        _params: Vec<(String, String)>,
         payload: &[u8],
         continuation: Option<u8>,
     ) -> KittyGraphicsOutput {
@@ -224,11 +285,11 @@ impl KittyGraphicsProcessor {
         }
 
         let mut output = KittyGraphicsOutput {
-            terminal_bytes: encode_apc(&params, payload),
+            terminal_bytes: Vec::new(),
             events: Vec::new(),
         };
         if let Some(bytes) = &mut replay {
-            bytes.extend_from_slice(&output.terminal_bytes);
+            bytes.extend_from_slice(payload);
         }
         let terminal_bytes = terminal_bytes.saturating_add(output.terminal_bytes.len());
         if !final_chunk {
@@ -276,24 +337,35 @@ impl KittyGraphicsProcessor {
                 )));
             }
         }
-        if let (Some(id), Some(data)) = (image_id, replay) {
-            let format_code = parameter_u32(&initial_params, "f").unwrap_or(32);
-            let compression = parameter(&initial_params, "o");
-            let format = if format_code == 100 {
-                KITTY_FORMAT_PNG
-            } else if compression == Some("z") {
-                KITTY_FORMAT_ZLIB
-            } else {
-                KITTY_FORMAT_RAW
-            };
-            output.events.push(KittyGraphicsEvent::ReplayImage {
-                image_id: id,
-                virtual_placement: parameter_u8(&initial_params, "U") == Some(1),
-                width: parameter_u32(&initial_params, "s").unwrap_or(0),
-                height: parameter_u32(&initial_params, "v").unwrap_or(0),
-                format,
-                data,
-            });
+        if let (Some(id), Some(encoded)) = (image_id, replay) {
+            if let Ok(data) = decode_base64(&encoded) {
+                let fingerprint = content_fingerprint(&data);
+                if self.emitted_fingerprints.get(&id) != Some(&fingerprint) {
+                    let format_code = parameter_u32(&initial_params, "f").unwrap_or(32);
+                    let compression = parameter(&initial_params, "o");
+                    let format = if format_code == 100 {
+                        KITTY_FORMAT_PNG
+                    } else if compression == Some("z") {
+                        KITTY_FORMAT_ZLIB
+                    } else {
+                        KITTY_FORMAT_RAW
+                    };
+                    output.events.push(KittyGraphicsEvent::ReplayImage {
+                        image_id: id,
+                        virtual_placement: parameter_u8(&initial_params, "U") == Some(1),
+                        width: parameter_u32(&initial_params, "s").unwrap_or(0),
+                        height: parameter_u32(&initial_params, "v").unwrap_or(0),
+                        format,
+                        data,
+                    });
+                    self.emitted_fingerprints.insert(id, fingerprint);
+                }
+            }
+        }
+        if let Some(placement) =
+            image_id.and_then(|id| virtual_replay_placement(&initial_params, id, Vec::new()))
+        {
+            output.events.push(placement);
         }
         tracing::info!(
             target: "tmex_terminal::kitty_graphics",
@@ -378,40 +450,18 @@ impl KittyGraphicsProcessor {
                 );
             }
 
-            let format = parameter_u32(&params, "f").unwrap_or(32);
-            if format == 100 {
-                if parameter(&params, "o") == Some("z") {
-                    decoded = match decode_zlib_limited(&decoded, KITTY_GRAPHICS_MAX_BYTES) {
-                        Ok(decoded) => decoded,
-                        Err(message) => return error_output(&params, image_id, &message),
-                    };
-                }
-                let (width, height, rgba) = match decode_png_rgba(&decoded) {
-                    Ok(image) => image,
+            let source_format = parameter_u32(&params, "f").unwrap_or(32);
+            if source_format == 100 && parameter(&params, "o") == Some("z") {
+                decoded = match decode_zlib_limited(&decoded, KITTY_GRAPHICS_MAX_BYTES) {
+                    Ok(decoded) => decoded,
                     Err(message) => return error_output(&params, image_id, &message),
                 };
-                let compressed = match encode_zlib(&rgba) {
-                    Ok(compressed) => compressed,
-                    Err(message) => return error_output(&params, image_id, &message),
-                };
-                if compressed.len() > KITTY_GRAPHICS_MAX_BYTES {
-                    return error_output(
-                        &params,
-                        image_id,
-                        "Kitty graphics image exceeds the 16 MiB encoded limit",
-                    );
-                }
-                set_parameter(&mut params, "f", "32".to_owned());
-                set_parameter(&mut params, "s", width.to_string());
-                set_parameter(&mut params, "v", height.to_string());
-                set_parameter(&mut params, "o", "z".to_owned());
-                remove_parameter(&mut params, "S");
-                remove_parameter(&mut params, "O");
-                decoded = compressed;
             }
-
+            let fingerprint = content_fingerprint(&decoded);
+            let unchanged =
+                image_id.is_some_and(|id| self.emitted_fingerprints.get(&id) == Some(&fingerprint));
             let mut output = KittyGraphicsOutput {
-                terminal_bytes: encode_direct_chunks(&params, &decoded),
+                terminal_bytes: Vec::new(),
                 events: Vec::new(),
             };
             if let Some(id) = image_id {
@@ -423,37 +473,57 @@ impl KittyGraphicsProcessor {
                         "OK",
                     )));
                 }
+                if unchanged {
+                    if let Some(placement) = virtual_replay_placement(&params, id, Vec::new()) {
+                        output.events.push(placement);
+                    }
+                    return output;
+                }
             }
-            if let Some(id) = image_id {
-                let format_code = parameter_u32(&params, "f").unwrap_or(32);
-                let compression = parameter(&params, "o");
-                let format = if format_code == 100 {
-                    KITTY_FORMAT_PNG
-                } else if compression == Some("z") {
+
+            let (width, height, format) = if source_format == 100 {
+                let (width, height) = match png_dimensions(&decoded) {
+                    Ok(dimensions) => dimensions,
+                    Err(message) => return error_output(&params, image_id, &message),
+                };
+                (width, height, KITTY_FORMAT_PNG)
+            } else {
+                let format = if parameter(&params, "o") == Some("z") {
                     KITTY_FORMAT_ZLIB
                 } else {
                     KITTY_FORMAT_RAW
                 };
+                (
+                    parameter_u32(&params, "s").unwrap_or(0),
+                    parameter_u32(&params, "v").unwrap_or(0),
+                    format,
+                )
+            };
+            if let Some(id) = image_id {
                 output.events.push(KittyGraphicsEvent::ReplayImage {
                     image_id: id,
                     virtual_placement: parameter_u8(&params, "U") == Some(1),
-                    width: parameter_u32(&params, "s").unwrap_or(0),
-                    height: parameter_u32(&params, "v").unwrap_or(0),
+                    width,
+                    height,
                     format,
-                    data: output.terminal_bytes.clone(),
+                    data: decoded.clone(),
                 });
+                self.emitted_fingerprints.insert(id, fingerprint);
+                if let Some(placement) = virtual_replay_placement(&params, id, Vec::new()) {
+                    output.events.push(placement);
+                }
             }
             tracing::info!(
                 target: "tmex_terminal::kitty_graphics",
                 stage = "gateway_emit",
                 action = %char::from(action),
                 image_id = image_id.unwrap_or(0),
-                source_format = format,
+                source_format,
                 encoded_bytes = encoded.len(),
                 payload_bytes = decoded.len(),
                 terminal_bytes = output.terminal_bytes.len(),
-                width = parameter_u32(&params, "s").unwrap_or(0),
-                height = parameter_u32(&params, "v").unwrap_or(0),
+                width,
+                height,
                 virtual_placement = parameter_u8(&params, "U") == Some(1),
                 "Kitty graphics payload emitted"
             );
@@ -481,21 +551,10 @@ impl KittyGraphicsProcessor {
                         "ENOENT: image id was not found",
                     )));
                 }
-                if parameter_u8(&params, "U") == Some(1) {
-                    output.events.push(KittyGraphicsEvent::ReplayPlacement {
-                        image_id: id,
-                        placement_id: parameter_u32(&params, "p").unwrap_or(0),
-                        src_x: parameter_u32(&params, "x").unwrap_or(0),
-                        src_y: parameter_u32(&params, "y").unwrap_or(0),
-                        src_width: parameter_u32(&params, "w").unwrap_or(0),
-                        src_height: parameter_u32(&params, "h").unwrap_or(0),
-                        columns: parameter_u32(&params, "c").unwrap_or(0) as u16,
-                        rows: parameter_u32(&params, "r").unwrap_or(0) as u16,
-                        x_offset: parameter_u32(&params, "X").unwrap_or(0) as u16,
-                        y_offset: parameter_u32(&params, "Y").unwrap_or(0) as u16,
-                        z_index: parameter_i32(&params, "z").unwrap_or(0),
-                        data: output.terminal_bytes.clone(),
-                    });
+                if let Some(placement) =
+                    virtual_replay_placement(&params, id, output.terminal_bytes.clone())
+                {
+                    output.events.push(placement);
                 }
             }
         } else if action == b'd' {
@@ -603,14 +662,6 @@ fn parameter_i32(params: &[(String, String)], key: &str) -> Option<i32> {
     parameter(params, key)?.parse().ok()
 }
 
-fn set_parameter(params: &mut Vec<(String, String)>, key: &str, value: String) {
-    if let Some((_, current)) = params.iter_mut().find(|(candidate, _)| candidate == key) {
-        *current = value;
-    } else {
-        params.push((key.to_owned(), value));
-    }
-}
-
 fn remove_parameter(params: &mut Vec<(String, String)>, key: &str) {
     params.retain(|(candidate, _)| candidate != key);
 }
@@ -649,94 +700,50 @@ fn encode_zlib(data: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|error| format!("EIO: failed to finish Kitty graphics compression: {error}"))
 }
 
-fn decode_png_rgba(data: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
-    let mut decoder = png::Decoder::new(Cursor::new(data));
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = decoder
-        .read_info()
-        .map_err(|error| format!("EINVAL: invalid PNG: {error}"))?;
-    let output_size = reader
-        .output_buffer_size()
-        .ok_or_else(|| "EOVERFLOW: PNG output size is not representable".to_owned())?;
-    if output_size > KITTY_RGBA_MAX_BYTES {
-        return Err("Kitty graphics decoded image exceeds the 64 MiB storage limit".to_owned());
+pub fn prepare_kitty_replay_payload(format: u8, data: Vec<u8>) -> (u8, Vec<u8>) {
+    if format != KITTY_FORMAT_RAW || data.is_empty() {
+        return (format, data);
     }
-    let mut buffer = vec![0; output_size];
-    let info = reader
-        .next_frame(&mut buffer)
-        .map_err(|error| format!("EINVAL: invalid PNG frame: {error}"))?;
-    let source = buffer
-        .get(..info.buffer_size())
-        .ok_or_else(|| "EINVAL: PNG decoder returned an invalid buffer size".to_owned())?;
-    let pixel_count = usize::try_from(info.width)
+    match encode_zlib(&data) {
+        Ok(compressed) if compressed.len() <= KITTY_GRAPHICS_MAX_BYTES => {
+            (KITTY_FORMAT_ZLIB, compressed)
+        }
+        _ => (format, data),
+    }
+}
+
+fn png_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
+    const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if data.len() < 24
+        || data.get(..8) != Some(PNG_SIGNATURE)
+        || data.get(8..12) != Some(&13u32.to_be_bytes())
+        || data.get(12..16) != Some(b"IHDR")
+    {
+        return Err("EINVAL: invalid PNG header".to_owned());
+    }
+    let width = u32::from_be_bytes(
+        data[16..20]
+            .try_into()
+            .map_err(|_| "EINVAL: invalid PNG width".to_owned())?,
+    );
+    let height = u32::from_be_bytes(
+        data[20..24]
+            .try_into()
+            .map_err(|_| "EINVAL: invalid PNG height".to_owned())?,
+    );
+    let rgba_len = usize::try_from(width)
         .ok()
         .and_then(|width| {
-            usize::try_from(info.height)
+            usize::try_from(height)
                 .ok()
                 .and_then(|height| width.checked_mul(height))
         })
-        .ok_or_else(|| "EOVERFLOW: PNG dimensions are too large".to_owned())?;
-    let rgba_len = pixel_count
-        .checked_mul(4)
+        .and_then(|pixels| pixels.checked_mul(4))
         .ok_or_else(|| "EOVERFLOW: PNG RGBA size is too large".to_owned())?;
-    if rgba_len > KITTY_RGBA_MAX_BYTES {
+    if width == 0 || height == 0 || rgba_len > KITTY_RGBA_MAX_BYTES {
         return Err("Kitty graphics decoded image exceeds the 64 MiB storage limit".to_owned());
     }
-
-    let mut rgba = Vec::with_capacity(rgba_len);
-    match info.color_type {
-        png::ColorType::Rgba => rgba.extend_from_slice(source),
-        png::ColorType::Rgb => {
-            for pixel in source.chunks_exact(3) {
-                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-            }
-        }
-        png::ColorType::GrayscaleAlpha => {
-            for pixel in source.chunks_exact(2) {
-                rgba.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
-            }
-        }
-        png::ColorType::Grayscale => {
-            for value in source {
-                rgba.extend_from_slice(&[*value, *value, *value, 255]);
-            }
-        }
-        png::ColorType::Indexed => {
-            return Err("EINVAL: PNG palette expansion was not applied".to_owned())
-        }
-    }
-    if rgba.len() != rgba_len {
-        return Err("EINVAL: PNG pixel data length does not match its dimensions".to_owned());
-    }
-    Ok((info.width, info.height, rgba))
-}
-
-fn encode_direct_chunks(params: &[(String, String)], data: &[u8]) -> Vec<u8> {
-    let encoded = STANDARD.encode(data);
-    if encoded.len() <= KITTY_CHUNK_BYTES {
-        return encode_apc(params, encoded.as_bytes());
-    }
-
-    let chunks = encoded
-        .as_bytes()
-        .chunks(KITTY_CHUNK_BYTES)
-        .collect::<Vec<_>>();
-    let mut bytes = Vec::with_capacity(encoded.len().saturating_add(chunks.len() * 16));
-    for (index, chunk) in chunks.iter().enumerate() {
-        let more = index + 1 < chunks.len();
-        if index == 0 {
-            let mut first = params.to_vec();
-            set_parameter(&mut first, "m", if more { "1" } else { "0" }.to_owned());
-            bytes.extend_from_slice(&encode_apc(&first, chunk));
-        } else {
-            bytes.extend_from_slice(b"\x1b_Gm=");
-            bytes.push(if more { b'1' } else { b'0' });
-            bytes.push(b';');
-            bytes.extend_from_slice(chunk);
-            bytes.extend_from_slice(b"\x1b\\");
-        }
-    }
-    bytes
+    Ok((width, height))
 }
 
 fn encode_apc(params: &[(String, String)], payload: &[u8]) -> Vec<u8> {
@@ -842,24 +849,12 @@ mod tests {
     }
 
     #[test]
-    fn transcodes_png_to_chunkable_rgba_zlib() {
+    fn passes_png_without_pixel_transcode_and_emits_virtual_placement() {
         let mut processor = KittyGraphicsProcessor::default();
-        let payload = STANDARD.encode(tiny_rgba_png());
-        let output = processor.process(b"a=T,f=100,i=7,U=1", payload.as_bytes());
-        assert!(output
-            .terminal_bytes
-            .starts_with(b"\x1b_Ga=T,f=32,i=7,U=1,s=1,v=1,o=z"));
-        let separator = output
-            .terminal_bytes
-            .iter()
-            .position(|byte| *byte == b';')
-            .expect("graphics separator");
-        let encoded = &output.terminal_bytes[separator + 1..output.terminal_bytes.len() - 2];
-        let compressed = STANDARD.decode(encoded).expect("decode rewritten payload");
-        assert_eq!(
-            decode_zlib_limited(&compressed, 4).expect("inflate rewritten RGBA"),
-            [255, 0, 0, 255]
-        );
+        let png = tiny_rgba_png();
+        let payload = STANDARD.encode(&png);
+        let output = processor.process(b"a=T,f=100,i=7,U=1,c=4,r=3", payload.as_bytes());
+        assert!(output.terminal_bytes.is_empty());
         assert!(output
             .events
             .contains(&KittyGraphicsEvent::Reply(b"\x1b_Gi=7;OK\x1b\\".to_vec())));
@@ -868,22 +863,35 @@ mod tests {
             virtual_placement: true,
             width: 1,
             height: 1,
-            format: KITTY_FORMAT_ZLIB,
-            data: output.terminal_bytes.clone(),
+            format: KITTY_FORMAT_PNG,
+            data: png,
         }));
+        assert!(output
+            .events
+            .contains(&KittyGraphicsEvent::ReplayPlacement {
+                image_id: 7,
+                placement_id: 0,
+                src_x: 0,
+                src_y: 0,
+                src_width: 0,
+                src_height: 0,
+                columns: 4,
+                rows: 3,
+                x_offset: 0,
+                y_offset: 0,
+                z_index: 0,
+                data: Vec::new(),
+            }));
     }
 
     #[test]
     fn streams_direct_chunks_and_rejects_oversize_before_forwarding() {
         let mut processor = KittyGraphicsProcessor::default();
         let first = processor.process(b"a=T,q=2,f=32,i=3,m=1", b"AAAA");
-        assert_eq!(
-            first.terminal_bytes,
-            b"\x1b_Ga=T,q=2,f=32,i=3,m=1;AAAA\x1b\\"
-        );
+        assert!(first.terminal_bytes.is_empty());
         assert!(first.events.is_empty());
         let final_chunk = processor.process(b"a=T,q=2", b"AAAA");
-        assert_eq!(final_chunk.terminal_bytes, b"\x1b_Ga=T,q=2;AAAA\x1b\\");
+        assert!(final_chunk.terminal_bytes.is_empty());
         assert!(matches!(
             final_chunk.events.as_slice(),
             [KittyGraphicsEvent::ReplayImage {
@@ -910,21 +918,36 @@ mod tests {
     #[test]
     fn virtual_direct_stream_emits_one_complete_replay_and_delete_event() {
         let mut processor = KittyGraphicsProcessor::default();
-        let first = processor.process(b"a=T,q=2,f=32,U=1,i=3,m=1", b"AAAA");
+        let first = processor.process(b"a=T,q=2,f=32,U=1,c=2,r=3,i=3,m=1", b"AAAA");
         assert!(first.events.is_empty());
         let final_chunk = processor.process(b"a=T,q=2", b"AAAA");
-        let mut replay = first.terminal_bytes;
-        replay.extend_from_slice(&final_chunk.terminal_bytes);
+        let decoded = STANDARD.decode(b"AAAAAAAA").expect("direct stream payload");
         assert_eq!(
             final_chunk.events,
-            vec![KittyGraphicsEvent::ReplayImage {
-                image_id: 3,
-                virtual_placement: true,
-                width: 0,
-                height: 0,
-                format: KITTY_FORMAT_RAW,
-                data: replay,
-            }]
+            vec![
+                KittyGraphicsEvent::ReplayImage {
+                    image_id: 3,
+                    virtual_placement: true,
+                    width: 0,
+                    height: 0,
+                    format: KITTY_FORMAT_RAW,
+                    data: decoded,
+                },
+                KittyGraphicsEvent::ReplayPlacement {
+                    image_id: 3,
+                    placement_id: 0,
+                    src_x: 0,
+                    src_y: 0,
+                    src_width: 0,
+                    src_height: 0,
+                    columns: 2,
+                    rows: 3,
+                    x_offset: 0,
+                    y_offset: 0,
+                    z_index: 0,
+                    data: Vec::new(),
+                },
+            ]
         );
 
         let deleted = processor.process(b"a=d,d=I,i=3,q=2", b"");
@@ -943,7 +966,7 @@ mod tests {
             width: 0,
             height: 0,
             format: KITTY_FORMAT_RAW,
-            data: image.terminal_bytes.clone(),
+            data: STANDARD.decode(b"/wAA/w==").expect("raw rgba"),
         }));
         let placement = processor.process(b"a=p,q=2,U=1,i=9,p=4,c=1,r=1,C=1", b"");
         assert!(placement
@@ -977,5 +1000,19 @@ mod tests {
         assert_eq!(file.events.len(), 1);
         assert!(matches!(file.events[0], KittyGraphicsEvent::Reply(_)));
         assert!(file.terminal_bytes.is_empty());
+    }
+
+    #[test]
+    fn strip_kitty_graphics_sequences_drops_complete_apc_and_keeps_text() {
+        let mixed = b"hello\x1b_Ga=T,f=32,i=1;AAAA\x1b\\world\x1b_custom\x1b\\";
+        assert_eq!(
+            strip_kitty_graphics_sequences(mixed),
+            b"helloworld\x1b_custom\x1b\\"
+        );
+        assert!(strip_kitty_graphics_sequences(b"\x1b_Ga=T,i=1;AAAA\x1b\\").is_empty());
+        assert_eq!(
+            strip_kitty_graphics_sequences(b"keep\x1b_Ga=T,i=1;no-st"),
+            b"keep"
+        );
     }
 }

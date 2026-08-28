@@ -38,6 +38,8 @@ pub const CANONICAL_MAX_SCREEN_WAITERS_PER_PANE: usize = 2;
 pub const CANONICAL_MAX_HISTORY_JOBS: usize = 64;
 pub const CANONICAL_MAX_SCREEN_FANOUT_BYTES: usize = 8 * 1024 * 1024;
 pub const CANONICAL_PENDING_SWEEP_MS: u64 = 250;
+/// 快照 commit 后图片分片恢复发送的延迟：给 control/订阅/rebase 帧留排空窗口。
+pub const KITTY_ASSET_RESUME_DELAY_MS: u64 = 500;
 pub const CANONICAL_RUNTIME_REQUEST_DEADLINE_MS: u64 = 35_000;
 pub const CANONICAL_RUNTIME_EVENT_QUEUE_CAPACITY: usize = 1_024;
 pub const GATEWAY_TERM_OUTPUT_BATCH_DELAY_MS: u64 = 16;
@@ -231,6 +233,9 @@ pub struct CanonicalFeedSession {
     history_jobs: HashMap<WireToken, String>,
     pane_send_gaps: HashMap<PaneKey, PaneReplayGap>,
     pane_data_batches: HashMap<PaneKey, PendingPaneDataBatch>,
+    pending_kitty_assets: VecDeque<(String, crate::state::KittyGraphicsAsset)>,
+    /// 快照 commit 后图片分片恢复发送的时刻（给 control/订阅帧排空窗口）。
+    asset_resume_at_ms: Option<u64>,
     input_ids: HashSet<WireToken>,
     input_id_order: VecDeque<WireToken>,
     runtime_events_tx: SyncSender<RuntimeEvent>,
@@ -283,6 +288,8 @@ impl CanonicalFeedSession {
             screen_jobs: HashMap::new(),
             history_jobs: HashMap::new(),
             pane_send_gaps: HashMap::new(),
+            pending_kitty_assets: VecDeque::new(),
+            asset_resume_at_ms: None,
             pane_data_batches: HashMap::new(),
             input_ids: HashSet::new(),
             input_id_order: VecDeque::new(),
@@ -1251,7 +1258,7 @@ impl CanonicalFeedSession {
         if self.closed || job.cancelled {
             return;
         }
-        let completed = match result {
+        let transactions_completed = match result {
             Ok(Some(checkpoint)) => {
                 self.send_screen_transactions(&device_id, &job.request_ids, &checkpoint)
             }
@@ -1278,13 +1285,17 @@ impl CanonicalFeedSession {
                 0
             }
         };
-        let completed = u64::try_from(completed).unwrap_or(u64::MAX);
+        let completed = u64::try_from(transactions_completed).unwrap_or(u64::MAX);
         let requested = u64::try_from(job.request_ids.len()).unwrap_or(u64::MAX);
         self.screen_transactions_completed =
             self.screen_transactions_completed.saturating_add(completed);
         self.screen_transactions_failed = self
             .screen_transactions_failed
             .saturating_add(requested.saturating_sub(completed));
+        // commit 后给 control/订阅帧一个排空窗口，再恢复图片分片发送。
+        self.asset_resume_at_ms =
+            Some((self.options.now_ms)().saturating_add(KITTY_ASSET_RESUME_DELAY_MS));
+        self.drain_pending_kitty_assets();
     }
 
     fn cancel_screen_job(job: &mut ScreenJob, cancellation_count: &mut u64) {
@@ -1395,39 +1406,171 @@ impl CanonicalFeedSession {
         asset: crate::state::KittyGraphicsAsset,
     ) {
         use crate::state::KittyGraphicsAsset;
+        if matches!(asset, KittyGraphicsAsset::Image { .. }) {
+            self.enqueue_pending_kitty_image(device_id, asset);
+            self.drain_pending_kitty_assets();
+            return;
+        }
+        self.send_kitty_asset(device_id, asset);
+    }
+
+    fn enqueue_pending_kitty_image(
+        &mut self,
+        device_id: String,
+        asset: crate::state::KittyGraphicsAsset,
+    ) {
+        use crate::state::KittyGraphicsAsset;
+        let pane_id = match &asset {
+            KittyGraphicsAsset::Image { pane_id, .. } => pane_id.clone(),
+            _ => return,
+        };
+        let pending_for_pane = self
+            .pending_kitty_assets
+            .iter()
+            .filter(|(pending_device, pending_asset)| {
+                pending_device == &device_id
+                    && matches!(
+                        pending_asset,
+                        KittyGraphicsAsset::Image { pane_id: pending_pane, .. }
+                            if pending_pane == &pane_id
+                    )
+            })
+            .count();
+        if pending_for_pane >= 5 {
+            if let Some(index) =
+                self.pending_kitty_assets
+                    .iter()
+                    .position(|(pending_device, pending_asset)| {
+                        pending_device == &device_id
+                            && matches!(
+                                pending_asset,
+                                KittyGraphicsAsset::Image { pane_id: pending_pane, .. }
+                                    if pending_pane == &pane_id
+                            )
+                    })
+            {
+                self.pending_kitty_assets.remove(index);
+            }
+        }
+        self.pending_kitty_assets.push_back((device_id, asset));
+    }
+
+    fn drain_pending_kitty_assets(&mut self) {
+        if !self.screen_jobs.is_empty() {
+            return;
+        }
+        // 刚 commit 完快照时给控制/订阅帧留一个排空窗口：图片分片立刻涌入会把
+        // 紧随其后的 rebase/control 帧挤出 mailbox，触发 app 看门狗重取循环。
+        if self
+            .asset_resume_at_ms
+            .is_some_and(|resume_at| (self.options.now_ms)() < resume_at)
+        {
+            self.schedule_pending_sweep((self.options.now_ms)());
+            return;
+        }
+        while let Some((device_id, asset)) = self.pending_kitty_assets.pop_front() {
+            if !self.send_kitty_asset(device_id.clone(), asset) {
+                break;
+            }
+        }
+    }
+
+    fn send_kitty_asset(
+        &mut self,
+        device_id: String,
+        asset: crate::state::KittyGraphicsAsset,
+    ) -> bool {
+        use crate::state::KittyGraphicsAsset;
         let Some(server_epoch) = self
             .devices
             .get(&device_id)
             .and_then(|device| device.runtime.get_server_epoch())
         else {
-            return;
+            return false;
         };
         let (pane_id, _pane_epoch) = match &asset {
-            KittyGraphicsAsset::Image { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
-            KittyGraphicsAsset::Placement { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
-            KittyGraphicsAsset::Delete { pane_id, pane_epoch, .. } => (pane_id, *pane_epoch),
+            KittyGraphicsAsset::Image {
+                pane_id,
+                pane_epoch,
+                ..
+            } => (pane_id, *pane_epoch),
+            KittyGraphicsAsset::Placement {
+                pane_id,
+                pane_epoch,
+                ..
+            } => (pane_id, *pane_epoch),
+            KittyGraphicsAsset::Delete {
+                pane_id,
+                pane_epoch,
+                ..
+            } => (pane_id, *pane_epoch),
         };
         let pane = CanonicalPaneTarget {
             device_id,
             server_epoch,
             pane_id: pane_id.clone(),
         };
-        let event = match asset {
-            KittyGraphicsAsset::Image { image_id, width, height, format, data, .. } => {
-                CanonicalEvent::KittyImageAsset(tmex_protocol::KittyImageAsset {
-                    pane,
-                    image_id,
-                    width,
-                    height,
-                    format,
-                    data,
-                })
+        match asset {
+            KittyGraphicsAsset::Image {
+                image_id,
+                width,
+                height,
+                format,
+                data,
+                ..
+            } => {
+                let total = data.len() as u32;
+                let chunk_size = self.max_variable_data_bytes(|chunk| {
+                    CanonicalEvent::KittyImageAsset(tmex_protocol::KittyImageAsset {
+                        pane: pane.clone(),
+                        image_id,
+                        width,
+                        height,
+                        format,
+                        offset: 0,
+                        total,
+                        data: chunk,
+                    })
+                });
+                if chunk_size == 0 {
+                    return false;
+                }
+                let mut offset = 0u32;
+                while (offset as usize) < data.len() {
+                    let end = (offset as usize).saturating_add(chunk_size).min(data.len());
+                    if !self.send(CanonicalEvent::KittyImageAsset(
+                        tmex_protocol::KittyImageAsset {
+                            pane: pane.clone(),
+                            image_id,
+                            width,
+                            height,
+                            format,
+                            offset,
+                            total,
+                            data: data[offset as usize..end].to_vec(),
+                        },
+                    )) {
+                        return false;
+                    }
+                    offset = end as u32;
+                }
+                true
             }
             KittyGraphicsAsset::Placement {
-                placement_id, image_id, src_x, src_y, src_width, src_height,
-                columns, rows, x_offset, y_offset, z_index, ..
-            } => {
-                CanonicalEvent::KittyPlacementAsset(tmex_protocol::KittyPlacementAsset {
+                placement_id,
+                image_id,
+                src_x,
+                src_y,
+                src_width,
+                src_height,
+                columns,
+                rows,
+                x_offset,
+                y_offset,
+                z_index,
+                ..
+            } => self.send(CanonicalEvent::KittyPlacementAsset(
+                tmex_protocol::KittyPlacementAsset {
                     pane,
                     placement_id,
                     image_id,
@@ -1440,16 +1583,14 @@ impl CanonicalFeedSession {
                     x_offset,
                     y_offset,
                     z_index,
-                })
-            }
+                },
+            )),
             KittyGraphicsAsset::Delete { image_id, .. } => {
-                CanonicalEvent::KittyDeleteAsset(tmex_protocol::KittyDeleteAsset {
-                    pane,
-                    image_id,
-                })
+                self.send(CanonicalEvent::KittyDeleteAsset(
+                    tmex_protocol::KittyDeleteAsset { pane, image_id },
+                ))
             }
-        };
-        self.send(event);
+        }
     }
 
     fn send_pane_data(&mut self, device_id: &str, segment: &PaneDataSegment) -> bool {
@@ -2004,6 +2145,7 @@ impl CanonicalFeedSession {
     fn handle_runtime_event_overflow(&mut self) {
         self.pane_data_batches.clear();
         self.pane_send_gaps.clear();
+        self.pending_kitty_assets.clear();
         let screen_keys = self.screen_jobs.keys().cloned().collect::<Vec<_>>();
         for key in screen_keys {
             self.cancel_screen_job_with_error(&key, "screen runtime event queue overflowed");
@@ -2129,6 +2271,7 @@ impl CanonicalFeedSession {
                 self.pane_send_gaps.remove(&key);
             }
         }
+        self.drain_pending_kitty_assets();
         self.schedule_pending_sweep(now_ms);
     }
 

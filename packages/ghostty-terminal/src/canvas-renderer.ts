@@ -608,18 +608,49 @@ export class CanvasRenderer {
     const previous = this.kittyTextures.get(image.id);
     if (previous?.generation === image.generation) return;
     if (previous) this.disposeKittyTexture(previous);
+    if (image.format === 100) {
+      if (typeof globalThis.createImageBitmap !== 'function') {
+        this.kittyTextures.delete(image.id);
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, image.width);
+      canvas.height = Math.max(1, image.height);
+      const texture: KittyTexture = {
+        generation: image.generation,
+        source: canvas,
+        fallbackCanvas: canvas,
+        bitmap: null,
+      };
+      this.kittyTextures.set(image.id, texture);
+      const blob = new Blob([image.data as BlobPart], { type: 'image/png' });
+      globalThis
+        .createImageBitmap(blob)
+        .then((result) => {
+          if (this.kittyTextures.get(image.id) !== texture) {
+            result.close();
+            return;
+          }
+          texture.bitmap = result;
+          texture.source = result;
+          this.onInvalidate?.();
+        })
+        .catch(() => {
+          if (this.kittyTextures.get(image.id) === texture) {
+            this.disposeKittyTexture(texture);
+            this.kittyTextures.delete(image.id);
+          }
+        });
+      return;
+    }
     const pixels = kittyRgbaPixels(image);
     if (!pixels) {
       this.kittyTextures.delete(image.id);
       return;
     }
 
-    // 像素上传异步化：createImageBitmap(ImageData) 在位图管线里解码上传，
-    // 主线程只留一次 data.set() 拷贝；占位 canvas 与最终纹理同尺寸防布局跳变。
-    // 不支持该输入的旧环境回落同步 canvas putImageData 路径。
     const canOffload =
-      typeof globalThis.createImageBitmap === 'function' &&
-      this.imageDataBitmapSupported !== false;
+      typeof globalThis.createImageBitmap === 'function' && this.imageDataBitmapSupported !== false;
     if (canOffload) {
       const canvas = document.createElement('canvas');
       canvas.width = image.width;
@@ -647,7 +678,6 @@ export class CanvasRenderer {
         })
         .catch(() => {
           this.imageDataBitmapSupported = false;
-          // 回落：同步 canvas 路径补上这块纹理。
           const fallback = this.syncTextureFromPixels(pixels, image);
           if (fallback) {
             const current = this.kittyTextures.get(image.id);
@@ -714,7 +744,6 @@ export class CanvasRenderer {
       texture.fallbackCanvas.height = 0;
     }
   }
-
 
   // 链接虚线下划线层：独立 canvas，与主画布的按行局部重绘互不干扰。
   // 每次全量重画（段数少、开销可忽略），由 terminal 侧节流调用。
@@ -1091,10 +1120,7 @@ export class CanvasRenderer {
     if (quadrants & 0b1000) fill(midX, midY, width, height);
   }
 
-  private drawCursor(
-    meta: GhosttyRenderSnapshotMeta,
-    rows: readonly GhosttyRenderRow[]
-  ): void {
+  private drawCursor(meta: GhosttyRenderSnapshotMeta, rows: readonly GhosttyRenderRow[]): void {
     const colors = meta.colors;
     const cursor = meta.cursor;
     const previous = this.lastCursor;

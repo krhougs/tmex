@@ -1145,7 +1145,7 @@ mod tests {
     fn kitty_graphics_direct_and_tmux_passthrough_emit_terminal_bytes_and_replies() {
         let mut parser = PaneStreamParser::new();
         let direct = parser.push(&kitty_apc("a=T,f=32,s=1,v=1,i=7", "/wAA/w=="));
-        assert!(direct.terminal_bytes.starts_with(b"\x1b_Ga=T,f=32"));
+        assert!(direct.terminal_bytes.is_empty());
         assert_eq!(direct.events.len(), 2);
         assert!(direct
             .events
@@ -1178,14 +1178,11 @@ mod tests {
             "a=T,q=2,f=32,s=1,v=1,i=41,m=1",
             "/wAA",
         )));
-        assert_eq!(
-            first.terminal_bytes,
-            b"\x1b_Ga=T,q=2,f=32,s=1,v=1,i=41,m=1;/wAA\x1b\\"
-        );
+        assert!(first.terminal_bytes.is_empty());
         assert!(first.events.is_empty());
 
         let completed = parser.push(&tmux_wrap(&kitty_apc("m=0", "/w==")));
-        assert_eq!(completed.terminal_bytes, b"\x1b_Gm=0;/w==\x1b\\");
+        assert!(completed.terminal_bytes.is_empty());
         assert!(matches!(
             completed.events.as_slice(),
             [PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
@@ -1215,42 +1212,37 @@ mod tests {
             }
             output
         };
-        let mut forwarded = Vec::new();
         let first_output = push_in_state_chunks(&first);
         assert!(first_output.events.is_empty());
-        assert!(!first_output.terminal_bytes.is_empty());
-        assert!(first_output.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
-        forwarded.extend(first_output.terminal_bytes);
+        assert!(first_output.terminal_bytes.is_empty());
         for _ in 0..11 {
             let wrapped = tmux_wrap(&kitty_apc("a=T,q=2,m=1", &payload));
             let output = push_in_state_chunks(&wrapped);
             assert!(output.events.is_empty());
-            assert!(!output.terminal_bytes.is_empty());
-            assert!(output.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
-            forwarded.extend(output.terminal_bytes);
+            assert!(output.terminal_bytes.is_empty());
         }
 
         let final_wrapper = tmux_wrap(&kitty_apc("a=T,q=2", &"A".repeat(19_127)));
         let completed = push_in_state_chunks(&final_wrapper);
-        assert!(!completed.terminal_bytes.is_empty());
-        assert!(completed.terminal_bytes.len() < MAX_DCS_PASSTHROUGH_BYTES);
-        forwarded.extend_from_slice(&completed.terminal_bytes);
-        assert_eq!(
-            completed.events,
-            vec![PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
-                image_id: 448637964,
-                virtual_placement: true,
-                width: 1,
-                height: 1,
-                format: crate::kitty_graphics::KITTY_FORMAT_RAW,
-                data: forwarded.clone(),
-            })]
-        );
-        let text = String::from_utf8_lossy(&forwarded);
-        assert!(text.contains("i=448637964"));
-        assert!(text.contains("s=1"));
-        assert!(text.contains("v=1"));
-        assert!(text.contains("U=1"));
+        assert!(completed.terminal_bytes.is_empty());
+        assert!(matches!(
+            completed.events.as_slice(),
+            [
+                PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayImage {
+                    image_id: 448637964,
+                    virtual_placement: true,
+                    width: 1,
+                    height: 1,
+                    ..
+                }),
+                PaneStreamEvent::Graphics(KittyGraphicsEvent::ReplayPlacement {
+                    image_id: 448637964,
+                    columns: 1,
+                    rows: 1,
+                    ..
+                })
+            ]
+        ));
     }
 
     #[test]
@@ -1260,10 +1252,7 @@ mod tests {
         assert_eq!(parser.push(other).terminal_bytes, other);
 
         let first = parser.push(&kitty_apc("a=T,f=32,s=1,v=1,i=9,m=1", "AAAA"));
-        assert_eq!(
-            first.terminal_bytes,
-            kitty_apc("a=T,f=32,s=1,v=1,i=9,m=1", "AAAA")
-        );
+        assert!(first.terminal_bytes.is_empty());
         let interrupted = parser.push(b"text");
         assert_eq!(interrupted.terminal_bytes, b"text");
         assert!(interrupted.events.iter().any(|event| matches!(
