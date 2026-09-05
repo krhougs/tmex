@@ -5,9 +5,64 @@ import {
   createRenderState,
   disposeRenderStateResources,
   iterateRows,
+  readScrollbackRows,
+  readRenderSnapshotMeta,
   updateRenderState,
 } from './render-state';
 describe('HeadlessTerminal', () => {
+  test('默认闪烁配置保留显式常亮、隐藏及重置光标协议', async () => {
+    const bindings = await getGhosttyBindings();
+    const handle = bindings.createTerminal(20, 5, 100);
+    const state = createRenderState(bindings);
+    const cursor = () => {
+      updateRenderState(state, handle);
+      return readRenderSnapshotMeta(state).cursor;
+    };
+    try {
+      bindings.setDefaultCursorBlink(handle, true);
+      expect(cursor().blinking).toBe(true);
+      bindings.writeVt(handle, '\x1b[2 q');
+      expect(cursor().blinking).toBe(false);
+      bindings.writeVt(handle, '\x1b[0 q');
+      expect(cursor().blinking).toBe(true);
+      bindings.writeVt(handle, '\x1b[?25l');
+      expect(cursor().visible).toBe(false);
+      bindings.resetTerminal(handle);
+      expect(cursor().visible).toBe(true);
+      expect(cursor().blinking).toBe(true);
+    } finally {
+      disposeRenderStateResources(state);
+      bindings.freeTerminal(handle);
+    }
+  });
+
+  test('读取滚动预绘制行时跨视口保持连续，且不改变当前视口和后续输出', async () => {
+    const bindings = await getGhosttyBindings();
+    const handle = bindings.createTerminal(20, 5, 100);
+    const state = createRenderState(bindings);
+    try {
+      bindings.writeVt(handle, Array.from({ length: 30 }, (_, i) => `row ${i}`).join('\r\n'));
+      bindings.scrollViewportTop(handle);
+      bindings.scrollViewportDelta(handle, 12);
+      const original = bindings.readScrollbar(handle);
+      for (const [start, count] of [[7, 5], [17, 6], [27, 5]] as const) {
+        const rows = readScrollbackRows(state, handle, start, count);
+        expect(rows.map((row) => row.text.trimEnd())).toEqual(
+          Array.from({ length: Math.min(count, 30 - start) }, (_, i) => `row ${start + i}`)
+        );
+        expect(bindings.readScrollbar(handle)).toEqual(original);
+        expect([...iterateRows(state)][0]?.text.trimEnd()).toBe('row 12');
+      }
+      bindings.writeVt(handle, '\r\nrow 30');
+      bindings.scrollViewportBottom(handle);
+      updateRenderState(state, handle);
+      expect([...iterateRows(state)].at(-1)?.text.trimEnd()).toBe('row 30');
+    } finally {
+      disposeRenderStateResources(state);
+      bindings.freeTerminal(handle);
+    }
+  });
+
   test('渲染态纯文本：剥 ANSI 颜色与控制序列', async () => {
     const term = await HeadlessTerminal.create({ cols: 80, rows: 24 });
     term.write('hello world\r\n');

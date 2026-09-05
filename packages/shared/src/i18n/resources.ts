@@ -118,6 +118,10 @@ export const I18N_RESOURCES = {
       "delete": "Delete"
     },
     "terminal": {
+      "selectAll": "Select all",
+      "openLink": "Open link",
+      "copyLink": "Copy link or path",
+      "selectionFailed": "Could not select terminal content. Please try again.",
       "keyboardBehavior": {
         "title": "Keyboard Behavior",
         "description": "How the page makes room for the on-screen keyboard",
@@ -1159,6 +1163,10 @@ export const I18N_RESOURCES = {
       "delete": "删除"
     },
     "terminal": {
+      "selectAll": "全选",
+      "openLink": "打开链接",
+      "copyLink": "复制链接或路径",
+      "selectionFailed": "无法选择终端内容，请重试",
       "keyboardBehavior": {
         "title": "键盘行为",
         "description": "选择手机键盘弹出时页面的避让方式",
@@ -2200,6 +2208,10 @@ export const I18N_RESOURCES = {
       "delete": "削除"
     },
     "terminal": {
+      "selectAll": "すべて選択",
+      "openLink": "リンクを開く",
+      "copyLink": "リンクまたはパスをコピー",
+      "selectionFailed": "ターミナルの内容を選択できませんでした。再試行してください。",
       "keyboardBehavior": {
         "title": "キーボード動作",
         "description": "ソフトウェアキーボード表示時のページの回避方法",

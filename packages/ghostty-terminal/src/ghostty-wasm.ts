@@ -27,6 +27,7 @@ const GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND = 11;
 const GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND = 12;
 const GHOSTTY_TERMINAL_OPT_COLOR_CURSOR = 13;
 const GHOSTTY_TERMINAL_OPT_COLOR_PALETTE = 14;
+const GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK = 23;
 
 const GHOSTTY_TERMINAL_DATA_COLS = 1;
 const GHOSTTY_TERMINAL_DATA_ROWS = 2;
@@ -620,6 +621,19 @@ export class GhosttyBindings {
       this.exports.ghostty_terminal_scroll_viewport(terminal, behavior.ptr);
     } finally {
       behavior.free();
+    }
+  }
+
+  setDefaultCursorBlink(terminal: number, enabled: boolean): void {
+    const value = this.allocU8();
+    try {
+      this.bytes(value, 1)[0] = enabled ? 1 : 0;
+      assertResult(
+        this.exports.ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, value),
+        'ghostty_terminal_set(default_cursor_blink)'
+      );
+    } finally {
+      this.freeU8(value);
     }
   }
 

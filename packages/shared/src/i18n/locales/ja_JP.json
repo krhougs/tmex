@@ -112,6 +112,10 @@
       "delete": "削除"
     },
     "terminal": {
+      "selectAll": "すべて選択",
+      "openLink": "リンクを開く",
+      "copyLink": "リンクまたはパスをコピー",
+      "selectionFailed": "ターミナルの内容を選択できませんでした。再試行してください。",
       "keyboardBehavior": {
         "title": "キーボード動作",
         "description": "ソフトウェアキーボード表示時のページの回避方法",

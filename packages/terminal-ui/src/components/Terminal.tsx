@@ -40,7 +40,7 @@ import {
   type TerminalSemanticKeyInput,
   keyboardEventToSemanticKey,
 } from '../utils/terminalSemanticKey';
-import { SelectionToolbar } from './SelectionToolbar';
+import { TerminalContextMenu } from './TerminalContextMenu';
 import { TerminalSurface, type TerminalSurfaceTarget } from './TerminalSurface';
 import {
   normalizeHistoryForTerminal,
@@ -1039,10 +1039,22 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
       void pasteFromClipboard();
     }, [instance, pasteFromClipboard]);
 
-    const handleDismissSelection = useCallback(() => {
-      instance?.clearSelection?.();
-      instance?.focus();
-    }, [instance]);
+    const handleSelectAll = useCallback(() => {
+      try {
+        instance?.selectAll?.();
+      } catch {
+        runtime.notifications.error(t('terminal.selectionFailed'));
+      }
+    }, [instance, runtime, t]);
+
+    const handleCopyLink = useCallback(
+      (text: string) => {
+        void runtime.host
+          .writeClipboardText(text)
+          .catch(() => runtime.notifications.error(t('terminal.copyFailed')));
+      },
+      [runtime, t]
+    );
 
     useImperativeHandle(
       ref,
@@ -1134,7 +1146,16 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
         onDragLeaveCapture={handleFileDragLeave}
         onDropCapture={handleFileDrop}
       >
-        <div ref={containerRef} className="relative min-h-0 w-full flex-1">
+        <TerminalContextMenu
+          ref={containerRef}
+          terminal={instance}
+          hasSelection={hasSelection}
+          canPaste={inputMode === 'direct' && deviceConnected && !isSelectionInvalid}
+          onCopy={handleCopySelection}
+          onPaste={handlePasteClipboard}
+          onSelectAll={handleSelectAll}
+          onCopyLink={handleCopyLink}
+        >
           <div
             ref={generationHostRef}
             className={`absolute inset-0 ${bootState.status === 'ready' ? '' : 'invisible'}`}
@@ -1168,14 +1189,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(
             </div>
           )}
           <TerminalFileDropOverlay state={fileDropState} t={t} />
-          <SelectionToolbar
-            visible={hasSelection}
-            canPaste={inputMode === 'direct' && deviceConnected && !isSelectionInvalid}
-            onCopy={handleCopySelection}
-            onPaste={handlePasteClipboard}
-            onDismiss={handleDismissSelection}
-          />
-        </div>
+        </TerminalContextMenu>
         <TerminalFileRiskDialog
           prompt={fileRiskPrompt}
           t={t}

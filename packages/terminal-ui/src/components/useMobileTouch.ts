@@ -16,6 +16,7 @@ interface TerminalScroller {
   updateTouchSelection?: (clientX: number, clientY: number) => void;
   endTouchSelection?: () => void;
   isMouseReporting?: () => boolean;
+  usesNativeScrolling?: () => boolean;
   sendTouchMouseEvent?: (event: {
     action: 'press' | 'motion' | 'release';
     clientX: number;
@@ -85,7 +86,7 @@ export function useMobileTouch(
       return Boolean(
         target.closest('.scrollbar') ||
           target.closest('.slider') ||
-          target.closest('.xterm-scroll-area')
+          target.closest('.xterm-scrollbar-track')
       );
     };
 
@@ -216,7 +217,9 @@ export function useMobileTouch(
         // 仅在直接命中滚动条元素时才 bypass
         const bypass = reporting
           ? hitsScrollbarElement(touch.clientX, touch.clientY, event.target)
-          : shouldBypassCustomScroll(touch.clientX, touch.clientY, event.target);
+          : terminal?.usesNativeScrolling?.()
+            ? hitsScrollbarElement(touch.clientX, touch.clientY, event.target)
+            : shouldBypassCustomScroll(touch.clientX, touch.clientY, event.target);
 
         if (bypass) {
           state = 'bypass';
@@ -334,6 +337,8 @@ export function useMobileTouch(
           clearLongPressTimer();
         }
       }
+
+      if (getTerminal?.()?.usesNativeScrolling?.()) return;
 
       // 滚动途中划入滚动条热区：交还原生（拖拽/上报态不做此升级，避免吞 motion 卡键）
       if (shouldBypassCustomScroll(touch.clientX, touch.clientY, event.target)) {
@@ -465,6 +470,16 @@ export function useMobileTouch(
       if (state === 'select') {
         const terminal = getTerminal?.() ?? null;
         terminal?.endTouchSelection?.();
+        const ended = findTouchById(event.changedTouches);
+        container.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            shiftKey: true,
+            clientX: ended?.clientX ?? touchStartX,
+            clientY: ended?.clientY ?? touchStartY,
+          })
+        );
         // 抑制合成 mousedown：否则它会命中鼠标上报/本地选择分支，清掉刚建立的选择
         terminal?.noteTouchHandled?.();
         if (event.cancelable) {

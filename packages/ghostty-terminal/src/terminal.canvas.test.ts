@@ -148,6 +148,7 @@ class FakeElement {
   textContent = '';
   innerHTML = '';
   value = '';
+  scrollTop = 0;
   readOnly = false;
   tabIndex = 0;
   spellcheck = false;
@@ -404,6 +405,7 @@ class FakeDocument {
 type FakeBindings = {
   createTerminal: (...args: any[]) => number;
   setTerminalTheme: (...args: any[]) => void;
+  setDefaultCursorBlink: (...args: any[]) => void;
   createKeyEncoder: () => number;
   createMouseEncoder: () => number;
   freeKeyEncoder: (...args: any[]) => void;
@@ -494,6 +496,7 @@ function createFakeBindings(): FakeBindings {
   return {
     createTerminal: () => 1,
     setTerminalTheme: () => {},
+    setDefaultCursorBlink: () => {},
     createKeyEncoder: () => 2,
     createMouseEncoder: () => 3,
     freeKeyEncoder: () => {},
@@ -705,6 +708,7 @@ async function loadControllerModule(bindings: FakeBindings, version: number) {
           wideTail: false,
         },
       }),
+      readScrollbackRows: () => [],
       iterateRows: function* () {
         yield* rows;
       },
@@ -1075,13 +1079,19 @@ describe('GhosttyTerminalController canvas baseline', () => {
     );
 
     expect(received).toEqual([]);
-    expect(bindings.scrollDeltaCalls).toHaveLength(1);
+    expect(bindings.scrollDeltaCalls).toHaveLength(0);
     disposable.dispose();
   });
 
-  test('pixel wheel should accumulate before local viewport scrolling', async () => {
+  test('native scroll preserves sub-row pixels and updates the VT viewport on row boundaries', async () => {
     dom = installFakeDom();
     const bindings = createFakeBindings();
+    let offset = 0;
+    bindings.readScrollbar = () => ({ total: 60, offset, len: 24 });
+    bindings.scrollViewportDelta = (_terminal: number, delta: number) => {
+      bindings.scrollDeltaCalls.push(delta);
+      offset += delta;
+    };
     importVersion += 1;
     const { createTerminalController } = await loadControllerModule(bindings, importVersion);
     const terminal = await createTerminalController({
@@ -1091,23 +1101,95 @@ describe('GhosttyTerminalController canvas baseline', () => {
       scrollback: 1000,
     });
     const container = dom.document.createElement('div');
-    container.setBoundingClientRect({ width: 960, height: 480 });
     dom.document.body.appendChild(container);
-
     terminal.open(container as unknown as HTMLElement);
-
-    // cell 高 = round(13 × 1.2) = 16px：每次 6px 像素滚动，累计未满 1 cell 不触发本地滚动。
-    const root = terminal.element as unknown as FakeElement;
-    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 6 }) as unknown as FakeEvent);
-    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 6 }) as unknown as FakeEvent);
-
+    const viewport = (terminal.element as unknown as FakeElement).children[0];
+    const cellHeight = terminal._core._renderService.dimensions.css.cell.height;
+    viewport.scrollTop = cellHeight / 2;
+    viewport.dispatchEvent({ type: 'scroll' });
     expect(bindings.scrollDeltaCalls).toEqual([]);
-
-    root.dispatchEvent(new FakeWheelEvent('wheel', { deltaY: 6 }) as unknown as FakeEvent);
+    expect(viewport.scrollTop).toBe(cellHeight / 2);
+    viewport.scrollTop = cellHeight * 1.5;
+    viewport.dispatchEvent({ type: 'scroll' });
+    viewport.scrollTop = cellHeight * 1.75;
+    await dom.flushAnimationFrames();
     expect(bindings.scrollDeltaCalls).toEqual([1]);
+    expect(viewport.scrollTop).toBe(cellHeight * 1.75);
+    expect(terminal.buffer.active.viewportY).toBe(1);
   });
 
-  test('line wheel delta should be used directly for viewport scrolling', async () => {
+  test('scrolling back to a rounded browser bottom restores the final VT row', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    let offset = 10;
+    bindings.readScrollbar = () => ({ total: 201, offset, len: 23 });
+    bindings.scrollViewportDelta = (_terminal: number, delta: number) => {
+      offset += delta;
+    };
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    terminal.open(dom.document.body as unknown as HTMLElement);
+    await dom.flushAnimationFrames();
+    terminal._core._renderService.dimensions.css.cell.height = 46 / 3;
+    const viewport = (terminal.element as unknown as FakeElement).children[0];
+    viewport.scrollTop = 2729;
+    viewport.dispatchEvent({ type: 'scroll' });
+    await dom.flushAnimationFrames();
+    expect(offset).toBe(178);
+    expect(terminal.buffer.active.viewportY).toBe(178);
+    terminal.dispose();
+  });
+
+  test('delayed programmatic scroll events keep following output, while user scrolling pauses it', async () => {
+    dom = installFakeDom();
+    const bindings = createFakeBindings();
+    let total = 60;
+    let offset = 36;
+    bindings.readScrollbar = () => ({ total, offset, len: 24 });
+    bindings.writeVt = () => {
+      if (offset === total - 24) offset += 1;
+      total += 1;
+    };
+    bindings.scrollViewportDelta = (_terminal: number, delta: number) => {
+      bindings.scrollDeltaCalls?.push(delta);
+      offset += delta;
+    };
+    importVersion += 1;
+    const { createTerminalController } = await loadControllerModule(bindings, importVersion);
+    const terminal = await createTerminalController({
+      theme: TEST_THEME,
+      fontFamily: 'monospace',
+      fontSize: 13,
+      scrollback: 1000,
+    });
+    terminal.open(dom.document.body as unknown as HTMLElement);
+    await dom.flushAnimationFrames();
+    const viewport = (terminal.element as unknown as FakeElement).children[0];
+    const cellHeight = terminal._core._renderService.dimensions.css.cell.height;
+    expect(viewport.scrollTop).toBe(36 * cellHeight);
+    terminal.write('next line');
+    viewport.dispatchEvent({ type: 'scroll' });
+    expect(bindings.scrollDeltaCalls).toEqual([]);
+    await dom.flushAnimationFrames();
+    expect(viewport.scrollTop).toBe(37 * cellHeight);
+    expect(terminal.buffer.active.viewportY).toBe(37);
+
+    viewport.scrollTop -= cellHeight * 2.5;
+    viewport.dispatchEvent({ type: 'scroll' });
+    terminal.write('more output');
+    await dom.flushAnimationFrames();
+    expect(terminal.buffer.active.viewportY).toBe(34);
+    expect(viewport.scrollTop).toBe(34.5 * cellHeight);
+    terminal.dispose();
+  });
+
+  test('line wheel uses browser scrolling without emitting VT input', async () => {
     dom = installFakeDom();
     const bindings = createFakeBindings();
     importVersion += 1;
@@ -1131,7 +1213,7 @@ describe('GhosttyTerminalController canvas baseline', () => {
       }) as unknown as FakeEvent
     );
 
-    expect(bindings.scrollDeltaCalls).toEqual([3]);
+    expect(bindings.scrollDeltaCalls).toEqual([]);
   });
 
   test('wheel should emit mouse input when mouse reporting is enabled', async () => {
@@ -3231,6 +3313,7 @@ describe('GhosttyTerminalController virtual history prepend', () => {
             wideTail: false,
           },
         }),
+        readScrollbackRows: () => [],
         iterateRows: function* () {
           yield* rows;
         },

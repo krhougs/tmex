@@ -235,6 +235,7 @@ export interface CompatibleTerminalLike {
   scrollToBottom: () => void;
   handleViewportGesture?: (gesture: GhosttyViewportGesture) => boolean;
   isMouseReporting?: () => boolean;
+  usesNativeScrolling?: () => boolean;
   sendTouchMouseEvent?: (event: {
     action: 'press' | 'motion' | 'release';
     clientX: number;
@@ -250,6 +251,12 @@ export interface CompatibleTerminalLike {
   getSelection?: () => string;
   hasSelection?: () => boolean;
   clearSelection?: () => void;
+  selectAll?: () => void;
+  getContextLink?: (
+    clientX: number,
+    clientY: number
+  ) => { kind: 'url'; url: string } | { kind: 'file'; path: string } | null;
+  activateContextLink?: (link: { kind: 'url'; url: string } | { kind: 'file'; path: string }) => void;
   setFocused?: (focused: boolean) => void;
   forceFullRepaint?: () => void;
   onSelectionChange?: (callback: (text: string | null) => void) => TerminalDisposable;

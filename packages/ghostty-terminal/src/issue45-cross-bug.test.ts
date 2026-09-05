@@ -260,6 +260,7 @@ class FakeWindowTarget {
 type FakeBindings = {
   createTerminal: (...args: any[]) => number;
   setTerminalTheme: (...args: any[]) => void;
+  setDefaultCursorBlink: (...args: any[]) => void;
   createKeyEncoder: () => number;
   createMouseEncoder: () => number;
   freeKeyEncoder: (...args: any[]) => void;
@@ -285,6 +286,7 @@ function createFakeBindings(): FakeBindings {
   return {
     createTerminal: () => 1,
     setTerminalTheme: () => {},
+    setDefaultCursorBlink: () => {},
     createKeyEncoder: () => 2,
     createMouseEncoder: () => 3,
     freeKeyEncoder: () => {},

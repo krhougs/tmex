@@ -112,6 +112,10 @@
       "delete": "Delete"
     },
     "terminal": {
+      "selectAll": "Select all",
+      "openLink": "Open link",
+      "copyLink": "Copy link or path",
+      "selectionFailed": "Could not select terminal content. Please try again.",
       "keyboardBehavior": {
         "title": "Keyboard Behavior",
         "description": "How the page makes room for the on-screen keyboard",

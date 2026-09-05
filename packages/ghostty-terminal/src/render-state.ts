@@ -723,6 +723,41 @@ export function readRenderDirtyState(
   );
 }
 
+export function readScrollbackRows(
+  resources: GhosttyRenderStateResources,
+  terminal: number,
+  start: number,
+  count: number
+): GhosttyRenderRow[] {
+  ensureActive(resources);
+  const bindings = resources.bindings;
+  const original = bindings.readScrollbar(terminal);
+  const end = Math.min(original.total, start + count);
+  const rows: GhosttyRenderRow[] = [];
+  let offset = original.offset;
+  try {
+    for (let first = Math.max(0, start); first < end; ) {
+      const target = Math.min(first, Math.max(0, original.total - original.len));
+      if (target !== offset) {
+        bindings.scrollViewportDelta(terminal, target - offset);
+        offset = target;
+      }
+      updateRenderState(resources, terminal);
+      const chunk = Array.from(iterateRows(resources));
+      const next = Math.min(end, target + chunk.length);
+      if (next <= first) break;
+      rows.push(...chunk.slice(first - target, next - target));
+      first = next;
+    }
+    return rows;
+  } finally {
+    if (offset !== original.offset) {
+      bindings.scrollViewportDelta(terminal, original.offset - offset);
+      updateRenderState(resources, terminal);
+    }
+  }
+}
+
 export function* iterateRows(
   resources: GhosttyRenderStateResources,
   reuse?: (rowIndex: number, dirty: boolean) => GhosttyRenderRow | null

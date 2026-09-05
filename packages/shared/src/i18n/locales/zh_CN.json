@@ -112,6 +112,10 @@
       "delete": "删除"
     },
     "terminal": {
+      "selectAll": "全选",
+      "openLink": "打开链接",
+      "copyLink": "复制链接或路径",
+      "selectionFailed": "无法选择终端内容，请重试",
       "keyboardBehavior": {
         "title": "键盘行为",
         "description": "选择手机键盘弹出时页面的避让方式",

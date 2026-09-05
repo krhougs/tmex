@@ -3,6 +3,7 @@ import { type FileLinkContext, resolveValidFilePath } from './file-path';
 import { getGhosttyKeyCode, getUnshiftedCodepoint } from './ghostty-keycodes';
 import {
   type GhosttyBindings,
+  GHOSTTY_FORMATTER_FORMAT_PLAIN,
   getGhosttyBindings,
   keyboardEventToGhosttyMods,
 } from './ghostty-wasm';
@@ -14,6 +15,7 @@ import {
   iterateRows,
   readRenderDirtyState,
   readRenderSnapshotMeta,
+  readScrollbackRows,
   updateRenderState,
 } from './render-state';
 import {
@@ -53,6 +55,7 @@ import type {
   TerminalDisposable,
 } from './types';
 import { type WebKittyCursorContext, WebKittyGraphicsStore } from './web-kitty-graphics';
+import { WebglRenderer } from './webgl-renderer';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -249,7 +252,17 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private lastNotifiedSelectionText: string | null = null;
   private readonly addons = new Set<{ dispose: () => void }>();
   private screenElement: HTMLDivElement | null = null;
-  private renderer: CanvasRenderer | null = null;
+  private renderSurface: HTMLDivElement | null = null;
+  private renderPaddingTop = 0;
+  private renderPaddingBottom = 0;
+  private renderer: CanvasRenderer | WebglRenderer | null = null;
+  private viewportElement: HTMLDivElement | null = null;
+  private scrollArea: HTMLDivElement | null = null;
+  private scrollFraction = 0;
+  private nativeScrollActive = false;
+  private nativeScrollOffset: number | null = null;
+  private nativeScrollTop: number | null = null;
+  private nativeCellHeight = 0;
   private renderRaf: number | null = null;
   private syncOutputFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private syncOutputModeSupported: boolean | null = null;
@@ -263,6 +276,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   private customKeyEventHandler: (event: KeyboardEvent) => boolean = () => true;
   private imeIsComposing = false;
   private lastCompositionCommit: { data: string; at: number } | null = null;
+  private selectedAllText: string | null = null;
   private selectionState: SelectionState = createEmptySelectionState();
   private readonly lineCache = new Map<number, SelectionLineModel>();
   private lastViewportOffset = 0;
@@ -337,6 +351,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     try {
       bindings.setTerminalTheme(terminalHandle, options.theme);
+      bindings.setDefaultCursorBlink(terminalHandle, true);
       keyEncoderHandle = bindings.createKeyEncoder();
       mouseEncoderHandle = bindings.createMouseEncoder();
       renderState = createRenderState(bindings);
@@ -386,8 +401,18 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     viewport.className = 'xterm-viewport';
     viewport.style.width = '100%';
     viewport.style.height = '100%';
-    viewport.style.overflow = 'hidden';
+    viewport.style.overflowX = 'hidden';
+    viewport.style.overflowY = 'auto';
+    viewport.style.overscrollBehavior = 'none';
+    viewport.style.scrollbarWidth = 'none';
+    viewport.style.overflowAnchor = 'none';
     viewport.style.position = 'relative';
+
+    const scrollArea = document.createElement('div');
+    scrollArea.className = 'xterm-scroll-area';
+    scrollArea.style.position = 'relative';
+    scrollArea.style.width = '100%';
+    scrollArea.style.overflow = 'hidden';
 
     const screen = document.createElement('div');
     screen.className = 'xterm-screen';
@@ -397,6 +422,13 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     screen.style.userSelect = 'none';
     screen.style.webkitUserSelect = 'none';
     screen.style.backgroundColor = this.options.theme.background;
+    screen.style.overflow = 'visible';
+
+    const renderSurface = document.createElement('div');
+    renderSurface.className = 'xterm-render-surface';
+    renderSurface.style.width = '100%';
+    renderSurface.style.height = '100%';
+    screen.appendChild(renderSurface);
 
     const textarea = document.createElement('div');
     textarea.className = 'xterm-helper-textarea';
@@ -455,7 +487,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     scrollbarTrack.appendChild(scrollbarThumb);
 
-    viewport.appendChild(screen);
+    scrollArea.appendChild(screen);
+    viewport.appendChild(scrollArea);
     root.appendChild(viewport);
     root.appendChild(textarea);
     root.appendChild(scrollbarTrack);
@@ -463,20 +496,13 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
 
     this.element = root;
     this.screenElement = screen;
+    this.renderSurface = renderSurface;
+    this.viewportElement = viewport;
+    this.scrollArea = scrollArea;
     this.textarea = textarea;
     this.scrollbarThumb = scrollbarThumb;
-    this.renderer = new CanvasRenderer({
-      screenElement: screen,
-      theme: this.options.theme,
-      fontFamily: this.options.fontFamily,
-      fontSize: this.options.fontSize,
-      ligatures: this.options.ligatures,
-      minimumContrast: this.options.minimumContrast,
-      onInvalidate: () => {
-        this.forceFullNext = true;
-        this.scheduleRender();
-      },
-    });
+    this.createRenderer();
+    viewport.addEventListener('scroll', () => this.handleNativeScroll(), { passive: true });
 
     this.syncInputState();
     this.bindDomEvents();
@@ -697,7 +723,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       col: meta.cursor.x ?? 0,
       absoluteRow: scrollbar.offset + (meta.cursor.y ?? 0),
       viewportOffset: scrollbar.offset,
-      viewportRows: this.rows,
+      viewportRows: meta.rows,
       alternateScreen: this.isAltScreenActive(),
       cellDimensions: this.cellDimensions(),
     };
@@ -708,6 +734,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    this.scrollFraction = 0;
+    this.nativeScrollOffset = null;
     this.lineCache.clear();
     this.clearSelectionState(false);
     // replace/恢复路径：重建终端，前插的历史行一并清除。
@@ -801,40 +829,114 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   scrollLines(amount: number): void {
-    if (this.disposed || amount === 0) {
-      return;
+    if (this.disposed || !Number.isFinite(amount) || amount === 0) return;
+    const wasm = this.bindings.readScrollbar(this.terminalHandle);
+    const current = this.syntheticScrollbar(wasm);
+    const target = Math.max(
+      0,
+      Math.min(current.total - current.len, current.offset + Math.trunc(amount))
+    );
+    const wasmTarget = Math.max(0, target - this.historyRows.length);
+    this.virtualScroll = Math.max(0, this.historyRows.length - target);
+    if (wasmTarget !== wasm.offset) {
+      this.bindings.scrollViewportDelta(this.terminalHandle, wasmTarget - wasm.offset);
     }
-
-    let remaining = amount;
-    if (remaining < 0) {
-      // 向上：WASM viewport 未到顶时正常滚动；到顶后转入虚拟历史区。
-      const scrollbar = this.bindings.readScrollbar(this.terminalHandle);
-      if (scrollbar.offset === 0) {
-        const next = Math.min(this.historyRows.length, this.virtualScroll - remaining);
-        if (next === this.virtualScroll) {
-          return; // 已在合成顶：与旧行为一致（WASM 滚动 no-op + 早退）
-        }
-        this.virtualScroll = next;
-        this.contentDirty = true;
-        this.syncViewportState();
-        this.scheduleRender();
-        return;
-      }
-    } else if (this.virtualScroll > 0) {
-      // 向下：先消耗虚拟历史区，归零后再进 WASM viewport。
-      const consumed = Math.min(this.virtualScroll, remaining);
-      this.virtualScroll -= consumed;
-      remaining -= consumed;
-      this.contentDirty = true;
-      if (remaining === 0) {
-        this.syncViewportState();
-        this.scheduleRender();
-        return;
-      }
-    }
-
-    this.bindings.scrollViewportDelta(this.terminalHandle, remaining);
     this.syncViewportState();
+    this.scheduleRender();
+  }
+
+  usesNativeScrolling(): boolean {
+    if (this.disposed) return false;
+    const routing = this.getInputRoutingState();
+    return !routing.mouseReporting && !routing.altScroll && !this.isAltScreenActive();
+  }
+
+  private handleNativeScroll(): void {
+    const viewport = this.viewportElement;
+    if (!viewport || !this.nativeScrollActive || !this.usesNativeScrolling()) return;
+    if (viewport.scrollTop === this.nativeScrollTop) return;
+    this.nativeScrollTop = viewport.scrollTop;
+    const cellHeight = this.cellDimensions().height;
+    const current = this.syntheticScrollbar(this.bindings.readScrollbar(this.terminalHandle));
+    const maxOffset = Math.max(0, current.total - current.len);
+    const maxPixels = maxOffset * cellHeight;
+    const pixels = Math.max(0, Math.min(maxPixels, viewport.scrollTop));
+    // 浏览器滚动范围按 CSS 像素取整，底部可能比小数行高计算值少不足 1px。
+    const atBottom = maxPixels - pixels < 1;
+    const row = atBottom ? maxOffset : Math.floor(pixels / cellHeight + 1e-7);
+    this.scrollFraction = atBottom ? 0 : pixels - row * cellHeight;
+    this.scrollLines(row - current.offset);
+    this.nativeScrollOffset = row;
+    this.showScrollbarTransient();
+  }
+
+  private syncNativeViewport(scrollbar: { total: number; offset: number; len: number }): void {
+    const viewport = this.viewportElement;
+    const area = this.scrollArea;
+    const screen = this.screenElement;
+    if (!viewport || !area || !screen) return;
+    const cellHeight = this.cellDimensions().height;
+    const active = this.usesNativeScrolling();
+    const viewportHeight = viewport.clientHeight || this.rows * cellHeight;
+    const maxOffset = Math.max(0, scrollbar.total - scrollbar.len);
+    const reposition =
+      this.nativeScrollOffset !== scrollbar.offset ||
+      this.nativeScrollActive !== active ||
+      this.nativeCellHeight !== cellHeight;
+    this.nativeScrollActive = active;
+    this.nativeCellHeight = cellHeight;
+    this.nativeScrollOffset = scrollbar.offset;
+    viewport.style.overflowY = active ? 'auto' : 'hidden';
+    viewport.style.touchAction = active ? 'pan-y' : 'none';
+    if (!active || scrollbar.offset >= maxOffset) this.scrollFraction = 0;
+    area.style.height = `${viewportHeight + (active ? maxOffset * cellHeight : 0)}px`;
+    screen.style.position = 'absolute';
+    screen.style.height = `${viewportHeight}px`;
+    const target = active ? scrollbar.offset * cellHeight + this.scrollFraction : 0;
+    if (reposition && Math.abs(viewport.scrollTop - target) > 0.5) {
+      viewport.scrollTop = target;
+      this.nativeScrollTop = viewport.scrollTop;
+    }
+  }
+
+  private createRenderer(canvasOnly = false): void {
+    const screen = this.screenElement;
+    if (!screen || !this.renderSurface) return;
+    const options = {
+      screenElement: this.renderSurface,
+      theme: this.options.theme,
+      fontFamily: this.options.fontFamily,
+      fontSize: this.options.fontSize,
+      ligatures: this.options.ligatures,
+      minimumContrast: this.options.minimumContrast,
+      onInvalidate: () => {
+        this.forceFullNext = true;
+        this.scheduleRender();
+      },
+    };
+    if (!canvasOnly) {
+      try {
+        this.renderer = new WebglRenderer({
+          ...options,
+          onFailure: (reason: string) => this.fallbackRenderer(reason),
+        });
+        screen.dataset.renderer = this.renderer.kind;
+        return;
+      } catch (error) {
+        screen.dataset.rendererFallback = error instanceof Error ? error.message : String(error);
+      }
+    }
+    this.renderer = new CanvasRenderer(options);
+    screen.dataset.renderer = 'canvas';
+  }
+
+  private fallbackRenderer(reason: string): void {
+    if (this.disposed || this.renderer?.kind !== 'webgl') return;
+    this.renderer.dispose();
+    this.renderer = null;
+    if (this.screenElement) this.screenElement.dataset.rendererFallback = reason;
+    this.createRenderer(true);
+    this.forceFullNext = true;
     this.scheduleRender();
   }
 
@@ -843,6 +945,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    this.scrollFraction = 0;
+    this.nativeScrollOffset = null;
     this.bindings.scrollViewportTop(this.terminalHandle);
     this.virtualScroll = this.historyRows.length;
     this.contentDirty = true;
@@ -855,6 +959,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
+    this.scrollFraction = 0;
+    this.nativeScrollOffset = null;
     this.virtualScroll = 0;
     this.bindings.scrollViewportBottom(this.terminalHandle);
     this.contentDirty = true;
@@ -1041,6 +1147,52 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     return { top, bottom: top + height };
   }
 
+  selectAll(): void {
+    if (this.disposed) return;
+    const formatter = this.bindings.createFormatter(this.terminalHandle, GHOSTTY_FORMATTER_FORMAT_PLAIN, {
+      trim: true,
+      unwrap: true,
+      includePalette: false,
+    });
+    let text: string;
+    try {
+      text = this.bindings.formatFormatter(formatter);
+    } finally {
+      this.bindings.freeFormatter(formatter);
+    }
+    const history = this.historyRows
+      .map((row) => {
+        const model = buildLineModel(row.cells, row.wrap);
+        return (
+          model.colChars.slice(0, model.wrappedToNext ? undefined : model.contentCols).join('') +
+          (row.wrap ? '' : '\n')
+        );
+      })
+      .join('');
+    const scrollbar = this.bindings.readScrollbar(this.terminalHandle);
+    this.stopAutoScroll();
+    this.selectionState = {
+      anchor: { line: -this.historyRows.length, col: 0 },
+      focus: { line: Math.max(0, scrollbar.total - 1), col: Math.max(0, this.cols - 1) },
+      mode: 'character',
+    };
+    this.selectedAllText = history + text;
+    this.updateSelectionTextProbe(this.selectedAllText);
+    this.scheduleRender();
+  }
+
+  getContextLink(
+    clientX: number,
+    clientY: number
+  ): { kind: 'url'; url: string } | { kind: 'file'; path: string } | null {
+    return this.linkAtClient(clientX, clientY);
+  }
+
+  activateContextLink(link: { kind: 'url'; url: string } | { kind: 'file'; path: string }): void {
+    if (link.kind === 'url') this.emitLinkActivated(link.url);
+    else this.emitFileLinkActivated(link.path);
+  }
+
   getRendererKind(): string {
     return this.renderer?.kind ?? 'unknown';
   }
@@ -1131,8 +1283,11 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.element?.remove();
     this.element = null;
     this.screenElement = null;
+    this.renderSurface = null;
     this.textarea = null;
     this.scrollbarThumb = null;
+    this.viewportElement = null;
+    this.scrollArea = null;
 
     disposeRenderStateResources(this.renderState);
     this.bindings.freeMouseEncoder(this.mouseEncoderHandle);
@@ -1270,6 +1425,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       'wheel',
       (event) => {
         this.showScrollbarTransient();
+        if (this.usesNativeScrolling() && this.nativeScrollActive) return;
         if (
           this.handleViewportGesture({
             source: 'wheel',
@@ -1847,7 +2003,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   // 滚动类操作改变 WASM viewport 后立即同步视口元数据：只读 scrollbar，不读行、不绘制，
-  // 保证随后的 hitTest/翻页触发判定用到新 offset。不更新 lastScrollbar——render 帧的
+  // 翻页触发判定使用新 offset，hitTest 仍按已绘制画面定位。不更新 lastScrollbar——render 帧的
   // 早退判定要靠 scrollbar 三值差异感知滚动。
   private syncViewportState(): void {
     const scrollbar = this.bindings.readScrollbar(this.terminalHandle);
@@ -1902,6 +2058,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const scrollbar = this.syntheticScrollbar(wasmScrollbar);
     const viewportRows = Math.max(1, scrollbar.len || this.rows);
     const virtualScroll = this.virtualScroll;
+    this.syncNativeViewport(scrollbar);
     // v > 0：视口混合历史区与 WASM 区，per-row dirty 无意义且滚动帧本就整帧重画，
     // 对 renderer 强制全画。
     const mixedViewport = virtualScroll > 0;
@@ -1967,6 +2124,33 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       }
     }
 
+    const readRows = (start: number, count: number): GhosttyRenderRow[] => {
+      if (count <= 0) return [];
+      const historyEnd = Math.min(this.historyRows.length, start + count);
+      const history = this.historyRows.slice(start, Math.max(start, historyEnd));
+      return [
+        ...history,
+        ...readScrollbackRows(
+          this.renderState,
+          this.terminalHandle,
+          Math.max(0, start - this.historyRows.length),
+          count - history.length
+        ),
+      ];
+    };
+    const beforeCount = this.nativeScrollActive ? Math.min(viewportRows, scrollbar.offset) : 0;
+    const afterCount = this.nativeScrollActive
+      ? Math.min(viewportRows + 1, scrollbar.total - scrollbar.offset - viewportRows)
+      : 0;
+    const before = readRows(scrollbar.offset - beforeCount, beforeCount);
+    const after = readRows(scrollbar.offset + viewportRows, afterCount);
+    this.renderPaddingTop = before.length;
+    this.renderPaddingBottom = after.length;
+    const paintRows =
+      before.length || after.length
+        ? [...before, ...rows, ...after].map((row, y) => ({ ...row, y, dirty: true }))
+        : rows;
+
     // 光标：v > 0 时合成视口行号（y + v），超出视口按隐藏处理。
     let renderMeta = meta;
     const cursor = meta.cursor;
@@ -1983,22 +2167,25 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     this.rows = Math.max(2, meta.rows || viewportRows);
     this.lastViewportOffset = wasmScrollbar.offset - virtualScroll;
     this.lastRenderedOffset = wasmScrollbar.offset - virtualScroll;
-    this.lastViewportRows = this.rows;
+    this.lastViewportRows = rows.length;
     this.lastScrollbar = scrollbar;
     this.lastRenderedRows = rows;
 
-    for (const row of rows) {
+    for (const row of paintRows) {
       // 复用行内容未变，lineCache 中已有对应模型，跳过重建。
-      if (previousRenderedRows[row.y] === row) {
+      if (before.length === 0 && previousRenderedRows[row.y] === row) {
         continue;
       }
-      this.setLineCache(this.lastViewportOffset + row.y, buildLineModel(row.cells, row.wrap));
+      this.setLineCache(
+        this.lastViewportOffset + row.y - before.length,
+        buildLineModel(row.cells, row.wrap)
+      );
     }
 
     const selectionRects = projectSelectionRects(
       this.selectionState,
-      this.lastViewportOffset,
-      this.lastViewportRows,
+      this.lastViewportOffset - before.length,
+      paintRows.length,
       (line) => this.getLineModel(line)
     );
 
@@ -2011,25 +2198,40 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const selectionText = this.cachedSelectionText;
     this.contentDirty = false;
 
-    const graphics = this.kittyGraphics.snapshot(rows, {
+    const graphics = this.kittyGraphics.snapshot(paintRows, {
       col: renderMeta.cursor.x ?? 0,
       absoluteRow: wasmScrollbar.offset + (meta.cursor.y ?? 0),
       viewportOffset: wasmScrollbar.offset,
-      viewportRows: this.rows,
+      viewportRows: paintRows.length,
       alternateScreen: this.isAltScreenActive(),
       cellDimensions: this.cellDimensions(),
-      renderRowOffset: virtualScroll,
+      renderRowOffset: virtualScroll + before.length,
     });
     this.renderer.render({
-      meta: renderMeta,
-      rows,
+      meta: {
+        ...renderMeta,
+        rows: Math.max(renderMeta.rows, paintRows.length),
+        cursor: {
+          ...renderMeta.cursor,
+          y: renderMeta.cursor.y === null ? null : renderMeta.cursor.y + before.length,
+        },
+      },
+      rows: paintRows,
       cellDimensions: this.cellDimensions(),
       selectionRects,
       selectionColor: this.options.theme.selectionBackground,
-      forceFull: forceFull || mixedViewport,
+      forceFull: forceFull || mixedViewport || before.length > 0 || after.length > 0,
       graphics,
       graphicsRowOffset: 0,
     });
+
+    const cellHeight = this.cellDimensions().height;
+    this.screenElement.style.top = `${this.nativeScrollActive ? scrollbar.offset * cellHeight : 0}px`;
+    if (this.renderSurface) {
+      this.renderSurface.style.position = 'absolute';
+      this.renderSurface.style.top = `${-before.length * cellHeight}px`;
+      this.renderSurface.style.height = `${paintRows.length * cellHeight}px`;
+    }
 
     const visibleLines = normalizeVisibleLines(rows, this.rows);
     const baseY = Math.max(0, scrollbar.total - scrollbar.len);
@@ -2103,7 +2305,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
           continue;
         }
         segments.push({
-          row: matchLine - offset,
+          row: matchLine - offset + this.renderPaddingTop,
           startCol: match.startCol,
           endCol: match.endCol,
         });
@@ -2150,7 +2352,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
-    const trackHeight = this.screenElement?.clientHeight ?? 0;
+    const trackHeight = this.viewportElement?.clientHeight ?? this.screenElement?.clientHeight ?? 0;
     if (trackHeight === 0 || scrollbar.total <= scrollbar.len) {
       thumb.style.opacity = '0';
       return;
@@ -2230,6 +2432,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   private clearSelectionState(repaint = true): void {
+    this.selectedAllText = null;
     this.selectionState = resetSelectionData();
     this.pressedMouseButtons.clear();
     this.wheelPixelDelta = 0;
@@ -2250,6 +2453,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   private beginSelectionAt(clientX: number, clientY: number, mode: SelectionMode): boolean {
+    this.selectedAllText = null;
     const point = this.hitTest(clientX, clientY);
     if (!point) {
       return false;
@@ -2355,12 +2559,12 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
     const relativeX = clientX - rect.left;
     const relativeY = clientY - rect.top;
     const maxCol = Math.max(this.cols - 1, 0);
-    const maxRow = Math.max(this.lastViewportRows - 1, 0);
+    const maxRow = Math.max(this.lastViewportRows + this.renderPaddingBottom - 1, 0);
     const col = Math.max(0, Math.min(maxCol, Math.floor(relativeX / width)));
-    const row = Math.max(0, Math.min(maxRow, Math.floor(relativeY / height)));
+    const row = Math.max(-this.renderPaddingTop, Math.min(maxRow, Math.floor(relativeY / height)));
 
     return {
-      line: this.lastViewportOffset + row,
+      line: this.lastRenderedOffset + row,
       col,
     };
   }
@@ -2474,6 +2678,7 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
   }
 
   private getSelectionText(): string | null {
+    if (this.selectedAllText !== null) return this.selectedAllText;
     if (!hasSelection(this.selectionState)) {
       return null;
     }
@@ -2500,7 +2705,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
-    const rect = this.screenElement?.getBoundingClientRect();
+    const rect =
+      this.viewportElement?.getBoundingClientRect() ?? this.screenElement?.getBoundingClientRect();
     if (!rect) {
       this.stopAutoScroll();
       return;
@@ -2532,7 +2738,8 @@ export class GhosttyTerminalController implements CompatibleTerminalLike {
       return;
     }
 
-    const rect = this.screenElement?.getBoundingClientRect();
+    const rect =
+      this.viewportElement?.getBoundingClientRect() ?? this.screenElement?.getBoundingClientRect();
     if (!rect) {
       this.stopAutoScroll();
       return;
