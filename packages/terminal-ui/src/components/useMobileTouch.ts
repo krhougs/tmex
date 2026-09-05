@@ -36,10 +36,19 @@ interface TerminalScroller {
 // - bypass：命中滚动条元素/热区，交还原生
 // - scroll：非上报模式的单指滚动（原有行为）
 // - pending：上报模式单指落下，尚未发出任何字节（tap/拖拽/长按/双指待定）
-// - drag：press 已发，motion 流式上报（TUI 拖拽）
-// - wheel：双指滚动 → 鼠标滚轮上报（handleViewportGesture 的上报分支编码 64/65）
+// - drag-pending：上报模式双指落下，等待拖拽位移
+// - drag：双指拖拽，press 已发，motion 流式上报
+// - wheel：单指滚动 → 鼠标滚轮上报（handleViewportGesture 编码 64/65）
 // - select：长按本地 word 选择（上报/非上报共用；上报模式下是移动端的"Shift 豁免"）
-type TouchGestureState = 'idle' | 'bypass' | 'scroll' | 'pending' | 'drag' | 'wheel' | 'select';
+type TouchGestureState =
+  | 'idle'
+  | 'bypass'
+  | 'scroll'
+  | 'pending'
+  | 'drag-pending'
+  | 'drag'
+  | 'wheel'
+  | 'select';
 
 const TOUCH_SCROLL_GAIN = 1.3;
 const SCROLLBAR_TOUCH_HOTZONE_PX = 36;
@@ -237,17 +246,16 @@ export function useMobileTouch(
         return;
       }
 
-      // 第二指加入：press 未发（pending）→ 双指滚轮；拖拽中 → 忽略新指；
-      // wheel 中触点数变化 → 只重锚质心，不产生 delta
-      if (state === 'pending') {
+      // 上报模式第二指加入后转为鼠标拖拽，非上报模式保持原有手势。
+      if (state === 'pending' || state === 'wheel') {
         clearLongPressTimer();
-        state = 'wheel';
+        const touch = findTouchById(event.touches) ?? event.touches.item(0);
+        if (!touch) return;
+        touchId = touch.identifier;
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        state = 'drag-pending';
         pendingPixelDelta = 0;
-        wheelCentroidY = touchCentroidY(event.touches);
-        return;
-      }
-      if (state === 'wheel') {
-        wheelCentroidY = touchCentroidY(event.touches);
       }
     };
 
@@ -284,6 +292,20 @@ export function useMobileTouch(
       if (!touch) return;
 
       if (state === 'pending') {
+        const moved = Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY);
+        if (moved <= LONG_PRESS_MOVE_TOLERANCE_PX) return;
+        clearLongPressTimer();
+        state = 'wheel';
+        wheelCentroidY = touch.clientY;
+        const terminal = getTerminal?.() ?? null;
+        if (terminal) {
+          feedScrollDelta(terminal, touchStartY - touch.clientY, touch.clientX, touch.clientY);
+        }
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
+
+      if (state === 'drag-pending') {
         const moved = Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY);
         if (moved <= LONG_PRESS_MOVE_TOLERANCE_PX) {
           return;
@@ -422,8 +444,8 @@ export function useMobileTouch(
       }
 
       if (state === 'drag') {
-        // 非主指抬起不结束拖拽
-        if (event.touches.length > 0 && !findTouchById(event.changedTouches)) {
+        // 不足两指或主指抬起时释放鼠标。
+        if (event.touches.length >= 2 && !findTouchById(event.changedTouches)) {
           return;
         }
         const terminal = getTerminal?.() ?? null;
@@ -438,6 +460,14 @@ export function useMobileTouch(
           event.preventDefault();
         }
         resetGesture();
+        if (event.touches.length > 0) state = 'bypass';
+        return;
+      }
+
+      if (state === 'drag-pending') {
+        if (event.touches.length >= 2 && !findTouchById(event.changedTouches)) return;
+        resetGesture();
+        if (event.touches.length > 0) state = 'bypass';
         return;
       }
 
@@ -509,6 +539,11 @@ export function useMobileTouch(
           clientY: lastDragY,
         });
         terminal?.noteTouchHandled?.();
+        resetGesture();
+        if (event.touches.length > 0) state = 'bypass';
+      } else if (state === 'drag-pending') {
+        resetGesture();
+        if (event.touches.length > 0) state = 'bypass';
       } else if (state === 'select') {
         const terminal = getTerminal?.() ?? null;
         terminal?.endTouchSelection?.();
